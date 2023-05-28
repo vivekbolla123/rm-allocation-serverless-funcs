@@ -26,9 +26,9 @@ def lambda_handler(event, context):
     This function fetches the market_list 
     """
     market_list_query = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,bookedStatus,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc FROM market_list "
-    
+
     mkt_list = pd.read_sql(market_list_query, conn)
     markets_count = mkt_list.shape[0]
+    logger.info(markets_count)
 
-    print(markets_count)
-    return f"Read %d markets {markets_count}"
+    return f"Read {markets_count} markets"
