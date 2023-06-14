@@ -1,17 +1,134 @@
 import sys
 import logging
-import boto3
+from datetime import datetime
+import requests
 
-import pandas as pd
 from sqlalchemy import create_engine
 
+# nav creds
+nav_base_url = "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
+username = "aumaster1"
+pwd = "Jun@2023"
+domain = "TOP"
+ocp_subscription_key = "4aaea8e1179e478e9d08b25326b46656"
 
-# sqs setting
-sqs = boto3.client('sqs')  # client is required to interact with
 
 # rds settings
-DB_CONN_STRING = "mysql+mysqldb://dbadmin_prod:cxvyFv^^e4bd7b33@p-esb.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
-MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
+DB_CONN_STRING = "mysql+mysqldb://rmadmin:8rP#h1HQ5ysM@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+
+
+def get_nav_token_api():
+    """
+        desc
+    """
+    token_url = f"{nav_base_url}/api/nsk/v2/token"
+    token_body = {
+        "credentials": {
+            "username": username,
+            "password": pwd,
+            "domain": domain
+        }
+    }
+    response = session.post(token_url, json=token_body)
+    return response.json()
+
+
+def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, identifier, carrier_code):
+    """
+        desc
+    """
+    trip_info_simple_url = f"{nav_base_url}/api/nsk/v1/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
+    response = session.get(trip_info_simple_url)
+    return response.json()
+
+
+def get_nav_dcs_inventory_api(leg_key):
+    """
+        desc
+    """
+    dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
+    response = session.get(dcs_get_inventory_url)
+    return response.json()
+
+
+def patch_nav_dcs_inventory_api(leg_key, nest_key, class_key, target_authorised_units):
+    """
+        desc
+    """
+    dcs_patch_inventory_url = f"{nav_base_url}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
+    req_body = {
+        "authorizedUnits": target_authorised_units
+    }
+    response = session.patch(dcs_patch_inventory_url, json=req_body)
+    return response.json()
+
+
+def format_date(date_str):
+    """
+        desc
+    """
+    date_obj = datetime.strptime(date_str, "%m-%d-%Y")
+    date_str = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
+    return date_str
+
+
+def get_leg_keys(start_date, end_date, origin, destination, identifier, carrier_code):
+    """
+        desc
+    """
+    response = get_nav_trip_info_simple_api(
+        start_date, end_date, origin, destination, identifier, carrier_code)
+    journeys = response["data"][0]["journeys"]
+    leg_keys = []
+    for journey in journeys:
+        segments = journey["segments"]
+        for segment in segments:
+            legs = segment["legs"]
+            for leg in legs:
+                leg_keys.append(leg["legKey"])
+
+    return leg_keys
+
+
+def get_dcs_inventories(leg_keys):
+    """
+        desc
+    """
+    inventory_dict = {}
+    for leg_key in leg_keys:
+        response = get_nav_dcs_inventory_api(leg_key)
+        inventory_nests = response["data"]["nests"]
+        inventory_dict[leg_key] = inventory_nests
+
+    return inventory_dict
+
+
+def update_au_in_navitaire(inventory_dict, au_classes):
+    """
+        desc
+    """
+    for leg_key, inventory_nests in inventory_dict.items():
+        for inventory_nest in inventory_nests:
+            nest_key = inventory_nest["nestKey"]
+            classes = inventory_nest["classes"]
+            for _class in classes:
+                class_key = _class["classKey"]
+                class_of_service = _class["classOfService"]
+                curr_authorised_units = _class["authorizedUnits"]
+
+                if class_of_service in au_classes:
+                    au_class = au_classes[class_of_service]
+                    target_authorised_units = au_class["classAU"]
+                    if target_authorised_units != curr_authorised_units or target_authorised_units > -1:
+                        # update nav class with target AU
+                        patch_nav_dcs_inventory_api(
+                            leg_key, nest_key, class_key, target_authorised_units)
+                    else:
+                        print(
+                            f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
+                else:
+                    print(f"missing class {class_of_service}")
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -26,24 +143,52 @@ except Exception as e:
 
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
+session = requests.Session()
+
+session.headers.update(
+    {"Ocp-Apim-Subscription-Key": ocp_subscription_key}
+)
+token_response = get_nav_token_api()
+access_token = token_response["data"]["token"]
+session.headers.update({'Authorization': f"Bearer {access_token}"})
+
 
 def lambda_handler(event, context):
     """
-    This function fetches the market_list and inserts it into the queue
+        description
     """
-    market_list_query = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,bookedStatus,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc FROM market_list "
+    records = event['Records']
 
-    mkt_list = pd.read_sql(market_list_query, conn)
-    markets_count = mkt_list.shape[0]
-    logger.info(markets_count)
+    for record in records:
+        content = record['body']
+        # allocation_data = json.loads(content)
+        allocation_data = content
+        logger.info(allocation_data)
 
-    for mkt_index in range(10):
-        sqs.send_message(
-            QueueUrl=MARKET_LIST_QUEUE_URL,
-            MessageBody=mkt_list.iloc[mkt_index].to_csv()
-        )
+        au_classes = allocation_data['auClasses']
+        start_date = allocation_data['startDate']
+        end_date = allocation_data['endDate']
+        flight = allocation_data['flight']
+
+        carrier_code = flight[1:3]
+        identifier = flight[3:7]
+        origin = flight[8:11]
+        destination = flight[11:14]
+
+        start_date_f = format_date(start_date)
+        end_date_f = format_date(end_date)
+
+        # First fetch the legKey for the market using tripInfo API
+        leg_keys = get_leg_keys(start_date_f, end_date_f,
+                                origin, destination, identifier, carrier_code)
+
+        # Fetch dcs inventory for each leg key
+        inventory_dict = get_dcs_inventories(leg_keys)
+
+        # Now we have all the data needed to update the AUs. For fetched inventory classes, set the allotted units
+        update_au_in_navitaire(inventory_dict, au_classes)
 
     return {
         'statusCode': 200,
-        'body': markets_count
+        'body': 'ok'
     }
