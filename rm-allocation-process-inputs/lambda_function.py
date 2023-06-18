@@ -85,9 +85,6 @@ class DynAlloc:
         self.isTableInput = True
         self.isUpdateNavitaire = True
 
-        self.TABLE_MARKET_FARES = "market_fares"
-        self.WAIT_TIME = 30  # in seconds
-
         # Place Holders for Output
         self.allocResults = DataFrame(columns=['Id', 'RunId', 'Origin', 'Destin', 'FltNum', 'DepDate',
                                          'BookedLoad', 'TgtLoad', 'MktFare', 'OpenRBD', 'SellingFare', 'Channel', 'HowDetermined'])
@@ -692,6 +689,7 @@ class DynAlloc:
         mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
         mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + \
             currParams['CarrExlusion'] + "'"
+        mktLowestQuery = mktLowestQuery+ " AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND created_at > NOW() - INTERVAL 2 DAY"
 
         mktFareRange = read_sql(mktLowestQuery, self.conn)
 
