@@ -1,6 +1,6 @@
 sqlalchemy==1.4.39
 pandas==1.4.3
-mysqlclient
+mysqlclient==2.1.1
 pymssql
 datetime
 requests
