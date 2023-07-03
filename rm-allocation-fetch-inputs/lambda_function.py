@@ -1,6 +1,8 @@
 import sys
 import logging
 import boto3
+import json
+
 from uuid import uuid4
 from sqlalchemy import create_engine
 from pandas import read_sql
@@ -40,20 +42,26 @@ def lambda_handler(event, context):
     end_interval_key = "end_interval"
     queue_key = "queue"
 
+    print(event)
+
+    body = event['body']
+    # Parse the JSON body
+    data = json.loads(body)
+    
     # defaults
     start_interval = 30 #0
     end_interval = 90 #365
     queue_name = MARKET_LIST_QUEUE_URL
 
     # overrides
-    if (queue_key in event):
-        queue_name = event[queue_key]
+    if (queue_key in data):
+        queue_name = data[queue_key]
 
-    if (start_interval_key in event):
-        start_interval = event[start_interval_key]
+    if (start_interval_key in data):
+        start_interval = data[start_interval_key]
 
-    if (end_interval_key in event):
-        end_interval = event[end_interval_key]
+    if (end_interval_key in data):
+        end_interval = data[end_interval_key]
 
     # start program
     curr_date = date.today()
