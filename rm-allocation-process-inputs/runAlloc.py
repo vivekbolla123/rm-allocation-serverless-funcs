@@ -125,7 +125,7 @@ class DynAlloc:
 					currDate = self.getCurrentDate()
 					tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 					tgtBookedLoadList = self.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
-					tgtBookedLoad = tgtBookedLoadList['LF'][0]
+					tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 
 					if(tgtBookedLoad >= 0):
 						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop)
@@ -305,8 +305,8 @@ class DynAlloc:
 		for b2bctr in range(B2BRBDs.shape[0]):
 			RBDLabel = B2BRBDs['RBD'][b2bctr]
 			remainingRBD = maxRBDIndex - openRBDIndex
-			firstRDBAllocation = currParams['FirstRBDAlloc']
-			otherRDBAllocation = currParams['OtherRBDAlloc']
+			firstRDBAllocation = int(currParams['FirstRBDAlloc'])
+			otherRDBAllocation = int(currParams['OtherRBDAlloc'])
 			price = B2BRBDs['Total'][b2bctr]
 			nextPrice = price
 			b2bStatus = openDataB2B['statusInd'][0]
@@ -735,7 +735,7 @@ class DynAlloc:
 		tgtBookedLoad = []
   		#Fetch the Target Booked Load from the curve
 
-		bookingCurveQuery = "Select Pax as tgtPax, LF from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
+		bookingCurveQuery = "Select LF from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
 		benchmark = pd.read_sql(bookingCurveQuery, self.conn)
 		if(benchmark.shape[0] > 0):
 			tgtBookedLoad = benchmark
