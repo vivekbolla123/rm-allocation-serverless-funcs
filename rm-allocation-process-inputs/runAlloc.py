@@ -726,7 +726,7 @@ class DynAlloc:
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
-		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND created_at > NOW() - INTERVAL 2 DAY"
+		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND created_at > NOW() - INTERVAL 2 DAY "
 		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
 
 		return mktFareRange
