@@ -41,6 +41,7 @@ def lambda_handler(event, context):
     start_interval_key = "start_interval"
     end_interval_key = "end_interval"
     queue_key = "queue"
+    market_list_key = "market_list_table_name"
 
     print(event)
 
@@ -51,6 +52,7 @@ def lambda_handler(event, context):
     # defaults
     start_interval = 30 #0
     end_interval = 90 #365
+    market_list_table = "market_list"
     queue_name = MARKET_LIST_QUEUE_URL
 
     # overrides
@@ -62,6 +64,9 @@ def lambda_handler(event, context):
 
     if (end_interval_key in data):
         end_interval = data[end_interval_key]
+
+    if (market_list_key in data):
+        market_list_table = data[market_list_key]
 
     # start program
     curr_date = date.today()
@@ -76,7 +81,7 @@ def lambda_handler(event, context):
     SELECT Origin,Destin,FlightNumber,PerType, 
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
-    DOW,bookedStatus,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop FROM market_list 
+    DOW,bookedStatus,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop FROM {market_list_table} 
     WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
     str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
     """
