@@ -354,7 +354,7 @@ class DynAlloc:
 
 						if (incremental > totalCapacity):
 							incremental = totalCapacity
-						currRec.append(incremental)
+						currRec.append(int(round(incremental,0)))
       
 					else:
 						currRec.append(0)
@@ -469,15 +469,15 @@ class DynAlloc:
 			# First Alloctation
 			if(firstRDBAllocation >= 0):
 				#allocate the FirstRBD 
-				incremental = currBookedLoad + firstRDBAllocation/2
+				incremental = currBookedLoad + firstRDBAllocation
 			else:
 				#negtive number means allocate the full deficit - Only if the deficit is positive - Lagging
 				if(bookedDeficit > 0):
 					incremental = currBookedLoad + bookedDeficit
 				else:
-					incremental = currBookedLoad + otherRDBAllocation/2
+					incremental = currBookedLoad + otherRDBAllocation
 		else:
-			incremental = incremental + otherRDBAllocation/2
+			incremental = incremental + otherRDBAllocation
 		return round(incremental,0)
 
 	def jumpingAllocation(self, currBookedLoad, bookedDeficit, openRBDIndex, incremental, otherRDBAllocation, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice):
@@ -509,13 +509,13 @@ class DynAlloc:
 		if(incremental < 0):
 			if(d3Allocation >= 0):
 				#allocate the FirstRBD 
-				incremental = currBookedLoad + d3Allocation/2
+				incremental = currBookedLoad + d3Allocation
 			else:
 				#negtive number means allocate the full deficit - Only if the deficit is positive - Lagging
 				if(bookedDeficit > 0):
 					incremental = currBookedLoad + bookedDeficit
 				else:
-					incremental = currBookedLoad + d4Allocation/2
+					incremental = currBookedLoad + d4Allocation
 			jumpingRBDPrice = price + (price * (otherRDBAllocation / 100))
 		else:
 			nextPriceDiff = abs(nextPrice - jumpingRBDPrice)
@@ -523,13 +523,13 @@ class DynAlloc:
 			if(jumpingRBDPrice >= nextPrice):
 				pass
 			elif(currPriceDiff <= nextPriceDiff):
-				incremental = incremental + d4Allocation/2
+				incremental = incremental + d4Allocation
 				jumpingRBDPrice = price + (price * (otherRDBAllocation / 100))
 				openRBDIndex = openRBDIndex + 1
 			elif(currPriceDiff > nextPriceDiff):
 				pass
 			if(RBDLabel == 'Z0'):
-				incremental = incremental + d4Allocation / 2
+				incremental = incremental + d4Allocation
 		return openRBDIndex, round(incremental,0), jumpingRBDPrice
 
 	def negativeValueJumpingAllocation(self, remainingRBD, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, entryRDB, otherRDBAllocation, price, nextPrice, d3Allocation, jumpingRBDPrice):
