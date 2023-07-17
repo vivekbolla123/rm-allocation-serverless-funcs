@@ -15,7 +15,7 @@ from dateutil import parser
 
 class DynAlloc:
 
-	def __init__(self, inputData, currParams, NavitaireConnection, dbconn, sqs):  
+	def __init__(self, inputData, currParams, NavitaireConnection, dbconn, wrconn, sqs):  
 		self.inputSource = inputData
 		#Set this to true for more verbose scree display during the run
 		
@@ -33,6 +33,7 @@ class DynAlloc:
    
 		#Establish connection to DataLake
 		self.conn = dbconn
+		self.wrconn = wrconn
 
 		#Establish Connection to Navitaire
 		self.NavitaireConnection = NavitaireConnection
@@ -756,9 +757,9 @@ class DynAlloc:
 						"' AND outbound_departuretime <= '" + parser.parse(endtime).strftime("%H:%M") + \
 							"' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND created_at > NOW() - INTERVAL 2 DAY"
 		# print(insertQuery)
-		self.conn.execute(dropQuery)
-		self.conn.execute(createQuery)
-		self.conn.execute(insertQuery)
+		self.wrconn.execute(dropQuery)
+		self.wrconn.execute(createQuery)
+		self.wrconn.execute(insertQuery)
 		return tableName
 
 	def deleteTableExtract(self, tableName):
@@ -770,7 +771,7 @@ class DynAlloc:
 			latest_row = self.allocResults.iloc[-1]
 			insertQuery = " INSERT INTO run_summary ( Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt) "		
 			insertQuery = insertQuery + " VALUES ('"+ latest_row['Id'] + "', '"+latest_row['Origin'] + "', '"+latest_row['Destin'] + "', '"+ latest_row['FltNum'] + "', '"+latest_row['DepDate'] + "', '"+latest_row['BookedLoad'] + "', '"+latest_row['TgtLoad'] + "', '"+latest_row['MktFare'] + "', '"+latest_row['OpenRBD'] + "', '"+str(latest_row['SellingFare']) + "', '"+latest_row['Channel'] + "', '"+latest_row['HowDetermined'] + "', '"+latest_row['RunId'] + "', '" + self.getCurrentDateTime().strftime(Constants.DATE_TIME_FORMAT) +"')"
-			self.conn.execute(insertQuery)
+			self.wrconn.execute(insertQuery)
 
 	def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 		
@@ -950,7 +951,7 @@ class DynAlloc:
 	def insertRunStart(self, startTime, username):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			insertQuery = " INSERT INTO allocation_run_audit ( run_id, start_time, user) VALUES (%s, %s, %s)"
-			self.conn.execute(insertQuery, 
+			self.wrconn.execute(insertQuery, 
 				(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username))
 
 	def updateNavitaire(self, rec):
@@ -1021,7 +1022,7 @@ class DynAlloc:
 	def updateRunEnd(self, endTime):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			updateQuery = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "		
-			self.conn.execute(updateQuery, (endTime.strftime(Constants.DATE_TIME_FORMAT), self.runId))
+			self.wrconn.execute(updateQuery, (endTime.strftime(Constants.DATE_TIME_FORMAT), self.runId))
 
 	def areAllInputsReady(self):
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_INPUT_STATUS] == Constants.DB:

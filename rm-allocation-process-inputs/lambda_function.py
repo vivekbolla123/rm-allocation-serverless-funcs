@@ -22,7 +22,8 @@ LOGS_ON = False
 
 # rds settings
 # DB_CONN_STRING = "mysql+mysqldb://root:root@localhost/QP_DW_RMALLOC"
-DB_CONN_STRING = "mysql+mysqldb://rmadmin:8rP#h1HQ5ysM@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+DB_WR_CONN_STRING = "mysql+mysqldb://rmadmin:8rP#h1HQ5ysM@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+DB_RD_CONN_STRING = "mysql+mysqldb://rmadmin:8rP#h1HQ5ysM@rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
 
 # Queue details
 MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
@@ -34,7 +35,9 @@ logger.setLevel(logging.INFO)
 # create the database connection outside of the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
-    conn = create_engine(DB_CONN_STRING)
+    wrconn = create_engine(DB_WR_CONN_STRING)
+    rdconn = create_engine(DB_RD_CONN_STRING)
+
     NavitaireConnection = pymssql.connect(
         host="43.204.99.181:1433",
         user="crm_navods_read",
@@ -70,7 +73,7 @@ def lambda_handler(event, context):
     for record in records:
         content = record['body']
         data = json.loads(content)
-        DynAlloc(input_data, data, NavitaireConnection, conn, sqs)
+        DynAlloc(input_data, data, NavitaireConnection, rdconn, wrconn, sqs)
 
     return {
         'statusCode': 200,
