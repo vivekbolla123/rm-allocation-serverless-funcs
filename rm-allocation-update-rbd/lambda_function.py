@@ -3,8 +3,9 @@ import logging
 import json
 from uuid import uuid4
 from datetime import datetime
-import requests
+from lambda_multiprocessing import Pool
 from sqlalchemy import create_engine
+import requests
 
 # nav creds
 nav_base_url = "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
@@ -52,16 +53,21 @@ def get_nav_dcs_inventory_api(leg_key):
     return response.json()
 
 
-def patch_nav_dcs_inventory_api(leg_key, nest_key, class_key, target_authorised_units):
+def patch_nav_dcs_inventory_api(args):
     """
         desc
     """
-    dcs_patch_inventory_url = f"{nav_base_url}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
-    req_body = {
-        "authorizedUnits": target_authorised_units
-    }
-    response = session.patch(dcs_patch_inventory_url, json=req_body)
-    return response.json()
+    try:
+        leg_key, nest_key, class_key, target_authorised_units = args
+        dcs_patch_inventory_url = f"{nav_base_url}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
+        logger.info(f"Attempting update {dcs_patch_inventory_url}")
+        req_body = {
+            "authorizedUnits": target_authorised_units
+        }
+        response = session.patch(dcs_patch_inventory_url, json=req_body)
+        return response.json()
+    except Exception as err:
+        logger.error(f"Navitaire update failed {err}")
 
 
 def format_date(date_str):
@@ -115,31 +121,32 @@ def update_au_in_navitaire(inventory_dict, au_classes):
         for inventory_nest in inventory_nests:
             nest_key = inventory_nest["nestKey"]
             classes = inventory_nest["classes"]
-            for _class in classes:
-                class_key = _class["classKey"]
-                class_of_service = _class["classOfService"]
-                curr_authorised_units = _class["authorizedUnits"]
+            args = []
+            with Pool(1) as p:
+                for _class in classes:
+                    class_key = _class["classKey"]
+                    class_of_service = _class["classOfService"]
+                    curr_authorised_units = _class["authorizedUnits"]
 
-                if class_of_service in au_classes:
-                    au_class = au_classes[class_of_service]
-                    target_authorised_units = au_class["classAU"]
+                    if class_of_service in au_classes:
+                        au_class = au_classes[class_of_service]
+                        target_authorised_units = au_class["classAU"]
 
-                    if target_authorised_units != curr_authorised_units or target_authorised_units > -1:
-                        # update nav class with target AU
-                        patch_nav_dcs_inventory_api(
-                            leg_key, nest_key, class_key, target_authorised_units
-                        )
-                        print(
-                            f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units}"
-                        )
+                        if target_authorised_units != curr_authorised_units or target_authorised_units > -1:
+                            # update nav class with target AU
+                            args.append([leg_key, nest_key, class_key, target_authorised_units])
+                            print(
+                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units}"
+                            )
+                        else:
+                            print(
+                                f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
+
+                        allocation_result[class_of_service] = target_authorised_units
                     else:
-                        print(
-                            f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
-
-                    allocation_result[class_of_service] = target_authorised_units
-                else:
-                    allocation_result[class_of_service] = -2
-                    print(f"missing class {class_of_service}")
+                        allocation_result[class_of_service] = -2
+                        print(f"missing class {class_of_service}")
+                p.map(patch_nav_dcs_inventory_api, args)
 
     return allocation_result
 
