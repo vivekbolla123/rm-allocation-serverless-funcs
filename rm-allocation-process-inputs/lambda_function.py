@@ -51,6 +51,7 @@ except Exception as e:
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 
+
 def lambda_handler(event, context):
     """
     This function fetches the market_list and inserts it into the queue
@@ -73,9 +74,20 @@ def lambda_handler(event, context):
     for record in records:
         content = record['body']
         data = json.loads(content)
-        DynAlloc(input_data, data, NavitaireConnection, rdconn, wrconn, sqs)
+        data["NavitaireConnection"] = NavitaireConnection
+        data["dbconn"] = rdconn
+        data["wrconn"] = wrconn
+        data["sqs"] = sqs
+        data["runSingleMarket"] = True
+
+        DynAlloc(input_data, data)
 
     return {
         'statusCode': 200,
         'body': 'success'
     }
+
+# DO COMMENT THE BELOW LINE AFTER TESTING
+# messageBody = {"Origin":"DEL","Destin":"BOM","FlightNumber":1119,"PerType":"D","PerStart":"08/20/2023","PerEnd":"08/25/2023","DOW":1111111,"strategyFlag":"1","TimeWindowStart":"07:00","TimeWindowEnd":"10:30","CurveID":"DELBOM","CarrExlusion":"**","fareAnchor":"Strategy_2","fareOffset":0.0,"FirstRBDAlloc":-99,"OtherRBDAlloc":10,"B2BBackstop":4200,"B2CBackstop":4710,"B2BFactor":"0.8","runId":"a7831b2b-96ad-4b7b-9753-b774d8e19a6a"}
+# event = {'Records':[{'body':json.dumps(messageBody)}]}
+# lambda_handler(event,None)

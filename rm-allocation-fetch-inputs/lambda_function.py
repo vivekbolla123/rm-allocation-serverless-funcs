@@ -81,7 +81,7 @@ def lambda_handler(event, context):
     SELECT Origin,Destin,FlightNumber,PerType, 
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
-    DOW,bookedStatus,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop FROM {market_list_table} 
+    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor FROM {market_list_table} 
     WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
     str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
     """
@@ -92,7 +92,7 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table)
 
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
@@ -115,10 +115,25 @@ def lambda_handler(event, context):
     }
 
 
-def insert_run_start(start_time, run_id):
-    insert_query = " INSERT INTO allocation_run_audit ( run_id, start_time, user) VALUES (%s, %s, %s)"
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table):
+    currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
+    currVersionValues = read_sql(currVersionQuery, conn)
+
+    table_versions = {}
+    for index,currVersion in currVersionValues.iterrows():
+        if market_list_table == currVersion['tableName']:
+            table_versions['market_list'] = currVersion['curr_version']
+            table_versions['market_list_name'] = currVersion['tableName']
+        else:
+            table_versions[currVersion['tableName']] = currVersion['curr_version']
+
+    type = "Adhoc"
+    if market_list_table == 'market_list':
+        type = "Scheduled"
+     
+    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     conn.execute(insert_query,
-                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), USERNAME))
+                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), USERNAME, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name']))
     logger.info("STARTED ALLOCATION RUN")
 
 
@@ -127,3 +142,6 @@ def update_run_end(end_time, run_id):
     conn.execute(update_query,
                  (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
     logger.info("STOPPED ALLOCATION RUN")
+
+# DO COMMENT THE BELOW LINE AFTER TESTING
+# lambda_handler({"body": "{\"start_interval\": 3, \"end_interval\": 14}"},None)
