@@ -223,6 +223,8 @@ class DynAlloc:
 			hiFareB2C = 0
 			lowFareB2B = 0
 			hiFareB2B= 0
+			b2bRunId = self.getUniqueId()
+			b2cRunId = self.getUniqueId()
 			if(float(mktFareRangeB2C['LowFare'][0]) > 0):
 				lowFareB2C = mktFareRangeB2C['LowFare'][0]
 				hiFareB2C = mktFareRangeB2C['HiFare'][0]
@@ -262,6 +264,8 @@ class DynAlloc:
 					currRec.append('') #Lid
 					currRec.append('') #Cap
 					currRec.append('') #Status
+					currRec.append(b2cRunId) #10
+					currRec.append(b2bRunId) #11
 
 					# First - Adding all B2C RBD's
 					b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter)
@@ -275,19 +279,19 @@ class DynAlloc:
 					
 					#Ends statsusInd == 0
 					self.AUFileData.append(currRec)
-     
+					
 					if self.inputSource['isUpdateNavitaire']:
 						self.updateNavitaire(currRec)
 			else:
 				print("unable to get a Market Fare - Skipping")
-
+    
 				openDataB2C = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare B2C not available - Skipping entire allocation'], 'anchorFare': ['NA'],'statusInd':[1]}
 				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare B2C not available - Skipping entire allocation'],'anchorFare': ['NA'],'statusInd':[1]}
 			
-			self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad),'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2CBackstop']}, ignore_index = True)
+			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad),'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2CBackstop']}, ignore_index = True)
 			self.insertSummaryRow()
 			
-			self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad),'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2BBackstop']}, ignore_index = True)
+			self.allocResults = self.allocResults.append({"Id":b2bRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad),'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2BBackstop']}, ignore_index = True)
 			self.insertSummaryRow()
 				
 		else:
@@ -584,7 +588,7 @@ class DynAlloc:
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0) 	
 
 			if (channel == 'B2C'):
-				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - Revisit Fare Ladder','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
+				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2C allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 			if (channel == 'B2B'):
 				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 		else:
@@ -919,9 +923,9 @@ class DynAlloc:
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
-                  "aircraftType": rec[5], "aircraftSuffix": rec[6], "lid": rec[7], "capacity": rec[8], "status": rec[9], "auClasses": {}}
+                  "aircraftType": rec[5], "aircraftSuffix": rec[6], "lid": rec[7], "capacity": rec[8], "status": rec[9], "b2cRunId": rec[10], "b2bRunId": rec[11], "auClasses": {}}
 
-		gap = 9
+		gap = 11
 		for i in range(0, 64):
 			auClass = {"classOfService": rec[gap + i*7 + 1], "classType": rec[gap + i*7 + 2], "classNest": int(rec[gap + i*7 + 3]),
                        "classRank": int(rec[gap + i*7 + 4]), "classAU": int(rec[gap + i*7 + 5]), "classAllotted": int(rec[gap + i*7 + 6]), "apRestriction": int(rec[gap + i*7 + 7])}

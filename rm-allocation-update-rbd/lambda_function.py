@@ -215,7 +215,7 @@ def lambda_handler(event, context):
 
         allocationEndTime = datetime.now()
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
-                       content, json.dumps(allocation_result), allocation_data["runId"])
+                       content, json.dumps(allocation_result), allocation_data["runId"], allocation_data["b2cRunId"], allocation_data["b2bRunId"])
 
     return {
         'statusCode': 200,
@@ -223,10 +223,10 @@ def lambda_handler(event, context):
     }
 
 
-def insertNavAudit(id, startTime, endTime, request, result, runId):
-    insertQuery = " INSERT INTO navitaire_allocation_audit (id, start_time, end_time, request, result, run_id) VALUES (%s, %s, %s, %s, %s, %s)"
+def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId):
+    insertQuery = " INSERT INTO navitaire_allocation_audit (id, start_time, end_time, request, result, run_id, b2cRunId, b2bRunId) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
     conn.execute(insertQuery,
                  (id, startTime.strftime('%Y-%m-%d %H:%M:%S'),
-                  endTime.strftime('%Y-%m-%d %H:%M:%S'), request, result, runId)
+                  endTime.strftime('%Y-%m-%d %H:%M:%S'), request, result, runId, b2cRunId, b2bRunId)
                  )
     print("ADDED ALLOCATION RUN")
