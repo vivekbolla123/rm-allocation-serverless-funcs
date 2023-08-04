@@ -614,8 +614,8 @@ class DynAlloc:
 		
 			if(rbddata['RBD'][0] == 'Z9' or rbddata['RBD'][0] == 'V9'):
 				extremeFareFlag = True
-				RBDtoOpen = defFareData['RBD'][0]
-				FareToOpen = defFareData['Total'][0]
+				RBDtoOpen = rbddata['RBD'][0]
+				FareToOpen = rbddata['Total'][0]
 			else:
 				if(float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch])):
 					if(rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0):
@@ -702,25 +702,6 @@ class DynAlloc:
 			tgtBookedLoad = benchmark
 
 		return tgtBookedLoad
-
-	def createTableExtract(self, org, dest, perstart, perend, starttime, endtime):
-		name = str(self.getUniqueId())
-		name = name.replace("-", "_")
-		tableName = "ext_" + name
-
-		dropQuery = "DROP TABLE IF EXISTS " + tableName
-		createQuery = "CREATE TABLE " + tableName + " LIKE " + self.TABLE_MARKET_FARES
-		insertQuery = "INSERT INTO " + tableName + " SELECT * FROM " + self.TABLE_MARKET_FARES + \
-			" WHERE source_airport = '" + org + "' AND destination_airport = '" + dest + "' AND departure_date >= '" + \
-				perstart.strftime("%Y-%m-%d") + "' AND departure_date <= '" + perend.strftime("%Y-%m-%d") + \
-					"' AND outbound_departuretime >= '" + parser.parse(starttime).strftime("%H:%M") + \
-						"' AND outbound_departuretime <= '" + parser.parse(endtime).strftime("%H:%M") + \
-							"' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND created_at > NOW() - INTERVAL 2 DAY"
-		# print(insertQuery)
-		self.wrconn.execute(dropQuery)
-		self.wrconn.execute(createQuery)
-		self.wrconn.execute(insertQuery)
-		return tableName
 
 	def deleteTableExtract(self, tableName):
 		dropQuery = "DROP TABLE IF EXISTS " + tableName
@@ -841,7 +822,7 @@ class DynAlloc:
 
 	def outputResults(self):
 		
-		AUFrame = pd.DataFrame(self.AUFileData, columns=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status',
+		AUFrame = pd.DataFrame(self.AUFileData, columns=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status', 'B2CRunId', 'B2BRunId',
 			'Class Of Service AU Class 1','Class Type AU Class 1','Class Nest AU Class 1','Class Rank AU Class 1','Class AU AU Class 1','Class Allotted AU Class 1','AP Restriction AU Class 1',
 			'Class Of Service AU Class 2','Class Type AU Class 2','Class Nest AU Class 2','Class Rank AU Class 2','Class AU AU Class 2','Class Allotted AU Class 2','AP Restriction AU Class 2',
 			'Class Of Service AU Class 3','Class Type AU Class 3','Class Nest AU Class 3','Class Rank AU Class 3','Class AU AU Class 3','Class Allotted AU Class 3','AP Restriction AU Class 3',
