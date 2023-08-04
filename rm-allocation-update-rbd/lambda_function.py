@@ -86,14 +86,15 @@ def get_leg_keys(start_date, end_date, origin, destination, identifier, carrier_
     response = get_nav_trip_info_simple_api(
         start_date, end_date, origin, destination, identifier, carrier_code
     )
-    journeys = response["data"][0]["journeys"]
     leg_keys = []
-    for journey in journeys:
-        segments = journey["segments"]
-        for segment in segments:
-            legs = segment["legs"]
-            for leg in legs:
-                leg_keys.append(leg["legKey"])
+    if "data" in response:
+        journeys = response["data"][0]["journeys"]
+        for journey in journeys:
+            segments = journey["segments"]
+            for segment in segments:
+                legs = segment["legs"]
+                for leg in legs:
+                    leg_keys.append(leg["legKey"])
 
     return leg_keys
 
@@ -105,8 +106,9 @@ def get_dcs_inventories(leg_keys):
     inventory_dict = {}
     for leg_key in leg_keys:
         response = get_nav_dcs_inventory_api(leg_key)
-        inventory_nests = response["data"]["nests"]
-        inventory_dict[leg_key] = inventory_nests
+        if "data" in response:
+            inventory_nests = response["data"]["nests"]
+            inventory_dict[leg_key] = inventory_nests
 
     return inventory_dict
 
