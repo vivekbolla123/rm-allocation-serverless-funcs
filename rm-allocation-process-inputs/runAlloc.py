@@ -899,9 +899,18 @@ class DynAlloc:
 
 	def insertRunStart(self, startTime, username):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
-			insertQuery = " INSERT INTO allocation_run_audit ( run_id, start_time, user) VALUES (%s, %s, %s)"
-			self.wrconn.execute(insertQuery, 
-				(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username))
+			currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
+			currVersionValues = pd.read_sql(currVersionQuery, self.conn)
+
+			table_versions = {}
+			for index,currVersion in currVersionValues.iterrows():
+				table_versions[currVersion['tableName']] = currVersion['curr_version']
+
+			type = "Local Run"
+			
+			insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+			self.wrconn.execute(insert_query,
+						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type))
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
