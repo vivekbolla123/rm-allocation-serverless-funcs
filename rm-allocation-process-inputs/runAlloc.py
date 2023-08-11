@@ -419,7 +419,10 @@ class DynAlloc:
 					
 				if (incremental >= totalCapacity):
 					incremental = totalCapacity
+     
+				if (incrementalb2b >= totalCapacity):
 					incrementalb2b = totalCapacity
+     
 				if (RBDLabel == 'Y'):
 					incremental = totalCapacity
 				currRec.append(int(incremental))
