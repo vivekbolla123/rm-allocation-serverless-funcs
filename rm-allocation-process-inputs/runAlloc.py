@@ -264,8 +264,10 @@ class DynAlloc:
 					currRec.append('') #Lid
 					currRec.append('') #Cap
 					currRec.append('') #Status
-					currRec.append(b2cRunId) #10
-					currRec.append(b2bRunId) #11
+					# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
+					if self.inputSource['isUpdateNavitaire']:
+						currRec.append(b2cRunId) #10
+						currRec.append(b2bRunId) #11
 
 					# First - Adding all B2C RBD's
 					b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter)
@@ -329,7 +331,7 @@ class DynAlloc:
 				#Allocation
 				if((b2bStatus == 0) or (b2bStatus == 2)):
 					if(dPLF < 0 and (PLF < self.PLF_CURVE_VALUE or openingB2CPrice <= openingRBDPirce)):
-						currRec.append(self.generateRoundNumber(b2cAllocationsUnits[counter]))
+						currRec.append(int(self.generateRoundNumber(b2cAllocationsUnits[counter])))
 					else:
 						currRec.append(0)
 						isUpsellFlag = True
@@ -420,7 +422,7 @@ class DynAlloc:
 					incrementalb2b = totalCapacity
 				if (RBDLabel == 'Y'):
 					incremental = totalCapacity
-				currRec.append(incremental)
+				currRec.append(int(incremental))
 				b2cAllocationsUnits.append(incrementalb2b)
 				
 			else:
@@ -558,10 +560,10 @@ class DynAlloc:
 
 		sortorder = ' desc '
 
-		if (offset < 0):
+		if (int(offset) < 0):
 			RBDQuery = RBDQuery + " and Total < " + str(anchorFare)
 			sortorder = ' desc '
-		if (offset >= 0):
+		if (int(offset) >= 0):
 			anchorFare = float(anchorFare)
 			if (anchorFare > 0):
 				RBDQuery = RBDQuery + " and Total >= " + str(anchorFare)
@@ -591,7 +593,10 @@ class DynAlloc:
 			if (channel == 'B2C'):
 				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2C allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 			if (channel == 'B2B'):
-				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
+				if (defFareData['RBD'][0] == 'Z0'):
+					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than Z0 levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
+				else:
+					openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 		else:
 			backstopFlag = False
 			extremeFareFlag = False
@@ -605,17 +610,24 @@ class DynAlloc:
 			# Comparison with the backstop table - to ensure we are picking a value higher than the backstop
 			defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
    
-			if(rbddata['Total'][0] < defFareData['Total'][0] and backstop > 0):
-				backstopFlag = True
+			if(defFareData.shape[0] != 0):
+				if(rbddata['Total'][0] < defFareData['Total'][0] and backstop > 0):
+					backstopFlag = True
     
 			# Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
 			if(defFareData.shape[0] == 0):
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0)
 		
 			if(rbddata['RBD'][0] == 'Z9' or rbddata['RBD'][0] == 'V9'):
-				extremeFareFlag = True
-				RBDtoOpen = rbddata['RBD'][0]
-				FareToOpen = rbddata['Total'][0]
+				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
+				if(rbddata['RBD'][0] == defFareData['RBD'][0]):
+					extremeFareFlag = True
+					RBDtoOpen = rbddata['RBD'][0]
+					FareToOpen = rbddata['Total'][0]
+				else:
+					backstopFlag = True
+					RBDtoOpen = defFareData['RBD'][0]
+					FareToOpen = defFareData['Total'][0]
 			else:
 				if(float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch])):
 					if(rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0):
@@ -822,7 +834,7 @@ class DynAlloc:
 
 	def outputResults(self):
 		
-		AUFrame = pd.DataFrame(self.AUFileData, columns=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status', 'B2CRunId', 'B2BRunId',
+		AUFrame = pd.DataFrame(self.AUFileData, columns=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status',
 			'Class Of Service AU Class 1','Class Type AU Class 1','Class Nest AU Class 1','Class Rank AU Class 1','Class AU AU Class 1','Class Allotted AU Class 1','AP Restriction AU Class 1',
 			'Class Of Service AU Class 2','Class Type AU Class 2','Class Nest AU Class 2','Class Rank AU Class 2','Class AU AU Class 2','Class Allotted AU Class 2','AP Restriction AU Class 2',
 			'Class Of Service AU Class 3','Class Type AU Class 3','Class Nest AU Class 3','Class Rank AU Class 3','Class AU AU Class 3','Class Allotted AU Class 3','AP Restriction AU Class 3',
