@@ -135,9 +135,8 @@ class DynAlloc:
 					currDate = self.getCurrentDate()
 					tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 					tgtBookedLoadList = self.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
-					tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
-
-					if(tgtBookedLoad >= 0):
+					if (len(tgtBookedLoadList) > 0):
+						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop)
 					else:
 						#Cannot get a reference curve - Abort
@@ -274,7 +273,7 @@ class DynAlloc:
 
 					isUpsellFlag = False
 					#Now add all the Z RBDs
-					isUpsellFlag = self.B2BAllocation(currBookedLoad, currParams, openDataB2B, openDataB2C, currRec, totalCapacity, dPLF, b2cAllocationsUnits)
+					isUpsellFlag = self.B2BAllocation(currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits)
 
 					if(isUpsellFlag):
 						openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B allocation skipped - Flight in upsell'],'anchorFare': ['NA'],'statusInd':[1]}
@@ -299,25 +298,19 @@ class DynAlloc:
 		else:
 			print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def B2BAllocation(self, currBookedLoad, currParams, openDataB2B, openDataB2C, currRec, totalCapacity, dPLF, b2cAllocationsUnits):
+	def B2BAllocation(self, currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits):
 		isUpsellFlag = False
 		B2BRBDs = self.fareExtract(currParams['Origin'], currParams['Destin'], 'B2B', '')
-		openingB2CRBD = openDataB2C['RBD'][0]
-  
-		openingB2CRBDs = self.fareExtract(currParams['Origin'], currParams['Destin'], 'B2C', openingB2CRBD)
 
-		openingB2CPrice = self.B2B_FARE_PRICE_COMPARISON * openingB2CRBDs['Total'][0]
 		openbuketFlag = False
 		openingRBD = openDataB2B['RBD'][0]
 		
-		openingRBDPirce = 0
 		PLF = currBookedLoad / totalCapacity
 		counter = 0
 		#Loop Thru
 		
 		for b2bctr in range(B2BRBDs.shape[0]):
 			RBDLabel = B2BRBDs['RBD'][b2bctr]
-			price = B2BRBDs['Total'][b2bctr]
 			b2bStatus = openDataB2B['statusInd'][0]
 			currRec.append(RBDLabel)
 			currRec.append('')
@@ -325,12 +318,11 @@ class DynAlloc:
 			currRec.append(-1)
 			if RBDLabel == openingRBD:
 				openbuketFlag = True
-				openingRBDPirce = price
 				
 			if (openbuketFlag):
 				#Allocation
 				if((b2bStatus == 0) or (b2bStatus == 2)):
-					if(dPLF < 0 and (PLF < self.PLF_CURVE_VALUE or openingB2CPrice <= openingRBDPirce)):
+					if(dPLF < 0 and PLF < self.PLF_CURVE_VALUE):
 						currRec.append(int(self.generateRoundNumber(b2cAllocationsUnits[counter])))
 					else:
 						currRec.append(0)
@@ -367,26 +359,31 @@ class DynAlloc:
 		jumpingRBDPrice = 0
 		entryRDB = True
 		d3Allocation = 0
+		b2cctr = 0
+		b2bctr = 0
+		b2bMaxRDBCount = 10
 		#reset
 		#Loop Thru
-		for b2cctr in range(B2CRBDs.shape[0]):
-			RBDLabel = B2CRBDs['RBD'][b2cctr]
-			remainingRBD = maxRBDIndex - openRBDIndex
-			firstRDBAllocation = int(currParams['FirstRBDAlloc'])
-			otherRDBAllocation = int(currParams['OtherRBDAlloc'])
-			price = B2CRBDs['Total'][b2cctr]
-			b2bFactor = float(currParams['B2BFactor'])
-			nextPrice = price
-			if(size > b2cctr):
-				nextPrice = B2CRBDs['Total'][b2cctr + 1]
+		while b2cctr < B2CRBDs.shape[0] or b2bctr < b2bMaxRDBCount :
 			
-			currRec.append(RBDLabel)
-			currRec.append('')
-			currRec.append(-1)
-			currRec.append(-1)
-			if RBDLabel == openingRBD:
-				openbuketFlag = True
-				openingRBDPirce = B2CRBDs['Total'][b2cctr]
+			if b2cctr < B2CRBDs.shape[0]:
+				RBDLabel = B2CRBDs['RBD'][b2cctr] 
+				remainingRBD = maxRBDIndex - openRBDIndex
+				firstRDBAllocation = int(currParams['FirstRBDAlloc'])
+				otherRDBAllocation = int(currParams['OtherRBDAlloc'])
+				price = B2CRBDs['Total'][b2cctr]
+				b2bFactor = float(currParams['B2BFactor'])
+				nextPrice = price
+				if(size > b2cctr):
+					nextPrice = B2CRBDs['Total'][b2cctr + 1]
+				
+				currRec.append(RBDLabel)
+				currRec.append('')
+				currRec.append(-1)
+				currRec.append(-1)
+				if RBDLabel == openingRBD:
+					openbuketFlag = True
+					openingRBDPirce = B2CRBDs['Total'][b2cctr]
 			
 			#Allocation
 			if(openbuketFlag):
@@ -425,14 +422,20 @@ class DynAlloc:
      
 				if (RBDLabel == 'Y'):
 					incremental = totalCapacity
-				currRec.append(int(incremental))
+				if b2cctr < B2CRBDs.shape[0]:
+					currRec.append(int(incremental))
+
 				b2cAllocationsUnits.append(incrementalb2b)
+				b2bctr = b2bctr + 1
 				
 			else:
 				currRec.append(0)
-									
-			currRec.append(-1)
-			currRec.append(-1)
+    
+			if b2cctr < B2CRBDs.shape[0]:						
+				currRec.append(-1)
+				currRec.append(-1)
+				b2cctr= b2cctr + 1
+			
    
 		return b2cAllocationsUnits
 
@@ -553,9 +556,14 @@ class DynAlloc:
 		print("Strategy applied for " + channel + " Channel is " + strategy )
 		print("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
-
 		RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' "
-		
+  
+		rbddata = pd.read_sql(RBDQuery, self.conn)
+		if(rbddata.shape[0] == 0):
+			print('QP Fare not available. Please validate Fares table')
+			openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'QP Fares not available','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
+			return openResult
+  
 		if channel == 'B2C':
 			RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z'"
 		if channel == 'B2B':
@@ -702,7 +710,10 @@ class DynAlloc:
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
-		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND created_at > NOW() - INTERVAL 2 DAY "
+		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
+		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
+			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+   
 		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
 
 		return mktFareRange
