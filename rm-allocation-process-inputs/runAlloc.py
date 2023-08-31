@@ -1,3 +1,4 @@
+import traceback
 import pandas as pd
 import uuid
 import math
@@ -6,6 +7,7 @@ import time
 import json
 import Constants
 import warnings
+import numpy as np
 warnings.filterwarnings('ignore')
 
 from datetime import date
@@ -17,7 +19,6 @@ class DynAlloc:
 
 	def __init__(self, inputData, currParams):
 		self.inputSource = inputData
-
 		#Set this to true for more verbose scree display during the run
 		self.debugMode = self.inputSource["debugMode"]
 
@@ -137,7 +138,9 @@ class DynAlloc:
 					tgtBookedLoadList = self.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					if (len(tgtBookedLoadList) > 0):
 						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop)
+						B2CAvgFare=float(tgtBookedLoadList['B2C_Avg_Fare'][0])
+						B2BAvgFare=float(tgtBookedLoadList['B2B_Avg_Fare'][0])
+						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare)
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
@@ -145,9 +148,10 @@ class DynAlloc:
 						self.insertSummaryRow()
 			except Exception as e:
 				print("Exception occurred")
+				traceback.print_exc()
 				print(e)
 
-	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop):
+	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare):
 		currDate = self.getCurrentDate()
 		tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 		dow = int(datetime.strftime(currDate + timedelta(days=ndocounter),"%w"))
@@ -169,9 +173,9 @@ class DynAlloc:
 			currCapacity = ndoBookedLoad['capacity'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter],Constants.DATE_FORMAT)
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare):
 		
 		tgtBookloadFactor = tgtBookedLoad	
 		tgtBookedLoad = tgtBookedLoad * currCapacity
@@ -192,10 +196,15 @@ class DynAlloc:
    
 			dPLF = (currBookedLoad/totalCapacity) - tgtBookloadFactor
 			plfValue = dPLF * 100
+			plf= (currBookedLoad/totalCapacity) * 100
 			print("plfValue is " + str(plfValue))
-
 			ndoBand = self.getNdoBand(ndocounter)
 			dplfBand = self.getdpflBand(plfValue)
+			thresholdValue = self.getPlfThreshhold(ndocounter,str(currParams['FlightNumber']))
+			self.thresholdflag=False
+			if len(thresholdValue)!=0:
+				if plf>thresholdValue[0]:
+					self.thresholdflag=True
    
 			# Get Dynamic D1 (Time) Value
 			startTime, endTime = self.getDynamicTime(currParams, dplfBand, ndoBand)
@@ -213,81 +222,111 @@ class DynAlloc:
 			#Get the B2C and B2B Fare ranges
 			mktFareRangeB2C = self.getMarketFareRange('B2C',currFltDate, currParams, marketFaresExtractName)
 			mktFareRangeB2B = self.getMarketFareRange('B2B',currFltDate, currParams, marketFaresExtractName)
+			mktfareRangeB2C_minomaxo = self.getMarketFareRangeminomaxo('B2C', currFltDate, currParams, marketFaresExtractName)
+			mktfareRangeB2B_minomaxo = self.getMarketFareRangeminomaxo('B2B', currFltDate, currParams, marketFaresExtractName)
 
 			#Does competetive fare exist
 			#We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
 			# This is because, when we prepare the AU Grid, if we donr push inventory on to B2C RBD, then the flight will not be visible 
 			# on OTA - Flag the error for correction here
 			lowFareB2C = 0
+			lowFareB2C_minomaxo = 0
 			hiFareB2C = 0
+			hiFareB2C_minomaxo = 0
 			lowFareB2B = 0
-			hiFareB2B= 0
+			lowFareB2B_minomaxo = 0
+			hiFareB2B = 0
+			hiFareB2B_minomaxo = 0
 			b2bRunId = self.getUniqueId()
 			b2cRunId = self.getUniqueId()
-			if(float(mktFareRangeB2C['LowFare'][0]) > 0):
-				lowFareB2C = mktFareRangeB2C['LowFare'][0]
-				hiFareB2C = mktFareRangeB2C['HiFare'][0]
 
-				lowFareB2B = mktFareRangeB2B['LowFare'][0]
-				hiFareB2B = mktFareRangeB2B['HiFare'][0]
-
-				isB2BMarketFareAvailable = True
-				if(lowFareB2B == hiFareB2B == 0):
-					isB2BMarketFareAvailable = False
-
-				print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C) + " to " + str(hiFareB2C))
-				print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(lowFareB2B) + " to " + str(hiFareB2B))
-
-				openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C, currParams['fareAnchor'],currParams['fareOffset'],'B2C', B2CBackstop)
-				
-				if(isB2BMarketFareAvailable):
-					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B, currParams['fareAnchor'],currParams['fareOffset'],'B2B', B2BBackstop)
+			lowFareB2C = mktFareRangeB2C['LowFare'][0]
+			hiFareB2C = mktFareRangeB2C['HiFare'][0]
+			lowFareB2C_minomaxo = mktfareRangeB2C_minomaxo['LowFare'][0]
+			hiFareB2C_minomaxo = mktfareRangeB2C_minomaxo['HiFare'][0]
+			
+			lowFareB2B = mktFareRangeB2B['LowFare'][0]
+			hiFareB2B = mktFareRangeB2B['HiFare'][0]
+			lowFareB2B_minomaxo = mktfareRangeB2B_minomaxo['LowFare'][0]
+			hiFareB2B_minomaxo = mktfareRangeB2B_minomaxo['HiFare'][0]
+			isB2BMarketFareAvailable = True
+			isB2CMarketFareAvailable = True
+			if(lowFareB2B == hiFareB2B == 0 and B2BAvgFare!=-99):
+				lowFareB2B=B2BAvgFare
+				hiFareB2B=B2BAvgFare
+			elif (lowFareB2B == hiFareB2B == 0 and B2BAvgFare==-99):
+				isB2BMarketFareAvailable=False
+			if((lowFareB2C == hiFareB2C == 0) and B2CAvgFare!=-99):
+				lowFareB2C=B2CAvgFare
+				hiFareB2C=B2CAvgFare
+			elif(lowFareB2C == hiFareB2C == 0 and B2CAvgFare==-99):
+				isB2CMarketFareAvailable=False
+		
+			if(isB2CMarketFareAvailable):
+				if currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX":
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C) + " to " + str(hiFareB2C))
 				else:
-					openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[1]}
-					
-				#statusInd
-				# 0 - Allocation went as planned
-				# 1 - Could not find market fares 
-				# 2 - Ran out of RBDs before the offset could be achieved
-
-				if (openDataB2C['statusInd'][0] == 0) or (openDataB2C['statusInd'][0] == 2):
-					#Legit Allocation - Write to AU File
-					currRec = []
-					currRec.append('L') #Type
-					currRec.append(' QP' + str(currFlt) + ' ' + currParams['Origin'] + currParams['Destin']) 
-					currRec.append(datetime.strftime(datetime.strptime(currFltDate,'%m/%d/%Y'), '%m-%d-%Y'))
-					currRec.append(datetime.strftime(datetime.strptime(currFltDate,'%m/%d/%Y'), '%m-%d-%Y'))
-					currRec.append('Daily')
-					currRec.append('') #AcftType
-					currRec.append('') #Suffix
-					currRec.append('') #Lid
-					currRec.append('') #Cap
-					currRec.append('') #Status
-					# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
-					if self.inputSource['isUpdateNavitaire']:
-						currRec.append(b2cRunId) #10
-						currRec.append(b2bRunId) #11
-
-					# First - Adding all B2C RBD's
-					b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter)
-
-					isUpsellFlag = False
-					#Now add all the Z RBDs
-					isUpsellFlag = self.B2BAllocation(currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits)
-
-					if(isUpsellFlag):
-						openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B allocation skipped - Flight in upsell'],'anchorFare': ['NA'],'statusInd':[1]}
-					
-					#Ends statsusInd == 0
-					self.AUFileData.append(currRec)
-					
-					if self.inputSource['isUpdateNavitaire']:
-						self.updateNavitaire(currRec)
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C_minomaxo) + " to " + str(hiFareB2C_minomaxo))
+				openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, currParams['fareAnchor'],currParams['fareOffset'],'B2C', B2CBackstop)
 			else:
-				print("unable to get a Market Fare - Skipping")
-    
-				openDataB2C = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare B2C not available - Skipping entire allocation'], 'anchorFare': ['NA'],'statusInd':[1]}
-				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare B2C not available - Skipping entire allocation'],'anchorFare': ['NA'],'statusInd':[1]}
+				openDataB2C = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2C Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[1]}
+	
+			if(isB2BMarketFareAvailable):
+				if currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX":
+					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(lowFareB2B) + " to " + str(hiFareB2B))
+				else:
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2B_minomaxo) + " to " + str(hiFareB2B_minomaxo))
+				openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, currParams['fareAnchor'],currParams['fareOffset'],'B2B', B2BBackstop)
+			else:
+				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[1]}
+			if currParams['fareAnchor']=="MINO" or currParams['fareAnchor']=="MAXO":
+					lowFareB2B=lowFareB2B_minomaxo
+					lowFareB2C=lowFareB2C_minomaxo
+					hiFareB2B=hiFareB2B_minomaxo
+					hiFareB2C=hiFareB2C_minomaxo	
+			#statusInd
+			# 0 - Allocation went as planned
+			# 1 - Could not find market fares 
+			# 2 - Ran out of RBDs before the offset could be achieved
+
+			if (openDataB2C['statusInd'][0] == 0) or (openDataB2C['statusInd'][0] == 2):
+				#Legit Allocation - Write to AU File
+				currRec = []
+				currRec.append('L') #Type
+				currRec.append(' QP' + str(currFlt) + ' ' + currParams['Origin'] + currParams['Destin']) 
+				currRec.append(datetime.strftime(datetime.strptime(currFltDate,'%m/%d/%Y'), '%m-%d-%Y'))
+				currRec.append(datetime.strftime(datetime.strptime(currFltDate,'%m/%d/%Y'), '%m-%d-%Y'))
+				currRec.append('Daily')
+				currRec.append('') #AcftType
+				currRec.append('') #Suffix
+				currRec.append('') #Lid
+				currRec.append('') #Cap
+				currRec.append('') #Status
+				# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
+				if self.inputSource['isUpdateNavitaire']:
+					currRec.append(b2cRunId) #10
+					currRec.append(b2bRunId) #11
+
+				# First - Adding all B2C RBD's
+				b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter)
+
+				isUpsellFlag = False
+				#Now add all the Z RBDs
+				isUpsellFlag = self.B2BAllocation(currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits)
+
+				if(isUpsellFlag):
+					openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B allocation skipped - Flight in upsell'],'anchorFare': ['NA'],'statusInd':[1]}
+				
+				#Ends statsusInd == 0
+				if self.thresholdflag:
+					currRec.extend(['L', '', -1, -1, 0, -1, -1, 'P', '', -1, -1, 0, -1, -1])
+				else:
+					currRec.extend(['L', '', -1, -1, -1, -1, -1, 'P', '', -1, -1, -1, -1, -1])
+     
+				self.AUFileData.append(currRec)
+				
+				if self.inputSource['isUpdateNavitaire']:
+					self.updateNavitaire(currRec,self.thresholdflag)
 			
 			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad),'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2CBackstop']}, ignore_index = True)
 			self.insertSummaryRow()
@@ -545,13 +584,18 @@ class DynAlloc:
  
 		return queryResult
 
-	def determineRBDToOpen(self, origin, destin, lowFare, hiFare, strategy, offset, channel, backstop):
+	def determineRBDToOpen(self, origin, destin, lowFare, hiFare,lowFare_minomaxo, hifare_minomaxo, strategy, offset, channel, backstop):
 
 		openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd'])
 
-		anchorFare = lowFare
 		if (strategy == 'MAX'):
 			anchorFare = hiFare
+		if (strategy == 'MIN'):
+			anchorFare = lowFare
+		if (strategy == 'MAXO'):
+			anchorFare = hifare_minomaxo
+		if (strategy == 'MINO'):
+			anchorFare = lowFare_minomaxo
 		
 		print("Strategy applied for " + channel + " Channel is " + strategy )
 		print("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
@@ -716,13 +760,60 @@ class DynAlloc:
    
 		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
 
+
+		return mktFareRange
+
+	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams, marketFaresExtractName):
+
+		currFltDate = datetime.strptime(
+			currFltDateStr, Constants.DATE_FORMAT).date()
+		mktLowestQuery = "Select gross_fare from " + \
+			marketFaresExtractName + " where source_airport = '"
+		mktLowestQuery = mktLowestQuery + \
+			currParams['Origin'] + "' and destination_airport = '" + \
+			currParams['Destin'] + "'"
+		mktLowestQuery = mktLowestQuery + \
+			" and departure_date = '" + str(currFltDate) + "'"
+		mktLowestQuery = mktLowestQuery + \
+			" and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + \
+			currParams['TimeWindowStart'] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + \
+			" and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + \
+			currParams['TimeWindowEnd'] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
+		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + \
+			currParams['CarrExlusion'] + \
+			"' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
+		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
+			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+		data = pd.DataFrame(mktFareRange)
+		fare_list = data["gross_fare"].tolist()
+		if len(fare_list)>1:
+			coveragevalue = int(self.COVERAGE_PARAMETER)
+			MED = np.median(fare_list)
+			MAD = np.median(np.abs(fare_list- np.median(fare_list)))
+			for fare in fare_list:
+				MZS = np.abs(fare - MED)/MAD
+				if MZS > coveragevalue:
+					fare_list.remove(fare)
+			min_fare = min(fare_list)
+			max_fare = max(fare_list)
+		elif len(fare_list)==0:
+			min_fare=0
+			max_fare=0
+		else:
+			min_fare=fare_list[0]
+			max_fare=fare_list[0]
+		mktFareRange = pd.DataFrame(
+			{'LowFare': [min_fare], 'HiFare': [max_fare]})
 		return mktFareRange
 
 	def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
 		tgtBookedLoad = []
   		#Fetch the Target Booked Load from the curve
 
-		bookingCurveQuery = "Select LF from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
+		bookingCurveQuery = "Select LF,B2C_Avg_Fare,B2B_Avg_Fare from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
 		benchmark = pd.read_sql(bookingCurveQuery, self.conn)
 		if(benchmark.shape[0] > 0):
 			tgtBookedLoad = benchmark
@@ -779,6 +870,14 @@ class DynAlloc:
 		dplfBand = dplfBandList['dplf_band'][0]
 		return dplfBand
 
+	def getPlfThreshhold(self, ndocounter, flightNumber):
+		pflThresholdQuery = "SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
+		pflThresholdQuery = pflThresholdQuery+ " SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
+		pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
+		pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
+		threshold = pflThresholdList['plf_threshold']
+		return threshold
+     
 	def getDynamicTime(self, currParams, dplfBand, ndoBand):
 		startTime = currParams['TimeWindowStart']
 		endTime = currParams['TimeWindowEnd']
@@ -848,72 +947,17 @@ class DynAlloc:
 
 	def outputResults(self):
 		
-		AUFrame = pd.DataFrame(self.AUFileData, columns=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status',
-			'Class Of Service AU Class 1','Class Type AU Class 1','Class Nest AU Class 1','Class Rank AU Class 1','Class AU AU Class 1','Class Allotted AU Class 1','AP Restriction AU Class 1',
-			'Class Of Service AU Class 2','Class Type AU Class 2','Class Nest AU Class 2','Class Rank AU Class 2','Class AU AU Class 2','Class Allotted AU Class 2','AP Restriction AU Class 2',
-			'Class Of Service AU Class 3','Class Type AU Class 3','Class Nest AU Class 3','Class Rank AU Class 3','Class AU AU Class 3','Class Allotted AU Class 3','AP Restriction AU Class 3',
-			'Class Of Service AU Class 4','Class Type AU Class 4','Class Nest AU Class 4','Class Rank AU Class 4','Class AU AU Class 4','Class Allotted AU Class 4','AP Restriction AU Class 4',
-			'Class Of Service AU Class 5','Class Type AU Class 5','Class Nest AU Class 5','Class Rank AU Class 5','Class AU AU Class 5','Class Allotted AU Class 5','AP Restriction AU Class 5',
-			'Class Of Service AU Class 6','Class Type AU Class 6','Class Nest AU Class 6','Class Rank AU Class 6','Class AU AU Class 6','Class Allotted AU Class 6','AP Restriction AU Class 6',
-			'Class Of Service AU Class 7','Class Type AU Class 7','Class Nest AU Class 7','Class Rank AU Class 7','Class AU AU Class 7','Class Allotted AU Class 7','AP Restriction AU Class 7',
-			'Class Of Service AU Class 8','Class Type AU Class 8','Class Nest AU Class 8','Class Rank AU Class 8','Class AU AU Class 8','Class Allotted AU Class 8','AP Restriction AU Class 8',
-			'Class Of Service AU Class 9','Class Type AU Class 9','Class Nest AU Class 9','Class Rank AU Class 9','Class AU AU Class 9','Class Allotted AU Class 9','AP Restriction AU Class 9',
-			'Class Of Service AU Class 10','Class Type AU Class 10','Class Nest AU Class 10','Class Rank AU Class 10','Class AU AU Class 10','Class Allotted AU Class 10','AP Restriction AU Class 10',
-			'Class Of Service AU Class 11','Class Type AU Class 11','Class Nest AU Class 11','Class Rank AU Class 11','Class AU AU Class 11','Class Allotted AU Class 11','AP Restriction AU Class 11',
-			'Class Of Service AU Class 12','Class Type AU Class 12','Class Nest AU Class 12','Class Rank AU Class 12','Class AU AU Class 12','Class Allotted AU Class 12','AP Restriction AU Class 12',
-			'Class Of Service AU Class 13','Class Type AU Class 13','Class Nest AU Class 13','Class Rank AU Class 13','Class AU AU Class 13','Class Allotted AU Class 13','AP Restriction AU Class 13',
-			'Class Of Service AU Class 14','Class Type AU Class 14','Class Nest AU Class 14','Class Rank AU Class 14','Class AU AU Class 14','Class Allotted AU Class 14','AP Restriction AU Class 14',
-			'Class Of Service AU Class 15','Class Type AU Class 15','Class Nest AU Class 15','Class Rank AU Class 15','Class AU AU Class 15','Class Allotted AU Class 15','AP Restriction AU Class 15',
-			'Class Of Service AU Class 16','Class Type AU Class 16','Class Nest AU Class 16','Class Rank AU Class 16','Class AU AU Class 16','Class Allotted AU Class 16','AP Restriction AU Class 16',
-			'Class Of Service AU Class 17','Class Type AU Class 17','Class Nest AU Class 17','Class Rank AU Class 17','Class AU AU Class 17','Class Allotted AU Class 17','AP Restriction AU Class 17',
-			'Class Of Service AU Class 18','Class Type AU Class 18','Class Nest AU Class 18','Class Rank AU Class 18','Class AU AU Class 18','Class Allotted AU Class 18','AP Restriction AU Class 18',
-			'Class Of Service AU Class 19','Class Type AU Class 19','Class Nest AU Class 19','Class Rank AU Class 19','Class AU AU Class 19','Class Allotted AU Class 19','AP Restriction AU Class 19',
-			'Class Of Service AU Class 20','Class Type AU Class 20','Class Nest AU Class 20','Class Rank AU Class 20','Class AU AU Class 20','Class Allotted AU Class 20','AP Restriction AU Class 20',
-			'Class Of Service AU Class 21','Class Type AU Class 21','Class Nest AU Class 21','Class Rank AU Class 21','Class AU AU Class 21','Class Allotted AU Class 21','AP Restriction AU Class 21',
-			'Class Of Service AU Class 22','Class Type AU Class 22','Class Nest AU Class 22','Class Rank AU Class 22','Class AU AU Class 22','Class Allotted AU Class 22','AP Restriction AU Class 22',
-			'Class Of Service AU Class 23','Class Type AU Class 23','Class Nest AU Class 23','Class Rank AU Class 23','Class AU AU Class 23','Class Allotted AU Class 23','AP Restriction AU Class 23',
-			'Class Of Service AU Class 24','Class Type AU Class 24','Class Nest AU Class 24','Class Rank AU Class 24','Class AU AU Class 24','Class Allotted AU Class 24','AP Restriction AU Class 24',
-			'Class Of Service AU Class 25','Class Type AU Class 25','Class Nest AU Class 25','Class Rank AU Class 25','Class AU AU Class 25','Class Allotted AU Class 25','AP Restriction AU Class 25',
-			'Class Of Service AU Class 26','Class Type AU Class 26','Class Nest AU Class 26','Class Rank AU Class 26','Class AU AU Class 26','Class Allotted AU Class 26','AP Restriction AU Class 26',
-			'Class Of Service AU Class 27','Class Type AU Class 27','Class Nest AU Class 27','Class Rank AU Class 27','Class AU AU Class 27','Class Allotted AU Class 27','AP Restriction AU Class 27',
-			'Class Of Service AU Class 28','Class Type AU Class 28','Class Nest AU Class 28','Class Rank AU Class 28','Class AU AU Class 28','Class Allotted AU Class 28','AP Restriction AU Class 28',
-			'Class Of Service AU Class 29','Class Type AU Class 29','Class Nest AU Class 29','Class Rank AU Class 29','Class AU AU Class 29','Class Allotted AU Class 29','AP Restriction AU Class 29',
-			'Class Of Service AU Class 30','Class Type AU Class 30','Class Nest AU Class 30','Class Rank AU Class 30','Class AU AU Class 30','Class Allotted AU Class 30','AP Restriction AU Class 30',
-			'Class Of Service AU Class 31','Class Type AU Class 31','Class Nest AU Class 31','Class Rank AU Class 31','Class AU AU Class 31','Class Allotted AU Class 31','AP Restriction AU Class 31',
-			'Class Of Service AU Class 32','Class Type AU Class 32','Class Nest AU Class 32','Class Rank AU Class 32','Class AU AU Class 32','Class Allotted AU Class 32','AP Restriction AU Class 32',
-			'Class Of Service AU Class 33','Class Type AU Class 33','Class Nest AU Class 33','Class Rank AU Class 33','Class AU AU Class 33','Class Allotted AU Class 33','AP Restriction AU Class 33',
-			'Class Of Service AU Class 34','Class Type AU Class 34','Class Nest AU Class 34','Class Rank AU Class 34','Class AU AU Class 34','Class Allotted AU Class 34','AP Restriction AU Class 34',
-			'Class Of Service AU Class 35','Class Type AU Class 35','Class Nest AU Class 35','Class Rank AU Class 35','Class AU AU Class 35','Class Allotted AU Class 35','AP Restriction AU Class 35',
-			'Class Of Service AU Class 36','Class Type AU Class 36','Class Nest AU Class 36','Class Rank AU Class 36','Class AU AU Class 36','Class Allotted AU Class 36','AP Restriction AU Class 36',
-			'Class Of Service AU Class 37','Class Type AU Class 37','Class Nest AU Class 37','Class Rank AU Class 37','Class AU AU Class 37','Class Allotted AU Class 37','AP Restriction AU Class 37',
-			'Class Of Service AU Class 38','Class Type AU Class 38','Class Nest AU Class 38','Class Rank AU Class 38','Class AU AU Class 38','Class Allotted AU Class 38','AP Restriction AU Class 38',
-			'Class Of Service AU Class 39','Class Type AU Class 39','Class Nest AU Class 39','Class Rank AU Class 39','Class AU AU Class 39','Class Allotted AU Class 39','AP Restriction AU Class 39',
-			'Class Of Service AU Class 40','Class Type AU Class 40','Class Nest AU Class 40','Class Rank AU Class 40','Class AU AU Class 40','Class Allotted AU Class 40','AP Restriction AU Class 40',
-			'Class Of Service AU Class 41','Class Type AU Class 41','Class Nest AU Class 41','Class Rank AU Class 41','Class AU AU Class 41','Class Allotted AU Class 41','AP Restriction AU Class 41',
-			'Class Of Service AU Class 42','Class Type AU Class 42','Class Nest AU Class 42','Class Rank AU Class 42','Class AU AU Class 42','Class Allotted AU Class 42','AP Restriction AU Class 42',
-			'Class Of Service AU Class 43','Class Type AU Class 43','Class Nest AU Class 43','Class Rank AU Class 43','Class AU AU Class 43','Class Allotted AU Class 43','AP Restriction AU Class 43',
-			'Class Of Service AU Class 44','Class Type AU Class 44','Class Nest AU Class 44','Class Rank AU Class 44','Class AU AU Class 44','Class Allotted AU Class 44','AP Restriction AU Class 44',
-			'Class Of Service AU Class 45','Class Type AU Class 45','Class Nest AU Class 45','Class Rank AU Class 45','Class AU AU Class 45','Class Allotted AU Class 45','AP Restriction AU Class 45',
-			'Class Of Service AU Class 46','Class Type AU Class 46','Class Nest AU Class 46','Class Rank AU Class 46','Class AU AU Class 46','Class Allotted AU Class 46','AP Restriction AU Class 46',
-			'Class Of Service AU Class 47','Class Type AU Class 47','Class Nest AU Class 47','Class Rank AU Class 47','Class AU AU Class 47','Class Allotted AU Class 47','AP Restriction AU Class 47',
-			'Class Of Service AU Class 48','Class Type AU Class 48','Class Nest AU Class 48','Class Rank AU Class 48','Class AU AU Class 48','Class Allotted AU Class 48','AP Restriction AU Class 48',
-			'Class Of Service AU Class 49','Class Type AU Class 49','Class Nest AU Class 49','Class Rank AU Class 49','Class AU AU Class 49','Class Allotted AU Class 49','AP Restriction AU Class 49',
-			'Class Of Service AU Class 50','Class Type AU Class 50','Class Nest AU Class 50','Class Rank AU Class 50','Class AU AU Class 50','Class Allotted AU Class 50','AP Restriction AU Class 50',
-			'Class Of Service AU Class 51','Class Type AU Class 51','Class Nest AU Class 51','Class Rank AU Class 51','Class AU AU Class 51','Class Allotted AU Class 51','AP Restriction AU Class 51',
-			'Class Of Service AU Class 52','Class Type AU Class 52','Class Nest AU Class 52','Class Rank AU Class 52','Class AU AU Class 52','Class Allotted AU Class 52','AP Restriction AU Class 52',
-			'Class Of Service AU Class 53','Class Type AU Class 53','Class Nest AU Class 53','Class Rank AU Class 53','Class AU AU Class 53','Class Allotted AU Class 53','AP Restriction AU Class 53',
-			'Class Of Service AU Class 54','Class Type AU Class 54','Class Nest AU Class 54','Class Rank AU Class 54','Class AU AU Class 54','Class Allotted AU Class 54','AP Restriction AU Class 54',
-			'Class Of Service AU Class 55','Class Type AU Class 55','Class Nest AU Class 55','Class Rank AU Class 55','Class AU AU Class 55','Class Allotted AU Class 55','AP Restriction AU Class 55',
-			'Class Of Service AU Class 56','Class Type AU Class 56','Class Nest AU Class 56','Class Rank AU Class 56','Class AU AU Class 56','Class Allotted AU Class 56','AP Restriction AU Class 56',
-			'Class Of Service AU Class 57','Class Type AU Class 57','Class Nest AU Class 57','Class Rank AU Class 57','Class AU AU Class 57','Class Allotted AU Class 57','AP Restriction AU Class 57',
-			'Class Of Service AU Class 58','Class Type AU Class 58','Class Nest AU Class 58','Class Rank AU Class 58','Class AU AU Class 58','Class Allotted AU Class 58','AP Restriction AU Class 58',
-			'Class Of Service AU Class 59','Class Type AU Class 59','Class Nest AU Class 59','Class Rank AU Class 59','Class AU AU Class 59','Class Allotted AU Class 59','AP Restriction AU Class 59',
-			'Class Of Service AU Class 60','Class Type AU Class 60','Class Nest AU Class 60','Class Rank AU Class 60','Class AU AU Class 60','Class Allotted AU Class 60','AP Restriction AU Class 60',
-			'Class Of Service AU Class 61','Class Type AU Class 61','Class Nest AU Class 61','Class Rank AU Class 61','Class AU AU Class 61','Class Allotted AU Class 61','AP Restriction AU Class 61',
-			'Class Of Service AU Class 62','Class Type AU Class 62','Class Nest AU Class 62','Class Rank AU Class 62','Class AU AU Class 62','Class Allotted AU Class 62','AP Restriction AU Class 62',
-			'Class Of Service AU Class 63','Class Type AU Class 63','Class Nest AU Class 63','Class Rank AU Class 63','Class AU AU Class 63','Class Allotted AU Class 63','AP Restriction AU Class 63',
-			'Class Of Service AU Class 64','Class Type AU Class 64','Class Nest AU Class 64','Class Rank AU Class 64','Class AU AU Class 64','Class Allotted AU Class 64','AP Restriction AU Class 64'
-		])
+		AUlist=['Type','Flight','StartDate','EndDate','DayOfWeek','Aircraft Type','Aircraft Suffix','Lid','Capacity','Status']
+		length=Constants.AU_COLUMN_LENGTH
+		for i in range(length):
+			AUlist.append(f'Class Of Service AU Class {i+1}')
+			AUlist.append(f'Class Type AU Class {i+1}')
+			AUlist.append(f'Class Nest AU Class {i+1}')
+			AUlist.append(f'Class Rank AU Class {i+1}')
+			AUlist.append(f'Class AU AU Class {i+1}')
+			AUlist.append(f'Class Allotted AU Class {i+1}')
+			AUlist.append(f'AP Restriction AU Class {i+1}')	
+		AUFrame = pd.DataFrame(self.AUFileData, columns=AUlist)
 
 		print("Final Allocation Results:")
 		print(self.allocResults)
@@ -938,18 +982,34 @@ class DynAlloc:
 			self.wrconn.execute(insert_query,
 						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type))
 
-	def updateNavitaire(self, rec):
+	def updateNavitaire(self, rec,thresholdflag):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
                   "aircraftType": rec[5], "aircraftSuffix": rec[6], "lid": rec[7], "capacity": rec[8], "status": rec[9], "b2cRunId": rec[10], "b2bRunId": rec[11], "auClasses": {}}
 
 		gap = 11
-		for i in range(0, 64):
+		for i in range(Constants.AU_COLUMN_LENGTH-2):
 			auClass = {"classOfService": rec[gap + i*7 + 1], "classType": rec[gap + i*7 + 2], "classNest": int(rec[gap + i*7 + 3]),
                        "classRank": int(rec[gap + i*7 + 4]), "classAU": int(rec[gap + i*7 + 5]), "classAllotted": int(rec[gap + i*7 + 6]), "apRestriction": int(rec[gap + i*7 + 7])}
 			auData['auClasses'][auClass['classOfService']] = auClass
+		if thresholdflag:
+				auClass = {"classOfService": "L", "classType": '', "classNest": -1,
+						"classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}
+				auData['auClasses'][auClass['classOfService']] = auClass
+
+				auClass = {"classOfService": "P", "classType": '', "classNest": -1,
+						"classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}
+				auData['auClasses'][auClass['classOfService']] = auClass
+		else:
+				auClass = {"classOfService": "L", "classType": '', "classNest": -1,
+						"classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}
+				auData['auClasses'][auClass['classOfService']] = auClass
+
+				auClass = {"classOfService": "P", "classType": '', "classNest": -1,
+						"classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}
+				auData['auClasses'][auClass['classOfService']] = auClass
 
 		auDataStr = json.dumps(auData)
-		# print(auDataStr)
+		#print(auDataStr)
         # Send to queue for the market
 		self.sqs.send_message(
             QueueUrl=self.RBD_QUEUE_URL,
@@ -999,6 +1059,8 @@ class DynAlloc:
 				self.PLF_CURVE_VALUE = val['parameterValue']
 			if val['parameterKey'] == 'B2B_FARE_PRICE_COMPARISON':
 				self.B2B_FARE_PRICE_COMPARISON = val['parameterValue']
+			if val['parameterKey'] == 'COVERAGE_PARAMETER':
+				self.COVERAGE_PARAMETER = val['parameterValue']
 	
 	def getUniqueId(self):
 		return str(uuid.uuid4())

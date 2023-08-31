@@ -25,6 +25,8 @@ DB = "DB"
 FILE="FILE"
 SKIP="SKIP"
 
+AU_COLUMN_LENGTH=66
+
 #Local
 # DB_USERNAME = "root"
 # DB_PASSWORD = "admin"
