@@ -278,7 +278,7 @@ class DynAlloc:
 					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2B_minomaxo) + " to " + str(hiFareB2B_minomaxo))
 				openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, currParams['fareAnchor'],currParams['fareOffset'],'B2B', B2BBackstop)
 			else:
-				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[1]}
+				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[3]}
 			if currParams['fareAnchor']=="MINO" or currParams['fareAnchor']=="MAXO":
 					lowFareB2B=lowFareB2B_minomaxo
 					lowFareB2C=lowFareB2C_minomaxo
@@ -371,8 +371,7 @@ class DynAlloc:
 					#No B2B Allocaion - Leave it to B2C Fare
 					currRec.append(0)
 			else:
-				if openingRBD == 'NA':
-					# This means B2B market fare was missing. Add -1 to continue with previous value
+				if b2bStatus == 3:
 					currRec.append(-1)
 				else:
 					currRec.append(0)
