@@ -38,8 +38,8 @@ SKIP="SKIP"
 # DB_URL = "esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
 #Prod
-DB_USERNAME = "rmadmin"
-DB_PASSWORD = "8rP#h1HQ5ysM"
+DB_USERNAME = "rmappuser"
+DB_PASSWORD = "p6VeHNdvAHZKkjR"
 DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
 CONST_LOGS = "logFiles"
