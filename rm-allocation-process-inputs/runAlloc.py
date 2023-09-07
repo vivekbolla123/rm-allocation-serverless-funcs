@@ -39,7 +39,12 @@ class DynAlloc:
 		self.conn = currParams["dbconn"]
 		self.wrconn = currParams["wrconn"]
 		self.NavitaireConnection = currParams["NavitaireConnection"]
-  
+
+		code_version = self.getLatestCodeVersion()
+		if(code_version != '3.3.1'):
+			print("Please use latest code! This is an old version!")
+			exit()
+
 		self.generateConstantValues()
 
 		#Load the Run Parameters
@@ -637,7 +642,7 @@ class DynAlloc:
 			#Fetch the Lowest or highest available fares
 
 			defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
-			if (offset >= 0):
+			if (int(offset) >= 0):
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, "HI", backstop)
 
 			# Edge case where backstop is placed at a very large value - allocates at Z0 or Y levels
@@ -657,9 +662,9 @@ class DynAlloc:
 			# We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
 			# Calculating the offset that is required based on entries remaining in the RBD table
-			offsetToFetch = min(abs(offset), rbddata.shape[0] - 1) 
-			if(offset < 0):
-				offsetToFetch = min(abs(offset+1), rbddata.shape[0] - 1) 
+			offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1) 
+			if(int(offset) < 0):
+				offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
 
 			# Comparison with the backstop table - to ensure we are picking a value higher than the backstop
 			defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
@@ -1100,3 +1105,8 @@ class DynAlloc:
 			countQuery = "select count(*) as busyInputs from inputs_status WHERE is_running = b'1'"
 			inputsData = pd.read_sql(countQuery, self.conn)
 			return inputsData['busyInputs'][0] == 0
+
+	def getLatestCodeVersion(self):
+		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
+		inputsData = pd.read_sql(lastestQuery, self.conn)
+		return inputsData['code_version'][0]
