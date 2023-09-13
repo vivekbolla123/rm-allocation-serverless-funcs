@@ -18,6 +18,9 @@ from dateutil import parser
 class DynAlloc:
 
 	def __init__(self, inputData, currParams):
+		
+		LATEST_VERSION = '4.0.0'
+		
 		self.inputSource = inputData
 		#Set this to true for more verbose scree display during the run
 		self.debugMode = self.inputSource["debugMode"]
@@ -40,10 +43,11 @@ class DynAlloc:
 		self.wrconn = currParams["wrconn"]
 		self.NavitaireConnection = currParams["NavitaireConnection"]
 
-		code_version = self.getLatestCodeVersion()
-		if(code_version != '3.3.1'):
-			print("Please use latest code! This is an old version!")
-			exit()
+		if(inputData["latestCode"]):
+			code_version = self.getLatestCodeVersion()
+			if(code_version != LATEST_VERSION):
+				print("Please use latest code! This is an old version!")
+				exit()
 
 		self.generateConstantValues()
 
@@ -105,6 +109,7 @@ class DynAlloc:
 		B2CBackstop = currParams['B2CBackstop']
 		curveId = currParams['CurveID']
 		PerType = currParams['PerType']
+		SkippingFactor = currParams['SkippingFactor']
 		currParams['Strategy'] = currParams['fareAnchor']
 
 		startDate, endDate, startNDO, endNDO = self.getStartEndDate(PerType, currDate, startNDO, endNDO)
@@ -145,7 +150,7 @@ class DynAlloc:
 						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 						B2CAvgFare=float(tgtBookedLoadList['B2C_Avg_Fare'][0])
 						B2BAvgFare=float(tgtBookedLoadList['B2B_Avg_Fare'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare)
+						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
@@ -156,7 +161,7 @@ class DynAlloc:
 				traceback.print_exc()
 				print(e)
 
-	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare):
+	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		currDate = self.getCurrentDate()
 		tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 		dow = int(datetime.strftime(currDate + timedelta(days=ndocounter),"%w"))
@@ -178,9 +183,9 @@ class DynAlloc:
 			currCapacity = ndoBookedLoad['capacity'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter],Constants.DATE_FORMAT)
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		
 		tgtBookloadFactor = tgtBookedLoad	
 		tgtBookedLoad = tgtBookedLoad * currCapacity
@@ -313,7 +318,7 @@ class DynAlloc:
 					currRec.append(b2bRunId) #11
 
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter)
+				b2cAllocationsUnits = self.B2CAllocation(currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, SkippingFactor)
 
 				isUpsellFlag = False
 				#Now add all the Z RBDs
@@ -331,7 +336,7 @@ class DynAlloc:
 				self.AUFileData.append(currRec)
 				
 				if self.inputSource['isUpdateNavitaire']:
-					self.updateNavitaire(currRec,self.thresholdflag)
+					self.updateNavitaire(currRec)
 			
 			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': currParams['B2CBackstop']}, ignore_index = True)
 			self.insertSummaryRow()
@@ -385,7 +390,7 @@ class DynAlloc:
 			currRec.append(-1)
 		return isUpsellFlag
 
-	def B2CAllocation(self, currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter):
+	def B2CAllocation(self, currBookedLoad, currParams, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, SkippingFactor):
 		
 		b2cAllocationsUnits = []
 		B2CRBDs = self.fareExtract(currParams['Origin'], currParams['Destin'], 'B2C', '')
@@ -404,10 +409,10 @@ class DynAlloc:
 		d3Allocation = 0
 		b2cctr = 0
 		b2bctr = 0
-		b2bMaxRDBCount = 10
+		jumpPercent = SkippingFactor
 		#reset
 		#Loop Thru
-		while b2cctr < B2CRBDs.shape[0] or b2bctr < b2bMaxRDBCount :
+		while b2cctr < B2CRBDs.shape[0] or b2bctr < Constants.B2B_MAX_RDB_COUNT :
 			
 			if b2cctr < B2CRBDs.shape[0]:
 				RBDLabel = B2CRBDs['RBD'][b2cctr] 
@@ -433,28 +438,28 @@ class DynAlloc:
 				#Valid B2C Allocation
 				#Positive Allocation
 				if(firstRDBAllocation >= 0):	
-					incremental, incrementalb2b = self.incrementalAllocation(currBookedLoad, bookedDeficit, incremental, firstRDBAllocation, otherRDBAllocation, b2bFactor, incrementalb2b)
+					openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
 				#Negative -99 Allocation
 				elif(firstRDBAllocation == Constants.DYNAMIC_D3_D4):
-					d3Allocation, incremental, jumpingRBDPrice, openRBDIndex, entryRDB, incrementalb2b = self.negativeValueJumpingAllocation(remainingRBD, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, entryRDB, otherRDBAllocation, price, nextPrice, d3Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
+					openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD = self.d3d4Calculations(dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, entryRDB, otherRDBAllocation, remainingRBD, d3Allocation)
+					openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
 				#Negative -1 Allocation	
 				elif(firstRDBAllocation == Constants.DEFICIT_ALLOCATION):
 					bookedDef = int(round(bookedDeficit,0))
 					if(bookedDef <= 0):
 						bookedDef = 0
-					incremental, incrementalb2b = self.incrementalAllocation(currBookedLoad, bookedDeficit, incremental, bookedDef, otherRDBAllocation, b2bFactor, incrementalb2b)
-
+					openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, bookedDef, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
+					
 				#Negative -2 Allocation
 				elif(firstRDBAllocation == Constants.LINEAR_ALLOCATION):
 					allocation = int(round(remainingCapacity/otherRDBAllocation,0))
-					incremental, incrementalb2b = self.incrementalAllocation(currBookedLoad, bookedDeficit, incremental, allocation, allocation, b2bFactor, incrementalb2b)
+					openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
 				#Negative -3 Allocation
 				elif(firstRDBAllocation == Constants.LINEAR_ALLOCATION_WITH_JUMP):
 					allocation = int(round(remainingCapacity/otherRDBAllocation,0))
-					jumpPercent = self.LINEAR_JUMP_VALUE
 					openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 					
 				if (incremental >= totalCapacity):
@@ -479,29 +484,9 @@ class DynAlloc:
 				currRec.append(-1)
 				b2cctr= b2cctr + 1
 			
-   
 		return b2cAllocationsUnits
 
-	def incrementalAllocation(self, currBookedLoad, bookedDeficit, incremental, firstRDBAllocation, otherRDBAllocation, b2bFactor, incrementalb2b):
-		if(incremental < 0):
-			# First Alloctation
-			if(firstRDBAllocation >= 0):
-				#allocate the FirstRBD 
-				incremental = currBookedLoad + firstRDBAllocation
-				incrementalb2b = currBookedLoad + (firstRDBAllocation * b2bFactor)
-			else:
-				#negtive number means allocate the full deficit - Only if the deficit is positive - Lagging
-				if(bookedDeficit > 0):
-					incremental = currBookedLoad + bookedDeficit
-				else:
-					incremental = currBookedLoad + otherRDBAllocation
-					incrementalb2b = currBookedLoad + (otherRDBAllocation * b2bFactor)
-		else:
-			incremental = incremental + otherRDBAllocation
-			incrementalb2b = incrementalb2b + (otherRDBAllocation * b2bFactor)
-		return incremental, incrementalb2b
-
-	def jumpingAllocation(self, currBookedLoad, bookedDeficit, openRBDIndex, incremental, otherRDBAllocation, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b):
+	def jumpingAllocation(self, currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b):
 		if(incremental < 0):
 			if(d3Allocation >= 0):
 				#allocate the FirstRBD 
@@ -514,7 +499,7 @@ class DynAlloc:
 				else:
 					incremental = currBookedLoad + d4Allocation
 					incrementalb2b = currBookedLoad + (d4Allocation * b2bFactor)
-			jumpingRBDPrice = price + (price * (otherRDBAllocation / 100))
+			jumpingRBDPrice = price + (price * (jumpPercent / 100))
 		else:
 			nextPriceDiff = abs(nextPrice - jumpingRBDPrice)
 			currPriceDiff = abs(price - jumpingRBDPrice)
@@ -523,21 +508,11 @@ class DynAlloc:
 			elif(currPriceDiff <= nextPriceDiff):
 				incremental = incremental + d4Allocation
 				incrementalb2b = incrementalb2b + (d4Allocation * b2bFactor)
-				jumpingRBDPrice = price + (price * (otherRDBAllocation / 100))
+				jumpingRBDPrice = price + (price * (jumpPercent / 100))
 				openRBDIndex = openRBDIndex + 1
 			elif(currPriceDiff > nextPriceDiff):
 				pass
 		return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b
-
-	def negativeValueJumpingAllocation(self, remainingRBD, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, entryRDB, otherRDBAllocation, price, nextPrice, d3Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b):
-		openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD = self.d3d4Calculations(dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, entryRDB, otherRDBAllocation, remainingRBD, d3Allocation)
-		
-		if(otherRDBAllocation == 0):
-			incremental, incrementalb2b = self.incrementalAllocation(currBookedLoad, bookedDeficit, incremental, d3Allocation, d4Allocation, b2bFactor, incrementalb2b)
-			openRBDIndex = openRBDIndex + 1
-		else:
-			openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, otherRDBAllocation, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-		return d3Allocation, incremental, jumpingRBDPrice, openRBDIndex, entryRDB, incrementalb2b
 
 	def d3d4Calculations(self, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, entryRDB, otherRDBAllocation, remainingRBD, d3Allocation):
 		maxLimit = self.generateMaxValue(remainingCapacity, ndocounter)
@@ -831,8 +806,8 @@ class DynAlloc:
 	def insertSummaryRow(self):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_SUMMARY] == Constants.DB:
 			latest_row = self.allocResults.iloc[-1]
-			insertQuery = " INSERT INTO run_summary ( Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand) "		
-			insertQuery = insertQuery + " VALUES ('"+ latest_row['Id'] + "', '"+latest_row['Origin'] + "', '"+latest_row['Destin'] + "', '"+ latest_row['FltNum'] + "', '"+latest_row['DepDate'] + "', '"+latest_row['BookedLoad'] + "', '"+latest_row['TgtLoad'] + "', '"+str(latest_row['MktFare_Min']) + "', '"+latest_row['OpenRBD'] + "', '"+str(latest_row['SellingFare']) + "', '"+latest_row['Channel'] + "', '"+latest_row['HowDetermined'] + "', '"+latest_row['RunId'] + "', '" + self.getCurrentDateTime().strftime(Constants.DATE_TIME_FORMAT) +"','"+str(latest_row['MktFare_Max']) + "','"+str(latest_row['anchorFare']) + "','"+str(latest_row['fareOffset']) +"','"+str(latest_row['TimeRange']) +"','"+str(latest_row['dlfBand']) +"','"+str(latest_row['ndoBand']) + "')"
+			insertQuery = " INSERT INTO run_summary ( Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria) "		
+			insertQuery = insertQuery + " VALUES ('"+ latest_row['Id'] + "', '"+latest_row['Origin'] + "', '"+latest_row['Destin'] + "', '"+ latest_row['FltNum'] + "', '"+latest_row['DepDate'] + "', '"+latest_row['BookedLoad'] + "', '"+latest_row['TgtLoad'] + "', '"+str(latest_row['MktFare_Min']) + "', '"+latest_row['OpenRBD'] + "', '"+str(latest_row['SellingFare']) + "', '"+latest_row['Channel'] + "', '"+latest_row['HowDetermined'] + "', '"+latest_row['RunId'] + "', '" + self.getCurrentDateTime().strftime(Constants.DATE_TIME_FORMAT) +"','"+str(latest_row['MktFare_Max']) + "','"+str(latest_row['anchorFare']) + "','"+str(latest_row['fareOffset']) +"','"+str(latest_row['TimeRange']) +"','"+str(latest_row['dlfBand']) +"','"+str(latest_row['ndoBand']) + "','"+str(latest_row['fareAnchor']) + "')"
 			self.wrconn.execute(insertQuery)
 
 	def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
@@ -987,31 +962,15 @@ class DynAlloc:
 			self.wrconn.execute(insert_query,
 						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type))
 
-	def updateNavitaire(self, rec,thresholdflag):
+	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
                   "aircraftType": rec[5], "aircraftSuffix": rec[6], "lid": rec[7], "capacity": rec[8], "status": rec[9], "b2cRunId": rec[10], "b2bRunId": rec[11], "auClasses": {}}
 
 		gap = 11
-		for i in range(Constants.AU_COLUMN_LENGTH-2):
+		for i in range(Constants.AU_COLUMN_LENGTH):
 			auClass = {"classOfService": rec[gap + i*7 + 1], "classType": rec[gap + i*7 + 2], "classNest": int(rec[gap + i*7 + 3]),
                        "classRank": int(rec[gap + i*7 + 4]), "classAU": int(rec[gap + i*7 + 5]), "classAllotted": int(rec[gap + i*7 + 6]), "apRestriction": int(rec[gap + i*7 + 7])}
 			auData['auClasses'][auClass['classOfService']] = auClass
-		if thresholdflag:
-				auClass = {"classOfService": "L", "classType": '', "classNest": -1,
-						"classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}
-				auData['auClasses'][auClass['classOfService']] = auClass
-
-				auClass = {"classOfService": "P", "classType": '', "classNest": -1,
-						"classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}
-				auData['auClasses'][auClass['classOfService']] = auClass
-		else:
-				auClass = {"classOfService": "L", "classType": '', "classNest": -1,
-						"classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}
-				auData['auClasses'][auClass['classOfService']] = auClass
-
-				auClass = {"classOfService": "P", "classType": '', "classNest": -1,
-						"classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}
-				auData['auClasses'][auClass['classOfService']] = auClass
 
 		auDataStr = json.dumps(auData)
 		#print(auDataStr)
@@ -1058,15 +1017,15 @@ class DynAlloc:
 		parameterValue = pd.read_sql(parameterValueQuery, self.conn)
 		for index,val in parameterValue.iterrows():
 			if val['parameterKey'] == 'MIN_D3_D4_VALUE':
-				self.MIN_D3_D4_VALUE = val['parameterValue']
+				self.MIN_D3_D4_VALUE = float(val['parameterValue'])
 			if val['parameterKey'] == 'LINEAR_JUMP_VALUE':
-				self.LINEAR_JUMP_VALUE = val['parameterValue']
+				self.LINEAR_JUMP_VALUE = float(val['parameterValue'])
 			if val['parameterKey'] == 'PLF_CURVE_VALUE':
-				self.PLF_CURVE_VALUE = val['parameterValue']
+				self.PLF_CURVE_VALUE = float(val['parameterValue'])
 			if val['parameterKey'] == 'B2B_FARE_PRICE_COMPARISON':
-				self.B2B_FARE_PRICE_COMPARISON = val['parameterValue']
+				self.B2B_FARE_PRICE_COMPARISON = float(val['parameterValue'])
 			if val['parameterKey'] == 'COVERAGE_PARAMETER':
-				self.COVERAGE_PARAMETER = val['parameterValue']
+				self.COVERAGE_PARAMETER = float(val['parameterValue'])
 	
 	def getUniqueId(self):
 		return str(uuid.uuid4())
@@ -1080,16 +1039,11 @@ class DynAlloc:
 
 	def loadRunParams(self):
 		#load the list of sectors
-		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_LIST] == Constants.TEST_DATA:
-			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor FROM market_list "
-			self.mktList = pd.read_sql(marketListQuery, self.conn)
-   
-		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_LIST] == Constants.DB:
-			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor FROM market_list "
-			self.mktList = pd.read_sql(marketListQuery, self.conn)
-
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_LIST] == Constants.FILE:
 			self.mktList = pd.read_csv(Constants.CONST_MARKET_LIST_FILE_PATH)
+		else:
+			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor FROM market_list "
+			self.mktList = pd.read_sql(marketListQuery, self.conn)
    
 		if(self.debugMode):
 			print("Loaded Market List")
