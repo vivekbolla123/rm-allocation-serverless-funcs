@@ -68,7 +68,8 @@ def lambda_handler(event, context):
         "NAV_DB_NAME": NAV_DB_NAME,
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
         Constants.CONST_LOGS : Constants.SERVER_LOGS,
-        Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT
+        Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,
+        "latestCode":True
     }
 
     for record in records:
