@@ -39,7 +39,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
         desc
     """
-    trip_info_simple_url = f"{nav_base_url}/api/nsk/v1/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
+    trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     response = session.get(trip_info_simple_url)
     return response.json()
 
