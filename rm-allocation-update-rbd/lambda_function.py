@@ -41,7 +41,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
     trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     response = session.get(trip_info_simple_url)
-    if(check_status(response)):
+    if(not check_status(response)):
         raise Exception("Exception Occured")
     return response.json()
 
@@ -52,7 +52,7 @@ def get_nav_dcs_inventory_api(leg_key):
     """
     dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
     response = session.get(dcs_get_inventory_url)
-    if(check_status(response)):
+    if(not check_status(response)):
          raise Exception("Exception Occured")
     return response.json()
 
@@ -69,7 +69,7 @@ def patch_nav_dcs_inventory_api(args):
             "authorizedUnits": target_authorised_units
         }
         response = session.patch(dcs_patch_inventory_url, json=req_body)
-        if(check_status(response)):
+        if(not check_status(response)):
             target_authorised_units = -3
         return [class_of_service , target_authorised_units]
     except Exception as err:
