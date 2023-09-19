@@ -7,6 +7,9 @@ from datetime import datetime
 from lambda_multiprocessing import Pool
 from sqlalchemy import create_engine
 import requests
+import warnings
+
+warnings.filterwarnings('ignore')
 
 # nav creds
 nav_base_url = "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
@@ -41,17 +44,31 @@ def retry_if_api_broken(api_call,*args):
     while condition and retry_count<4:
         try:
             if(len(args)>1):
-                response=api_call(args[0],json = args[1])
+                response=api_call(args[0],json = args[1], verify=False)
             else:
-                response=api_call(args[0])
+                response=api_call(args[0], verify=False)
             condition = False
         except Exception as e:
             retry_count=retry_count+1
+            
+            session = requests.Session()
+            session.headers.update(
+                {"Ocp-Apim-Subscription-Key": ocp_subscription_key}
+            )
             token_response = get_nav_token_api()
             access_token = token_response["data"]["token"]
-            time.sleep(2)
             session.headers.update({'Authorization': f"Bearer {access_token}"})
             logger.error(f"Retrying after token generation: {e} : {retry_count}")
+            time.sleep(2 * retry_count)
+
+            if (len(args) > 1):
+                api_call = session.patch
+            else:
+                api_call = session.get
+            
+    if (retry_count >= 4):
+        raise Exception("retry exceeded")
+
     return response
         
 
@@ -61,10 +78,10 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
     trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     try:
-        response = session.get(trip_info_simple_url)
+        response = session.get(trip_info_simple_url, verify=False)
     except Exception as e:
-        logger.error("retrying  trip_info again with new token")
-        response=retry_if_api_broken(session.get,trip_info_simple_url)
+        logger.error(f"retrying  trip_info again with new token: {e}")
+        response = retry_if_api_broken(session.get,trip_info_simple_url)
     
     if(not check_status(response)):
         raise Exception("Trip Info", str(response.reason), str(response.status_code))
@@ -77,10 +94,10 @@ def get_nav_dcs_inventory_api(leg_key):
     """
     dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
     try:
-        response = session.get(dcs_get_inventory_url)
+        response = session.get(dcs_get_inventory_url, verify=False)
     except Exception as e:
-        logger.error("retrying Inventory Leg again with new token")
-        response=retry_if_api_broken(session.get,dcs_get_inventory_url)
+        logger.error(f"retrying Inventory Leg again with new token: {e}")
+        response = retry_if_api_broken(session.get,dcs_get_inventory_url)
         
     if(not check_status(response)):
         raise Exception("Inventory Leg", str(response.reason), str(response.status_code))
@@ -99,16 +116,17 @@ def patch_nav_dcs_inventory_api(args):
             "authorizedUnits": target_authorised_units
         }
         try:    
-            response = session.patch(dcs_patch_inventory_url, json=req_body)
+            response = session.patch(dcs_patch_inventory_url, json=req_body, verify=False)
         except Exception as e:
-            logger.error("retrying Navitaire update again with new token")
-            response=retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
+            logger.error(f"retrying Navitaire update again with new token: {e}")
+            response = retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
             
-        if(not check_status(response)):
+        if (not check_status(response)):
+            logger.error(f"Navitaire update failed : status check  {str(response.reason)},  {str(response.status_code)}")
             target_authorised_units = -3
         return [class_of_service , target_authorised_units]
     except Exception as err:
-        logger.error(f"Navitaire update failed {err}", str(response.reason), str(response.status_code))
+        logger.error(f"Navitaire update failed :{err}")
         return [class_of_service , -3]
 
 def format_date(date_str):
