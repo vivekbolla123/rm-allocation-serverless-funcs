@@ -42,6 +42,8 @@ def lambda_handler(event, context):
     end_interval_key = "end_interval"
     queue_key = "queue"
     market_list_key = "market_list_table_name"
+    username_key = "username"
+    run_type_key = "run_type"
 
     print(event)
 
@@ -54,6 +56,8 @@ def lambda_handler(event, context):
     end_interval = 90 #365
     market_list_table = "market_list"
     queue_name = MARKET_LIST_QUEUE_URL
+    username = USERNAME
+    type = "Adhoc"
 
     # overrides
     if (queue_key in data):
@@ -67,7 +71,13 @@ def lambda_handler(event, context):
 
     if (market_list_key in data):
         market_list_table = data[market_list_key]
+        
+    if (username_key in data):
+        username = data[username_key]
 
+    if (run_type_key in data):
+        type = data[run_type_key]
+        
     # start program
     curr_date = date.today()
     start_period = datetime.strftime(
@@ -92,7 +102,7 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type)
 
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
@@ -115,7 +125,7 @@ def lambda_handler(event, context):
     }
 
 
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
 
@@ -127,13 +137,9 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion['tableName']] = currVersion['curr_version']
 
-    type = "Adhoc"
-    if market_list_table == 'market_list':
-        type = "Scheduled"
-     
     insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     conn.execute(insert_query,
-                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), USERNAME, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name']))
+                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name']))
     logger.info("STARTED ALLOCATION RUN")
 
 

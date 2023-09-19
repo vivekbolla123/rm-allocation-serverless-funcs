@@ -41,6 +41,8 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
     trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     response = session.get(trip_info_simple_url)
+    if(check_status(response)):
+        raise Exception("Exception Occured")
     return response.json()
 
 
@@ -50,6 +52,8 @@ def get_nav_dcs_inventory_api(leg_key):
     """
     dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
     response = session.get(dcs_get_inventory_url)
+    if(check_status(response)):
+         raise Exception("Exception Occured")
     return response.json()
 
 
@@ -65,6 +69,8 @@ def patch_nav_dcs_inventory_api(args):
             "authorizedUnits": target_authorised_units
         }
         response = session.patch(dcs_patch_inventory_url, json=req_body)
+        if(check_status(response)):
+            target_authorised_units = -3
         return [class_of_service , target_authorised_units]
     except Exception as err:
         logger.error(f"Navitaire update failed {err}")
@@ -134,7 +140,7 @@ def update_au_in_navitaire(inventory_dict, au_classes):
                         au_class = au_classes[class_of_service]
                         target_authorised_units = au_class["classAU"]
 
-                        if target_authorised_units != curr_authorised_units or target_authorised_units > -1:
+                        if target_authorised_units != curr_authorised_units and target_authorised_units > -1:
                             # update nav class with target AU
                             args.append(
                                 [leg_key, nest_key, class_key, target_authorised_units, class_of_service])
@@ -208,18 +214,25 @@ def lambda_handler(event, context):
         start_date_f = format_date(start_date)
         end_date_f = format_date(end_date)
 
+        countOfFailures = 0
+        countOfTotal = 0
+        inventory_dict = {}
+        try:
         # First fetch the legKey for the market using tripInfo API
-        leg_keys = get_leg_keys(start_date_f, end_date_f,
-                                origin, destination, identifier, carrier_code)
+            leg_keys = get_leg_keys(start_date_f, end_date_f,
+                                    origin, destination, identifier, carrier_code)
 
-        # Fetch dcs inventory for each leg key
-        inventory_dict = get_dcs_inventories(leg_keys)
+            # Fetch dcs inventory for each leg key
+            inventory_dict = get_dcs_inventories(leg_keys)
+            
+        except Exception as e:
+            print("Error occured")
+            countOfFailures = len(au_classes)
+            countOfTotal = len(au_classes)
 
         # Now we have all the data needed to update the AUs. For fetched inventory classes, set the allotted units
         allocation_result = update_au_in_navitaire(inventory_dict, au_classes)
 
-        countOfFailures=0
-        countOfTotal = 0
         for _, v in allocation_result.items():
             if(v==-3):
                 countOfFailures+=1
@@ -236,6 +249,8 @@ def lambda_handler(event, context):
         'body': 'ok'
     }
 
+def check_status(response):
+    return response.status_code >= 200 and response.status_code < 300
 
 def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal):
     insertQuery = " INSERT INTO navitaire_allocation_audit (id, start_time, end_time, request, result, run_id, b2cRunId, b2bRunId, failures, totalApiCalls) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
