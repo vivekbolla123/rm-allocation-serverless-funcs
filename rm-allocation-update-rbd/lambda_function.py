@@ -1,6 +1,7 @@
 import sys
 import logging
 import json
+import time
 from uuid import uuid4
 from datetime import datetime
 from lambda_multiprocessing import Pool
@@ -34,13 +35,37 @@ def get_nav_token_api():
     response = session.post(token_url, json=token_body)
     return response.json()
 
+def retry_if_api_broken(api_call,*args):
+    if(len(args)>1):
+        retry_count=0
+        condition = True
+        while condition and retry_count<4:
+            try:
+                if(len(args)>1):
+                    response=api_call(args[0],json = args[1])
+                else:
+                    response=api_call(args[0])
+                condition = False
+            except:
+                retry_count=retry_count+1
+                token_response = get_nav_token_api()
+                access_token = token_response["data"]["token"]
+                time.sleep(1)
+                session.headers.update({'Authorization': f"Bearer {access_token}"})
+    return response
+        
 
 def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, identifier, carrier_code):
     """
         desc
     """
     trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
-    response = session.get(trip_info_simple_url)
+    try:
+        response = session.get(trip_info_simple_url)
+    except Exception as e:
+        print("retrying  trip_info again with new token")
+        response=retry_if_api_broken(session.get,trip_info_simple_url)
+    
     if(not check_status(response)):
         raise Exception("Trip Info", str(response.reason), str(response.status_code))
     return response.json()
@@ -51,7 +76,12 @@ def get_nav_dcs_inventory_api(leg_key):
         desc
     """
     dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
-    response = session.get(dcs_get_inventory_url)
+    try:
+        response = session.get(dcs_get_inventory_url)
+    except Exception as e:
+        print("retrying Inventory Leg again with new token")
+        response=retry_if_api_broken(session.get,dcs_get_inventory_url)
+        
     if(not check_status(response)):
         raise Exception("Inventory Leg", str(response.reason), str(response.status_code))
     return response.json()
@@ -68,7 +98,12 @@ def patch_nav_dcs_inventory_api(args):
         req_body = {
             "authorizedUnits": target_authorised_units
         }
-        response = session.patch(dcs_patch_inventory_url, json=req_body)
+        try:    
+            response = session.patch(dcs_patch_inventory_url, json=req_body)
+        except Exception as e:
+            print("retrying Navitaire update again with new token")
+            response=retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
+            
         if(not check_status(response)):
             target_authorised_units = -3
         return [class_of_service , target_authorised_units]
