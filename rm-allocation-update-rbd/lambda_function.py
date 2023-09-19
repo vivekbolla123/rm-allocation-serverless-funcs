@@ -36,22 +36,22 @@ def get_nav_token_api():
     return response.json()
 
 def retry_if_api_broken(api_call,*args):
-    if(len(args)>1):
-        retry_count=0
-        condition = True
-        while condition and retry_count<4:
-            try:
-                if(len(args)>1):
-                    response=api_call(args[0],json = args[1])
-                else:
-                    response=api_call(args[0])
-                condition = False
-            except:
-                retry_count=retry_count+1
-                token_response = get_nav_token_api()
-                access_token = token_response["data"]["token"]
-                time.sleep(1)
-                session.headers.update({'Authorization': f"Bearer {access_token}"})
+    retry_count=0
+    condition = True
+    while condition and retry_count<4:
+        try:
+            if(len(args)>1):
+                response=api_call(args[0],json = args[1])
+            else:
+                response=api_call(args[0])
+            condition = False
+        except Exception as e:
+            retry_count=retry_count+1
+            token_response = get_nav_token_api()
+            access_token = token_response["data"]["token"]
+            time.sleep(2)
+            session.headers.update({'Authorization': f"Bearer {access_token}"})
+            logger.error(f"Retrying after token generation: {e} : {retry_count}")
     return response
         
 
@@ -63,7 +63,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     try:
         response = session.get(trip_info_simple_url)
     except Exception as e:
-        print("retrying  trip_info again with new token")
+        logger.error("retrying  trip_info again with new token")
         response=retry_if_api_broken(session.get,trip_info_simple_url)
     
     if(not check_status(response)):
@@ -79,7 +79,7 @@ def get_nav_dcs_inventory_api(leg_key):
     try:
         response = session.get(dcs_get_inventory_url)
     except Exception as e:
-        print("retrying Inventory Leg again with new token")
+        logger.error("retrying Inventory Leg again with new token")
         response=retry_if_api_broken(session.get,dcs_get_inventory_url)
         
     if(not check_status(response)):
@@ -101,7 +101,7 @@ def patch_nav_dcs_inventory_api(args):
         try:    
             response = session.patch(dcs_patch_inventory_url, json=req_body)
         except Exception as e:
-            print("retrying Navitaire update again with new token")
+            logger.error("retrying Navitaire update again with new token")
             response=retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
             
         if(not check_status(response)):
