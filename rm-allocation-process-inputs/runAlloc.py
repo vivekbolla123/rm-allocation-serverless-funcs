@@ -733,7 +733,7 @@ class DynAlloc:
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
-		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
+		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_stop = 0"
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
 			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
    
