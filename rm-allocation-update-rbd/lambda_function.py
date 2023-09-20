@@ -108,10 +108,10 @@ def patch_nav_dcs_inventory_api(args):
     """
         desc
     """
-    leg_key, nest_key, class_key, target_authorised_units, class_of_service = args
+    leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units = args
     try:
         dcs_patch_inventory_url = f"{nav_base_url}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
-        logger.info(f"Attempting update {dcs_patch_inventory_url}")
+        logger.info(f"Attempting update {dcs_patch_inventory_url},target_authorised_units: {target_authorised_units}, current_authorised_units: {curr_authorised_units}")
         req_body = {
             "authorizedUnits": target_authorised_units
         }
@@ -196,9 +196,9 @@ def update_au_in_navitaire(inventory_dict, au_classes):
                         if target_authorised_units != curr_authorised_units and target_authorised_units > -1:
                             # update nav class with target AU
                             args.append(
-                                [leg_key, nest_key, class_key, target_authorised_units, class_of_service])
+                                [leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units])
                             print(
-                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units}"
+                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}"
                             )
                         else:
                             print(
