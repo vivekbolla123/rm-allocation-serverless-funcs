@@ -84,7 +84,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
         response = retry_if_api_broken(session.get,trip_info_simple_url)
     
     if(not check_status(response)):
-        raise Exception("Trip Info", str(response.reason), str(response.status_code))
+        raise Exception("Trip Info", str(response.reason), str(response.status_code), str(response.json()))
     return response.json()
 
 
@@ -100,7 +100,7 @@ def get_nav_dcs_inventory_api(leg_key):
         response = retry_if_api_broken(session.get,dcs_get_inventory_url)
         
     if(not check_status(response)):
-        raise Exception("Inventory Leg", str(response.reason), str(response.status_code))
+        raise Exception("Inventory Leg", str(response.reason), str(response.status_code), str(response.json()))
     return response.json()
 
 
@@ -122,7 +122,7 @@ def patch_nav_dcs_inventory_api(args):
             response = retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
             
         if (not check_status(response)):
-            logger.error(f"Navitaire update failed : status check  {str(response.reason)},  {str(response.status_code)}")
+            logger.error(f"Navitaire update failed : status check  {str(response.reason)},  {str(response.status_code)}, {str(response.json())}")
             target_authorised_units = -3
         return [class_of_service , target_authorised_units]
     except Exception as err:
