@@ -118,6 +118,7 @@ def lambda_handler(event, context):
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
         data["runId"] = run_id
+        data["update_navitaire_method"] = update_navitaire_method
 
         data_str = data.to_json()
         logger.info(data_str)

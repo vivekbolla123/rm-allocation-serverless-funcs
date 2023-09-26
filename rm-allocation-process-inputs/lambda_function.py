@@ -75,7 +75,7 @@ def lambda_handler(event, context):
 
     for record in records:
         content = record['body']
-        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
+        # NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
         data["NavitaireConnection"] = NavitaireConnection
         data["dbconn"] = rdconn
@@ -83,7 +83,7 @@ def lambda_handler(event, context):
         data["sqs"] = sqs
         data["runSingleMarket"] = True
         data["s3"]=s3
-        data["NavitaireUpdateMethod"]=NavitaireUpdateMethod
+        data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
         DynAlloc(input_data, data)
 
     return {
