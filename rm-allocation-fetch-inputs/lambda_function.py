@@ -125,9 +125,6 @@ def lambda_handler(event, context):
 
         sqs.send_message(
             QueueUrl=queue_name,
-            MessageAttributes={
-                'update_navitaire_method': update_navitaire_method,
-            },
             MessageBody=data_str
         )
 
