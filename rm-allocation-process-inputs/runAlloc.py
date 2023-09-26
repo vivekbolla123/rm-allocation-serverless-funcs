@@ -8,6 +8,7 @@ import json
 import Constants
 import warnings
 import numpy as np
+import boto3
 warnings.filterwarnings('ignore')
 
 from datetime import date
@@ -24,7 +25,7 @@ class DynAlloc:
 		self.inputSource = inputData
 		#Set this to true for more verbose scree display during the run
 		self.debugMode = self.inputSource["debugMode"]
-
+		self.NavitaireUpdateMethod=currParams["NavitaireUpdateMethod"]
 		if (currParams["runId"]):
 			self.runId = currParams["runId"]
 		else:
@@ -33,12 +34,17 @@ class DynAlloc:
 		self.TABLE_MARKET_FARES = "market_fares"
 		self.BookloadTableName = "bookload"
 		self.WAIT_TIME = 30 # in seconds
-		
+		self.nochunks=0
+		self.totalrecords=0
+		self.starttime=datetime.now()
 		self.MARKET_LIST_QUEUE_URL = self.inputSource["MARKET_LIST_QUEUE_URL"]
 		self.RBD_QUEUE_URL = self.inputSource["RBD_QUEUE_URL"]
+		self.AWS_SQS_QUEUE_URL=self.inputSource["AU_CHUNK_QUEUE_URL"]
+		self.AWS_BUCKET_NAME = 'qp-applications'
 		self.NAV_DB_NAME = self.inputSource["NAV_DB_NAME"]
 
 		self.sqs = currParams["sqs"]
+		self.s3=currParams["s3"]
 		self.conn = currParams["dbconn"]
 		self.wrconn = currParams["wrconn"]
 		self.NavitaireConnection = currParams["NavitaireConnection"]
@@ -53,7 +59,7 @@ class DynAlloc:
 
 		#Load the Run Parameters
 		self.loadRunParams()
-
+		self.chunk_size = 4 * 1024 * 1024
 		#Place Holders for Output
 		self.allocResults = pd.DataFrame(columns=['Id','RunId','Origin','Destin','FltNum','DepDate','BookedLoad','TgtLoad','Dev_BKGCurve','MktFare_Min','AirlineCode_Min','FlightNumber_Min','MktFare_Max','AirlineCode_Max','FlightNumber_Max','anchorFare','OpenRBD','SellingFare','fareOffset','HowDetermined','Channel','StrategyReference','TimeRange','fareAnchor','dlfBand','ndoBand','Backstop'])
 		self.AUFileData = []
@@ -83,6 +89,7 @@ class DynAlloc:
 			currParams = self.mktList.iloc[mktCounter]
 			self.runDynamicAllocationSingleMarket(currParams, mktCounter)
 
+		
 		self.outputResults()
 
 		endTime = self.getCurrentDateTime()
@@ -161,6 +168,9 @@ class DynAlloc:
 				print("Exception occurred")
 				traceback.print_exc()
 				print(e)
+
+		if  (self.NavitaireUpdateMethod != Constants.CONST_API):
+			self.outputResults()
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		currDate = self.getCurrentDate()
@@ -334,7 +344,7 @@ class DynAlloc:
 				currRec.append('') #Cap
 				currRec.append('') #Status
 				# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
-				if self.inputSource['isUpdateNavitaire']:
+				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_API):
 					currRec.append(b2cRunId) #10
 					currRec.append(b2bRunId) #11
 
@@ -356,7 +366,7 @@ class DynAlloc:
      
 				self.AUFileData.append(currRec)
 				
-				if self.inputSource['isUpdateNavitaire']:
+				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_API):
 					self.updateNavitaire(currRec)
 
 			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Dev_BKGCurve': str(curveReference) , 'StrategyReference': str(strategy)}, ignore_index = True)
@@ -960,6 +970,8 @@ class DynAlloc:
 			AUlist.append(f'Class Allotted AU Class {i+1}')
 			AUlist.append(f'AP Restriction AU Class {i+1}')	
 		AUFrame = pd.DataFrame(self.AUFileData, columns=AUlist)
+		if self.NavitaireUpdateMethod==Constants.CONST_SFTP and self.inputSource['isUpdateNavitaire']:
+			self.create_chunks(AUFrame)
 
 		print("Final Allocation Results:")
 		print(self.allocResults)
@@ -1088,7 +1100,55 @@ class DynAlloc:
 			inputsData = pd.read_sql(countQuery, self.conn)
 			return inputsData['busyInputs'][0] == 0
 
+
+	def create_chunks(self,audatframe):
+		data = audatframe.to_csv(index=False, encoding='utf-8')
+			
+		if data is None:
+			print("Unable to read the file with any of the specified encodings.")
+			return
+
+		# Split the data into header and rows
+		header, data = data.split('\n', 1)
+		header += '\n'  # Add a newline character to the header
+
+		chunk_number = 1
+		current_chunk_size = 0
+		current_chunk_data = ""
+		chunk_record_size=0
+
+		for line in data.splitlines():
+			line_size = len(line)
+			if current_chunk_size + line_size + len(header) <= self.chunk_size:
+				current_chunk_data += line + '\n'
+				current_chunk_size += line_size
+				chunk_record_size+=1
+			else:
+				self.send_chunks(chunk_number, header + current_chunk_data)
+				self.totalrecords += chunk_record_size
+				chunk_record_size=0
+				chunk_number += 1
+				current_chunk_data = line + '\n'
+				current_chunk_size = line_size
+
+		# Create the last chunk if there is any remaining data
+		if current_chunk_data:
+			self.send_chunks(chunk_number, header + current_chunk_data)
+			self.totalrecords += chunk_record_size
+		endtime=datetime.now()
+		query=f'''INSERT INTO auchunks_upload_audit (run_id,start_time, end_time,user,chunks,records) VALUE ("{self.runId}","{self.starttime}","{endtime}","SYS2","{self.nochunks}","{self.totalrecords}")'''
+		self.wrconn.execute(query)
+
+	def send_chunks(self, chunk_number, data):
+		s3_object_key = f'prod/rm-au-chunks/chunk_{chunk_number}_{self.runId}.csv'
+		self.s3.put_object(Bucket=self.AWS_BUCKET_NAME, Key=s3_object_key, Body=data)
+		# Send data to SQS
+		message_body = f"chunk_{chunk_number}_{self.runId}.csv"
+		self.sqs.send_message(QueueUrl=self.AWS_SQS_QUEUE_URL, MessageBody=message_body)
+		self.nochunks=self.nochunks+1
+
 	def getLatestCodeVersion(self):
 		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
 		inputsData = pd.read_sql(lastestQuery, self.conn)
 		return inputsData['code_version'][0]
+

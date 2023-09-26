@@ -1,38 +1,31 @@
 import sys
 import logging
 import json
+import warnings
 import time
 from uuid import uuid4
 from datetime import datetime
 from lambda_multiprocessing import Pool
 from sqlalchemy import create_engine
 import requests
-import warnings
+import configsettings
 
 warnings.filterwarnings('ignore')
 
-# nav creds
-nav_base_url = "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
-username = "aumaster1"
-pwd = "Jun@2023"
-domain = "TOP"
-ocp_subscription_key = "4aaea8e1179e478e9d08b25326b46656"
-
-
 # rds settings
-DB_CONN_STRING = "mysql+mysqldb://rmappuser:p6VeHNdvAHZKkjR@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+DB_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 
 
 def get_nav_token_api():
     """
         desc
     """
-    token_url = f"{nav_base_url}/api/nsk/v2/token"
+    token_url = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/token"
     token_body = {
         "credentials": {
-            "username": username,
-            "password": pwd,
-            "domain": domain
+            "username": configsettings.NAV_USERNAME,
+            "password": configsettings.NAV_PWD,
+            "domain": configsettings.NAV_DOMAIN
         }
     }
     response = session.post(token_url, json=token_body)
@@ -53,7 +46,7 @@ def retry_if_api_broken(api_call,*args):
             
             session = requests.Session()
             session.headers.update(
-                {"Ocp-Apim-Subscription-Key": ocp_subscription_key}
+                {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
             )
             token_response = get_nav_token_api()
             access_token = token_response["data"]["token"]
@@ -76,7 +69,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
         desc
     """
-    trip_info_simple_url = f"{nav_base_url}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
+    trip_info_simple_url = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     try:
         response = session.get(trip_info_simple_url, verify=False)
     except Exception as e:
@@ -85,6 +78,7 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     
     if(not check_status(response)):
         raise Exception("Trip Info", str(response.reason), str(response.status_code), str(response.json()))
+
     return response.json()
 
 
@@ -92,7 +86,7 @@ def get_nav_dcs_inventory_api(leg_key):
     """
         desc
     """
-    dcs_get_inventory_url = f"{nav_base_url}/api/dcs/v2/inventory/legs/{leg_key}"
+    dcs_get_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v2/inventory/legs/{leg_key}"
     try:
         response = session.get(dcs_get_inventory_url, verify=False)
     except Exception as e:
@@ -110,8 +104,9 @@ def patch_nav_dcs_inventory_api(args):
     """
     leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units = args
     try:
-        dcs_patch_inventory_url = f"{nav_base_url}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
+        dcs_patch_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
         logger.info(f"Attempting update {dcs_patch_inventory_url},target_authorised_units: {target_authorised_units}, current_authorised_units: {curr_authorised_units}")
+
         req_body = {
             "authorizedUnits": target_authorised_units
         }
@@ -231,7 +226,7 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 session = requests.Session()
 
 session.headers.update(
-    {"Ocp-Apim-Subscription-Key": ocp_subscription_key}
+    {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
 )
 token_response = get_nav_token_api()
 access_token = token_response["data"]["token"]

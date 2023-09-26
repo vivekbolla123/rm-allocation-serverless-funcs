@@ -2,7 +2,8 @@ import sys
 import logging
 import boto3
 import json
-
+import warnings
+import configsettings
 from uuid import uuid4
 from sqlalchemy import create_engine
 from pandas import read_sql
@@ -10,12 +11,14 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import date
 
+warnings.filterwarnings('ignore')
+
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 
 # rds settings
 # DB_CONN_STRING = "mysql+mysqldb://rmappuser:p6VeHNdvAHZKkjR@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
-DB_CONN_STRING = "mysql+mysqldb://rmappuser:p6VeHNdvAHZKkjR@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+DB_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
 USERNAME = "SYS2"
 
@@ -42,6 +45,8 @@ def lambda_handler(event, context):
     end_interval_key = "end_interval"
     queue_key = "queue"
     market_list_key = "market_list_table_name"
+    update_navitaire_method_key="update_navitaire_method"
+    
     username_key = "username"
     run_type_key = "run_type"
 
@@ -56,6 +61,8 @@ def lambda_handler(event, context):
     end_interval = 90 #365
     market_list_table = "market_list"
     queue_name = MARKET_LIST_QUEUE_URL
+    update_navitaire_method="api"
+    
     username = USERNAME
     type = "Adhoc"
 
@@ -71,6 +78,10 @@ def lambda_handler(event, context):
 
     if (market_list_key in data):
         market_list_table = data[market_list_key]
+    
+    if(update_navitaire_method_key in data):
+        update_navitaire_method=data[update_navitaire_method_key]
+        
         
     if (username_key in data):
         username = data[username_key]
@@ -113,6 +124,9 @@ def lambda_handler(event, context):
 
         sqs.send_message(
             QueueUrl=queue_name,
+            MessageAttributes={
+                'update_navitaire_method': update_navitaire_method,
+            },
             MessageBody=data_str
         )
 

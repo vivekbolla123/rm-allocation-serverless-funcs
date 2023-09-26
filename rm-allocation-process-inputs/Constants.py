@@ -29,21 +29,6 @@ DB = "DB"
 FILE="FILE"
 SKIP="SKIP"
 
-#Local
-# DB_USERNAME = "root"
-# DB_PASSWORD = "admin"
-# DB_URL = "localhost"
-
-#Test
-# DB_USERNAME = "DBSAAdmin"
-# DB_PASSWORD = "dufjBu48Q7BmQ6"
-# DB_URL = "esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-
-#Prod
-DB_USERNAME = "rmappuser"
-DB_PASSWORD = "p6VeHNdvAHZKkjR"
-DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-
 CONST_LOGS = "logFiles"
 CONST_INPUT_SOURCE = "inputSource"
 CONST_OUTPUT = "outputSource"
@@ -123,3 +108,8 @@ LOCAL_OUTPUT = {
     CONST_AU_GRID : FILE,
     CONST_SUMMARY_FILE : FILE
 }
+
+
+CONST_API="api"
+CONST_SFTP="sftp"
+CONST_SKIP="skip"
