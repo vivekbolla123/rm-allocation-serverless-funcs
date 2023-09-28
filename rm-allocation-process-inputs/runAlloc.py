@@ -117,57 +117,63 @@ class DynAlloc:
 		curveId = currParams['CurveID']
 		PerType = currParams['PerType']
 		SkippingFactor = currParams['SkippingFactor']
+		FlightNumber = str(currParams['FlightNumber'])
 		currParams['Strategy'] = currParams['fareAnchor']
 
 		startDate, endDate, startNDO, endNDO = self.getStartEndDate(PerType, currDate, startNDO, endNDO)
 		
 		print("Allocation for " + origin + destination + " from " + str(startDate) + " to " + str(endDate))
 		
-		#Fetch the current booked load from Navitaire
+		# check if inputs are available to be copied else wait and retry
+		canCopy = False
+		while canCopy == False:
+			canCopy = self.areAllInputsReady()
+			if canCopy == False:
+				print('Waiting as inputs are busy...')
+				time.sleep(self.WAIT_TIME)
+
+		print('Inputs (market fares, channel_map etc) are ready. Copying inputs...')
+		# create a market_fares_extract based on org/dest/timerange
+		# marketFaresExtractName = self.createTableExtract(origin, destination, startDate, endDate, startTime, endTime)
+		marketFaresExtractName = self.TABLE_MARKET_FARES
+		print('Inputs Copy completed.')
+  
 		bookedLoad = self.getCurrentBookedLoads(origin, destination, startDate, endDate)
-
-		tgtBookedLoad = None
-		# If for whatever reason - unable to get the booked Load - Abort
-		if(bookedLoad.shape[0] == 0):
-			dateFormatted = datetime.strptime(str(startDate), Constants.DATE_FORMAT_2).date().strftime(Constants.DATE_FORMAT)
-			print("Unable to get the Booked Load - Aborting")
-			self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin, "Destin":destination, "FltNum":"NA","DepDate":str(dateFormatted), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD": "NA", "SellingFare":"NA", 'Channel':"NA", 'fareAnchor':"NA",  'HowDetermined':"unable to get Booked loads from " + str(startDate) + " to " + str(endDate), 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
-			self.insertSummaryRow()
-		else:
-			# check if inputs are available to be copied else wait and retry
-			canCopy = False
-			while canCopy == False:
-				canCopy = self.areAllInputsReady()
-				if canCopy == False:
-					print('Waiting as inputs are busy...')
-					time.sleep(self.WAIT_TIME)
-   
-			print('Inputs (market fares, channel_map etc) are ready. Copying inputs...')
-			# create a market_fares_extract based on org/dest/timerange
-			# marketFaresExtractName = self.createTableExtract(origin, destination, startDate, endDate, startTime, endTime)
-			marketFaresExtractName = self.TABLE_MARKET_FARES
-			print('Inputs Copy completed.')
-
-			try: 
-				# For each NDO
-				for ndocounter in range(startNDO, endNDO+1):
-					currDate = self.getCurrentDate()
-					tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+  
+		try: 
+			# For each NDO
+			for ndocounter in range(startNDO, endNDO+1):
+				currDate = self.getCurrentDate()
+				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
+				if(FlightNumber == '*'):
+					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
+				else:
+					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber)]
+				#Fetch the current booked load from Navitaire
+				# If for whatever reason - unable to get the booked Load - Abort
+				tgtBookedLoad = None
+				if(bookedLoadSingleRow.shape[0] == 0):
+					dateFormatted = datetime.strptime(str(startDate), Constants.DATE_FORMAT_2).date().strftime(Constants.DATE_FORMAT)
+					print("Unable to get the Booked Load - Aborting")
+					self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin, "Destin":destination, "FltNum":"NA","DepDate":str(dateFormatted), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD": "NA", "SellingFare":"NA", 'Channel':"NA", 'fareAnchor':"NA",  'HowDetermined':"unable to get Booked loads from " + str(startDate) + " to " + str(endDate), 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
+					self.insertSummaryRow()
+				else:
 					tgtBookedLoadList = self.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					if (len(tgtBookedLoadList) > 0):
 						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 						B2CAvgFare=float(tgtBookedLoadList['B2C_Avg_Fare'][0])
 						B2BAvgFare=float(tgtBookedLoadList['B2B_Avg_Fare'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
+						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
 						self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin,"Destin":destination,"FltNum":"NA","DepDate":str(tgtDate), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD":"NA", "SellingFare":"NA", 'fareAnchor':"NA",  'Channel':"NA", 'HowDetermined':"No Reference Curve Found", 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
 						self.insertSummaryRow()
-			except Exception as e:
-				print("Exception occurred")
-				traceback.print_exc()
-				print(e)
+		except Exception as e:
+			print("Exception occurred")
+			traceback.print_exc()
+			print(e)
 
 		if  (self.NavitaireUpdateMethod != Constants.CONST_API):
 			self.outputResults()
@@ -222,7 +228,7 @@ class DynAlloc:
 			print("plfValue is " + str(plfValue))
 			ndoBand = self.getNdoBand(ndocounter)
 			dplfBand = self.getdpflBand(plfValue)
-			thresholdValue = self.getPlfThreshhold(ndocounter,str(currParams['FlightNumber']))
+			thresholdValue = self.getPlfThreshhold(ndocounter,str(currFlt))
 			self.thresholdflag=False
 			if len(thresholdValue)!=0:
 				if plf>thresholdValue[0]:
@@ -853,9 +859,9 @@ class DynAlloc:
 			NavitaireQuery = NavitaireQuery + "select BP.PassengerID, IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.DepartureDate,IL.FlightNumber, IL.AdjustedCapacity, IL.Lid "
 			NavitaireQuery = NavitaireQuery + " from "+self.NAV_DB_NAME+"[rez].InventoryLeg IL "
 			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].PassengerJourneyLeg PJL on  PJL.InventoryLegID = IL.InventoryLegID "
-			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID  "
+			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) "
 			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].BookingPassenger BP on  BP.PassengerID = PJS.PassengerID "
-			NavitaireQuery = NavitaireQuery + " where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '" + str(startDate) + "' and IL.DepartureDate <= '" +str(endDate) + "' and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL)"
+			NavitaireQuery = NavitaireQuery + " where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '" + str(startDate) + "' and IL.DepartureDate <= '" +str(endDate) + "' "
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
 			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate order by Origin, Destination, DepartureDate "
 			con = self.NavitaireConnection
@@ -1151,4 +1157,3 @@ class DynAlloc:
 		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
 		inputsData = pd.read_sql(lastestQuery, self.conn)
 		return inputsData['code_version'][0]
-
