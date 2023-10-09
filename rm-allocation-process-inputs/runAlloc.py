@@ -89,7 +89,6 @@ class DynAlloc:
 			currParams = self.mktList.iloc[mktCounter]
 			self.runDynamicAllocationSingleMarket(currParams, mktCounter)
 
-		
 		self.outputResults()
 
 		endTime = self.getCurrentDateTime()
@@ -131,12 +130,6 @@ class DynAlloc:
 			if canCopy == False:
 				print('Waiting as inputs are busy...')
 				time.sleep(self.WAIT_TIME)
-
-		print('Inputs (market fares, channel_map etc) are ready. Copying inputs...')
-		# create a market_fares_extract based on org/dest/timerange
-		# marketFaresExtractName = self.createTableExtract(origin, destination, startDate, endDate, startTime, endTime)
-		marketFaresExtractName = self.TABLE_MARKET_FARES
-		print('Inputs Copy completed.')
   
 		bookedLoad = self.getCurrentBookedLoads(origin, destination, startDate, endDate)
   
@@ -164,7 +157,7 @@ class DynAlloc:
 						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 						B2CAvgFare=float(tgtBookedLoadList['B2C_Avg_Fare'][0])
 						B2BAvgFare=float(tgtBookedLoadList['B2B_Avg_Fare'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
+						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
@@ -175,10 +168,14 @@ class DynAlloc:
 			traceback.print_exc()
 			print(e)
 
-		if  (self.NavitaireUpdateMethod != Constants.CONST_API):
+		if  (self.inputSource['isUpdateNavitaire'] == False):
 			self.outputResults()
 
-	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, marketFaresExtractName, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
+		if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_SFTP):
+			update_query = " UPDATE run_flight_date_audit SET status = %s WHERE runId = %s and status = 'Pending' "
+			self.wrconn.execute(update_query, "Ready", self.runId)
+
+	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		currDate = self.getCurrentDate()
 		tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 		dow = int(datetime.strftime(currDate + timedelta(days=ndocounter),"%w"))
@@ -200,9 +197,9 @@ class DynAlloc:
 			currCapacity = ndoBookedLoad['capacity'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter],Constants.DATE_FORMAT)
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, marketFaresExtractName, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		
 		tgtBookloadFactor = tgtBookedLoad	
 		tgtBookedLoad = tgtBookedLoad * currCapacity
@@ -248,10 +245,10 @@ class DynAlloc:
    
 			#Actual Work Happens here
 			#Get the B2C and B2B Fare ranges
-			mktFareRangeB2C = self.getMarketFareRange('B2C',currFltDate, currParams, marketFaresExtractName)
-			mktFareRangeB2B = self.getMarketFareRange('B2B',currFltDate, currParams, marketFaresExtractName)
-			mktfareRangeB2C_minomaxo = self.getMarketFareRangeminomaxo('B2C', currFltDate, currParams, marketFaresExtractName)
-			mktfareRangeB2B_minomaxo = self.getMarketFareRangeminomaxo('B2B', currFltDate, currParams, marketFaresExtractName)
+			mktFareRangeB2C = self.getMarketFareRange('B2C',currFltDate, currParams)
+			mktFareRangeB2B = self.getMarketFareRange('B2B',currFltDate, currParams)
+			mktfareRangeB2C_minomaxo = self.getMarketFareRangeminomaxo('B2C', currFltDate, currParams)
+			mktfareRangeB2B_minomaxo = self.getMarketFareRangeminomaxo('B2B', currFltDate, currParams)
 
 			#Does competetive fare exist
 			#We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -350,7 +347,7 @@ class DynAlloc:
 				currRec.append('') #Cap
 				currRec.append('') #Status
 				# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
-				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_API):
+				if (self.inputSource['isUpdateNavitaire']):
 					currRec.append(b2cRunId) #10
 					currRec.append(b2bRunId) #11
 
@@ -374,6 +371,9 @@ class DynAlloc:
 				
 				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_API):
 					self.updateNavitaire(currRec)
+     
+				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_SFTP):
+					self.updateNavSFTP(currRec)
 
 			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Dev_BKGCurve': str(curveReference) , 'StrategyReference': str(strategy)}, ignore_index = True)
 			self.insertSummaryRow()
@@ -761,10 +761,10 @@ class DynAlloc:
 
 		return defFareData
 
-	def getMarketFareRange(self, channel, currFltDateStr, currParams, marketFaresExtractName):
+	def getMarketFareRange(self, channel, currFltDateStr, currParams):
 	
 		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()		
-		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + marketFaresExtractName + " where source_airport = '" 
+		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '" 
 		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
 		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
 		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
@@ -778,27 +778,16 @@ class DynAlloc:
 
 		return mktFareRange
 
-	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams, marketFaresExtractName):
+	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams):
 
-		currFltDate = datetime.strptime(
-			currFltDateStr, Constants.DATE_FORMAT).date()
-		mktLowestQuery = "Select gross_fare from " + \
-			marketFaresExtractName + " where source_airport = '"
-		mktLowestQuery = mktLowestQuery + \
-			currParams['Origin'] + "' and destination_airport = '" + \
-			currParams['Destin'] + "'"
-		mktLowestQuery = mktLowestQuery + \
-			" and departure_date = '" + str(currFltDate) + "'"
-		mktLowestQuery = mktLowestQuery + \
-			" and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + \
-			currParams['TimeWindowStart'] + "','%%T')"
-		mktLowestQuery = mktLowestQuery + \
-			" and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + \
-			currParams['TimeWindowEnd'] + "','%%T')"
+		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()
+		mktLowestQuery = "Select gross_fare from " + self.TABLE_MARKET_FARES + " where source_airport = '"
+		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
+		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
-		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + \
-			currParams['CarrExlusion'] + \
-			"' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
+		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
 			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
 		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
@@ -976,9 +965,7 @@ class DynAlloc:
 			AUlist.append(f'Class Allotted AU Class {i+1}')
 			AUlist.append(f'AP Restriction AU Class {i+1}')	
 		AUFrame = pd.DataFrame(self.AUFileData, columns=AUlist)
-		if self.NavitaireUpdateMethod==Constants.CONST_SFTP and self.inputSource['isUpdateNavitaire']:
-			self.create_chunks(AUFrame)
-
+		
 		print("Final Allocation Results:")
 		print(self.allocResults)
 		if self.inputSource[Constants.CONST_OUTPUT][Constants.CONST_AU_GRID] == Constants.FILE:
@@ -998,9 +985,9 @@ class DynAlloc:
 
 			type = "Local Run"
 			
-			insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+			insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, is_sftp_pushed, is_connections_required, update_navitaire_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 			self.wrconn.execute(insert_query,
-						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type))
+						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type, '0', '0', 'file'))
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
@@ -1019,6 +1006,21 @@ class DynAlloc:
             QueueUrl=self.RBD_QUEUE_URL,
             MessageBody=auDataStr
         )
+
+	def updateNavSFTP(self, rec):
+		flightNo = rec[1].split(" ")[1][2:7]
+		sector = rec[1].split(" ")[2]
+		flightDate = datetime.strptime(str(rec[2]), "%m-%d-%Y").date().strftime(Constants.DATE_FORMAT_2)
+		auData = {"type": rec[0], "sector1": sector, "flightNo1" : flightNo, "departureDate": flightDate, "auClasses": {}}
+		auClass={}
+		gap = 11
+		for i in range(self.AU_COLUMN_LENGTH):
+			auClass[rec[gap + i*7 + 1]] = int(rec[gap + i*7 + 5])
+  
+		auData['auClasses'] = auClass
+		auDataStr = json.dumps(auData)
+		update_query = " UPDATE run_flight_date_audit SET status = %s , result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+		self.wrconn.execute(update_query, "Ready", auDataStr, self.runId, flightNo, flightDate)
 
 	def getCurrentDateTime(self):
 		startTime = datetime.now()
@@ -1105,53 +1107,6 @@ class DynAlloc:
 			countQuery = "select count(*) as busyInputs from inputs_status WHERE is_running = b'1'"
 			inputsData = pd.read_sql(countQuery, self.conn)
 			return inputsData['busyInputs'][0] == 0
-
-
-	def create_chunks(self,audatframe):
-		data = audatframe.to_csv(index=False, encoding='utf-8')
-			
-		if data is None:
-			print("Unable to read the file with any of the specified encodings.")
-			return
-
-		# Split the data into header and rows
-		header, data = data.split('\n', 1)
-		header += '\n'  # Add a newline character to the header
-
-		chunk_number = 1
-		current_chunk_size = 0
-		current_chunk_data = ""
-		chunk_record_size=0
-
-		for line in data.splitlines():
-			line_size = len(line)
-			if current_chunk_size + line_size + len(header) <= self.chunk_size:
-				current_chunk_data += line + '\n'
-				current_chunk_size += line_size
-				chunk_record_size+=1
-			else:
-				self.send_chunks(chunk_number, header + current_chunk_data)
-				self.totalrecords += chunk_record_size
-				chunk_record_size=0
-				chunk_number += 1
-				current_chunk_data = line + '\n'
-				current_chunk_size = line_size
-
-		# Create the last chunk if there is any remaining data
-		if current_chunk_data:
-			self.send_chunks(chunk_number, header + current_chunk_data)
-			self.totalrecords += chunk_record_size
-		endtime=datetime.now()
-		query=f'''INSERT INTO auchunks_upload_audit (run_id,start_time, end_time,user,chunks,records) VALUE ("{self.runId}","{self.starttime}","{endtime}","SYS2","{self.nochunks}","{self.totalrecords}")'''
-		self.wrconn.execute(query)
-
-	def send_chunks(self, chunk_number, data):
-		s3_object_key = f'prod/rm-au-chunks/chunk_{chunk_number}_{self.runId}.csv'
-		self.s3.put_object(Bucket=self.AWS_BUCKET_NAME, Key=s3_object_key, Body=data)
-		# Send data to SQS
-		message_body = f"chunk_{chunk_number}_{self.runId}.csv"
-		self.sqs.send_message(QueueUrl=self.AWS_SQS_QUEUE_URL, MessageBody=message_body)
-		self.nochunks=self.nochunks+1
 
 	def getLatestCodeVersion(self):
 		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "

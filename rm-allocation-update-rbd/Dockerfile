@@ -1,5 +1,9 @@
 FROM public.ecr.aws/lambda/python:3.10
 
+ARG ENVN
+ENV env $ENVN
+
+RUN echo "Creating image for $env Environment"
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
 RUN yum install -y gcc

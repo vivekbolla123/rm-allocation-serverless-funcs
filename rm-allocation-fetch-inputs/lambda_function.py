@@ -16,10 +16,8 @@ warnings.filterwarnings('ignore')
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 
-# rds settings
-# DB_CONN_STRING = "mysql+mysqldb://rmappuser:p6VeHNdvAHZKkjR@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
 DB_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
+
 USERNAME = "SYS2"
 
 logger = logging.getLogger()
@@ -35,7 +33,6 @@ except Exception as e:
 
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
-
 def lambda_handler(event, context):
     """
     This function fetches the market_list and inserts it into the queue
@@ -49,8 +46,7 @@ def lambda_handler(event, context):
     
     username_key = "username"
     run_type_key = "run_type"
-
-    print(event)
+    is_connections_required_key = "is_connections_required"
 
     body = event['body']
     # Parse the JSON body
@@ -60,11 +56,12 @@ def lambda_handler(event, context):
     start_interval = 30 #0
     end_interval = 90 #365
     market_list_table = "market_list"
-    queue_name = MARKET_LIST_QUEUE_URL
+    queue_name = configsettings.MARKET_LIST_QUEUE_URL
     update_navitaire_method="api"
     
     username = USERNAME
     type = "Adhoc"
+    is_connections_required = "0"
 
     # overrides
     if (queue_key in data):
@@ -81,13 +78,18 @@ def lambda_handler(event, context):
     
     if(update_navitaire_method_key in data):
         update_navitaire_method=data[update_navitaire_method_key]
-        
-        
+       
     if (username_key in data):
         username = data[username_key]
 
     if (run_type_key in data):
         type = data[run_type_key]
+        
+    if(not type == "Adhoc"):
+        is_connections_required = '1'
+    
+    if(is_connections_required_key in data):
+        is_connections_required = data[is_connections_required_key]
         
     # start program
     curr_date = date.today()
@@ -113,16 +115,31 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method)
 
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
+        
+        currDate = getCurrentDate()
+        startNDO = data['PerStart']
+        startNDO = data['PerStart']
+        endNDO = data['PerEnd']
+        PerType = data['PerType']
+        flightNumber = data['FlightNumber']
+
+        startNDO, endNDO = getStartEndDate(PerType, currDate, startNDO, endNDO)
+        
+        for ndocounter in range(startNDO, endNDO+1):
+            tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+            # insert into run_audit table
+            insert_run_fltDate_audit(run_id, flightNumber, tgtDate)
+            
         data["runId"] = run_id
         data["update_navitaire_method"] = update_navitaire_method
 
         data_str = data.to_json()
         logger.info(data_str)
-
+        print(data_str)
         sqs.send_message(
             QueueUrl=queue_name,
             MessageBody=data_str
@@ -137,7 +154,7 @@ def lambda_handler(event, context):
     }
 
 
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
 
@@ -149,10 +166,15 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion['tableName']] = currVersion['curr_version']
 
-    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     conn.execute(insert_query,
-                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name']))
+                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method))
     logger.info("STARTED ALLOCATION RUN")
+
+def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
+    insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, status) VALUES (%s, %s, %s, %s)"
+    conn.execute(insert_query,
+                 (run_id, flightNumber, tgtDate, "Pending"))
 
 
 def update_run_end(end_time, run_id):
@@ -160,6 +182,24 @@ def update_run_end(end_time, run_id):
     conn.execute(update_query,
                  (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
     logger.info("STOPPED ALLOCATION RUN")
+
+def getCurrentDate():
+    currDate = date.today()
+    return currDate
+
+def getStartEndDate(PerType, currDate, startNDO, endNDO):
+    if(PerType == 'D'):
+        startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
+        endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
+
+        #Reset the startNDO and endNDO to actually NDO
+        startNDO = (startDate - currDate).days
+        endNDO = (endDate - currDate).days
+    else:
+        startDate = currDate + timedelta(days=int(startNDO))
+        endDate = currDate + timedelta(days=int(endNDO))
+
+    return startNDO, endNDO
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({"body": "{\"start_interval\": 3, \"end_interval\": 14}"},None)
