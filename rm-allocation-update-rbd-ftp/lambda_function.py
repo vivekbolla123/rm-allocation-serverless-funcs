@@ -43,7 +43,7 @@ def lambda_handler(event, context):
         content = record['body']
         data = json.loads(content)
         runid=data["run_id"]
-        logger.info("started ftp upload: ", runid)
+        logger.info(f"started ftp upload: {runid}")
         processor.fetch_data(runid)
     return {
         'statusCode': 200,
