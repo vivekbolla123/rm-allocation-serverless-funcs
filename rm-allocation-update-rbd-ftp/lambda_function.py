@@ -203,7 +203,7 @@ class DataProcessor:
                     else:
                         departurdate, flightno, sector=data["departureDate"],data["flightNo1"],data["sector1"]
                         rbds=data["auClasses"]
-                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2} ,{rbds}")
+                        logger.info(f"started upload for {departurdate}, {flightno}, {sector}, {rbds}")
                         file_content=self.generate_file_content_direct(departurdate,flightno,sector,rbds)
                     file.write(file_content)
 
