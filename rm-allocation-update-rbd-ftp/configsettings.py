@@ -12,8 +12,8 @@ env = getenv('env', default=None)
 if env == 'prod':
     RM_DB_APPUSER_USERNAME="rmappuser"
     RM_DB_APPUSER_URL="rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-    SFTP_USERNAME = '0K_MFT'
-    SFTP_DES_DIR = '/PROD/ESC'
+    SFTP_USERNAME = '0KProdr4x_sftp'
+    SFTP_DES_DIR = '/'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-au-chunks"
     
 if env == 'test':

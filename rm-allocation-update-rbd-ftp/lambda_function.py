@@ -38,10 +38,12 @@ def lambda_handler(event, context):
     }
     records = event['Records']
     processor = DataProcessor(data)
+    
     for record in records:
         content = record['body']
         data = json.loads(content)
         runid=data["run_id"]
+        logger.info("started ftp upload: ", runid)
         processor.fetch_data(runid)
     return {
         'statusCode': 200,
@@ -192,13 +194,16 @@ class DataProcessor:
             for row in data:
                 if(row[0] is not None):
                     data = json.loads(row[0])
+                                        
                     if data["type"]=="R":
                         departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"],data["sector1"], data["flightNo2"], data["sector2"]
                         rbds=data["auClasses"]
+                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2} ,{rbds}")
                         file_content = self.generate_file_content_conn(departurdate, flightno1, sector1, flightno2, sector2, rbds)
                     else:
                         departurdate, flightno, sector=data["departureDate"],data["flightNo1"],data["sector1"]
                         rbds=data["auClasses"]
+                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2} ,{rbds}")
                         file_content=self.generate_file_content_direct(departurdate,flightno,sector,rbds)
                     file.write(file_content)
 

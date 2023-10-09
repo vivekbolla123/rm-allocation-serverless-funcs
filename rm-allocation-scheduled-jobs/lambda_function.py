@@ -1,9 +1,12 @@
 import json
+import logging
 import boto3
 import pandas as pd
 import configsettings
 from sqlalchemy import create_engine
 
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 # Initialize AWS resources
 sqs = boto3.client('sqs')
 
@@ -36,6 +39,7 @@ def lambda_handler(event, context):
 def pushRBDToSFTP(conn, run_id):
     query2 = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND status <> 'Ready'"
     count_ready = pd.read_sql(query2, conn)["total"][0]
+    logger.info(f"no of records are not ready  {count_ready}")
     if count_ready == 0:
             # All flights are ready, push run_id to the update_rbd_ftp
         sqs.send_message(
@@ -45,6 +49,7 @@ def pushRBDToSFTP(conn, run_id):
                         'run_id': run_id
                     }),
             )
+        logger.info(f"{run_id} is pushed into queue for sftp")
 
 def runConnentions(conn, run_id, dtd_start, dtd_end, is_connections_required):
     if(is_connections_required == 1):
