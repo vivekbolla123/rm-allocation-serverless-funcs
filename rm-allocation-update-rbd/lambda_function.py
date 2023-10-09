@@ -315,7 +315,7 @@ def updateRunAudit(run_id, start_date, flight, result):
     conn.execute(update_query, ("Done", result, run_id, flight, start_date))
 
 def updateAllocationAudit(endTime, run_id):
-    update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE runId = %s"
+    update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE run_id = %s"
     conn.execute(update_query, (endTime.strftime('%Y-%m-%d %H:%M:%S'), run_id))
 
 # messageBody = {'runId': '41f085d4-2108-4bf8-be6c-98afc92c5e02', 'type': 'L', 'flight': ' QP1127 BOMDEL', 'startDate': '08-01-2023', 'endDate': '08-01-2023', 'dayOfWeek': 'Daily', 'aircraftType': '', 'aircraftSuffix': '', 'lid': '', 'capacity': '', 'status': '', 'b2cRunId': 'e4bfe37b-440c-4ccf-95ea-b88112c6e84b', 'b2bRunId': '9460355b-799f-4a8b-97b9-ce661aacc580', 'rowId': '6d988a82-03b9-45f4-b994-6b503b9cc176', 'auClasses': {}}
