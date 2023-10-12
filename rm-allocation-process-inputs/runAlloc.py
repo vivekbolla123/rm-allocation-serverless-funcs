@@ -142,7 +142,7 @@ class DynAlloc:
 				if(FlightNumber == '*'):
 					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
 				else:
-					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber)]
+					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == int(FlightNumber))]
 				#Fetch the current booked load from Navitaire
 				# If for whatever reason - unable to get the booked Load - Abort
 				tgtBookedLoad = None
