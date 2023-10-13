@@ -149,7 +149,7 @@ class DynAlloc:
 				if(bookedLoadSingleRow.shape[0] == 0):
 					dateFormatted = datetime.strptime(str(startDate), Constants.DATE_FORMAT_2).date().strftime(Constants.DATE_FORMAT)
 					print("Unable to get the Booked Load - Aborting")
-					self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin, "Destin":destination, "FltNum":"NA","DepDate":str(dateFormatted), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD": "NA", "SellingFare":"NA", 'Channel':"NA", 'fareAnchor':"NA",  'HowDetermined':"unable to get Booked loads from " + str(startDate) + " to " + str(endDate), 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
+					self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin, "Destin":destination, "FltNum":str(FlightNumber),"DepDate":str(dateFormatted), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD": "NA", "SellingFare":"NA", 'Channel':"NA", 'fareAnchor':"NA",  'HowDetermined':"unable to get Booked loads from " + str(startDate) + " to " + str(endDate), 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
 					self.insertSummaryRow()
 				else:
 					tgtBookedLoadList = self.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
@@ -161,7 +161,7 @@ class DynAlloc:
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
-						self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin,"Destin":destination,"FltNum":"NA","DepDate":str(tgtDate), "BookedLoad":"NA", "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD":"NA", "SellingFare":"NA", 'fareAnchor':"NA",  'Channel':"NA", 'HowDetermined':"No Reference Curve Found", 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
+						self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin,"Destin":destination,"FltNum":str(FlightNumber),"DepDate":str(tgtDate), "BookedLoad":bookedLoadSingleRow["bookedPax"][0], "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD":"NA", "SellingFare":"NA", 'fareAnchor':"NA",  'Channel':"NA", 'HowDetermined':"No Reference Curve Found", 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Dev_BKGCurve': 'NA' , 'StrategyReference': 'NA'}, ignore_index = True)
 						self.insertSummaryRow()
 		except Exception as e:
 			print("Exception occurred")
@@ -221,7 +221,7 @@ class DynAlloc:
 			dPLF = (currBookedLoad/totalCapacity) - tgtBookloadFactor
 			plfValue = dPLF * 100
 			plf= (currBookedLoad/totalCapacity) * 100
-			curveReference = (tgtBookedLoad - currBookedLoad) / totalCapacity
+			curveReference = (currBookedLoad - tgtBookedLoad) / totalCapacity
 			print("plfValue is " + str(plfValue))
 			ndoBand = self.getNdoBand(ndocounter)
 			dplfBand = self.getdpflBand(plfValue)
@@ -505,11 +505,14 @@ class DynAlloc:
 				if (incrementalb2b >= totalCapacity):
 					incrementalb2b = totalCapacity
      
-				if (RBDLabel == 'Y'):
+				if (RBDLabel == self.HIGHEST_B2C_RBD_VALUE):
 					incremental = totalCapacity
 				if b2cctr < B2CRBDs.shape[0]:
 					currRec.append(int(incremental))
 
+				if(int(b2bFactor) == -1):
+					incrementalb2b = -1
+     
 				b2cAllocationsUnits.append(incrementalb2b)
 				b2bctr = b2bctr + 1
 				
@@ -664,8 +667,8 @@ class DynAlloc:
 			if (channel == 'B2C'):
 				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2C allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 			if (channel == 'B2B'):
-				if (defFareData['RBD'][0] == 'Z0'):
-					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than Z0 levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
+				if (defFareData['RBD'][0] == self.HIGHEST_B2B_RBD_VALUE):
+					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than '+ self.HIGHEST_B2B_RBD_VALUE +' levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
 				else:
 					openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
 		else:
@@ -689,7 +692,7 @@ class DynAlloc:
 			if(defFareData.shape[0] == 0):
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0)
 		
-			if(rbddata['RBD'][0] == 'Z9' or rbddata['RBD'][0] == 'V9'):
+			if(rbddata['RBD'][0] == self.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.LOWEST_B2C_RBD_VALUE):
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
 				if(rbddata['RBD'][0] == defFareData['RBD'][0]):
 					extremeFareFlag = True
@@ -718,7 +721,7 @@ class DynAlloc:
 
 				if (float(anchorFare) > limitB2BFare):
 					#Outside of B2B Levels - stick with B2C
-					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than Z0 levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
+					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than '+ self.HIGHEST_B2B_RBD_VALUE +' levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1}, ignore_index = True)
 				else:
 					if(offsetToFetch == rbddata.shape[0]):
 						openResult = openResult.append({'RBD':RBDtoOpen, 'Fare':str(FareToOpen), 'FareResult':'Not Enough Levels available - taking the Max/Min Available','anchorFare':anchorFare,'statusInd':2}, ignore_index = True)
@@ -966,8 +969,8 @@ class DynAlloc:
 			AUlist.append(f'AP Restriction AU Class {i+1}')	
 		AUFrame = pd.DataFrame(self.AUFileData, columns=AUlist)
 		
-		print("Final Allocation Results:")
-		print(self.allocResults)
+		# print("Final Allocation Results:")
+		# print(self.allocResults)
 		if self.inputSource[Constants.CONST_OUTPUT][Constants.CONST_AU_GRID] == Constants.FILE:
 			AUFrame.to_csv(Constants.CONST_AU_GRID_FILE_PATH, index=False)
    
@@ -1056,6 +1059,10 @@ class DynAlloc:
 		self.COVERAGE_PARAMETER = Constants.COVERAGE_PARAMETER
 		self.AU_COLUMN_LENGTH = Constants.AU_COLUMN_LENGTH
 		self.B2B_RDB_COUNT = Constants.B2B_RDB_COUNT
+		self.LOWEST_B2B_RBD_VALUE = Constants.LOWEST_B2B_RBD_VALUE
+		self.LOWEST_B2C_RBD_VALUE = Constants.LOWEST_B2C_RBD_VALUE
+		self.HIGHEST_B2B_RBD_VALUE = Constants.HIGHEST_B2B_RBD_VALUE
+		self.HIGHEST_B2C_RBD_VALUE = Constants.HIGHEST_B2C_RBD_VALUE
   
 		parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
 		parameterValue = pd.read_sql(parameterValueQuery, self.conn)
@@ -1074,6 +1081,14 @@ class DynAlloc:
 				self.AU_COLUMN_LENGTH = str(val['parameterValue'])
 			if val['parameterKey'] == 'B2B_RDB_COUNT':
 				self.B2B_RDB_COUNT = float(val['parameterValue'])
+			if val['parameterKey'] == 'LOWEST_B2B_RBD_VALUE':
+				self.LOWEST_B2B_RBD_VALUE = str(val['parameterValue'])
+			if val['parameterKey'] == 'LOWEST_B2C_RBD_VALUE':
+				self.LOWEST_B2C_RBD_VALUE = str(val['parameterValue'])
+			if val['parameterKey'] == 'HIGHEST_B2B_RBD_VALUE':
+				self.HIGHEST_B2B_RBD_VALUE = str(val['parameterValue'])
+			if val['parameterKey'] == 'HIGHEST_B2C_RBD_VALUE':
+				self.HIGHEST_B2C_RBD_VALUE = str(val['parameterValue'])
 	
 	def getUniqueId(self):
 		return str(uuid.uuid4())
