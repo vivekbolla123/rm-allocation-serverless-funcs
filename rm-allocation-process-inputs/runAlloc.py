@@ -704,6 +704,7 @@ class DynAlloc:
 					FareToOpen = defFareData['Total'][0]
 			else:
 				if(float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch])):
+					offsetToFetch=min(len(defFareData['Total'])-1,offsetToFetch)
 					if(rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0):
 						backstopFlag = True
 					RBDtoOpen = defFareData['RBD'][0]
