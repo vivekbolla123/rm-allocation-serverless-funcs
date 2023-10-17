@@ -8,9 +8,9 @@ import paramiko
 import time
 import logging
 import configsettings
-from datetime import datetime
+from datetime import datetime 
 from sqlalchemy import create_engine
-
+import pandas as pd
 warnings.filterwarnings('ignore')
 
 logger = logging.getLogger()
@@ -37,7 +37,7 @@ def lambda_handler(event, context):
 
     }
     records = event['Records']
-    processor = DataProcessor(data)
+    processor = DataProcessor(data,context)
     
     for record in records:
         content = record['body']
@@ -52,8 +52,9 @@ def lambda_handler(event, context):
 
 
 class DataProcessor:
-    def __init__(self, configData):
+    def __init__(self, configData,context):
         # Define your instance variables here
+        self.context=context
         self.starttime = configData["starttime"]
         self.refresh_time = configData["refresh_time"]
         self.chunk_size = configData["chunk_size"]
@@ -68,6 +69,8 @@ class DataProcessor:
         self.userName = configData["userName"]
 
     def upload_to_sftp(self,local_file,runid):
+        logger.info("Started SFTP upload.....")
+        start=datetime.now()
         transport = paramiko.Transport((self.sftp_host, self.sftp_port))
         transport.connect(username=self.sftp_username, password=self.sftp_password)
         sftp = paramiko.SFTPClient.from_transport(transport)
@@ -92,9 +95,15 @@ class DataProcessor:
                     sftp.put(local_file, remote_file_path)
                     sftp.chdir(self.sftp_destination_dir)
                     sftp.open("AUUPDATE.TAG", 'w').close()
-                    conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1' WHERE run_id = '{runid}'")
-                    conn.execute(f"UPDATE run_flight_date_audit SET status = 'Done' WHERE runId = '{runid}'")
-                    
+                    elapsed_time = datetime.now() - start
+                    minutes, remainder = divmod(elapsed_time.seconds, 60)
+                    seconds = remainder
+
+                    print(f"It took {minutes} minutes and {seconds} seconds. to upload file to SFTP")
+                    query=f'''SELECT CASE WHEN COUNT(*) = SUM(status = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{runid}"'''
+                    all_done=pd.read_sql(query,conn)
+                    if(all_done["all_done"][0]==1):
+                        conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1' WHERE run_id = '{runid}'")
                     sftp.close()
                     transport.close()
                     print(f"{local_file} successfully uploaded")
@@ -111,48 +120,6 @@ class DataProcessor:
     
         # Upload the local file to the SFTP server
     
-    
-    def divide_file(self,file_path, run_id,chunk_size_mb=40):
-        
-        chunk_size = chunk_size_mb * 1024 * 1024  # Convert MB to bytes
-        file_size = os.path.getsize(file_path)
-
-        if file_size <= chunk_size:
-            print(f"The file '{file_path}' is already smaller than {chunk_size_mb}MB.")
-            self.upload_to_sftp(configsettings.TEMP_FILE_NAME,run_id)
-            return
-
-        with open(file_path, 'rb') as input_file:
-            base_filename = os.path.splitext(file_path)[0]
-            chunk_number = 1
-            while True:
-                chunk_data = input_file.read(chunk_size)
-                if not chunk_data:
-                    break
-                
-                # Check if the chunk ends with a newline character
-                if chunk_data.endswith(b'\n'):
-                    # If it does, write the chunk to the current file
-                    with open(f"{base_filename}_part{chunk_number}", 'wb') as output_file:
-                        output_file.write(chunk_data)
-                else:
-                    # If it doesn't, find the last newline character position
-                    last_newline_pos = chunk_data.rfind(b'\n')
-                    if last_newline_pos != -1:
-                        # Write the chunk up to the last newline character
-                        with open(f"{base_filename}_part{chunk_number}", 'wb') as output_file:
-                            output_file.write(chunk_data[:last_newline_pos + 1])
-                        
-                        # Seek back to the position after the last newline character
-                        input_file.seek(-(len(chunk_data) - last_newline_pos - 1), os.SEEK_CUR)
-                    else:
-                        # If there are no newline characters, write the whole chunk
-                        with open(f"{base_filename}_part{chunk_number}", 'wb') as output_file:
-                            output_file.write(chunk_data)
-                self.upload_to_sftp(f"{base_filename}_part{chunk_number}",run_id)
-                chunk_number += 1
-
-            print(f"File '{file_path}' has been divided into {chunk_number - 1} chunks.")
 
     def pad_rbd_value(self,rbd_value):
         return f"{rbd_value:04}"
@@ -185,16 +152,34 @@ class DataProcessor:
                 file_content += line
         return file_content
     # Function to upload the file to SFTP
+    def push_message_back_to_sqs(self, runid):
+        sqs_client = boto3.client('sqs')
+        message_body = {
+            "run_id": runid
+        }
+        sqs_client.send_message(
+            QueueUrl=configsettings.AWS_SQS_QUEUE_URL,
+            MessageBody=json.dumps(message_body)
+        )
+        logger.info(f"message with runid: {runid} send back to Queue Succesfully")
         
     def fetch_data(self,runid):
-        data = conn.execute(f"SELECT result FROM run_flight_date_audit WHERE runId = '{runid}'")
+        data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and status != 'Done'")
         # Generate and write data to the AUUPDATE file
         file_name = configsettings.TEMP_FILE_NAME  # Use Lambda's /tmp directory
         with open(file_name, 'w') as file:
             for row in data:
-                if(row[0] is not None):
-                    data = json.loads(row[0])
-                                        
+                file_size = os.path.getsize(file_name)
+                if (self.context.get_remaining_time_in_millis() < configsettings.EXP_TIME or file_size>configsettings.MAX_FILE_SIZE):
+                    logger.error("Lambda is about to time out, message pushed back to SQS.")
+                    self.upload_to_sftp(file_name,runid)
+                    self.push_message_back_to_sqs(runid)
+                    return
+                
+                conn.execute(f"UPDATE run_flight_date_audit SET status = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'")
+                
+                if(row["result"] is not None):
+                    data = json.loads(row["result"])                
                     if data["type"]=="R":
                         departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"],data["sector1"], data["flightNo2"], data["sector2"]
                         rbds=data["auClasses"]
@@ -208,7 +193,7 @@ class DataProcessor:
                     file.write(file_content)
 
         # Periodically check if the remote file exists (every 15 seconds)
-        self.divide_file(file_name,run_id=runid)
+        self.upload_to_sftp(file_name,runid)
         
         
 # messageBody = {"run_id":"dcae96e5-c754-4006-8895-b7dba03edab0"}
