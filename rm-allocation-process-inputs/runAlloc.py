@@ -388,6 +388,7 @@ class DynAlloc:
 		isUpsellFlag = False
 		B2BRBDs = self.fareExtract(currParams['Origin'], currParams['Destin'], 'B2B', '')
 
+		b2bFactor = float(currParams['B2BFactor'])
 		openbuketFlag = False
 		openingRBD = openDataB2B['RBD'][0]
 		
@@ -402,26 +403,31 @@ class DynAlloc:
 			currRec.append('')
 			currRec.append(-1)
 			currRec.append(-1)
-			if RBDLabel == openingRBD:
-				openbuketFlag = True
+			
+			if(int(b2bFactor) == -1):
+				currRec.append(-1)
+
+			else:
+				if RBDLabel == openingRBD:
+					openbuketFlag = True
 				
-			if (openbuketFlag):
-				#Allocation
-				if((b2bStatus == 0) or (b2bStatus == 2)):
-					if(dPLF < 0 and PLF < self.PLF_CURVE_VALUE):
-						currRec.append(int(self.generateRoundNumber(b2cAllocationsUnits[counter])))
+				if (openbuketFlag):
+					#Allocation
+					if((b2bStatus == 0) or (b2bStatus == 2)):
+						if(dPLF < 0 and PLF < self.PLF_CURVE_VALUE):
+							currRec.append(int(self.generateRoundNumber(b2cAllocationsUnits[counter])))
+						else:
+							currRec.append(0)
+							isUpsellFlag = True
+						counter = counter + 1
+					else:
+						#No B2B Allocaion - Leave it to B2C Fare
+						currRec.append(0)
+				else:
+					if b2bStatus == 3:
+						currRec.append(-1)
 					else:
 						currRec.append(0)
-						isUpsellFlag = True
-					counter = counter + 1
-				else:
-					#No B2B Allocaion - Leave it to B2C Fare
-					currRec.append(0)
-			else:
-				if b2bStatus == 3:
-					currRec.append(-1)
-				else:
-					currRec.append(0)
 
 			currRec.append(-1)
 			currRec.append(-1)
@@ -509,10 +515,6 @@ class DynAlloc:
 					incremental = totalCapacity
 				if b2cctr < B2CRBDs.shape[0]:
 					currRec.append(int(incremental))
-
-				if(int(b2bFactor) == -1):
-					incrementalb2b = -1
-     
 				b2cAllocationsUnits.append(incrementalb2b)
 				b2bctr = b2bctr + 1
 				
