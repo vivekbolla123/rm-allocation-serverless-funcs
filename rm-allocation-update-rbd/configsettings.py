@@ -20,7 +20,7 @@ if env == 'test':
     RM_DB_APPUSER_USERNAME="DBSAAdmin"
     RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
-    NAV_BASE_URL= "https://tbnk-reyalrb.qp.akasaair.com/test"
+    NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
 
 NAV_USERNAME = "aumaster1"
 NAV_DOMAIN = "TOP"
