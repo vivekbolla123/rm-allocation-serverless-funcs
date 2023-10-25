@@ -104,7 +104,7 @@ def lambda_handler(event, context):
     SELECT Origin,Destin,FlightNumber,PerType, 
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
-    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor FROM {market_list_table} 
+    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM {market_list_table} 
     WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
     str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
     """
