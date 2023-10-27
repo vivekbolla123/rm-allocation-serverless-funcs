@@ -124,7 +124,8 @@ class AllocationSummaryReport:
             self.logger.warning("No Records inserted!")
             return False
 
-    def create_allocation_summary_report(self):
+    # Insert run_ids and other details into allocation_summary_report table
+    def run(self):
         """This method aggregates data from allocation_run_audit, run_summary & navitaire_allocation_audit 
         inserts it into allocation_summary_report table"""
         try:
