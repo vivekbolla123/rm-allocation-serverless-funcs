@@ -1,0 +1,148 @@
+from sqlalchemy import text
+
+class AllocationSummaryReport:
+
+    def __init__(self, rmalloc_conn, report_conn, logger):
+        self.rmalloc_conn = rmalloc_conn
+        self.report_conn = report_conn
+        self.logger = logger
+
+    def get_all_allocation_run_summary(self, allocation_run_ids):
+        """Returns list of dictionaries with data from allocation_run_audit, run_summary & navitaire_allocation_audit"""
+        result = self.fetch_allocation_run_summary(allocation_run_ids)
+        if result:
+            output = []
+            run_ids = []
+            for row in result:
+                row_dict = {"report_time_reference": row[0],
+                            "run_id": row[1],
+                            "type": row[2],
+                            "dtd": row[3],
+                            "start_time": row[4],
+                            "end_time": row[5],
+                            "actual_end_time": row[6] or None,
+                            "failures": row[7],
+                            "total": row[8],
+                            "user": row[9],
+                            "runTime": row[10],
+                            "successfulAllocationCount": None,
+                            "totalAllocationCount": None,
+                            "market_list_name": row[11],
+                            "Id_marketList": row[12],
+                            "Id_Curves": row[13],
+                            "Id_Strategy": row[14],
+                            "Id_QpFares": row[15],
+                            }
+                
+                output.append(row_dict)
+                run_ids.append(row[1])
+            
+            run_ids = tuple(run_ids)
+            how_counts = self.fetch_how_count_data(run_ids)
+            if how_counts:
+                idx = 0
+                for data in output:
+                    if idx < len(how_counts) and data['run_id'] == how_counts[idx][2]:
+                        data['successfulAllocationCount'] = how_counts[idx][0]
+                        data['totalAllocationCount'] = how_counts[idx][1]
+                        idx += 1
+                    
+            return output
+        else:
+            self.self.logger.info("No records Found for allocation summary!")
+            return False
+
+    def fetch_allocation_run_summary(self, allocation_run_ids):
+        """Get data by joining allocation_run_audit & navitaire_allocation_audit"""
+        if len(allocation_run_ids) == 1:
+            run_id = allocation_run_ids[0][0]
+            condition = f"WHERE ara.run_id = '{run_id}'"
+        else:
+            extracted_values = [item[0] for item in allocation_run_ids]
+            run_ids = tuple(extracted_values)
+            condition = f"WHERE ara.run_id IN {run_ids}"
+
+        select = f"""SELECT ara.start_time AS report_time_reference,
+                        ara.run_id AS runId,
+                        IFNULL(ara.type, 0) AS type,
+                        IFNULL(CONCAT(ara.dtd_start, '-', ara.dtd_end), 0) AS dtd,
+                        CONVERT_TZ(ara.start_time, 'UTC', 'ASIA/KOLKATA') AS start_time,
+                        MAX(CONVERT_TZ(naa.end_time, 'UTC', 'ASIA/KOLKATA')) AS end_time,
+                        IFNULL(ara.actual_end_time, '') AS actual_end_time,
+                        IFNULL(SUM(CASE WHEN naa.failures > 0 THEN 1 ELSE 0 END), - 1) AS failures,
+                        IFNULL(COUNT(naa.totalApiCalls), - 1) AS total,
+                        ara.user,
+                        IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, ara.start_time, max(naa.end_time))), '') AS runTime,
+                        ara.market_list_name,
+                        IFNULL(ara.market_list, 0) AS Id_marketList,
+                        IFNULL(ara.Curves, 0) AS Id_Curves,
+                        IFNULL(ara.d1_d2_strategies, 0) AS Id_Strategy,
+                        IFNULL(ara.Fares, 0) AS Id_QpFares
+                    FROM
+                        allocation_run_audit ara 
+                    LEFT JOIN
+                        navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
+                        AND ara.type != 'Local Run'
+                    {condition}
+                    GROUP BY ara.run_id"""
+            
+        result = self.rmalloc_conn.execute(select).fetchall()
+        return result
+
+    def fetch_how_count_data(self, run_ids):
+        """Get aggregate data of HowCount from run_summary"""
+        get_how_count = f"""SELECT
+                                SUM(CASE
+                                    WHEN rs.HowDetermined = 'Matched and allocated' THEN 1
+                                    WHEN rs.HowDetermined = 'Matched and allocated - Backstop Hit' THEN 1
+                                    WHEN rs.HowDetermined = 'Unable to Match Mkt - B2C allocation at extreme value' THEN 1
+                                    WHEN rs.HowDetermined = 'Unable to Match Mkt - B2B allocation at extreme value' THEN 1
+                                    ELSE 0
+                                END) AS successfulAllocationCount,
+                                count(1) AS totalAllocationCount,
+                                rs.runId
+                            FROM
+                                run_summary rs
+                            WHERE rs.RunId IN {run_ids}
+                            GROUP BY rs.RunId"""
+            
+        how_counts = self.rmalloc_conn.execute(get_how_count).fetchall()
+        return how_counts
+    
+    def add_allocation_summary_report(self, allocation_summary_data):
+        """Inserts allocation summary data into table `allocation_summary_report` """
+        columns = ", ".join([f"`{col}`" for col in allocation_summary_data[0].keys()])
+        placeholder = ", ".join([f":{col}" for col in allocation_summary_data[0].keys()])
+
+        insert_query = f"INSERT INTO allocation_summary_report ({columns}) VALUES ({placeholder})"
+        stmt = text(insert_query)
+        result = self.report_conn.execute(stmt, allocation_summary_data)
+        if result.rowcount > 0:
+            self.logger.info(f"{result.rowcount} Records inserted Successfully!")
+            return True
+        else:
+            self.logger.warning("No Records inserted!")
+            return False
+
+    def create_allocation_summary_report(self):
+        """This method aggregates data from allocation_run_audit, run_summary & navitaire_allocation_audit 
+        inserts it into allocation_summary_report table"""
+        try:
+            lastInsertedTime = "2023-08-31 00:00:00"
+            get_lastInsertedTime = self.report_conn.execute("SELECT report_time_reference FROM allocation_summary_report order by report_time_reference desc limit 1").fetchone()
+            if get_lastInsertedTime:
+                lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
+
+            self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
+            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND is_run_completed =1 ").fetchall()  
+            self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
+            if allocation_run_ids:
+                allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)
+                is_added = self.add_allocation_summary_report(allocation_summary_data)
+                if is_added:
+                    return True
+                return False
+            else:
+                self.logger.info("No new run_ids Found!")
+        except Exception as err:
+            self.logger.error(err)
