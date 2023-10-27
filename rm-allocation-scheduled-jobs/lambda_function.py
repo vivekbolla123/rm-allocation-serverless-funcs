@@ -31,24 +31,24 @@ def lambda_handler(event, context):
     body = event['body']
     data = json.loads(body)
     
-    if data['mark_run_completed']:
+    if 'mark_run_completed' in data:
         markRunCompleted = MarkRunCompleted(logger, rm_rd_conn, rm_wr_conn)
         markRunCompleted.run()
     
-    if data['sftp_push']:
+    if 'sftp_push' in data:
         sftp_push = PushRBDtoSFTP(sqs, logger, rm_rd_conn)
         sftp_push.run()
     
-    if data['connections']:
+    if 'connections' in data:
         connection = RunConnections(sqs, logger, rm_rd_conn)
         connection.run()
 
     ## All reporting modules
-    if data['alloc_summary']:
+    if 'alloc_summary' in data:
         alloc_summary = AllocationSummaryReport(rm_rd_conn, rm_wr_conn, logger)
         alloc_summary.run()
     
-    if data['clean_up']:
+    if 'clean_up' in data:
         clean_up = CleanUpConfig(rm_rd_conn, rm_wr_conn, logger)
         clean_up.run()
         
