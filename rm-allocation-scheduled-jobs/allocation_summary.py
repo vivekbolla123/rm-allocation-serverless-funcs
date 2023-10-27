@@ -49,7 +49,7 @@ class AllocationSummaryReport:
                     
             return output
         else:
-            self.self.logger.info("No records Found for allocation summary!")
+            self.logger.info("No records Found for allocation summary!")
             return False
 
     def fetch_allocation_run_summary(self, allocation_run_ids):
@@ -114,7 +114,7 @@ class AllocationSummaryReport:
         columns = ", ".join([f"`{col}`" for col in allocation_summary_data[0].keys()])
         placeholder = ", ".join([f":{col}" for col in allocation_summary_data[0].keys()])
 
-        insert_query = f"INSERT INTO allocation_summary_report ({columns}) VALUES ({placeholder})"
+        insert_query = f"INSERT INTO QP_RM_REPORTS.allocation_summary_report ({columns}) VALUES ({placeholder})"
         stmt = text(insert_query)
         result = self.report_conn.execute(stmt, allocation_summary_data)
         if result.rowcount > 0:
@@ -130,7 +130,7 @@ class AllocationSummaryReport:
         inserts it into allocation_summary_report table"""
         try:
             lastInsertedTime = "2023-08-31 00:00:00"
-            get_lastInsertedTime = self.report_conn.execute("SELECT report_time_reference FROM allocation_summary_report order by report_time_reference desc limit 1").fetchone()
+            get_lastInsertedTime = self.report_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
             if get_lastInsertedTime:
                 lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
