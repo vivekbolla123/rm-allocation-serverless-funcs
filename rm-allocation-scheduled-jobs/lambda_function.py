@@ -58,7 +58,7 @@ def lambda_handler(event, context):
     }
 
 def checkIfRunCompleted(rdconn, wrconn, run_id):
-    query = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND status <> 'Done'"
+    query = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND (b2cstatus <> 'Done' OR b2bstatus <> 'Done')"
     count_ready = pd.read_sql(query, rdconn)["total"][0]
     logger.info(f"no of records are not ready  {count_ready}")
     if count_ready == 0:

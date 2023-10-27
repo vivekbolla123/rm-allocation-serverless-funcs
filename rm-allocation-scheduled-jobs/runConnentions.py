@@ -11,7 +11,7 @@ class RunConnections:
     def runConnentions(self, conn, run_id, dtd_start, dtd_end, is_connections_required):
         if(is_connections_required == 1):
                 # Check run_flight_date_audit table if all are done for the current run_id
-            query1 = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND status <> 'Done'"
+            query1 = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND (b2cstatus <> 'Done' OR b2bstatus <> 'Done')"
             count_done = pd.read_sql(query1, conn)["total"][0]
             if count_done == 0:
                     # All flights are done, push run_id to the connection_queue

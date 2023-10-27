@@ -9,7 +9,7 @@ class PushRBDtoSFTP:
         self.logger = logger
 
     def pushRBDToSFTP(self, conn, run_id):
-        query2 = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND status <> 'Ready'"
+        query2 = f"SELECT COUNT(*) as total FROM run_flight_date_audit WHERE runId = '{run_id}' AND (b2cstatus <> 'Ready' OR b2bstatus <> 'Ready')"
         count_ready = pd.read_sql(query2, conn)["total"][0]
         self.logger.info(f"no of records are not ready  {count_ready}")
         if count_ready == 0:

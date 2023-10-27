@@ -100,7 +100,7 @@ class DataProcessor:
                     seconds = remainder
 
                     print(f"It took {minutes} minutes and {seconds} seconds. to upload file to SFTP")
-                    query=f'''SELECT CASE WHEN COUNT(*) = SUM(status = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{runid}"'''
+                    query=f'''SELECT CASE WHEN COUNT(*) = SUM(b2cstatus = 'Done') AND COUNT(*) = SUM(b2bstatus = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{runid}"'''
                     all_done=pd.read_sql(query,conn)
                     if(all_done["all_done"][0]==1):
                         conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1' WHERE run_id = '{runid}'")
@@ -164,7 +164,7 @@ class DataProcessor:
         logger.info(f"message with runid: {runid} send back to Queue Succesfully")
         
     def fetch_data(self,runid):
-        data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and status != 'Done'")
+        data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and (b2cstatus != 'Done' OR b2bstatus != 'Done')")
         # Generate and write data to the AUUPDATE file
         file_name = configsettings.TEMP_FILE_NAME  # Use Lambda's /tmp directory
         with open(file_name, 'w') as file:
@@ -176,10 +176,10 @@ class DataProcessor:
                     self.push_message_back_to_sqs(runid)
                     return
                 
-                conn.execute(f"UPDATE run_flight_date_audit SET status = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'")
+                conn.execute(f"UPDATE run_flight_date_audit SET b2cstatus = 'Done', b2bstatus = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'")
                 
                 if(row["result"] is not None):
-                    data = json.loads(row["result"])                
+                    data = json.loads(row["result"])
                     if data["type"]=="R":
                         departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"],data["sector1"], data["flightNo2"], data["sector2"]
                         rbds=data["auClasses"]
