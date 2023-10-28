@@ -135,7 +135,7 @@ class AllocationSummaryReport:
                 lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
             self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
-            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND is_run_completed =1 ").fetchall()  
+            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' ").fetchall()  #TODO: AND is_run_completed =1
             self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
             if allocation_run_ids:
                 allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)
