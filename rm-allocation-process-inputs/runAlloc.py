@@ -1131,16 +1131,19 @@ class DynAlloc:
 			print(self.mktList)
 
 	def updateRunAudit(self, b2cStatus, b2bStatus, flightNo, flightDate):
+		dateFormatted = datetime.strptime(str(flightDate), Constants.DATE_FORMAT).date().strftime(Constants.DATE_FORMAT_2)
 		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
+		self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, dateFormatted)
 
 	def updateRunAuditb2c(self, b2cStatus, flightNo, flightDate):
+		dateFormatted = datetime.strptime(str(flightDate), Constants.DATE_FORMAT).date().strftime(Constants.DATE_FORMAT_2)
 		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
+		self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, dateFormatted)
   
 	def updateRunAuditb2b(self, b2bStatus, flightNo, flightDate):
+		dateFormatted = datetime.strptime(str(flightDate), Constants.DATE_FORMAT).date().strftime(Constants.DATE_FORMAT_2)
 		update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
+		self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, dateFormatted)
   
 	def updateRunEnd(self, endTime):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:

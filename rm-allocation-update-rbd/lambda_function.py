@@ -311,7 +311,7 @@ def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2b
     print("ADDED ALLOCATION RUN")
 
 def updateRunAudit(run_id, start_date, flight, result):
-    dateFormatted = datetime.strptime(str(start_date), "%d-%m-%Y").date().strftime('%Y-%m-%d')
+    dateFormatted = start_date[:10]
     update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s ,b2bstatus = %s , result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
     conn.execute(update_query, ("Done", "Done", result, run_id, flight, dateFormatted))
 
