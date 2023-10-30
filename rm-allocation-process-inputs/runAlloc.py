@@ -213,6 +213,7 @@ class DynAlloc:
 			print("DOW is : " + str(dow))
 			print("Extract is " + str(currParams['DOW'])[dow:(dow+1)])
 
+		dateFormatted = datetime.strptime(str(currFltDate), Constants.DATE_FORMAT).date().strftime(Constants.DATE_FORMAT_2)
 		if ((str(currFlt) == str(currParams['FlightNumber'])) or (currParams['FlightNumber'] == '*')) and (str(currParams['DOW'])[dow:(dow+1)] == "1"):
 			print("Actual Booked Load for " + str(currParams['FlightNumber']) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
 
@@ -309,7 +310,6 @@ class DynAlloc:
 			elif(lowFareB2C == hiFareB2C == 0 and B2CAvgFare==-99):
 				isB2CMarketFareAvailable=False
 		
-			dateFormatted = datetime.strptime(str(currFltDate), Constants.DATE_FORMAT).date().strftime(Constants.DATE_FORMAT_2)
 			if(isB2CMarketFareAvailable):
 				if currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX":
 					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C) + " to " + str(hiFareB2C))
@@ -394,6 +394,11 @@ class DynAlloc:
 			self.insertSummaryRow()
 				
 		else:
+			if (str(currParams['DOW'])[dow:(dow+1)] == "9"):
+				if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
+					self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
+				self.allocResults = self.allocResults.append({"Id":None, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":"NA", "TgtLoad":"NA", 'TimeRange': "NA", 'dlfBand': "NA", 'ndoBand': "NA",  'anchorFare':"NA", "MktFare_Min":"NA", 'MktFare_Max':"NA", "OpenRBD":"NA", "SellingFare":"NA", 'Channel':"NA", 'HowDetermined':"DOW is not matching with the given Date", 'fareAnchor': "NA", 'fareOffset': "NA", 'Backstop': "NA", 'AirlineCode_Min': "NA", 'AirlineCode_Max': "NA", 'FlightNumber_Min': "NA", 'FlightNumber_Max': "NA", 'Dev_BKGCurve': "NA" , 'StrategyReference': "NA",'analystName': currParams['analystName'] ,'bookedPlf': 'NA'}, ignore_index = True)
+				self.insertSummaryRow()	
 			print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
 	def B2BAllocation(self, currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits):
