@@ -163,7 +163,7 @@ class DynAlloc:
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
-						self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin,"Destin":destination,"FltNum":str(FlightNumber),"DepDate":str(tgtDate), "BookedLoad":bookedLoadSingleRow["bookedPax"][0], "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD":"NA", "SellingFare":"NA", 'fareAnchor':"NA",  'Channel':"NA", 'HowDetermined':"No Reference Curve Found", 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Variance': 'NA' , 'StrategyReference': 'NA', 'analystName': analystName ,'bookedPlf': 'NA'}, ignore_index = True)
+						self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId, "Origin":origin,"Destin":destination,"FltNum":str(FlightNumber),"DepDate":str(tgtDate), "BookedLoad":bookedLoadSingleRow["bookedPax"].values[0], "TgtLoad":str(tgtBookedLoad), 'TimeRange': 'NA', 'dlfBand': 'NA', 'ndoBand': 'NA', 'anchorFare': 'NA', "MktFare_Min":"NA","MktFare_Max":"NA", "fareOffset": "NA", "OpenRBD":"NA", "SellingFare":"NA", 'fareAnchor':"NA",  'Channel':"NA", 'HowDetermined':"No Reference Curve Found", 'Backstop': 'NA', 'AirlineCode_Min': 'NA', 'AirlineCode_Max': 'NA', 'FlightNumber_Min': 'NA', 'FlightNumber_Max': 'NA', 'Variance': 'NA' , 'StrategyReference': 'NA', 'analystName': analystName ,'bookedPlf': 'NA'}, ignore_index = True)
 						self.updateRunAudit("Done", "Done", FlightNumber, tgtDate)
 						self.insertSummaryRow()
 		except Exception as e:
