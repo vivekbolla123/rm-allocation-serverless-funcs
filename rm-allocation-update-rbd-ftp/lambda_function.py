@@ -103,7 +103,8 @@ class DataProcessor:
                     query=f'''SELECT CASE WHEN COUNT(*) = SUM(b2cstatus = 'Done') AND COUNT(*) = SUM(b2bstatus = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{runid}"'''
                     all_done=pd.read_sql(query,conn)
                     if(all_done["all_done"][0]==1):
-                        conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1' WHERE run_id = '{runid}'")
+                        actual_end_time = datetime.now()
+                        conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1', actual_end_time ='{actual_end_time.strftime('%Y-%m-%d %H:%M:%S')}' WHERE run_id = '{runid}'")
                     sftp.close()
                     transport.close()
                     print(f"{local_file} successfully uploaded")
