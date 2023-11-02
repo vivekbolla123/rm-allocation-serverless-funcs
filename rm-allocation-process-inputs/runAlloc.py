@@ -242,10 +242,12 @@ class DynAlloc:
 			criteria, offset, strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand)
    
 			# assigning to the same field to maintain backward compatibility
-			currParams['TimeWindowStart'] = startTime
-			currParams['TimeWindowEnd'] = endTime
+			
+			
 			currParams['fareAnchor'] = criteria
 			currParams['fareOffset'] = offset
+			currParams["startTime"]=startTime
+			currParams["endTime"]=endTime
    
 			#Actual Work Happens here
 			#Get the B2C and B2B Fare ranges
@@ -280,20 +282,31 @@ class DynAlloc:
 			if(len(mktFareRangeB2C) > 0):
 				lowFareB2C = mktFareRangeB2C['gross_fare'][0]
 				hiFareB2C = mktFareRangeB2C['gross_fare'].iloc[-1]
-				lowAirlineCodeB2C = mktFareRangeB2C['outbound_airline_code'][0]
-				hiAirlineCodeB2C = mktFareRangeB2C['outbound_airline_code'].iloc[-1]
-				lowFilghtNumB2C = mktFareRangeB2C['outbound_flight'][0]
-				hiFilghtNumB2C = mktFareRangeB2C['outbound_flight'].iloc[-1]
+				if (currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX"):
+					lowAirlineCodeB2C = mktFareRangeB2C['outbound_airline_code'][0]
+					hiAirlineCodeB2C = mktFareRangeB2C['outbound_airline_code'].iloc[-1]
+					lowFilghtNumB2C = mktFareRangeB2C['outbound_flight'][0]
+					hiFilghtNumB2C = mktFareRangeB2C['outbound_flight'].iloc[-1]
+				else:
+					lowAirlineCodeB2C = mktfareRangeB2C_minomaxo['LowFare_airline_code'][0]
+					hiAirlineCodeB2C = mktfareRangeB2C_minomaxo['HiFare_airline_code'][0]
+					lowFilghtNumB2C = mktfareRangeB2C_minomaxo['LowFare_outbound_flight'][0]
+					hiFilghtNumB2C = mktfareRangeB2C_minomaxo['HiFare_outbound_flight'].iloc[0]
 			lowFareB2C_minomaxo = mktfareRangeB2C_minomaxo['LowFare'][0]
 			hiFareB2C_minomaxo = mktfareRangeB2C_minomaxo['HiFare'][0]
-			
 			if(len(mktFareRangeB2B) > 0):
 				lowFareB2B = mktFareRangeB2B['gross_fare'][0]
 				hiFareB2B = mktFareRangeB2B['gross_fare'].iloc[-1]
-				lowAirlineCodeB2B = mktFareRangeB2B['outbound_airline_code'][0]
-				hiAirlineCodeB2B = mktFareRangeB2B['outbound_airline_code'].iloc[-1]
-				lowFilghtNumB2B = mktFareRangeB2B['outbound_flight'][0]
-				hiFilghtNumB2B = mktFareRangeB2B['outbound_flight'].iloc[-1]
+				if (currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX"):
+					lowAirlineCodeB2B = mktFareRangeB2B['outbound_airline_code'][0]
+					hiAirlineCodeB2B = mktFareRangeB2B['outbound_airline_code'].iloc[-1]
+					lowFilghtNumB2B = mktFareRangeB2B['outbound_flight'][0]
+					hiFilghtNumB2B = mktFareRangeB2B['outbound_flight'].iloc[-1]
+				else:
+					lowAirlineCodeB2B = mktfareRangeB2B_minomaxo['LowFare_airline_code'][0]
+					hiAirlineCodeB2B = mktfareRangeB2B_minomaxo['HiFare_airline_code'][0]
+					lowFilghtNumB2B = mktfareRangeB2B_minomaxo['LowFare_outbound_flight'][0]
+					hiFilghtNumB2B = mktfareRangeB2B_minomaxo['HiFare_outbound_flight'].iloc[0]
 			lowFareB2B_minomaxo = mktfareRangeB2B_minomaxo['LowFare'][0]
 			hiFareB2B_minomaxo = mktfareRangeB2B_minomaxo['HiFare'][0]
    
@@ -387,16 +400,15 @@ class DynAlloc:
 				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_SFTP):
 					self.updateNavSFTP(currRec)
 		
-			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Variance': str(curveReference) , 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams['TimeWindowStart'], 'endTime':  currParams['TimeWindowEnd'], 'allocationStatus': (openDataB2C['allocationStatus'][0])}, ignore_index = True)
+			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Variance': str(curveReference) , 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams["startTime"], 'endTime':  currParams["endTime"], 'allocationStatus': (openDataB2C['allocationStatus'][0])}, ignore_index = True)
 			self.insertSummaryRow()
 			
-			self.allocResults = self.allocResults.append({"Id":b2bRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand), 'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2BBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2B), 'AirlineCode_Max': str(hiAirlineCodeB2B), 'FlightNumber_Min': str(lowFilghtNumB2B), 'FlightNumber_Max': str(hiFilghtNumB2B), 'Variance': str(curveReference), 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams['TimeWindowStart'], 'endTime':  currParams['TimeWindowEnd'], 'allocationStatus': (openDataB2B['allocationStatus'][0])}, ignore_index = True)
+			self.allocResults = self.allocResults.append({"Id":b2bRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand), 'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2BBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2B), 'AirlineCode_Max': str(hiAirlineCodeB2B), 'FlightNumber_Min': str(lowFilghtNumB2B), 'FlightNumber_Max': str(hiFilghtNumB2B), 'Variance': str(curveReference), 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams["startTime"], 'endTime':  currParams["endTime"], 'allocationStatus': (openDataB2B['allocationStatus'][0])}, ignore_index = True)
 			self.insertSummaryRow()
 				
 		else:
-			if (str(currParams['DOW'])[dow:(dow+1)] == "9"):
-				if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
-					self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
+			if (str(currParams['DOW'])[dow:(dow+1)] == "9"):		
+				self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
 				self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":"NA", "TgtLoad":"NA", 'TimeRange': "NA", 'dlfBand': "NA", 'ndoBand': "NA",  'anchorFare':"NA", "MktFare_Min":"NA", 'MktFare_Max':"NA", "OpenRBD":"NA", "SellingFare":"NA", 'Channel':"NA", 'HowDetermined':"DOW is not matching with the given Date", 'fareAnchor': "NA", 'fareOffset': "NA", 'Backstop': "NA", 'AirlineCode_Min': "NA", 'AirlineCode_Max': "NA", 'FlightNumber_Min': "NA", 'FlightNumber_Max': "NA", 'Variance': "NA" , 'StrategyReference': "NA",'analystName': currParams['analystName'] ,'bookedPlf': 'NA','startTime': 'NA', 'endTime': 'NA', 'allocationStatus': 0}, ignore_index = True)
 				self.insertSummaryRow()
 			print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
@@ -794,8 +806,8 @@ class DynAlloc:
 		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '" 
 		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
 		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams["startTime"] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams["endTime"] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
 		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_stop = 0"
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
@@ -808,11 +820,11 @@ class DynAlloc:
 	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams):
 
 		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()
-		mktLowestQuery = "Select gross_fare from " + self.TABLE_MARKET_FARES + " where source_airport = '"
+		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '"
 		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
 		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams['TimeWindowStart'] + "','%%T')"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams['TimeWindowEnd'] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams["startTime"] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams["endTime"] + "','%%T')"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
 		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
@@ -830,14 +842,30 @@ class DynAlloc:
 					fare_list.remove(fare)
 			min_fare = min(fare_list)
 			max_fare = max(fare_list)
+			min_fare_row = data[data["gross_fare"] == min_fare].iloc[0]
+			max_fare_row = data[data["gross_fare"] == max_fare].iloc[0]
+			min_airline_code = min_fare_row["outbound_airline_code"]
+			min_outbound_flight = min_fare_row["outbound_flight"]
+			max_airline_code = max_fare_row["outbound_airline_code"]
+			max_outbound_flight = max_fare_row["outbound_flight"]
 		elif len(fare_list)==0:
 			min_fare=0
 			max_fare=0
+			min_airline_code = 'Market Fare not found'
+			min_outbound_flight = 'Market Fare not found'
+			max_airline_code = 'Market Fare not found'
+			max_outbound_flight = 'Market Fare not found'
 		else:
 			min_fare=fare_list[0]
 			max_fare=fare_list[0]
+			min_fare_row = data[data["gross_fare"] == min_fare].iloc[0]
+			max_fare_row = data[data["gross_fare"] == max_fare].iloc[0]
+			min_airline_code = min_fare_row["outbound_airline_code"]
+			min_outbound_flight = min_fare_row["outbound_flight"]
+			max_airline_code = max_fare_row["outbound_airline_code"]
+			max_outbound_flight = max_fare_row["outbound_flight"]
 		mktFareRange = pd.DataFrame(
-			{'LowFare': [min_fare], 'HiFare': [max_fare]})
+			{'LowFare': [min_fare], 'HiFare': [max_fare],'LowFare_airline_code': [min_airline_code], 'LowFare_outbound_flight': [min_outbound_flight], 'HiFare_airline_code': [max_airline_code], 'HiFare_outbound_flight': [max_outbound_flight]})
 		return mktFareRange
 
 	def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
@@ -1137,16 +1165,19 @@ class DynAlloc:
 			print(self.mktList)
 
 	def updateRunAudit(self, b2cStatus, b2bStatus, flightNo, flightDate):
-		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
+		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
+			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
 
 	def updateRunAuditb2c(self, b2cStatus, flightNo, flightDate):
-		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
+		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
+			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
   
 	def updateRunAuditb2b(self, b2bStatus, flightNo, flightDate):
-		update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
+		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
+			update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
   
 	def updateRunEnd(self, endTime):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
