@@ -82,8 +82,7 @@ class AllocationSummaryReport:
                         allocation_run_audit ara 
                     LEFT JOIN
                         navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
-                        AND ara.type != 'Local Run'
-                    {condition}
+                    {condition} AND ara.type != 'Local Run'
                     GROUP BY ara.run_id"""
             
         result = self.rmalloc_conn.execute(select).fetchall()
@@ -121,6 +120,19 @@ class AllocationSummaryReport:
             self.logger.warning("No Records inserted!")
             return False
 
+    def update_api_audit_complete(self, allocation_run_ids):
+        """After inserting records in allocation_summary_report set is_audit_completed='1' """
+        if len(allocation_run_ids) == 1:
+            run_id = allocation_run_ids[0][0]
+            condition = f"run_id = '{run_id}'"
+        else:
+            extracted_values = [item[0] for item in allocation_run_ids]
+            run_ids = tuple(extracted_values)
+            condition = f"run_id IN {run_ids}"
+
+        self.rmalloc_conn.execute(f"UPDATE allocation_run_audit SET is_audit_completed='1' WHERE {condition} ")
+        self.logger.info(f"Audit completed for 'API' navitaire update method")
+
     # Insert run_ids and other details into allocation_summary_report table
     def run(self):
         """This method aggregates data from allocation_run_audit, run_summary & navitaire_allocation_audit 
@@ -132,12 +144,14 @@ class AllocationSummaryReport:
                 lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
             self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
-            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' ").fetchall() #TODO: AND is_run_completed =1
+            # get latest run_ids with navitaire update method as API
+            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND update_navitaire_method='api' ").fetchall()  #TODO: AND is_run_completed =1
             self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
             if allocation_run_ids:
                 allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)
                 is_added = self.add_allocation_summary_report(allocation_summary_data)
                 if is_added:
+                    self.update_api_audit_complete(allocation_run_ids)
                     return True
                 return False
             else:
