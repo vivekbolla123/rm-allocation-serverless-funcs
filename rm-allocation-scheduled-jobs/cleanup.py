@@ -8,11 +8,13 @@ class CleanUpConfig:
     def run(self):
         """This method gets configurations from cleanup_config table and performs Delete operation on specifed criteria """
         try:
-            data = self.rd_conn.execute("SELECT schema_name, table_name, time_column, max_days FROM cleanup_config")
+            data = self.rd_conn.execute("SELECT schema_name, table_name, time_column, max_days, is_archive FROM cleanup_config")
             if data:
                 for row in data:
-                    schema, table_name, time_column, max_days = row
-                    archive = self.archive_before_delete(schema, table_name, time_column, max_days)
+                    archive = False
+                    schema, table_name, time_column, max_days, is_archive = row
+                   
+                    archive = self.archive_before_delete(schema, table_name, time_column, max_days, is_archive)
                     if archive:
                         result = self.wr_conn.execute(f"DELETE FROM {schema}.{table_name} WHERE {time_column} < NOW() - INTERVAL {max_days} DAY")
                         self.logger.info(f"{result.rowcount} records deleted from {schema}.{table_name}!")
@@ -20,8 +22,11 @@ class CleanUpConfig:
         except Exception as err:
             self.logger.error(err)
 
-    def archive_before_delete(self, schema, table_name, time_column, max_days):
+    def archive_before_delete(self, schema, table_name, time_column, max_days, is_archive):
         try:
+            if not is_archive:
+                self.logger.info("Archive Skipped as per configuration!")
+                return True
             get_records = self.rd_conn.execute(f"SELECT * FROM {schema}.{table_name} WHERE {time_column} < NOW() - INTERVAL {max_days} DAY").fetchall()
             if not get_records:
                 self.logger.info(f"No records found from {schema}.{table_name}")
