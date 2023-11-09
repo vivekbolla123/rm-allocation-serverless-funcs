@@ -90,6 +90,13 @@ class AllocationSummaryReport:
 
     def fetch_how_count_data(self, run_ids):
         """Get aggregate data of HowCount from run_summary"""
+        if len(run_ids) == 1:
+            run_ids = run_ids[0][0]
+            condition = f" WHERE rs.RunId = '{run_ids}' "
+        else:
+            extracted_values = [item[0] for item in run_ids]
+            run_ids = tuple(extracted_values)
+            condition = f" WHERE rs.RunId IN {run_ids} "
         get_how_count = f"""SELECT
                                 SUM(CASE
                                     WHEN rs.allocationStatus = 1 THEN 1
@@ -99,7 +106,7 @@ class AllocationSummaryReport:
                                 rs.runId
                             FROM
                                 run_summary rs
-                            WHERE rs.RunId IN {run_ids}
+                                {condition}
                             GROUP BY rs.RunId"""
             
         how_counts = self.rmalloc_conn.execute(get_how_count).fetchall()
