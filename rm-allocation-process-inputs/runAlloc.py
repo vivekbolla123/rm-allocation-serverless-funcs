@@ -115,11 +115,12 @@ class DynAlloc:
 		B2CBackstop = currParams['B2CBackstop']
 		curveId = currParams['CurveID']
 		PerType = currParams['PerType']
+		OwnFareFlag=currParams['OwnFareFlag']
 		SkippingFactor = currParams['SkippingFactor']
 		analystName = currParams['analystName']
 		FlightNumber = str(currParams['FlightNumber'])
 		currParams['Strategy'] = currParams['fareAnchor']
-
+		DaySpan=currParams['DaySpan']
 		startDate, endDate, startNDO, endNDO = self.getStartEndDate(PerType, currDate, startNDO, endNDO)
 		
 		print("Allocation for " + origin + destination + " from " + str(startDate) + " to " + str(endDate))
@@ -159,7 +160,7 @@ class DynAlloc:
 						tgtBookedLoad = float(tgtBookedLoadList['LF'][0])
 						B2CAvgFare=float(tgtBookedLoadList['B2C_Avg_Fare'][0])
 						B2BAvgFare=float(tgtBookedLoadList['B2B_Avg_Fare'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
+						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag)
 					else:
 						#Cannot get a reference curve - Abort
 						print("Unable to get a Target - Check the booking curves")
@@ -178,7 +179,8 @@ class DynAlloc:
 			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s "
 			self.wrconn.execute(update_query, "Ready", "Ready", self.runId)
 
-	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
+
+	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag):
 		currDate = self.getCurrentDate()
 		tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
 		dow = int(datetime.strftime(currDate + timedelta(days=ndocounter),"%w"))
@@ -200,9 +202,9 @@ class DynAlloc:
 			currCapacity = ndoBookedLoad['capacity'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter],Constants.DATE_FORMAT)
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag):
 		
 		tgtBookloadFactor = tgtBookedLoad	
 		tgtBookedLoad = tgtBookedLoad * currCapacity
@@ -236,25 +238,26 @@ class DynAlloc:
 					self.thresholdflag=True
    
 			# Get Dynamic D1 (Time) Value
-			startTime, endTime, time_range = self.getDynamicTime(currParams, dplfBand, ndoBand)
-   
+
+			b2b_startTime, b2b_endTime, b2b_time_range = self.getDynamicTime(currParams, dplfBand, ndoBand,DaySpan,"B2B")
+			b2c_startTime, b2c_endTime, b2c_time_range = self.getDynamicTime(currParams, dplfBand, ndoBand,DaySpan,"B2C")
 			# Get Dynamic D2 (Offset & Criteria) Value
-			criteria, offset, strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand)
-   
+			b2b_criteria, b2b_offset, b2b_strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand,"B2B")
+			b2c_criteria, b2c_offset, b2c_strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand,"B2C")
 			# assigning to the same field to maintain backward compatibility
+
+			b2b_fareanchor=b2b_criteria
+			b2c_fareanchor=b2c_criteria
+			b2b_fareoffset=b2b_offset
+			b2c_fareoffset=b2c_offset
 			
-			
-			currParams['fareAnchor'] = criteria
-			currParams['fareOffset'] = offset
-			currParams["startTime"]=startTime
-			currParams["endTime"]=endTime
-   
 			#Actual Work Happens here
 			#Get the B2C and B2B Fare ranges
-			mktFareRangeB2C = self.getMarketFareRange('B2C',currFltDate, currParams)
-			mktFareRangeB2B = self.getMarketFareRange('B2B',currFltDate, currParams)
-			mktfareRangeB2C_minomaxo = self.getMarketFareRangeminomaxo('B2C', currFltDate, currParams)
-			mktfareRangeB2B_minomaxo = self.getMarketFareRangeminomaxo('B2B', currFltDate, currParams)
+			mktFareRangeB2C = self.getMarketFareRange('B2C',currFltDate, currParams,DaySpan,b2c_startTime,b2c_endTime)
+			mktFareRangeB2B = self.getMarketFareRange('B2B',currFltDate, currParams,DaySpan,b2b_startTime,b2b_endTime)
+			mktfareRangeB2C_minomaxo = self.getMarketFareRangeminomaxo('B2C', currFltDate, currParams,DaySpan,b2c_startTime,b2c_endTime)
+			mktfareRangeB2B_minomaxo = self.getMarketFareRangeminomaxo('B2B', currFltDate, currParams,DaySpan,b2b_startTime,b2b_endTime)
+
 
 			#Does competetive fare exist
 			#We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -312,40 +315,76 @@ class DynAlloc:
    
 			isB2BMarketFareAvailable = True
 			isB2CMarketFareAvailable = True
-			if(lowFareB2B == hiFareB2B == 0 and B2BAvgFare!=-99):
+			if(lowFareB2B == hiFareB2B == 0 and B2BAvgFare!=Constants.FARE_NOT_AVL):
 				lowFareB2B = B2BAvgFare
 				hiFareB2B=B2BAvgFare
-			elif (lowFareB2B == hiFareB2B == 0 and B2BAvgFare==-99):
+			elif (lowFareB2B == hiFareB2B == 0 and B2BAvgFare==Constants.FARE_NOT_AVL):
 				isB2BMarketFareAvailable=False
-			if((lowFareB2C == hiFareB2C == 0) and B2CAvgFare!=-99):
+			if((lowFareB2C == hiFareB2C == 0) and B2CAvgFare!=Constants.FARE_NOT_AVL):
 				lowFareB2C=B2CAvgFare
 				hiFareB2C=B2CAvgFare
-			elif(lowFareB2C == hiFareB2C == 0 and B2CAvgFare==-99):
+			elif(lowFareB2C == hiFareB2C == 0 and B2CAvgFare==Constants.FARE_NOT_AVL):
 				isB2CMarketFareAvailable=False
 		
 			if(isB2CMarketFareAvailable):
-				if currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX":
+				if (OwnFareFlag==Constants.YES_FLAG and B2CAvgFare!=Constants.FARE_NOT_AVL and b2c_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(B2CAvgFare) + " to " + str(B2CAvgFare))
+					openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, b2c_fareanchor,b2c_fareoffset,'B2C', B2CBackstop,B2CAvgFare, currParams['FlightNumber'], dateFormatted)
+					openDataB2C['FareResult']="Matched and allocated at Own Fare"
+				elif b2c_fareanchor==Constants.MIN_FARE_ANCHOR or b2c_fareanchor==Constants.MAX_FARE_ANCHOR:
+
 					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C) + " to " + str(hiFareB2C))
+					openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, b2c_fareanchor,b2c_fareoffset,'B2C', B2CBackstop,0, currParams['FlightNumber'], dateFormatted)
+				elif (OwnFareFlag==Constants.YES_FLAG and B2CAvgFare==Constants.FARE_NOT_AVL and b2c_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					b2c_fareanchor=Constants.MINO_FARE_ANCHOR
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(B2CAvgFare) + " to " + str(B2CAvgFare))
+					openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, b2c_fareanchor,b2c_fareoffset,'B2C', B2CBackstop,B2CAvgFare, currParams['FlightNumber'], dateFormatted)
+					openDataB2C['FareResult']="Inconsistent inputs recheck-Y Flag/OWNF/Fare NA Allocated with MINO"
+				elif (OwnFareFlag==Constants.NO_FLAG and b2c_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					b2c_fareanchor=Constants.MINO_FARE_ANCHOR
+					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(B2CAvgFare) + " to " + str(B2CAvgFare))
+					openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, b2c_fareanchor,b2c_fareoffset,'B2C', B2CBackstop,B2CAvgFare, currParams['FlightNumber'], dateFormatted)
+					openDataB2C['FareResult']="Inconsistent inputs recheck-N Flag/OWNF"
 				else:
 					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C_minomaxo) + " to " + str(hiFareB2C_minomaxo))
-				openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, currParams['fareAnchor'],currParams['fareOffset'],'B2C', B2CBackstop, currParams['FlightNumber'], dateFormatted)
+					openDataB2C = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2C,hiFareB2C,lowFareB2C_minomaxo, hiFareB2C_minomaxo, b2c_fareanchor,b2c_fareoffset,'B2C', B2CBackstop,0, currParams['FlightNumber'], dateFormatted)
+
+
 			else:
 				openDataB2C = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2C Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[1], 'allocationStatus': [0]}
 				self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
 	
 			if(isB2BMarketFareAvailable):
-				if currParams['fareAnchor']=="MIN" or currParams['fareAnchor']=="MAX":
+				if (OwnFareFlag==Constants.YES_FLAG and B2BAvgFare!=Constants.FARE_NOT_AVL and b2b_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(B2BAvgFare) + " to " + str(B2BAvgFare))
+					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, b2b_fareanchor,b2b_fareoffset,'B2B', B2BBackstop,B2BAvgFare, currParams['FlightNumber'], dateFormatted)
+				elif b2b_fareanchor==Constants.MIN_FARE_ANCHOR or b2b_fareanchor==Constants.MAX_FARE_ANCHOR:
+
 					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(lowFareB2B) + " to " + str(hiFareB2B))
+					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, b2b_fareanchor,b2b_fareoffset,'B2B', B2BBackstop,0, currParams['FlightNumber'], dateFormatted)
+				elif (OwnFareFlag==Constants.YES_FLAG and B2BAvgFare==Constants.FARE_NOT_AVL and b2b_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					b2b_fareanchor=Constants.MINO_FARE_ANCHOR
+					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(B2BAvgFare) + " to " + str(B2BAvgFare))
+					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, b2b_fareanchor,b2b_fareoffset,'B2B', B2BBackstop,B2BAvgFare, currParams['FlightNumber'], dateFormatted)
+					openDataB2B['FareResult']="Inconsistent inputs recheck-Y Flag/OWNF/Fare NA Allocated with MINO"
+				elif (OwnFareFlag==Constants.NO_FLAG and b2b_fareanchor==Constants.OWNF_FARE_ANCHOR):
+					b2b_fareanchor=Constants.MINO_FARE_ANCHOR
+					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(B2BAvgFare) + " to " + str(B2BAvgFare))
+					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, b2b_fareanchor,b2b_fareoffset,'B2B', B2BBackstop,B2BAvgFare, currParams['FlightNumber'], dateFormatted)
+					openDataB2B['FareResult']="Inconsistent inputs recheck-N Flag/OWNF"
 				else:
-					print("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2B_minomaxo) + " to " + str(hiFareB2B_minomaxo))
-				openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, currParams['fareAnchor'],currParams['fareOffset'],'B2B', B2BBackstop, currParams['FlightNumber'], dateFormatted)
+					print("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(lowFareB2B_minomaxo) + " to " + str(hiFareB2B_minomaxo))
+					openDataB2B = self.determineRBDToOpen(currParams['Origin'], currParams['Destin'], lowFareB2B,hiFareB2B,lowFareB2B_minomaxo, hiFareB2B_minomaxo, b2b_fareanchor,b2b_fareoffset,'B2B', B2BBackstop,0,currParams['FlightNumber'], dateFormatted)
+
 			else:
 				openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B Market Data NA - Skipping allocation'],'anchorFare': ['NA'],'statusInd':[3], 'allocationStatus': [0]}
 				self.updateRunAuditb2b("Done", currParams['FlightNumber'], dateFormatted)
-			if currParams['fareAnchor']=="MINO" or currParams['fareAnchor']=="MAXO":
+			if b2b_fareanchor==Constants.MINO_FARE_ANCHOR or b2b_fareanchor==Constants.MAXO_FARE_ANCHOR:
+
 					lowFareB2B=lowFareB2B_minomaxo
-					lowFareB2C=lowFareB2C_minomaxo
 					hiFareB2B=hiFareB2B_minomaxo
+			if b2c_fareanchor==Constants.MINO_FARE_ANCHOR or b2c_fareanchor==Constants.MAXO_FARE_ANCHOR:
+					lowFareB2C=lowFareB2C_minomaxo
 					hiFareB2C=hiFareB2C_minomaxo
 			#statusInd
 			# 0 - Allocation went as planned
@@ -399,18 +438,17 @@ class DynAlloc:
      
 				if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_SFTP):
 					self.updateNavSFTP(currRec)
-		
-			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Variance': str(curveReference) , 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams["startTime"], 'endTime':  currParams["endTime"], 'allocationStatus': (openDataB2C['allocationStatus'][0])}, ignore_index = True)
+
+
+			self.allocResults = self.allocResults.append({"Id":b2cRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(b2c_time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand),  'anchorFare':str(openDataB2C["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2C))), 'MktFare_Max': hiFareB2C, "OpenRBD":str(openDataB2C['RBD'][0]), "SellingFare":str(openDataB2C["Fare"][0]), 'Channel':'B2C', 'HowDetermined':str(openDataB2C['FareResult'][0]), 'fareAnchor': b2c_fareanchor, 'fareOffset': b2c_fareoffset, 'Backstop': B2CBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2C), 'AirlineCode_Max': str(hiAirlineCodeB2C), 'FlightNumber_Min': str(lowFilghtNumB2C), 'FlightNumber_Max': str(hiFilghtNumB2C), 'Variance': str(curveReference) , 'StrategyReference': str(b2c_strategy),'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': b2c_startTime, 'endTime':  b2c_endTime, 'allocationStatus': (openDataB2C['allocationStatus'][0])}, ignore_index = True)
 			self.insertSummaryRow()
 			
-			self.allocResults = self.allocResults.append({"Id":b2bRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand), 'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': currParams['fareAnchor'], 'fareOffset': currParams['fareOffset'], 'Backstop': B2BBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2B), 'AirlineCode_Max': str(hiAirlineCodeB2B), 'FlightNumber_Min': str(lowFilghtNumB2B), 'FlightNumber_Max': str(hiFilghtNumB2B), 'Variance': str(curveReference), 'StrategyReference': str(strategy), 'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': currParams["startTime"], 'endTime':  currParams["endTime"], 'allocationStatus': (openDataB2B['allocationStatus'][0])}, ignore_index = True)
+			self.allocResults = self.allocResults.append({"Id":b2bRunId, "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":str(currBookedLoad), "TgtLoad":str(tgtBookedLoad), 'TimeRange': str(b2b_time_range), 'dlfBand': str(dplfBand), 'ndoBand': str(ndoBand), 'anchorFare':str(openDataB2B["anchorFare"][0]), "MktFare_Min":str(round(float(lowFareB2B))), 'MktFare_Max': hiFareB2B, "OpenRBD":str(openDataB2B['RBD'][0]), "SellingFare":str(openDataB2B["Fare"][0]), 'Channel':'B2B', 'HowDetermined':str(openDataB2B['FareResult'][0]), 'fareAnchor': b2b_fareanchor, 'fareOffset': b2b_fareoffset, 'Backstop': B2BBackstop, 'AirlineCode_Min': str(lowAirlineCodeB2B), 'AirlineCode_Max': str(hiAirlineCodeB2B), 'FlightNumber_Min': str(lowFilghtNumB2B), 'FlightNumber_Max': str(hiFilghtNumB2B), 'Variance': str(curveReference), 'StrategyReference': str(b2b_strategy),'analystName': currParams['analystName'] ,'bookedPlf': str(plf),'startTime': b2b_startTime, 'endTime':  b2b_endTime, 'allocationStatus': (openDataB2C['allocationStatus'][0])}, ignore_index = True)
 			self.insertSummaryRow()
 				
 		else:
-			if (str(currParams['DOW'])[dow:(dow+1)] == "9"):		
+			if (str(currParams['DOW'])[dow:(dow+1)] == "9"):
 				self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
-				self.allocResults = self.allocResults.append({"Id":self.getUniqueId(), "RunId":self.runId,"Origin":currParams['Origin'],"Destin":currParams['Destin'],"FltNum":str(currFlt),"DepDate":str(currFltDate), "BookedLoad":"NA", "TgtLoad":"NA", 'TimeRange': "NA", 'dlfBand': "NA", 'ndoBand': "NA",  'anchorFare':"NA", "MktFare_Min":"NA", 'MktFare_Max':"NA", "OpenRBD":"NA", "SellingFare":"NA", 'Channel':"NA", 'HowDetermined':"DOW is not matching with the given Date", 'fareAnchor': "NA", 'fareOffset': "NA", 'Backstop': "NA", 'AirlineCode_Min': "NA", 'AirlineCode_Max': "NA", 'FlightNumber_Min': "NA", 'FlightNumber_Max': "NA", 'Variance': "NA" , 'StrategyReference': "NA",'analystName': currParams['analystName'] ,'bookedPlf': 'NA','startTime': 'NA', 'endTime': 'NA', 'allocationStatus': 0}, ignore_index = True)
-				self.insertSummaryRow()
 			print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
 	def B2BAllocation(self, currBookedLoad, currParams, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits):
@@ -635,18 +673,21 @@ class DynAlloc:
  
 		return queryResult
 
-	def determineRBDToOpen(self, origin, destin, lowFare, hiFare,lowFare_minomaxo, hifare_minomaxo, strategy, offset, channel, backstop, flightNumber, currFltDate):
+
+	def determineRBDToOpen(self, origin, destin, lowFare, hiFare,lowFare_minomaxo, hifare_minomaxo, strategy, offset, channel, backstop,avgFare,flightNumber, currFltDate):
 
 		openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
-		if (strategy == 'MAX'):
+		if (strategy == Constants.MAX_FARE_ANCHOR):
 			anchorFare = hiFare
-		if (strategy == 'MIN'):
+		if (strategy == Constants.MIN_FARE_ANCHOR):
 			anchorFare = lowFare
-		if (strategy == 'MAXO'):
+		if (strategy == Constants.MAXO_FARE_ANCHOR):
 			anchorFare = hifare_minomaxo
-		if (strategy == 'MINO'):
+		if (strategy == Constants.MINO_FARE_ANCHOR):
 			anchorFare = lowFare_minomaxo
+		if (strategy==Constants.OWNF_FARE_ANCHOR and avgFare!=0):
+			anchorFare = avgFare
 		
 		print("Strategy applied for " + channel + " Channel is " + strategy )
 		print("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
@@ -800,14 +841,23 @@ class DynAlloc:
 
 		return defFareData
 
-	def getMarketFareRange(self, channel, currFltDateStr, currParams):
 	
-		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()		
-		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '" 
+	def getMarketFareRange(self, channel, currFltDateStr, currParams,DaySpan,startTime,endtime):
+		
+		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()
+		startDateTime=f"{currFltDate} {startTime}"
+		enddateTime=f"{currFltDate} {endtime}"
+		updateDate=currFltDate+timedelta(days=int(DaySpan))
+		if currFltDate>updateDate:
+			startDateTime=f"{updateDate} {startTime}"
+			enddateTime=f"{currFltDate} {endtime}"
+		elif currFltDate<updateDate:
+			startDateTime=f"{currFltDate} {startTime}"
+			enddateTime=f"{updateDate} {endtime}"
+		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight ,outbound_departuretime from " + self.TABLE_MARKET_FARES + " where source_airport = '" 
 		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
-		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams["startTime"] + "','%%T')"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams["endTime"] + "','%%T')"
+
+		mktLowestQuery = mktLowestQuery + f"AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) <= CAST('{enddateTime}' AS DATETIME) AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
 		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_stop = 0"
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
@@ -817,14 +867,22 @@ class DynAlloc:
 
 		return mktFareRange
 
-	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams):
+
+	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams,DaySpan,startTime,endTime):
 
 		currFltDate = datetime.strptime(currFltDateStr, Constants.DATE_FORMAT).date()
-		mktLowestQuery = "Select gross_fare, outbound_airline_code, outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '"
+		startDateTime=f"{currFltDate} {startTime}"
+		enddateTime=f"{currFltDate} {endTime}"
+		updateDate=currFltDate+timedelta(days=int(DaySpan))
+		if currFltDate>updateDate:
+			startDateTime=f"{updateDate} {startTime}"
+			enddateTime=f"{currFltDate} {endTime}"
+		elif currFltDate<updateDate:
+			startDateTime=f"{currFltDate} {startTime}"
+			enddateTime=f"{updateDate} {endTime}"
+		mktLowestQuery = "Select gross_fare,outbound_airline_code,outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '"
 		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
-		mktLowestQuery = mktLowestQuery + " and departure_date = '" + str(currFltDate) + "'"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') >= str_to_date('" + currParams["startTime"] + "','%%T')"
-		mktLowestQuery = mktLowestQuery + " and str_to_date(outbound_departuretime,'%%T') <= str_to_date('" + currParams["endTime"] + "','%%T')"
+		mktLowestQuery = mktLowestQuery + f"AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) <= CAST('{enddateTime}' AS DATETIME) AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)"
 		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
 		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
@@ -890,6 +948,7 @@ class DynAlloc:
 			insertQuery = insertQuery + " VALUES ('"+ latest_row['Id'] + "', '"+latest_row['Origin'] + "', '"+latest_row['Destin'] + "', '"+ latest_row['FltNum'] + "', '"+latest_row['DepDate'] + "', '"+latest_row['BookedLoad'] + "', '"+latest_row['TgtLoad'] + "', '"+str(latest_row['MktFare_Min']) + "', '"+latest_row['OpenRBD'] + "', '"+str(latest_row['SellingFare']) + "', '"+latest_row['Channel'] + "', '"+latest_row['HowDetermined'] + "', '"+latest_row['RunId'] + "', '" + self.getCurrentDateTime().strftime(Constants.DATE_TIME_FORMAT) +"','"+str(latest_row['MktFare_Max']) + "','"+str(latest_row['anchorFare']) + "','"+str(latest_row['fareOffset']) +"','"+str(latest_row['TimeRange']) +"','"+str(latest_row['dlfBand']) +"','"+str(latest_row['ndoBand']) + "','"+str(latest_row['fareAnchor']) + "','"+str(latest_row['AirlineCode_Max']) + "','"+str(latest_row['AirlineCode_Min']) + "','"+str(latest_row['FlightNumber_Max']) + "','"+str(latest_row['FlightNumber_Min']) + "','"+str(latest_row['Backstop']) + "','"+str(latest_row['Variance']) + "','"+str(latest_row['StrategyReference']) + "','"+str(latest_row['analystName']) + "','"+str(latest_row['bookedPlf']) + "','"+str(latest_row['startTime']) + "','"+str(latest_row['endTime']) + "','"+str(latest_row['allocationStatus']) + "')"
 			self.wrconn.execute(insertQuery)
 
+
 	def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 		
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_BOOKLOAD] == Constants.TEST_DATA:
@@ -937,22 +996,29 @@ class DynAlloc:
 		threshold = pflThresholdList['plf_threshold']
 		return threshold
      
-	def getDynamicTime(self, currParams, dplfBand, ndoBand):
+
+	def getDynamicTime(self, currParams, dplfBand, ndoBand,DaySpan,channel):
+
 		startTime = currParams['TimeWindowStart']
 		endTime = currParams['TimeWindowEnd']
 		time_range = '0'
 		if (str(currParams['strategyFlag']) == '1'):
-			dynamicTimeList = self.getd1d2StrategyValue(currParams['Strategy'], dplfBand, ndoBand)
+			dynamicTimeList = self.getd1d2StrategyValue(currParams['Strategy'], dplfBand, ndoBand,channel)
 			time_range = dynamicTimeList['time_range'][0]
 			
 			rangeList = self.getTimeRange(time_range)
 
 			if(rangeList['type'][0] == Constants.CONST_ABSOLUTE):
-				startTime = rangeList['start'][0]
-				endTime = rangeList['end'][0]
-	
+				if DaySpan<0:
+					endTime = rangeList['end'][0]
+				elif DaySpan>0:
+					startTime=rangeList['start'][0]
+				else:
+					endTime = rangeList['end'][0]
+					startTime=rangeList['start'][0]
+     
 			if(rangeList['type'][0] == Constants.CONST_RELATIVE):
-				startTime, endTime = self.getRelativeTImeValue(currParams, rangeList)
+				startTime, endTime = self.getRelativeTImeValue(currParams, rangeList,DaySpan,time_range)
 		
 			if(rangeList['type'][0] == Constants.CONST_REFERENCE):
 				rangeList = self.getTimeReferenceValue(currParams)
@@ -971,16 +1037,17 @@ class DynAlloc:
 		rangeList = pd.read_sql(timeRangeQuery, self.conn)
 		return rangeList
 
-	def getRelativeTImeValue(self, currParams, rangeList):
+	def getRelativeTImeValue(self, currParams, rangeList,DaySpan,time_range):
 		start_datetime_object = datetime.strptime(currParams['PerStart'], Constants.DATE_FORMAT)
 		end_datetime_object = datetime.strptime(currParams['PerEnd'], Constants.DATE_FORMAT)
-	
 		startDateTime = currParams['PerStart'] + ' ' + currParams['TimeWindowStart']
 		endDateTime = currParams['PerEnd'] + ' ' + currParams['TimeWindowEnd']
-	
 		startTime = datetime.strptime(startDateTime, Constants.DATE_TIME_FORMAT2) + timedelta(minutes= int(rangeList['start'][0]))
 		endTime = datetime.strptime(endDateTime, Constants.DATE_TIME_FORMAT2) + timedelta(minutes= int(rangeList['end'][0]))
-
+		if DaySpan<0:
+			startTime = datetime.strptime(startDateTime, Constants.DATE_TIME_FORMAT2)
+		elif DaySpan>0:
+			endTime = datetime.strptime(endDateTime, Constants.DATE_TIME_FORMAT2)
 		startTime = max(startTime, start_datetime_object.replace(hour=int(Constants.CONST_START_TIME[:2]), minute=int(Constants.CONST_START_TIME[3:])))
 		endTime = min(endTime, end_datetime_object.replace(hour=int(Constants.CONST_END_TIME[:2]), minute=int(Constants.CONST_END_TIME[3:])))
 	
@@ -989,21 +1056,21 @@ class DynAlloc:
   
 		return startTime, endTime
 
-	def getDynamicD2Value(self, currParams, dplfBand, ndoBand):
+	def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel):
 		criteria = currParams['fareAnchor']
 		offset = currParams['fareOffset']
 		strategy = 'NA'
   
 		if (str(currParams['strategyFlag'])== '1'):
-			dynamicD2List = self.getd1d2StrategyValue(currParams['Strategy'], dplfBand, ndoBand)
+			dynamicD2List = self.getd1d2StrategyValue(currParams['Strategy'], dplfBand, ndoBand,channel)
 			criteria = dynamicD2List['criteria'][0]
 			offset = dynamicD2List['offset'][0]
 			strategy = dynamicD2List['strategy'][0]
 		
 		return criteria, offset, strategy
 
-	def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand):
-		dynamicD1D2Query = "SELECT criteria, time_range, offset, strategy FROM d1_d2_strategies where ndo_band = "+ str(ndoBand) +" and dplf_band = "+ str(dplfBand) +" and strategy = '"+ strategy +"'"
+	def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand,channel):
+		dynamicD1D2Query = "SELECT criteria, time_range, offset, strategy FROM d1_d2_strategies where ndo_band = "+ str(ndoBand) +" and dplf_band = "+ str(dplfBand) +" and strategy = '"+ strategy +"'"+f" and channel='{channel}'"
 		dynamicList = pd.read_sql(dynamicD1D2Query, self.conn)
 		return dynamicList
 
@@ -1157,7 +1224,8 @@ class DynAlloc:
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_LIST] == Constants.FILE:
 			self.mktList = pd.read_csv(Constants.CONST_MARKET_LIST_FILE_PATH)
 		else:
-			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM market_list "
+			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag FROM market_list "
+
 			self.mktList = pd.read_sql(marketListQuery, self.conn)
    
 		if(self.debugMode):
