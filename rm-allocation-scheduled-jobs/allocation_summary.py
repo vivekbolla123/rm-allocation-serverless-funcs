@@ -2,9 +2,9 @@ from sqlalchemy import text
 
 class AllocationSummaryReport:
 
-    def __init__(self, rmalloc_conn, report_conn, logger):
-        self.rmalloc_conn = rmalloc_conn
-        self.report_conn = report_conn
+    def __init__(self, rm_rd_conn, rm_wr_conn, logger):
+        self.rm_rd_conn = rm_rd_conn
+        self.rm_wr_conn = rm_wr_conn
         self.logger = logger
 
     def get_all_allocation_run_summary(self, allocation_run_ids):
@@ -79,13 +79,13 @@ class AllocationSummaryReport:
                         IFNULL(ara.d1_d2_strategies, 0) AS Id_Strategy,
                         IFNULL(ara.Fares, 0) AS Id_QpFares
                     FROM
-                        allocation_run_audit ara 
+                        QP_DW_RMALLOC.allocation_run_audit ara 
                     LEFT JOIN
-                        navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
+                        QP_DW_RMALLOC.navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
                     {condition} AND ara.type != 'Local Run'
                     GROUP BY ara.run_id"""
             
-        result = self.rmalloc_conn.execute(select).fetchall()
+        result = self.rm_rd_conn.execute(select).fetchall()
         return result
 
     def fetch_how_count_data(self, run_ids):
@@ -105,11 +105,11 @@ class AllocationSummaryReport:
                                 count(1) AS totalAllocationCount,
                                 rs.runId
                             FROM
-                                run_summary rs
+                                QP_DW_RMALLOC.run_summary rs
                                 {condition}
                             GROUP BY rs.RunId"""
             
-        how_counts = self.rmalloc_conn.execute(get_how_count).fetchall()
+        how_counts = self.rm_rd_conn.execute(get_how_count).fetchall()
         return how_counts
     
     def add_allocation_summary_report(self, allocation_summary_data):
@@ -119,7 +119,7 @@ class AllocationSummaryReport:
 
         insert_query = f"INSERT INTO QP_RM_REPORTS.allocation_summary_report ({columns}) VALUES ({placeholder})"
         stmt = text(insert_query)
-        result = self.report_conn.execute(stmt, allocation_summary_data)
+        result = self.rm_wr_conn.execute(stmt, allocation_summary_data)
         if result.rowcount > 0:
             self.logger.info(f"{result.rowcount} Records inserted Successfully!")
             return True
@@ -137,7 +137,7 @@ class AllocationSummaryReport:
             run_ids = tuple(extracted_values)
             condition = f"run_id IN {run_ids}"
 
-        self.rmalloc_conn.execute(f"UPDATE allocation_run_audit SET is_audit_completed='1' WHERE {condition} ")
+        self.rm_wr_conn.execute(f"UPDATE QP_DW_RMALLOC.allocation_run_audit SET is_audit_completed='1' WHERE {condition} ")
         self.logger.info(f"Audit completed for 'API' navitaire update method")
 
     # Insert run_ids and other details into allocation_summary_report table
@@ -146,13 +146,13 @@ class AllocationSummaryReport:
         inserts it into allocation_summary_report table"""
         try:
             lastInsertedTime = "2023-08-31 00:00:00"
-            get_lastInsertedTime = self.report_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
+            get_lastInsertedTime = self.rm_rd_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
             if get_lastInsertedTime:
                 lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
             self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
             # get latest run_ids with navitaire update method as API
-            allocation_run_ids = self.rmalloc_conn.execute(f"SELECT run_id FROM allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND update_navitaire_method='api' ").fetchall()  #TODO: AND is_run_completed =1
+            allocation_run_ids = self.rm_rd_conn.execute(f"SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND update_navitaire_method='api' ").fetchall()  #TODO: AND is_run_completed =1
             self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
             if allocation_run_ids:
                 allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)

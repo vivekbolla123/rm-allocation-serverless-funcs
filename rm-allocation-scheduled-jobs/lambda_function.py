@@ -33,24 +33,34 @@ def lambda_handler(event, context):
     
     if 'mark_run_completed' in data:
         markRunCompleted = MarkRunCompleted(logger, rm_rd_conn, rm_wr_conn)
+        logger.info("mark_run_completed :: START")
         markRunCompleted.run()
+        logger.info("mark_run_completed :: END")
     
     if 'sftp_push' in data:
         sftp_push = PushRBDtoSFTP(sqs, logger, rm_rd_conn)
+        logger.info("sftp_push :: START")
         sftp_push.run()
+        logger.info("sftp_push :: END")
     
     if 'connections' in data:
         connection = RunConnections(sqs, logger, rm_rd_conn)
+        logger.info("connections :: START")
         connection.run()
+        logger.info("connections :: END")
 
     ## All reporting modules
     if 'alloc_summary' in data:
         alloc_summary = AllocationSummaryReport(rm_rd_conn, rm_wr_conn, logger)
+        logger.info("alloc_summary :: START")
         alloc_summary.run()
-    
+        logger.info("alloc_summary :: END")
+
     if 'clean_up' in data:
         clean_up = CleanUpConfig(rm_rd_conn, rm_wr_conn, logger)
+        logger.info("clean_up :: START")
         clean_up.run()
+        logger.info("clean_up :: END")
         
     return {
         'statusCode': 200,
