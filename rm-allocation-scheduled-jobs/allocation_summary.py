@@ -66,8 +66,8 @@ class AllocationSummaryReport:
                         ara.run_id AS runId,
                         IFNULL(ara.type, 0) AS type,
                         IFNULL(CONCAT(ara.dtd_start, '-', ara.dtd_end), 0) AS dtd,
-                        CONVERT_TZ(ara.start_time, 'UTC', 'ASIA/KOLKATA') AS start_time,
-                        MAX(CONVERT_TZ(naa.end_time, 'UTC', 'ASIA/KOLKATA')) AS end_time,
+                        ara.start_time AS start_time,
+                        MAX(naa.end_time) AS end_time,
                         IFNULL(ara.actual_end_time, '') AS actual_end_time,
                         IFNULL(SUM(CASE WHEN naa.failures > 0 THEN 1 ELSE 0 END), - 1) AS failures,
                         IFNULL(COUNT(naa.totalApiCalls), - 1) AS total,
@@ -97,6 +97,7 @@ class AllocationSummaryReport:
             extracted_values = [item for item in run_ids]
             run_ids = tuple(extracted_values)
             condition = f" WHERE rs.RunId IN {run_ids} "
+            
         get_how_count = f"""SELECT
                                 SUM(CASE
                                     WHEN rs.allocationStatus = 1 THEN 1
