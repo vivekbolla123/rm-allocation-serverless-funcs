@@ -94,7 +94,7 @@ class AllocationSummaryReport:
             run_ids = run_ids[0][0]
             condition = f" WHERE rs.RunId = '{run_ids}' "
         else:
-            extracted_values = [item[0] for item in run_ids]
+            extracted_values = [item for item in run_ids]
             run_ids = tuple(extracted_values)
             condition = f" WHERE rs.RunId IN {run_ids} "
         get_how_count = f"""SELECT
