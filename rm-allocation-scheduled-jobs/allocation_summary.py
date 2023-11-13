@@ -138,6 +138,23 @@ class AllocationSummaryReport:
 
         self.rm_wr_conn.execute(f"UPDATE QP_DW_RMALLOC.allocation_run_audit SET is_audit_completed='1' WHERE {condition} ")
         self.logger.info(f"Audit completed for 'API' navitaire update method")
+    
+    def delete_run_ids(self, allocation_run_ids):
+        if len(allocation_run_ids) == 1:
+            run_id = allocation_run_ids[0][0]
+            condition = f"run_id = '{run_id}'"
+        else:
+            extracted_values = [item[0] for item in allocation_run_ids]
+            run_ids = tuple(extracted_values)
+            condition = f"run_id IN {run_ids}"
+
+        result = self.rm_wr_conn.execute(f"DELETE FROM QP_RM_REPORTS.allocation_summary_report WHERE {condition} ")
+        if result.rowcount > 0:
+            self.logger.info(f"{result.rowcount} Records Deleted Successfully!")
+            return True
+        else:
+            self.logger.warning("No Records Deleted!")
+            return False
 
     # Insert run_ids and other details into allocation_summary_report table
     def run(self):
@@ -151,10 +168,17 @@ class AllocationSummaryReport:
 
             self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
             # get latest run_ids with navitaire update method as API
-            allocation_run_ids = self.rm_rd_conn.execute(f"SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit WHERE start_time > '{lastInsertedTime}' AND update_navitaire_method='api' ").fetchall()  #TODO: AND is_run_completed =1
+            
+            allocation_run_ids = self.rm_rd_conn.execute("""SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit
+                                                         WHERE update_navitaire_method='api' 
+                                                         AND start_time > NOW() - INTERVAL 1 hour""").fetchall()
+                                                        #  ( start_time > '{lastInsertedTime}' OR 
+                                                        #  (is_run_completed = '0' AND start_time > NOW() - INTERVAL 1 hour ) )""").fetchall()
+                
             self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
             if allocation_run_ids:
                 allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)
+                self.delete_run_ids(allocation_run_ids)
                 is_added = self.add_allocation_summary_report(allocation_summary_data)
                 if is_added:
                     self.update_api_audit_complete(allocation_run_ids)
