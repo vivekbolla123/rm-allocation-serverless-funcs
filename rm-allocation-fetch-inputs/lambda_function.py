@@ -174,7 +174,7 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
 def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
     conn.execute(insert_query,
-                 (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now()))
+                 (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
 
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
