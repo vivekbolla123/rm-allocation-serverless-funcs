@@ -161,12 +161,13 @@ class AllocationSummaryReport:
         """This method aggregates data from allocation_run_audit, run_summary & navitaire_allocation_audit 
         inserts it into allocation_summary_report table"""
         try:
-            lastInsertedTime = "2023-08-31 00:00:00"
-            get_lastInsertedTime = self.rm_rd_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
-            if get_lastInsertedTime:
-                lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
+            # Since not being used below code is Commented
+            # lastInsertedTime = "2023-08-31 00:00:00"
+            # get_lastInsertedTime = self.rm_rd_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
+            # if get_lastInsertedTime:
+            #     lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
-            self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
+            # self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
             # get latest run_ids with navitaire update method as API
             
             allocation_run_ids = self.rm_rd_conn.execute("""SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit
