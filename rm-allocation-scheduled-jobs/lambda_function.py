@@ -13,6 +13,7 @@ from runConnentions import RunConnections
 from allocation_summary import AllocationSummaryReport
 from markRunCompleted import MarkRunCompleted
 from cleanup import CleanUpConfig
+from sftp_error_rate import SFTPErrorRate
 from scheduled_job_run_audit import AuditScheduledJob
 
 logger = logging.getLogger()
@@ -92,8 +93,18 @@ def lambda_handler(event, context):
         
         audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger,'clean_up', datetime.now())
         clean_up.run()
-
+        
         logger.info("clean_up :: END")
+        audit_schedule_run.add_scheduled_job_audit(datetime.now())
+    
+    if 'sftp_error' in modules:
+        stfp = SFTPErrorRate(rm_rd_conn, rm_wr_conn, logger)
+        logger.info("sftp_error :: START")
+
+        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger,'sftp_error', datetime.now())
+        stfp.run()
+
+        logger.info("sftp_error :: END")
         audit_schedule_run.add_scheduled_job_audit(datetime.now())
         
     return {

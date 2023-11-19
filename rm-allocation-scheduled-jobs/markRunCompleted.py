@@ -22,12 +22,7 @@ class MarkRunCompleted:
         self.logger.info(f"no of records are not ready  {count_ready}")
         if count_ready == 0:
             # Update the value to 1 if all flight are ready
-            if method == 'api':
-                update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
-                self.wrconn.execute(update_query, ('1', run_id))
-            elif method == 'sftp':
-                update_query = "UPDATE allocation_run_audit SET is_run_completed = %s, is_audit_completed= %s WHERE run_id = %s "
-                self.wrconn.execute(update_query, ('1','1', run_id))
-                self.logger.info(f"Audit completed for 'sftp' navitaire update method")
+            update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
+            self.wrconn.execute(update_query, ('1', run_id))
             self.logger.info(
                 f"Updated value for {run_id} since run is completed")
