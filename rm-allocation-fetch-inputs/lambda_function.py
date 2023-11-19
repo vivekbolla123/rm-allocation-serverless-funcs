@@ -92,6 +92,12 @@ def lambda_handler(event, context):
         is_connections_required = data[is_connections_required_key]
         
     # start program
+    if type == "Adhoc":
+        available_slot = deduct_available_slot()
+        if not available_slot():
+            logger.info("No slots available to run Adhoc API!")
+            return False
+    
     curr_date = date.today()
     start_period = datetime.strftime(
         curr_date + timedelta(days=start_interval), "%Y-%m-%d"
@@ -199,6 +205,20 @@ def getStartEndDate(PerType, currDate, startNDO, endNDO):
         endDate = currDate + timedelta(days=int(endNDO))
 
     return startNDO, endNDO
+
+def deduct_available_slot():
+    """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
+    
+    select_query = "SELECT available FROM adhoc_run_queue"
+    count_avaiable_slot = conn.execute(select_query).fetchone()
+    
+    if count_avaiable_slot == 0:
+        return False
+    
+    new_avaiable_slot = count_avaiable_slot - 1
+    update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
+    conn.execute(update_query)
+    return True
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({"body": "{\"start_interval\": 3, \"end_interval\": 14}"},None)
