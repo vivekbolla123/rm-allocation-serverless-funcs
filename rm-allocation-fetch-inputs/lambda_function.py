@@ -94,7 +94,7 @@ def lambda_handler(event, context):
     # start program
     if type == "Adhoc":
         available_slot = deduct_available_slot()
-        if not available_slot():
+        if not available_slot:
             logger.info("No slots available to run Adhoc API!")
             return False
     
@@ -210,14 +210,17 @@ def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
     
     select_query = "SELECT available FROM adhoc_run_queue"
-    count_avaiable_slot = conn.execute(select_query).fetchone()
-    
+    count_avaiable_slot = conn.execute(select_query).fetchone()[0]
+    logger.info(f"Slot Avaiable: {count_avaiable_slot}")
+  
     if count_avaiable_slot == 0:
+        logger.info("No Slot Avaiable !")
         return False
     
     new_avaiable_slot = count_avaiable_slot - 1
     update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
     conn.execute(update_query)
+    logger.info(f"Slot Avaiable after Adhoc run started: {count_avaiable_slot}")
     return True
 
 # DO COMMENT THE BELOW LINE AFTER TESTING

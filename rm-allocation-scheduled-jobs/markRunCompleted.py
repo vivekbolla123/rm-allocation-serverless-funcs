@@ -24,6 +24,7 @@ class MarkRunCompleted:
         if count_ready == 0:
             # Update the value to 1 if all flight are ready
             if audit_type == 'Adhoc':
+                self.logger.info(f"Adhoc run for run_id: {run_id}")
                 self.add_available_slot()
             
             update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
@@ -35,8 +36,11 @@ class MarkRunCompleted:
         """Add slot when run is completed & run_id is Adhoc"""
 
         select_query = "SELECT available FROM adhoc_run_queue"
-        available_slot = self.rdconn.execute(select_query).fetchone()
-        add_slot = available_slot[0] + 1
+        available_slot = self.rdconn.execute(select_query).fetchone()[0]
+
+        add_slot = available_slot + 1
     
         update_query = f"UPDATE adhoc_run_queue SET available={add_slot}"
         self.wrconn.execute(update_query)
+        
+        self.logger.info(f"Slot Avaiable after Adhoc run is completed: {add_slot}")
