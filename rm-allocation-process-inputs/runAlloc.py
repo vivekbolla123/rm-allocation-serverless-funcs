@@ -737,15 +737,17 @@ class DynAlloc:
 			# Edge case where backstop is placed at a very large value - allocates at Z0 or Y levels
 			if (defFareData.shape[0] == 0):
 				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0) 	
-
-			if (channel == 'B2C'):
-				openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2C allocation at extreme value','anchorFare':anchorFare,'statusInd':2, 'allocationStatus': 1}, ignore_index = True)
-			if (channel == 'B2B'):
-				if (defFareData['RBD'][0] == self.HIGHEST_B2B_RBD_VALUE):
-					openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than '+ self.HIGHEST_B2B_RBD_VALUE +' levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1, 'allocationStatus': 1}, ignore_index = True)
-					self.updateRunAuditb2b("Done", flightNumber, currFltDate)
-				else:
-					openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2, 'allocationStatus': 1}, ignore_index = True)
+			if(defFareData.shape[0]!=0):
+				if (channel == 'B2C'):
+					openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2C allocation at extreme value','anchorFare':anchorFare,'statusInd':2, 'allocationStatus': 1}, ignore_index = True)
+				if (channel == 'B2B'):
+					if (defFareData['RBD'][0] == self.HIGHEST_B2B_RBD_VALUE):
+						openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'Market Fare higher than '+ self.HIGHEST_B2B_RBD_VALUE +' levels - skipping B2B allocation','anchorFare':anchorFare,'statusInd':1, 'allocationStatus': 1}, ignore_index = True)
+						self.updateRunAuditb2b("Done", flightNumber, currFltDate)
+					else:
+						openResult = openResult.append({'RBD':defFareData['RBD'][0], 'Fare':defFareData['Total'][0], 'FareResult':'Unable to Match Mkt - B2B allocation at extreme value','anchorFare':anchorFare,'statusInd':2, 'allocationStatus': 1}, ignore_index = True)
+			else:
+				openResult = openResult.append({'RBD':"NA", 'Fare':"NA", 'FareResult':'Unable to fetch extreme published Fares','anchorFare':"NA",'statusInd':2, 'allocationStatus': 0}, ignore_index = True)
 		else:
 			backstopFlag = False
 			extremeFareFlag = False
@@ -1262,8 +1264,6 @@ class DynAlloc:
 		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
 		inputsData = pd.read_sql(lastestQuery, self.conn)
 		return inputsData['code_version'][0]
-
-
 
 
 class OwnLogger:
