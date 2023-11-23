@@ -6,10 +6,10 @@ from allocation_summary import AllocationSummaryReport
 
 class SFTPErrorRate:
 
-    def __init__(self, rm_rd_conn, rm_wr_conn, logger):
-        self.rm_rd_conn = rm_rd_conn
-        self.rm_wr_conn = rm_wr_conn
+    def __init__(self, logger, params, overrides):
         self.logger = logger
+        self.rm_rd_conn = params['rdconn']
+        self.rm_wr_conn = params['wrconn']
 
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 

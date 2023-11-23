@@ -31,6 +31,10 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
+module_map = { "mark_run_completed": MarkRunCompleted, 'sftp_push': PushRBDtoSFTP, 'connections': RunConnections, 
+              'alloc_summary': AllocationSummaryReport, 'clean_up': CleanUpConfig, 'sftp_error': SFTPErrorRate
+              }
+
 def lambda_handler(event, context):
     body = event['body']
     data = json.loads(body)
@@ -41,71 +45,27 @@ def lambda_handler(event, context):
     
     modules = data['modules']
 
-    if 'mark_run_completed' in modules:
-        markRunCompleted = MarkRunCompleted(logger, rm_rd_conn, rm_wr_conn)
+    overrides ={}
+    params={}
 
-        logger.info("mark_run_completed :: START")
+    if 'overrides' in data:
+        overrides = data['overrides']
 
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, 'mark_run_completed', datetime.now())
-        markRunCompleted.run()
+    for module_key in modules.keys():
+        params['rdconn'] = rm_rd_conn
+        params['wrconn'] = rm_wr_conn
+        params['sqs'] = sqs
 
-        logger.info("mark_run_completed :: END")
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
-    
-    if 'sftp_push' in modules:
-        sftp_push = PushRBDtoSFTP(sqs, logger, rm_rd_conn)
+        Module = module_map[module_key]
+        Module_obj = Module(logger, params, overrides)
 
-        logger.info("sftp_push :: START")
-
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, 'sftp_push', datetime.now())
-        sftp_push.run()
-
-        logger.info("sftp_push :: END")
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
-    
-    if 'connections' in modules:
-        connection = RunConnections(sqs, logger, rm_rd_conn)
-
-        logger.info("connections :: START")
+        logger.info(f"{module_key} :: START")
+        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, module_key, datetime.now())
         
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, 'connections', datetime.now())
-        connection.run()
+        Module_obj.run()
 
-        logger.info("connections :: END")
         audit_schedule_run.add_scheduled_job_audit(datetime.now())
-
-    ## All reporting modules
-    if 'alloc_summary' in modules:
-        alloc_summary = AllocationSummaryReport(rm_rd_conn, rm_wr_conn, logger)
-        
-        logger.info("alloc_summary :: START")
-
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, 'alloc_summary', datetime.now())
-        alloc_summary.run()
-
-        logger.info("alloc_summary :: END")
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
-
-    if 'clean_up' in modules:
-        clean_up = CleanUpConfig(rm_rd_conn, rm_wr_conn, logger)
-
-        logger.info("clean_up :: START")
-        
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger,'clean_up', datetime.now())
-        clean_up.run()
-        
-        logger.info("clean_up :: END")
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
-    
-    if 'sftp_error' in modules:
-        stfp = SFTPErrorRate(rm_rd_conn, rm_wr_conn, logger)
-        logger.info("sftp_error :: START")
-
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger,'sftp_error', datetime.now())
-        stfp.run()
-
-        logger.info("sftp_error :: END")
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
+        logger.info(f"{module_key} :: END")
         
     return {
         'statusCode': 200,

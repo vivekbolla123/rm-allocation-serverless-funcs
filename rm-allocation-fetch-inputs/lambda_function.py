@@ -220,7 +220,7 @@ def deduct_available_slot():
     new_avaiable_slot = count_avaiable_slot - 1
     update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
     conn.execute(update_query)
-    logger.info(f"Slot Avaiable after Adhoc run started: {count_avaiable_slot}")
+    logger.info(f"Slot Avaiable after Adhoc run started: {new_avaiable_slot}")
     return True
 
 # DO COMMENT THE BELOW LINE AFTER TESTING

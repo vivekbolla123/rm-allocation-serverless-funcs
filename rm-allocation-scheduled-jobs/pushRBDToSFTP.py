@@ -4,10 +4,10 @@ import pandas as pd
 
 class PushRBDtoSFTP:
 
-    def __init__(self, sqs, logger, rm_rd_conn):
-        self.sqs = sqs
+    def __init__(self, logger, params, overrides):
         self.logger = logger
-        self.rm_rd_conn = rm_rd_conn
+        self.rm_rd_conn = params['rdconn']
+        self.sqs = params['sqs']
 
     def run(self):
         query = "SELECT run_id FROM allocation_run_audit WHERE update_navitaire_method = 'sftp' and is_sftp_pushed IS NULL "

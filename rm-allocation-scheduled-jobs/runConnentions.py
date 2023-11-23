@@ -4,10 +4,10 @@ import configsettings
 
 class RunConnections:
 
-    def __init__(self, sqs, logger, rm_rd_conn):
-        self.sqs = sqs
+    def __init__(self, logger, params, overrides):
         self.logger = logger
-        self.rm_rd_conn = rm_rd_conn
+        self.sqs = params['sqs']
+        self.rm_rd_conn = params['rdconn']
 
     def run(self):
         # Fetch runIds from allocation_run_audit table where is_connections_started is null

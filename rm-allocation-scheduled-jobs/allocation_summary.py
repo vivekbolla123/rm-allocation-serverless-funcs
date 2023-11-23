@@ -2,10 +2,14 @@ from sqlalchemy import text
 
 class AllocationSummaryReport:
 
-    def __init__(self, rm_rd_conn, rm_wr_conn, logger):
-        self.rm_rd_conn = rm_rd_conn
-        self.rm_wr_conn = rm_wr_conn
+    def __init__(self, logger, params, overrides):
         self.logger = logger
+        self.rm_rd_conn = params['rdconn']
+        self.rm_wr_conn = params['wrconn']
+        self.interval_time = '1 hour'
+
+        if 'interval_time' in overrides:
+            self.interval_time = overrides['interval_time']
 
     def get_all_allocation_run_summary(self, allocation_run_ids):
         """Returns list of dictionaries with data from allocation_run_audit, run_summary & navitaire_allocation_audit"""
@@ -170,9 +174,9 @@ class AllocationSummaryReport:
             # self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
             # get latest run_ids with navitaire update method as API
             
-            allocation_run_ids = self.rm_rd_conn.execute("""SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit
+            allocation_run_ids = self.rm_rd_conn.execute(f"""SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit
                                                          WHERE update_navitaire_method='api' 
-                                                         AND start_time > NOW() - INTERVAL 1 hour""").fetchall()
+                                                         AND start_time > NOW() - INTERVAL {self.interval_time}""").fetchall()
                                                         #  ( start_time > '{lastInsertedTime}' OR 
                                                         #  (is_run_completed = '0' AND start_time > NOW() - INTERVAL 1 hour ) )""").fetchall()
                 
