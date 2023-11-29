@@ -204,10 +204,11 @@ class DynAlloc:
 			currBookedLoad = ndoBookedLoad["bookedPax"][fltCounter]
 			currCapacity = ndoBookedLoad['capacity'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter],Constants.DATE_FORMAT)
+			currFltDepartureTime=ndoBookedLoad["DepartureTime"][fltCounter]
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currCapacity, currFltDate,currFltDepartureTime, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currCapacity, currFltDate, currFltDepartureTime,tgtBookedLoad, dow, currParams, ndocounter, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag):
 		
 		tgtBookloadFactor = tgtBookedLoad	
 		tgtBookedLoad = tgtBookedLoad * currCapacity
@@ -241,9 +242,18 @@ class DynAlloc:
 					self.thresholdflag=True
    
 			# Get Dynamic D1 (Time) Value
-
+			input_time_str = currFltDepartureTime
+			# This should be set according to your data
+			time_bands,start_end_range=self.getDepartureTimeBands()
+			time_range_start, time_range_end,dspan = self.find_time_range(input_time_str, time_bands,start_end_range)
+			if int(currParams["AutoTimeRangeFlag"])==1:
+				currParams['TimeWindowStart']=time_range_start.strftime("%H:%M")
+				currParams['TimeWindowEnd']=time_range_end.strftime("%H:%M")
+				DaySpan=dspan
+    
 			b2b_startTime, b2b_endTime, b2b_time_range = self.getDynamicTime(currParams, dplfBand, ndoBand,DaySpan,"B2B")
 			b2c_startTime, b2c_endTime, b2c_time_range = self.getDynamicTime(currParams, dplfBand, ndoBand,DaySpan,"B2C")
+			
 			# Get Dynamic D2 (Offset & Criteria) Value
 			b2b_criteria, b2b_offset, b2b_strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand,"B2B")
 			b2c_criteria, b2c_offset, b2c_strategy = self.getDynamicD2Value(currParams, dplfBand, ndoBand,"B2C")
@@ -982,21 +992,21 @@ class DynAlloc:
 	def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 		
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_BOOKLOAD] == Constants.TEST_DATA:
-			NavitaireQuery = "SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity from " + self.BookloadTableName
+			NavitaireQuery = "SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity,DepartureTime from " + self.BookloadTableName
 			NavitaireQuery = NavitaireQuery + " where DepartureDate >= '" + str(startDate) + "' and DepartureDate <= '" +str(endDate) + "'"
 			NavitaireQuery = NavitaireQuery + " and Origin = '" + origin + "' and Destination = '" + destin + "'"
 			con = self.conn
    
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_BOOKLOAD] == Constants.DB:
-			NavitaireQuery = "select Origin, Destination, FlightNumber, DepartureDate, count(PassengerID) as bookedPax, max(Lid) as capacity from ("
-			NavitaireQuery = NavitaireQuery + "select BP.PassengerID, IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.DepartureDate,IL.FlightNumber, IL.AdjustedCapacity, IL.Lid "
+			NavitaireQuery = "select Origin, Destination, FlightNumber,DepartureDate,FORMAT(STD, 'HH:MM') as DepartureTime, count(PassengerID) as bookedPax, max(Lid) as capacity from ("
+			NavitaireQuery = NavitaireQuery + "select BP.PassengerID, IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.DepartureDate,IL.FlightNumber, IL.AdjustedCapacity, IL.Lid, IL.STD "
 			NavitaireQuery = NavitaireQuery + " from "+self.NAV_DB_NAME+"[rez].InventoryLeg IL "
 			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].PassengerJourneyLeg PJL on  PJL.InventoryLegID = IL.InventoryLegID "
 			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) "
 			NavitaireQuery = NavitaireQuery + " left outer join "+self.NAV_DB_NAME+"[rez].BookingPassenger BP on  BP.PassengerID = PJS.PassengerID "
 			NavitaireQuery = NavitaireQuery + " where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '" + str(startDate) + "' and IL.DepartureDate <= '" +str(endDate) + "' "
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
-			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate order by Origin, Destination, DepartureDate "
+			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate,STD order by Origin, Destination, DepartureDate "
 			con = self.NavitaireConnection
 		try:
 			bookedData = pd.read_sql(NavitaireQuery, con)
@@ -1039,7 +1049,7 @@ class DynAlloc:
      
 
 	def getDynamicTime(self, currParams, dplfBand, ndoBand,DaySpan,channel):
-
+		
 		startTime = currParams['TimeWindowStart']
 		endTime = currParams['TimeWindowEnd']
 		time_range = '0'
@@ -1098,8 +1108,8 @@ class DynAlloc:
 		startTime = max(startTime, start_datetime_object.replace(hour=int(Constants.CONST_START_TIME[:2]), minute=int(Constants.CONST_START_TIME[3:])))
 		endTime = min(endTime, end_datetime_object.replace(hour=int(Constants.CONST_END_TIME[:2]), minute=int(Constants.CONST_END_TIME[3:])))
 	
-		startTime = str(startTime.hour) + ":" + str(startTime.minute)
-		endTime = str(endTime.hour) + ":" + str(endTime.minute)
+		startTime = f"{startTime.hour:02d}:{startTime.minute:02d}"
+		endTime = f"{endTime.hour:02d}:{endTime.minute:02d}"
   
 		return startTime, endTime
 
@@ -1286,7 +1296,7 @@ class DynAlloc:
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_LIST] == Constants.FILE:
 			self.mktList = pd.read_csv(Constants.CONST_MARKET_LIST_FILE_PATH)
 		else:
-			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag FROM market_list "
+			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag FROM market_list "
 			try:
 				self.mktList = pd.read_sql(marketListQuery, self.conn)
 			except Exception as e:
@@ -1344,8 +1354,43 @@ class DynAlloc:
 		except Exception as e:
 			self.logger.error(e)
 		return inputsData['code_version'][0]
+	def getDepartureTimeBands(self):
+		result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
+		time_bands = [(self.parse_time(start), self.parse_time(end), time_band) for start, end, time_band in result]
+		rr=self.conn.execute("""SELECT
+		(SELECT EndTime FROM departure_time_ranges ORDER BY TimeBand ASC LIMIT 1) AS StartTime,
+		(SELECT StartTime FROM departure_time_ranges ORDER BY TimeBand ASC LIMIT 1 OFFSET 1) AS EndTime""")
+		start_end_range=[(start,end) for start, end in rr]
+		return time_bands,start_end_range
+	def parse_time(self,time_str):
+		return datetime.strptime(time_str, '%H:%M').time()
+	def find_time_range(self,input_time_str, time_bands,start_end_range):
+		input_time = datetime.strptime(input_time_str, '%H:%M').time()
+		date_today = datetime.today()
+		lower_time = (datetime.combine(date_today, input_time) - timedelta(hours=1, minutes=30)).time()
+		upper_time = (datetime.combine(date_today, input_time) + timedelta(hours=1, minutes=30)).time()
 
-
+		# Initialize the start and end times
+		start_time = end_time = None
+		dayspan=0
+		for start, end, time_band in time_bands:
+			# Apply the logic based on the TimeBand value and the input time
+			if start <= input_time <= end:
+				if time_band==1:
+					if input_time<datetime.strptime(start_end_range[0][0], '%H:%M').time():
+						start_time=datetime.strptime(start_end_range[0][1], '%H:%M').time()
+						end_time=max(datetime.strptime(start_end_range[0][0], '%H:%M').time(),upper_time)
+						dayspan=-1
+					else:
+						start_time=min(datetime.strptime(start_end_range[0][1], '%H:%M').time(),lower_time)
+						end_time=datetime.strptime(start_end_range[0][0], '%H:%M').time()
+						dayspan=1
+					return start_time,end_time,dayspan
+				else:
+					start_time = start
+					end_time = end
+					return min(lower_time, start_time), max(upper_time, end_time),dayspan
+			
 class OwnLogger:
 	def __init__(self,runid,input):
 		self.logger = logging.getLogger()

@@ -88,6 +88,6 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"Origin":"BLR","Destin":"GAU","FlightNumber":1323,"PerType":"D","PerStart":"10/06/2023","PerEnd":"10/13/2023","DOW":1111111,"strategyFlag":"1","TimeWindowStart":"0:00","TimeWindowEnd":"23:59","CurveID":"BLRGAU_FRI","CarrExlusion":"**","fareAnchor":"Strategy_KK_Shoulder_GAU","fareOffset":"","FirstRBDAlloc":5,"OtherRBDAlloc":5,"B2BBackstop":5000,"B2CBackstop":6000,"B2BFactor":"0.25","SkippingFactor":0,"runId":"61e09e87-1f35-45a8-90a3-c146decd49a3","update_navitaire_method":"sftp"}
+# messageBody = {"Origin": "BOM", "Destin": "HYD", "FlightNumber": 2134, "PerType": "D", "PerStart": "11/28/2023", "PerEnd": "11/28/2023", "DOW": 1111111, "strategyFlag": "1", "TimeWindowStart": "11:00", "TimeWindowEnd": "20:00", "CurveID": "C17440", "CarrExlusion": "**", "fareAnchor": "Strategy_1", "fareOffset": "", "FirstRBDAlloc": 5, "OtherRBDAlloc": 3, "B2BBackstop": 4000, "B2CBackstop": 3700, "B2BFactor": "0.5", "SkippingFactor": 7, "OwnFareFlag": "N", "DaySpan": 0, "AutoTimeRangeFlag": "1", "analystName": "Aparna", "runId": "aae605d1-bdb2-4732-b49e-f9cf63ba9026", "update_navitaire_method": "api"}
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)
