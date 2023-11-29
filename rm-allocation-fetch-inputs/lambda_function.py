@@ -173,19 +173,28 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
             table_versions[currVersion['tableName']] = currVersion['curr_version']
 
     insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-    conn.execute(insert_query,
-                 (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0'))
+    try:
+        conn.execute(insert_query,
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0'))
+    except Exception as e:
+        logger.info(e)
     logger.info("STARTED ALLOCATION RUN")
 
 def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
-    conn.execute(insert_query,
-                 (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    try:
+        conn.execute(insert_query,
+                    (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    except Exception as e:
+        logger.info(e)
 
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
-    conn.execute(update_query,
-                 (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
+    try:
+        conn.execute(update_query,
+                    (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
+    except Exception as e:
+        logger.info(e)
     logger.info("STOPPED ALLOCATION RUN")
 
 def getCurrentDate():
@@ -219,7 +228,10 @@ def deduct_available_slot():
     
     new_avaiable_slot = count_avaiable_slot - 1
     update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
-    conn.execute(update_query)
+    try:
+        conn.execute(update_query)
+    except Exception as e:
+        logger.info(e)
     logger.info(f"Slot Avaiable after Adhoc run started: {new_avaiable_slot}")
     return True
 

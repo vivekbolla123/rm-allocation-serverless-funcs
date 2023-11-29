@@ -177,7 +177,10 @@ class DynAlloc:
 
 		if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==Constants.CONST_SFTP):
 			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s "
-			self.wrconn.execute(update_query, "Ready", "Ready", self.runId)
+			try:
+				self.wrconn.execute(update_query, "Ready", "Ready", self.runId)
+			except Exception as e:
+				self.logger.error(e)
 
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor,DaySpan,OwnFareFlag):
@@ -669,7 +672,10 @@ class DynAlloc:
 			RBDQuery = RBDQuery + " and RBD = '" + openingRBD + "'"
 
 		RBDQuery = RBDQuery + " order by Total asc"
-		queryResult = pd.read_sql(RBDQuery, self.conn)
+		try:
+			queryResult = pd.read_sql(RBDQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
  
 		return queryResult
 
@@ -693,8 +699,10 @@ class DynAlloc:
 		self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
 		RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' "
-  
-		rbddata = pd.read_sql(RBDQuery, self.conn)
+		try:
+			rbddata = pd.read_sql(RBDQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		if(rbddata.shape[0] == 0):
 			self.logger.info('QP Fare not available. Please validate Fares table')
 			openResult = openResult.append({'RBD':'NA', 'Fare':'NA', 'FareResult':'QP Fares not available','anchorFare':anchorFare,'statusInd':1, 'allocationStatus': 0 }, ignore_index = True)
@@ -723,8 +731,10 @@ class DynAlloc:
 		RBDQuery = RBDQuery + " order by Total " + sortorder
 		if(self.debugMode):
 			self.logger.info(RBDQuery)
-
-		rbddata = pd.read_sql(RBDQuery, self.conn)
+		try:
+			rbddata = pd.read_sql(RBDQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 
 		if(rbddata.shape[0] == 0):
 			self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")
@@ -839,7 +849,10 @@ class DynAlloc:
 				RBDQuery = RBDQuery + " and LEFT(RBD,1) = 'Z' and Total >= '" + str(backstop) + "' order by Total asc"
 			else:
 				RBDQuery = RBDQuery + " and LEFT(RBD,1) = 'Z' and Total >= '" + str(backstop) + "' order by Total desc"
-		defFareData = pd.read_sql(RBDQuery, self.conn)
+		try:
+			defFareData = pd.read_sql(RBDQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 
 		return defFareData
 
@@ -865,7 +878,10 @@ class DynAlloc:
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
 			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
 		mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
-		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+		try:
+			mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 
 		return mktFareRange
 
@@ -889,7 +905,10 @@ class DynAlloc:
 		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
 		if(self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_MARKET_FARES] != Constants.TEST_DATA):
 			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
-		mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+		try:
+			mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		data = pd.DataFrame(mktFareRange)
 		fare_list = data["gross_fare"].tolist()
 		if len(fare_list)>1:
@@ -933,7 +952,10 @@ class DynAlloc:
   		#Fetch the Target Booked Load from the curve
 
 		bookingCurveQuery = "Select LF,B2C_Avg_Fare,B2B_Avg_Fare from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
-		benchmark = pd.read_sql(bookingCurveQuery, self.conn)
+		try:
+			benchmark = pd.read_sql(bookingCurveQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		if(benchmark.shape[0] > 0):
 			tgtBookedLoad = benchmark
 
@@ -941,14 +963,20 @@ class DynAlloc:
 
 	def deleteTableExtract(self, tableName):
 		dropQuery = "DROP TABLE IF EXISTS " + tableName
-		self.conn.execute(dropQuery)
+		try:
+			self.conn.execute(dropQuery)
+		except Exception as e:
+			self.logger.error(e)
 
 	def insertSummaryRow(self):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_SUMMARY] == Constants.DB:
 			latest_row = self.allocResults.iloc[-1]
 			insertQuery = " INSERT INTO run_summary ( Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus) "		
 			insertQuery = insertQuery + " VALUES ('"+ latest_row['Id'] + "', '"+latest_row['Origin'] + "', '"+latest_row['Destin'] + "', '"+ latest_row['FltNum'] + "', '"+latest_row['DepDate'] + "', '"+latest_row['BookedLoad'] + "', '"+latest_row['TgtLoad'] + "', '"+str(latest_row['MktFare_Min']) + "', '"+latest_row['OpenRBD'] + "', '"+str(latest_row['SellingFare']) + "', '"+latest_row['Channel'] + "', '"+latest_row['HowDetermined'] + "', '"+latest_row['RunId'] + "', '" + self.getCurrentDateTime().strftime(Constants.DATE_TIME_FORMAT) +"','"+str(latest_row['MktFare_Max']) + "','"+str(latest_row['anchorFare']) + "','"+str(latest_row['fareOffset']) +"','"+str(latest_row['TimeRange']) +"','"+str(latest_row['dlfBand']) +"','"+str(latest_row['ndoBand']) + "','"+str(latest_row['fareAnchor']) + "','"+str(latest_row['AirlineCode_Max']) + "','"+str(latest_row['AirlineCode_Min']) + "','"+str(latest_row['FlightNumber_Max']) + "','"+str(latest_row['FlightNumber_Min']) + "','"+str(latest_row['Backstop']) + "','"+str(latest_row['Variance']) + "','"+str(latest_row['StrategyReference']) + "','"+str(latest_row['analystName']) + "','"+str(latest_row['bookedPlf']) + "','"+str(latest_row['startTime']) + "','"+str(latest_row['endTime']) + "','"+str(latest_row['allocationStatus']) + "')"
-			self.wrconn.execute(insertQuery)
+			try:
+				self.wrconn.execute(insertQuery)
+			except Exception as e:
+				self.logger.error(e)
 
 
 	def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
@@ -970,8 +998,10 @@ class DynAlloc:
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
 			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate order by Origin, Destination, DepartureDate "
 			con = self.NavitaireConnection
-   
-		bookedData = pd.read_sql(NavitaireQuery, con)
+		try:
+			bookedData = pd.read_sql(NavitaireQuery, con)
+		except Exception as e:
+			self.logger.error(e)
    
 		if(self.debugMode):
 			self.logger.info(NavitaireQuery)
@@ -980,13 +1010,19 @@ class DynAlloc:
 
 	def getNdoBand(self, startNDO):
 		ndoBandQuery = "SELECT ndo_band FROM ndo_bands where start <= " + str(startNDO) + " and end > " + str(startNDO) 
-		ndoBandList = pd.read_sql(ndoBandQuery, self.conn)
+		try:
+			ndoBandList = pd.read_sql(ndoBandQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		ndoBand = ndoBandList['ndo_band'][0]
 		return ndoBand
 
 	def getdpflBand(self, dPLF):
 		dplfBandQuery = "SELECT dplf_band FROM dplf_bands where start <= " + str(dPLF) + " and end > " + str(dPLF) 
-		dplfBandList = pd.read_sql(dplfBandQuery, self.conn)
+		try:
+			dplfBandList = pd.read_sql(dplfBandQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		dplfBand = dplfBandList['dplf_band'][0]
 		return dplfBand
 
@@ -994,7 +1030,10 @@ class DynAlloc:
 		pflThresholdQuery = "SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
 		pflThresholdQuery = pflThresholdQuery+ " SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
 		pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
-		pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
+		try:
+			pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		threshold = pflThresholdList['plf_threshold']
 		return threshold
      
@@ -1031,12 +1070,18 @@ class DynAlloc:
 
 	def getTimeRange(self, time_range):
 		timeRangeQuery = "SELECT type, start, end FROM time_ranges where time_range = '"+ time_range +"'"
-		rangeList = pd.read_sql(timeRangeQuery, self.conn)
+		try:
+			rangeList = pd.read_sql(timeRangeQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		return rangeList
 
 	def getTimeReferenceValue(self, currParams):
 		timeRangeQuery = "SELECT ar_start, ar_end FROM allocation_acceptable_range_d1 where airports = '"+ currParams['Origin'] +"'"
-		rangeList = pd.read_sql(timeRangeQuery, self.conn)
+		try:
+			rangeList = pd.read_sql(timeRangeQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		return rangeList
 
 	def getRelativeTImeValue(self, currParams, rangeList,DaySpan,time_range):
@@ -1073,7 +1118,10 @@ class DynAlloc:
 
 	def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand,channel):
 		dynamicD1D2Query = "SELECT criteria, time_range, offset, strategy FROM d1_d2_strategies where ndo_band = "+ str(ndoBand) +" and dplf_band = "+ str(dplfBand) +" and strategy = '"+ strategy +"'"+f" and channel='{channel}'"
-		dynamicList = pd.read_sql(dynamicD1D2Query, self.conn)
+		try:
+			dynamicList = pd.read_sql(dynamicD1D2Query, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		return dynamicList
 
 	def outputResults(self):
@@ -1101,7 +1149,10 @@ class DynAlloc:
 	def insertRunStart(self, startTime, username):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
-			currVersionValues = pd.read_sql(currVersionQuery, self.conn)
+			try:
+				currVersionValues = pd.read_sql(currVersionQuery, self.conn)
+			except Exception as e:
+				self.logger.error(e)
 
 			table_versions = {}
 			for index,currVersion in currVersionValues.iterrows():
@@ -1110,8 +1161,11 @@ class DynAlloc:
 			type = "Local Run"
 			
 			insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, is_sftp_pushed, is_connections_required, update_navitaire_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-			self.wrconn.execute(insert_query,
-						(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type, '0', '0', 'file'))
+			try:
+				self.wrconn.execute(insert_query,
+							(self.runId, startTime.strftime(Constants.DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type, '0', '0', 'file'))
+			except Exception as e:
+				self.logger.error(e)
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec[0], "flight": rec[1], "startDate": rec[2], "endDate": rec[3], "dayOfWeek": rec[4],
@@ -1144,7 +1198,10 @@ class DynAlloc:
 		auData['auClasses'] = auClass
 		auDataStr = json.dumps(auData)
 		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s, result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		self.wrconn.execute(update_query, "Ready", "Ready", auDataStr, self.runId, flightNo, flightDate)
+		try:
+			self.wrconn.execute(update_query, "Ready", "Ready", auDataStr, self.runId, flightNo, flightDate)
+		except Exception as e:
+				self.logger.error(e)
 
 	def getCurrentDateTime(self):
 		startTime = datetime.now()
@@ -1186,7 +1243,10 @@ class DynAlloc:
 		self.HIGHEST_B2C_RBD_VALUE = Constants.HIGHEST_B2C_RBD_VALUE
   
 		parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
-		parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+		try:
+			parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		for index,val in parameterValue.iterrows():
 			if val['parameterKey'] == 'MIN_D3_D4_VALUE':
 				self.MIN_D3_D4_VALUE = float(val['parameterValue'])
@@ -1227,8 +1287,10 @@ class DynAlloc:
 			self.mktList = pd.read_csv(Constants.CONST_MARKET_LIST_FILE_PATH)
 		else:
 			marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag FROM market_list "
-
-			self.mktList = pd.read_sql(marketListQuery, self.conn)
+			try:
+				self.mktList = pd.read_sql(marketListQuery, self.conn)
+			except Exception as e:
+				self.logger.error(e)
    
 		if(self.debugMode):
 			self.logger.info("Loaded Market List")
@@ -1237,32 +1299,50 @@ class DynAlloc:
 	def updateRunAudit(self, b2cStatus, b2bStatus, flightNo, flightDate):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
+			try:
+				self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
+			except Exception as e:
+				self.logger.error(e)
 
 	def updateRunAuditb2c(self, b2cStatus, flightNo, flightDate):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
+			try:
+				self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
+			except Exception as e:
+				self.logger.error(e)
   
 	def updateRunAuditb2b(self, b2bStatus, flightNo, flightDate):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
 			update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
+			try:
+				self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
+			except Exception as e:
+				self.logger.error(e)
   
 	def updateRunEnd(self, endTime):
 		if self.inputSource[Constants.CONST_LOGS][Constants.CONST_RUN_AUDIT] == Constants.DB:
-			updateQuery = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "		
-			self.wrconn.execute(updateQuery, (endTime.strftime(Constants.DATE_TIME_FORMAT), self.runId))
+			updateQuery = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
+			try:
+				self.wrconn.execute(updateQuery, (endTime.strftime(Constants.DATE_TIME_FORMAT), self.runId))
+			except Exception as e:
+				self.logger.error(e)
 
 	def areAllInputsReady(self):
 		if self.inputSource[Constants.CONST_INPUT_SOURCE][Constants.CONST_INPUT_STATUS] == Constants.DB:
 			countQuery = "select count(*) as busyInputs from inputs_status WHERE is_running = b'1'"
-			inputsData = pd.read_sql(countQuery, self.conn)
+			try:
+				inputsData = pd.read_sql(countQuery, self.conn)
+			except Exception as e:
+				self.logger.error(e)
 			return inputsData['busyInputs'][0] == 0
 
 	def getLatestCodeVersion(self):
 		lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
-		inputsData = pd.read_sql(lastestQuery, self.conn)
+		try:
+			inputsData = pd.read_sql(lastestQuery, self.conn)
+		except Exception as e:
+			self.logger.error(e)
 		return inputsData['code_version'][0]
 
 
@@ -1273,12 +1353,12 @@ class OwnLogger:
 		self.runid=runid
 		self.input=input
 	def info(self,messsage):
-		if self.input == Constants.DB:
+		if self.input==Constants.DB:
 			self.logger.info(f"message:{messsage}  runid:{self.runid}")
 		else:
 			print(messsage)  
 	def error(self,errormessage):
-		if self.input == Constants.DB:
+		if self.input==Constants.DB:
 			self.logger.error(f"error:{errormessage} runid:{self.runid}")
 		else:
 			print(errormessage)
