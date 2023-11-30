@@ -1,5 +1,3 @@
-import sys
-
 DYNAMIC_D3_D4 = -99
 DEFICIT_ALLOCATION = -1
 LINEAR_ALLOCATION = -2
@@ -45,20 +43,6 @@ OWNF_FARE_ANCHOR="OWNF"
 YES_FLAG="Y"
 NO_FLAG="N"
 FARE_NOT_AVL=-99
-#Local
-# DB_USERNAME = "root"
-# DB_PASSWORD = "admin"
-# DB_URL = "localhost"
-
-#Test
-DB_USERNAME = "DBSAAdmin"
-DB_PASSWORD = "dufjBu48Q7BmQ6"
-DB_URL = "esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-
-#Prod
-# DB_USERNAME = "rmscriptuser"
-# DB_PASSWORD = "8BkNw9JEOHoxD6h"
-# DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
 CONST_LOGS = "logFiles"
 CONST_INPUT_SOURCE = "inputSource"
@@ -78,9 +62,9 @@ CONST_RUN_AUDIT = "allocation_run_audit"
 CONST_SUMMARY_FILE = "Summary"
 CONST_AU_GRID = "AUGrid"
 
-CONST_MARKET_LIST_FILE_PATH = f"{sys.path[0]}/params/MarketList.csv"
-CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/output/AUGrid.csv"
-CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/output/summary.csv"
+CONST_MARKET_LIST_FILE_PATH = "params/MarketList.csv"
+CONST_AU_GRID_FILE_PATH = "output/AUGrid.csv"
+CONST_SUMMARY_FILE_PATH = "output/summary.csv"
 
 TESTING_INPUT = {
     CONST_CURVES: TEST_DATA,
@@ -133,7 +117,7 @@ LOCAL_INPUT = {
 }
 LOCAL_LOGS = {
     CONST_RUN_SUMMARY: SKIP,
-    CONST_RUN_AUDIT: SKIP
+    CONST_RUN_AUDIT: DB
 }
 LOCAL_OUTPUT = {
     CONST_AU_GRID : FILE,
