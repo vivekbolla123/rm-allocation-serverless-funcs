@@ -1,0 +1,57 @@
+###########**************###############
+## BE CAREFUL WHILE RUNNING THIS FILE ##
+###########**************###############
+import sys,os
+path = os.path.abspath("rm-allocation-process-inputs")
+sys.path.insert(1,path)
+from runAlloc import DynAlloc
+from sqlalchemy import create_engine
+import pymssql
+import uuid
+import Constants as Constants
+
+def serverRun():
+    DB_USERNAME = "rmscriptuser"
+    DB_PASSWORD = "8BkNw9JEOHoxD6h"
+    DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    
+    NavitaireConnection = pymssql.connect(
+        host="43.204.99.181:1433",
+        user="crm_navods_read",
+        password="P3WjeMw4463nwm8"
+        # database="[10.154.12.13,52900][REZ0KDW01]"
+    )
+    RM_ALLOC_DB_URL = "mysql+mysqldb://"+DB_USERNAME+":"+DB_PASSWORD+"@"+DB_URL
+    RM_ALLOC_DB = RM_ALLOC_DB_URL+"/QP_DW_RMALLOC"
+    conn = create_engine(RM_ALLOC_DB)
+    
+    inputData = {
+        "debugMode" : False,
+        "isUpdateNavitaire" : True,
+        "currDate": None,
+        "currDateTime": None,
+        "MARKET_LIST_QUEUE_URL": None,
+        "AU_CHUNK_QUEUE_URL": None,
+        "RBD_QUEUE_URL": None,
+        "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
+        Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
+        Constants.CONST_LOGS : Constants.SERVER_LOGS,
+        Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,
+        "latestCode":True
+    }
+    
+    currParams = {
+        "runId": str(uuid.uuid4()),
+        "runSingleMarket": False,
+        "NavitaireConnection": NavitaireConnection,
+        "dbconn": conn,
+        "wrconn": conn,
+        "sqs": None,
+        "NavitaireUpdateMethod":Constants.CONST_SKIP,
+        "s3":None,
+    }
+
+    outputData = {}
+    DynAlloc(inputData, currParams)
+    
+serverRun()
