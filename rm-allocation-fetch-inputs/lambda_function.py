@@ -133,25 +133,19 @@ def lambda_handler(event, context):
         PerType = data['PerType']
         flightNumber = data['FlightNumber']
 
-        try:
-            startNDO, endNDO = getStartEndDate(PerType, currDate, startNDO, endNDO)
+        startNDO, endNDO = getStartEndDate(PerType, currDate, startNDO, endNDO)
+        
+        for ndocounter in range(startNDO, endNDO+1):
+            tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+            # insert into run_audit table
+            insert_run_fltDate_audit(run_id, flightNumber, tgtDate)
             
-            for ndocounter in range(startNDO, endNDO+1):
-                tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
-                # insert into run_audit table
-                insert_run_fltDate_audit(run_id, flightNumber, tgtDate)
-                
-            data["runId"] = run_id
-            data["update_navitaire_method"] = update_navitaire_method
+        data["runId"] = run_id
+        data["update_navitaire_method"] = update_navitaire_method
 
-            data_str = data.to_json()
-            logger.info(data_str)
-            print(data_str)
-            
-        except:
-            logger.info("Error in Start or End Date at row: " + data)  
-            logger.info("Run Id: " + run_id)  
-            
+        data_str = data.to_json()
+        logger.info(data_str)
+        print(data_str)
         sqs.send_message(
             QueueUrl=queue_name,
             MessageBody=data_str
@@ -242,4 +236,4 @@ def deduct_available_slot():
     return True
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# lambda_handler({"body": "{\"start_interval\": 0, \"end_interval\": 7}"},None)
+# lambda_handler({"body": "{\"start_interval\": 3, \"end_interval\": 14}"},None)
