@@ -4,7 +4,7 @@ import pandas as pd
 
 class PushRBDtoSFTP:
 
-    def __init__(self, logger, params, overrides):
+    def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.sqs = params['sqs']

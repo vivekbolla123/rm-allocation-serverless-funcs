@@ -4,7 +4,7 @@ import configsettings
 
 class RunConnections:
 
-    def __init__(self, logger, params, overrides):
+    def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.sqs = params['sqs']
         self.rm_rd_conn = params['rdconn']

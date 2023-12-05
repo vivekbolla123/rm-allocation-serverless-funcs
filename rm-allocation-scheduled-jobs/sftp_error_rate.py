@@ -15,8 +15,11 @@ class SFTPErrorRate:
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 
         by agrregating allocationStatus for given run_id"""
+        params = {}
+        params['rdconn'] = self.rm_rd_conn
+        params['wrconn'] = self.rm_wr_conn
 
-        alloc_summary = AllocationSummaryReport(self.rm_rd_conn, self.rm_wr_conn, self.logger)
+        alloc_summary = AllocationSummaryReport(self.logger, params, {}, self.context)
         allocation_count = alloc_summary.fetch_how_count_data(run_id)
         return allocation_count[0]
 

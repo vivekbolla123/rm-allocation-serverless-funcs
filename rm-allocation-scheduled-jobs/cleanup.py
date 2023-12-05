@@ -1,6 +1,6 @@
 class CleanUpConfig:
 
-    def __init__(self, logger, params, overrides):
+    def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
