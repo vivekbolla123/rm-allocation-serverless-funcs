@@ -17,7 +17,7 @@ if env == 'prod':
     NAV_DB_NAME = "[REZ0KWB01]."
     NAV_API_URL="https://iuf5oc6rxe.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
 if env == 'test':
-    RM_DB_APPUSER_USERNAME="DBSAAdmin"
+    RM_DB_APPUSER_USERNAME="rm-user"
     RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     RM_DB_WR_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     connection_queue_url = "rm-allocation-queues_test-rm-allocation-connections-trigger"
@@ -29,3 +29,4 @@ RM_GW_API_KEY=get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
 RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
 RM_REPORTS_SCHEMA_NAME="QP_RM_REPORTS"
+EXP_TIME = 120000

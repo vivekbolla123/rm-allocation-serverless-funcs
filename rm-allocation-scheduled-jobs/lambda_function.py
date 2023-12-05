@@ -57,7 +57,7 @@ def lambda_handler(event, context):
         params['sqs'] = sqs
 
         Module = module_map[module_key]
-        Module_obj = Module(logger, params, overrides)
+        Module_obj = Module(logger, params, overrides, context)
 
         logger.info(f"{module_key} :: START")
         audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, module_key, datetime.now())
