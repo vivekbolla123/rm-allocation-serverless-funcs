@@ -23,10 +23,9 @@ LOGS_ON = False
 # rds settings
 # DB_CONN_STRING = "mysql+mysqldb://root:root@localhost/QP_DW_RMALLOC"
 DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_REPLICA_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
 
 # Queue details
-
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -63,10 +62,13 @@ def lambda_handler(event, context):
         "RBD_QUEUE_URL": configsettings.RBD_QUEUE_URL,
         "AU_CHUNK_QUEUE_URL": configsettings.AUCHUNKS_QUEUE_URL,
         "NAV_DB_NAME": configsettings.NAV_DB_NAME,
+        "API_KEY": configsettings.RM_GW_API_KEY,
+        "API_URL": configsettings.NAV_API_URL,
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
         Constants.CONST_LOGS : Constants.SERVER_LOGS,
         Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,
-        "latestCode": True
+        "latestCode": True,
+        "currentTime": False
     }
 
     for record in records:
@@ -80,6 +82,7 @@ def lambda_handler(event, context):
         data["runSingleMarket"] = True
         data["s3"]=s3
         data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
+        data["runTime"]=data["runTime"]
         DynAlloc(input_data, data)
 
     return {
@@ -88,6 +91,6 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"Origin": "BOM", "Destin": "HYD", "FlightNumber": 2134, "PerType": "D", "PerStart": "11/28/2023", "PerEnd": "11/28/2023", "DOW": 1111111, "strategyFlag": "1", "TimeWindowStart": "11:00", "TimeWindowEnd": "20:00", "CurveID": "C17440", "CarrExlusion": "**", "fareAnchor": "Strategy_1", "fareOffset": "", "FirstRBDAlloc": 5, "OtherRBDAlloc": 3, "B2BBackstop": 4000, "B2CBackstop": 3700, "B2BFactor": "0.5", "SkippingFactor": 7, "OwnFareFlag": "N", "DaySpan": 0, "AutoTimeRangeFlag": "1", "analystName": "Aparna", "runId": "aae605d1-bdb2-4732-b49e-f9cf63ba9026", "update_navitaire_method": "api"}
+# messageBody = { "Origin": "CCU", "Destin": "BLR", "FlightNumber": 1541, "PerType": "D", "PerStart": "12/08/2023", "PerEnd": "12/08/2023", "DOW": 9999919, "strategyFlag": 1, "TimeWindowStart": "16:30", "TimeWindowEnd": "23:30", "CurveID": "CCUBLR_P", "CarrExlusion": "AI", "fareAnchor": "SC_Lean_MO", "fareOffset": "", "FirstRBDAlloc": 5, "OtherRBDAlloc": 3, "B2BBackstop": 5000, "B2CBackstop": 5700, "B2BFactor": "0.6", "SkippingFactor": 0, "OwnFareFlag": "N", "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "Srishti", "openingFares": "1", "runId": "e7ee97be-1887-4d5e-8039-703399f6c687", "update_navitaire_method": "skip" }
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)

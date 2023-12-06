@@ -120,3 +120,16 @@ BOM,DEL,1327,D,08/22/2023,"OwnFareFlag ""yes"", B2C MINO, B2B OWNF",CL1
 BOM,DEL,1327,D,08/23/2023,"OwnFareFlag ""No"", B2C MAXO, B2B OWNF",CL1
 BOM,DEL,1327,D,08/24/2023,"OwnFareFlag ""No"", B2C MINO, B2B OWNF",CL1
 BOM,DEL,1327,D,08/25/2023,"OwnFareFlag ""No"", B2C MINO, B2B OWNF, day -1",CL1
+BOM,DEL,1427,D,08/01/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3+ & end of the day 3+",CL1
+BOM,DEL,1427,D,08/02/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3+ & end of the day 3-",CL1
+BOM,DEL,1427,D,08/03/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3+",CL1
+BOM,DEL,1427,D,08/04/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3-",CL1
+BOM,DEL,1427,D,08/05/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3+ & end of the day 3+",CL1
+BOM,DEL,1427,D,08/06/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3+ & end of the day 3-",CL1
+BOM,DEL,1427,D,08/07/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3- & end of the day 3+",CL1
+BOM,DEL,1427,D,08/08/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3- & end of the day 3-",CL1
+BOM,DEL,1428,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure pre noon 12pm, LF <95% ",CL1
+BOM,DEL,1429,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure pre noon 12pm, LF >=95% ",CL1
+BOM,DEL,1430,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure post noon 12pm, LF <95% ",CL1
+BOM,DEL,1431,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure post noon 12pm, LF >=95% ",CL1
+BOM,DEL,1432,D,08/01/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3+ >>For a date range",CL1

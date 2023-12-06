@@ -1,6 +1,7 @@
 ###########**************###############
 ## BE CAREFUL WHILE RUNNING THIS FILE ##
 ###########**************###############
+
 import sys,os
 path = os.path.abspath("rm-allocation-process-inputs")
 sys.path.insert(1,path)
@@ -8,7 +9,7 @@ from runAlloc import DynAlloc
 from sqlalchemy import create_engine
 import pymssql
 import uuid
-import Constants as Constants
+import Constants 
 
 def serverRun():
     DB_USERNAME = "rmscriptuser"
@@ -36,8 +37,11 @@ def serverRun():
         "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
         Constants.CONST_LOGS : Constants.SERVER_LOGS,
-        Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,
-        "latestCode":True
+        Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,        
+        "API_KEY": None,
+        "API_URL": None,
+        "latestCode":True,
+        "currentTime": False
     }
     
     currParams = {
@@ -49,6 +53,7 @@ def serverRun():
         "sqs": None,
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "s3":None,
+        "runTime":None
     }
 
     outputData = {}

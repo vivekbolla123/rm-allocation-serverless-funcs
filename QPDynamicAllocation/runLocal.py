@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 import pymssql
 import Constants
 import uuid
+from datetime import datetime
 
 def localRun():
     
@@ -28,11 +29,14 @@ def localRun():
         "MARKET_LIST_QUEUE_URL": None,
         "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
-        "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
+        "NAV_DB_NAME": "[10.154.12.19,52900].[TST0KOD01].",
         Constants.CONST_INPUT_SOURCE : Constants.LOCAL_INPUT,
         Constants.CONST_LOGS : Constants.LOCAL_LOGS,
         Constants.CONST_OUTPUT : Constants.LOCAL_OUTPUT,
-        "latestCode":True
+        "API_KEY": None,
+        "API_URL": None,
+        "latestCode":True,
+        "currentTime": False
     }
 
     currParams = {
@@ -44,6 +48,7 @@ def localRun():
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "sqs": None,
         "s3":None,
+        "runTime":None
     }
 
     outputData = {}

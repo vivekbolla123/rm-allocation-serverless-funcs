@@ -16,7 +16,8 @@ warnings.filterwarnings('ignore')
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 
-DB_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 
 USERNAME = "SYS2"
 
@@ -26,7 +27,8 @@ logger.setLevel(logging.INFO)
 # create the database connection outside of the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
-    conn = create_engine(DB_CONN_STRING)
+    conn = create_engine(DB_RD_CONN_STRING)
+    wrconn = create_engine(DB_WR_CONN_STRING)
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -110,7 +112,8 @@ def lambda_handler(event, context):
     SELECT Origin,Destin,FlightNumber,PerType, 
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
-    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName FROM {market_list_table} 
+    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,
+    B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares FROM {market_list_table} 
     WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
     str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
     """
@@ -143,6 +146,7 @@ def lambda_handler(event, context):
                 
             data["runId"] = run_id
             data["update_navitaire_method"] = update_navitaire_method
+            data["runTime"] = start_time
 
             data_str = data.to_json()
             logger.info(data_str)
@@ -180,7 +184,7 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
 
     insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
-        conn.execute(insert_query,
+        wrconn.execute(insert_query,
                     (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0'))
     except Exception as e:
         logger.info(e)
@@ -189,7 +193,7 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
 def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
     try:
-        conn.execute(insert_query,
+        wrconn.execute(insert_query,
                     (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     except Exception as e:
         logger.info(e)
@@ -197,7 +201,7 @@ def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
     try:
-        conn.execute(update_query,
+        wrconn.execute(update_query,
                     (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
     except Exception as e:
         logger.info(e)
@@ -235,7 +239,7 @@ def deduct_available_slot():
     new_avaiable_slot = count_avaiable_slot - 1
     update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
     try:
-        conn.execute(update_query)
+        wrconn.execute(update_query)
     except Exception as e:
         logger.info(e)
     logger.info(f"Slot Avaiable after Adhoc run started: {new_avaiable_slot}")

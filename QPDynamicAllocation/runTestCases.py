@@ -27,7 +27,10 @@ def testCase1():
         Constants.CONST_INPUT_SOURCE: Constants.TESTING_INPUT,
         Constants.CONST_LOGS: Constants.TESTING_LOGS,
         Constants.CONST_OUTPUT: Constants.TESTING_OUTPUT,
-        "latestCode": False
+        "API_KEY": None,
+        "API_URL": None,
+        "latestCode": False,
+        "currentTime": True
     }
 
     currParams = {
@@ -39,6 +42,7 @@ def testCase1():
         "sqs": None,
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "s3":None,
+        "runTime":None
     }
     outputData = {}
 
