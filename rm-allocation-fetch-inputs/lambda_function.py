@@ -142,8 +142,15 @@ def lambda_handler(event, context):
             for ndocounter in range(startNDO, endNDO+1):
                 tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
                 # insert into run_audit table
-                insert_run_fltDate_audit(run_id, flightNumber, tgtDate)
-                
+                insert_run_fltDate_audit(run_id, flightNumber, tgtDate)         
+        except:
+            logger.info("Error in Start or End Date at row: " + data)  
+            logger.info("Run Id: " + run_id)  
+
+    for mkt_index in range(markets_count):
+        data = mkt_list.iloc[mkt_index]
+        
+        try:                
             data["runId"] = run_id
             data["update_navitaire_method"] = update_navitaire_method
             data["runTime"] = start_time
