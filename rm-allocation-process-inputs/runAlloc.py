@@ -366,6 +366,8 @@ class DynAlloc:
 			upsellb2c = 'NA'
 			upsellb2b = 'NA'
 			bookingToday = 'NA'
+			expectedEndOfDayBooking = 'NA'
+   
 			if(isB2CMarketFareAvailable):
 				
 				if ((OwnFareFlag==YES_FLAG and B2CAvgFare==FARE_NOT_AVL and b2c_criteria==OWNF_FARE_ANCHOR) or (OwnFareFlag==NO_FLAG and b2c_criteria==OWNF_FARE_ANCHOR)):
