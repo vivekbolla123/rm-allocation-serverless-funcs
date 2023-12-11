@@ -62,7 +62,7 @@ DB_URL = "esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 #Prod
 # DB_USERNAME = "rmscriptuser"
 # DB_PASSWORD = "8BkNw9JEOHoxD6h"
-# DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+# DB_URL = "rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
 CONST_LOGS = "logFiles"
 CONST_INPUT_SOURCE = "inputSource"

@@ -22,6 +22,10 @@ class Schema:
         self.load_generic_table("rm_parameter_values", "rm_parameter_values.csv")
         self.load_generic_table("config_pfl_threshold","config_pfl_threshold.csv")
         self.load_generic_table("departure_time_ranges","departure_time_ranges.csv")
+        self.load_generic_table("booking_fare_data","booking_fare_data.csv")
+        self.load_generic_table("config_opening_fares","config_opening_fares.csv")
+        self.load_generic_table("config_share_of_booking","config_share_of_booking.csv")
+        self.load_generic_table("config_runTime","config_runTime.csv")
         self.alterTables()
 
     def load_generic_table(self, tableName, dataFile):
