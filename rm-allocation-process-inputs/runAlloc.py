@@ -50,7 +50,7 @@ class DynAlloc:
 		self.conn = currParams["dbconn"]
 		self.wrconn = currParams["wrconn"]
 		self.starttime=datetime.now()
-		# self.NavitaireConnection = currParams["NavitaireConnection"]
+		self.NavitaireConnection = currParams["NavitaireConnection"]
 
 		if(inputData["latestCode"]):
 			code_version = self.getLatestCodeVersion()
