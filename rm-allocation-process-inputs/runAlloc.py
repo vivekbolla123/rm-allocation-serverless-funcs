@@ -1251,18 +1251,20 @@ class DynAlloc:
 					) A
 					WHERE Sno = 1 
 			'''
-			payload = {
-            "query":query
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				farePrice = pd.DataFrame(data)
-			else:
-				farePrice = pd.DataFrame()
+			farePrice = pd.read_sql(query, self.NavitaireConnection)
+
+			# payload = {
+            # "query":query
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	farePrice = pd.DataFrame(data)
+			# else:
+			# 	farePrice = pd.DataFrame()
 		return farePrice
 
 	def getNumberOfBookings(self, currFltDateStr, currParams):
@@ -1300,18 +1302,20 @@ class DynAlloc:
 					where concat(A.BookingDate,' ',A.BookingTime) <= CONVERT(varchar, DATEADD(DAY, 0, '{currDate}'), 23)
 					group by A.STD 
 			'''
-			payload = {
-            "query":query
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				farePrice = pd.DataFrame(data)
-			else:
-				farePrice = pd.DataFrame()
+			farePrice = pd.read_sql(query, self.NavitaireConnection)
+
+			# payload = {
+            # "query":query
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	farePrice = pd.DataFrame(data)
+			# else:
+			# 	farePrice = pd.DataFrame()
     
 		return farePrice
 
@@ -1476,18 +1480,19 @@ class DynAlloc:
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
 			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate,STD order by Origin, Destination, DepartureDate "
 
-			payload = {
-            "query":NavitaireQuery
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				bookedData = pd.DataFrame(data)
-			else:
-				bookedData = pd.DataFrame()
+			bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
+			# payload = {
+            # "query":NavitaireQuery
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	bookedData = pd.DataFrame(data)
+			# else:
+			# 	bookedData = pd.DataFrame()
    
 		if(self.debugMode):
 			self.logger.info(NavitaireQuery)
