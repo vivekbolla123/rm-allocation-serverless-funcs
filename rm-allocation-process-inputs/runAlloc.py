@@ -50,7 +50,7 @@ class DynAlloc:
 		self.conn = currParams["dbconn"]
 		self.wrconn = currParams["wrconn"]
 		self.starttime=datetime.now()
-		self.NavitaireConnection = currParams["NavitaireConnection"]
+		# self.NavitaireConnection = currParams["NavitaireConnection"]
 
 		if(inputData["latestCode"]):
 			code_version = self.getLatestCodeVersion()
@@ -137,12 +137,59 @@ class DynAlloc:
 				time.sleep(self.WAIT_TIME)
   
 		bookedLoad = self.getCurrentBookedLoads(origin, destination, startDate, endDate)
-  
 		try: 
 			# For each NDO
 			for ndocounter in range(startNDO, endNDO+1):
 				currDate = self.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+				if(bookedLoad.shape[0] == 0):
+					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+					self.logger.info("Unable to get the Booked Load - Aborting")
+					self.allocResults = self.allocResults.append(
+					{
+						"Id":self.getUniqueId(), 
+						"RunId":self.runId, 
+						"Origin":origin, 
+						"Destin":destination, 
+						"FltNum":str(FlightNumber),
+						"DepDate":str(dateFormatted), 
+						"BookedLoad":"NA", 
+						"TgtLoad":'NA', 
+						'TimeRange': 'NA', 
+						'dlfBand': 'NA', 
+						'ndoBand': 'NA', 
+						'anchorFare': 'NA', 
+						"MktFare_Min":"NA",
+						"MktFare_Max":"NA", 
+						"fareOffset": "NA", 
+						"OpenRBD": "NA", 
+						"SellingFare":"NA", 
+						'Channel':"NA", 
+						'criteria':"NA",
+						'HowDetermined':"unable to get Booked loads", 
+						'Backstop': 'NA', 
+						'AirlineCode_Min': 'NA', 
+						'AirlineCode_Max': 'NA', 
+						'FlightNumber_Min': 'NA', 
+						'FlightNumber_Max': 'NA', 
+						'Variance': 'NA', 
+						'StrategyReference': 'NA', 
+						'analystName': analystName,
+						'bookedPlf': 'NA', 
+						'startTime':'NA', 
+						'endTime': 'NA', 
+						'allocationStatus': 0, 
+						'endOfDaydlfBand': 'NA', 
+						'expectedEndOfDayLoad': 'NA', 
+						'lastSellingFare': 'NA', 
+						'upsell': 'NA', 
+						'strategyFare': 'NA',
+						'bookingToday': 'NA',
+						'expectedEndOfDayBooking': 'NA'
+					}, ignore_index = True)
+					self.updateRunAudit("Done", "Done", FlightNumber, tgtDate)
+					self.insertSummaryRow()
+					break
 				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
 				if(FlightNumber == '*'):
 					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
@@ -573,11 +620,18 @@ class DynAlloc:
 		lastSoldFare = 0
 		farePrice = self.getLastSellingFare(currFltDate, currParams)
 		bookings = self.getNumberOfBookings(currFltDate, currParams)
-		if channel == 'B2C':
-			lastSoldFare = farePrice["B2Cfare"][0]
-		if channel =='B2B':
-			lastSoldFare = farePrice["B2Bfare"][0]
-		lastBookloadTillMidnight = bookings["BookingsCount"][0]
+		if(farePrice.shape[0] == 0):
+			lastSoldFare = 0
+		else:
+			if channel == 'B2C':
+				lastSoldFare = farePrice["B2Cfare"][0]
+			if channel =='B2B':
+				lastSoldFare = farePrice["B2Bfare"][0]
+		if(bookings.shape[0] == 0):
+			lastBookloadTillMidnight = 0
+		else:
+			lastBookloadTillMidnight = bookings["BookingsCount"][0]
+
 		self.logger.info("Last Selling Fare is "+ str(lastSoldFare))
 		self.logger.info("Number of Bookings is "+ str(lastBookloadTillMidnight))
 		departureTime = bookings["STD"][0]
@@ -1251,20 +1305,20 @@ class DynAlloc:
 					) A
 					WHERE Sno = 1 
 			'''
-			farePrice = pd.read_sql(query, self.NavitaireConnection)
+			# farePrice = pd.read_sql(query, self.NavitaireConnection)
 
-			# payload = {
-            # "query":query
-			# }
-			# headers = {
-			# 	'x-api-key': self.API_KEY
-			# }
-			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			# if response.status_code == 200:
-			# 	data = json.loads(response.text)
-			# 	farePrice = pd.DataFrame(data)
-			# else:
-			# 	farePrice = pd.DataFrame()
+			payload = {
+            "query":query
+			}
+			headers = {
+				'x-api-key': self.API_KEY
+			}
+			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			if response.status_code == 200:
+				data = json.loads(response.text)
+				farePrice = pd.DataFrame(data)
+			else:
+				farePrice = pd.DataFrame(columns=['B2Bfare', 'B2Cfare'])
 		return farePrice
 
 	def getNumberOfBookings(self, currFltDateStr, currParams):
@@ -1302,20 +1356,20 @@ class DynAlloc:
 					where concat(A.BookingDate,' ',A.BookingTime) <= CONVERT(varchar, DATEADD(DAY, 0, '{currDate}'), 23)
 					group by A.STD 
 			'''
-			farePrice = pd.read_sql(query, self.NavitaireConnection)
+			# farePrice = pd.read_sql(query, self.NavitaireConnection)
 
-			# payload = {
-            # "query":query
-			# }
-			# headers = {
-			# 	'x-api-key': self.API_KEY
-			# }
-			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			# if response.status_code == 200:
-			# 	data = json.loads(response.text)
-			# 	farePrice = pd.DataFrame(data)
-			# else:
-			# 	farePrice = pd.DataFrame()
+			payload = {
+            "query":query
+			}
+			headers = {
+				'x-api-key': self.API_KEY
+			}
+			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			if response.status_code == 200:
+				data = json.loads(response.text)
+				farePrice = pd.DataFrame(data)
+			else:
+				farePrice = pd.DataFrame(columns=['BookingsCount', 'STD'])
     
 		return farePrice
 
@@ -1389,6 +1443,7 @@ class DynAlloc:
 				anchorFares = anchorFares + timeValue
 				howDetermined = 'UpsellY_AllocationY_Fare based from last sold Fare '
 				offset = 0
+				upsell = timeValue
 		return anchorFares, howDetermined, offset, upsell
 
 	def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
@@ -1480,19 +1535,19 @@ class DynAlloc:
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
 			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate,STD order by Origin, Destination, DepartureDate "
 
-			bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
-			# payload = {
-            # "query":NavitaireQuery
-			# }
-			# headers = {
-			# 	'x-api-key': self.API_KEY
-			# }
-			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			# if response.status_code == 200:
-			# 	data = json.loads(response.text)
-			# 	bookedData = pd.DataFrame(data)
-			# else:
-			# 	bookedData = pd.DataFrame()
+			# bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
+			payload = {
+            "query":NavitaireQuery
+			}
+			headers = {
+				'x-api-key': self.API_KEY
+			}
+			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			if response.status_code == 200:
+				data = json.loads(response.text)
+				bookedData = pd.DataFrame(data)
+			else:
+				bookedData = pd.DataFrame(columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate', 'DepartureTime', 'bookedPax', 'capacity'])
    
 		if(self.debugMode):
 			self.logger.info(NavitaireQuery)

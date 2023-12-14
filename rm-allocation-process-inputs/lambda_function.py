@@ -36,11 +36,11 @@ try:
     wrconn = create_engine(DB_WR_CONN_STRING)
     rdconn = create_engine(DB_RD_CONN_STRING)
 
-    NavitaireConnection = pymssql.connect(
-        host=configsettings.NAV_DB_HOST,
-        user=configsettings.NAV_DB_USER,
-        password=configsettings.NAV_DB_PASSWORD
-    )
+    # NavitaireConnection = pymssql.connect(
+    #     host=configsettings.NAV_DB_HOST,
+    #     user=configsettings.NAV_DB_USER,
+    #     password=configsettings.NAV_DB_PASSWORD
+    # )
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -75,7 +75,7 @@ def lambda_handler(event, context):
         content = record['body']
         # NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
-        data["NavitaireConnection"] = NavitaireConnection
+        # data["NavitaireConnection"] = NavitaireConnection
         data["dbconn"] = rdconn
         data["wrconn"] = wrconn
         data["sqs"] = sqs

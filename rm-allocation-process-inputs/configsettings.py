@@ -16,8 +16,6 @@ if env == 'prod':
     RM_DB_APPUSER_URL_READ="rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     NAV_DB_NAME = "[REZ0KOD01]."
-    NAV_DB_HOST="10.154.12.13:52900"
-    NAV_DB_USER="0KODSUSER"
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds"
     AUCHUNKS_QUEUE_URL="https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-au-chunks"
@@ -30,14 +28,14 @@ if env == 'test':
     RM_DB_APPUSER_URL_READ="rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     NAV_DB_NAME = "[TST0KOD01]."
-    NAV_DB_HOST="10.154.12.19:52900"
-    NAV_DB_USER="0KODSUSER"
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-rbds"
     AUCHUNKS_QUEUE_URL="https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-au-chunks"
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
 
 RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
-NAV_DB_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
+# NAV_DB_HOST="43.204.99.181:1433"
+# NAV_DB_USER="crm_navods_read"
+# NAV_DB_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
 RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 RM_GW_API_KEY=get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
