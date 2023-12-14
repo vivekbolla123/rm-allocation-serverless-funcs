@@ -681,7 +681,7 @@ class DynAlloc:
 
 	def getMarketFareAnchorFare(self, currFltDate, currParams, avgFare, channel, startTime, endTime, DaySpan):
 		mktFareRange = self.getMarketFareRange(channel,currFltDate, currParams,DaySpan,startTime,endTime)
-		mktfareRange_minomaxo = self.getMarketFareRangeminomaxo(channel, currFltDate, currParams,DaySpan,startTime,endTime)
+		mktfareRange_minomaxo = self.getMarketFareRangeminomaxo(mktFareRange)
 
 		#Does competetive fare exist
 		#We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -1207,39 +1207,20 @@ class DynAlloc:
 
 		return mktFareRange
 
-	def getMarketFareRangeminomaxo(self, channel, currFltDateStr, currParams,DaySpan,startTime,endTime):
-
-		currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
-		startDateTime=f"{currFltDate} {startTime}"
-		enddateTime=f"{currFltDate} {endTime}"
-		updateDate=currFltDate+timedelta(days=int(DaySpan))
-		if currFltDate>updateDate:
-			startDateTime=f"{updateDate} {startTime}"
-			enddateTime=f"{currFltDate} {endTime}"
-		elif currFltDate<updateDate:
-			startDateTime=f"{currFltDate} {startTime}"
-			enddateTime=f"{updateDate} {endTime}"
-		mktLowestQuery = "Select gross_fare,outbound_airline_code,outbound_flight from " + self.TABLE_MARKET_FARES + " where source_airport = '"
-		mktLowestQuery = mktLowestQuery + currParams['Origin'] + "' and destination_airport = '" + currParams['Destin'] + "'"
-		mktLowestQuery = mktLowestQuery + f"AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) <= CAST('{enddateTime}' AS DATETIME) AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)"
-		mktLowestQuery = mktLowestQuery + " and channel = '" + channel + "' "
-		mktLowestQuery = mktLowestQuery + " and outbound_airline_code <> '" + currParams['CarrExlusion'] + "' AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' "
-		if(self.inputSource[CONST_INPUT_SOURCE][CONST_MARKET_FARES] != TEST_DATA):
-			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
-		try:
-			mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
-		except Exception as e:
-			self.logger.error(e)
+	def getMarketFareRangeminomaxo(self, mktFareRange):
 		data = pd.DataFrame(mktFareRange)
-		fare_list = data["gross_fare"].tolist()
-		if len(fare_list)>1:
+		fare_l1 = data["gross_fare"].tolist()
+		fare_list = []
+		if len(fare_l1)>1:
 			coveragevalue = int(self.COVERAGE_PARAMETER)
-			MED = np.median(fare_list)
-			MAD = np.median(np.abs(fare_list- np.median(fare_list)))
-			for fare in fare_list:
+			MED = np.median(fare_l1)
+			MAD = np.median(np.abs(fare_l1- np.median(fare_l1)))
+			if MAD==0:
+				MAD=0.15*MED
+			for fare in fare_l1:
 				MZS = np.abs(fare - MED)/MAD
-				if MZS > coveragevalue:
-					fare_list.remove(fare)
+				if MZS < coveragevalue:
+					fare_list.append(fare)
 			min_fare = min(fare_list)
 			max_fare = max(fare_list)
 			min_fare_row = data[data["gross_fare"] == min_fare].iloc[0]
