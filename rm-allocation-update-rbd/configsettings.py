@@ -17,10 +17,15 @@ if env == 'prod':
 
 
 if env == 'test':
-    RM_DB_APPUSER_USERNAME="DBSAAdmin"
+    RM_DB_APPUSER_USERNAME="rm-user"
     RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
 
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
+
+RM_CACHE_USERNAME="default"
+RM_CACHE_PASSWORD="bRT__04M})0"
+RM_CACHE_ENDPOINT="ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+RM_CACHE_PORT=6379
 
 NAV_USERNAME = "aumaster1"
 NAV_DOMAIN = "TOP"

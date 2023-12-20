@@ -17,7 +17,7 @@ if env == 'prod':
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds-ftp"
     
 if env == 'test':
-    RM_DB_APPUSER_USERNAME="DBSAAdmin"
+    RM_DB_APPUSER_USERNAME="rm-user"
     RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KTestr4x_sftp'
     SFTP_DES_DIR = '/'
@@ -28,6 +28,11 @@ RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPU
 SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
 
 RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
+
+RM_CACHE_USERNAME="default"
+RM_CACHE_PASSWORD="bRT__04M})0"
+RM_CACHE_ENDPOINT="ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+RM_CACHE_PORT=6379
 
 SFTP_HOST = 'sftp.akasaair.com'
 SFTP_PORT = 10022

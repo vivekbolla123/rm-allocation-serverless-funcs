@@ -11,12 +11,28 @@ import configsettings
 from datetime import datetime 
 from sqlalchemy import create_engine
 import pandas as pd
+from redis import Redis
+
 warnings.filterwarnings('ignore')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+
+CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
+CACHE_PORT = configsettings.RM_CACHE_PORT
+CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
+CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
+
+cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+if cache_client.ping():
+    print("Connected to Redis")
+
+KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
+KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
+KEY_B2B_DONE_COUNT = 'b2b_done_count_'
+KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 try:
     conn = create_engine(DB_WR_CONN_STRING)
@@ -100,9 +116,9 @@ class DataProcessor:
                     seconds = remainder
 
                     print(f"It took {minutes} minutes and {seconds} seconds. to upload file to SFTP")
-                    query=f'''SELECT CASE WHEN COUNT(*) = SUM(b2cstatus = 'Done') AND COUNT(*) = SUM(b2bstatus = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{runid}"'''
-                    all_done=pd.read_sql(query,conn)
-                    if(all_done["all_done"][0]==1):
+                    all_done = self.is_all_allocation_done(runid)
+                    
+                    if(all_done == True):
                         actual_end_time = datetime.now()
                         conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1', actual_end_time ='{actual_end_time.strftime('%Y-%m-%d %H:%M:%S')}' WHERE run_id = '{runid}'")
                     sftp.close()
@@ -178,7 +194,9 @@ class DataProcessor:
                     return
                 
                 conn.execute(f"UPDATE run_flight_date_audit SET b2cstatus = 'Done', b2bstatus = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'")
-                
+                cache_client.incr(KEY_B2B_DONE_COUNT + runid, 1)
+                cache_client.incr(KEY_B2C_DONE_COUNT + runid, 1)
+
                 if(row["result"] is not None):
                     data = json.loads(row["result"])
                     if data["type"]=="R":
@@ -195,7 +213,18 @@ class DataProcessor:
 
         # Periodically check if the remote file exists (every 15 seconds)
         self.upload_to_sftp(file_name,runid)
+
+    def is_all_allocation_done(self, run_id):
+        # b2b_pending_count = cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
+        # b2c_pending_count = cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
+        # b2b_done_count = cache_client.get(KEY_B2B_DONE_COUNT + run_id)
+        # b2c_done_count = cache_client.get(KEY_B2C_DONE_COUNT + run_id)
         
+        # return int(b2b_pending_count) + int(b2c_pending_count) <= int(b2b_done_count) + int(b2c_done_count)
+    
+        query=f'''SELECT CASE WHEN COUNT(*) = SUM(b2cstatus = 'Done') AND COUNT(*) = SUM(b2bstatus = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{run_id}"'''
+        all_done = pd.read_sql(query,conn)
+        return all_done["all_done"][0] == 1
         
 # messageBody = {"run_id":"dcae96e5-c754-4006-8895-b7dba03edab0"}
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

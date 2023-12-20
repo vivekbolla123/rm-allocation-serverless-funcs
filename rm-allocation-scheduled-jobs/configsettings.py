@@ -25,6 +25,10 @@ if env == 'test':
     NAV_DB_NAME = "[TST0KWB01]."
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
 
+RM_CACHE_USERNAME="default"
+RM_CACHE_PASSWORD="bRT__04M})0"
+RM_CACHE_ENDPOINT="ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+RM_CACHE_PORT=6379
 RM_GW_API_KEY=get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
 RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"

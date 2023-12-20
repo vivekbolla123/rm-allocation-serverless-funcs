@@ -9,12 +9,24 @@ from lambda_multiprocessing import Pool
 from sqlalchemy import create_engine
 import requests
 import configsettings
+from redis import Redis
 
 warnings.filterwarnings('ignore')
 
 # rds settings
 DB_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 
+CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
+CACHE_PORT = configsettings.RM_CACHE_PORT
+CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
+CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
+
+cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+if cache_client.ping():
+    print("Connected to Redis")
+
+KEY_B2B_DONE_COUNT = 'b2b_done_count_'
+KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 def get_nav_token_api():
     """
@@ -312,8 +324,20 @@ def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2b
 
 def updateRunAudit(run_id, start_date, flight, result):
     dateFormatted = start_date[:10]
-    update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s ,b2bstatus = %s , result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-    conn.execute(update_query, ("Done", "Done", result, run_id, flight, dateFormatted))
+    insert_run_fltDate_audit(run_id, flight, dateFormatted, result)
+
+    cache_client.incr(KEY_B2B_DONE_COUNT + run_id, 1)
+    cache_client.incr(KEY_B2C_DONE_COUNT + run_id, 1)
+
+    # update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s ,b2bstatus = %s , result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+    # conn.execute(update_query, ("Done", "Done", result, run_id, flight, dateFormatted))
+
+def insert_run_fltDate_audit(run_id, flightNumber, flightDate, result):
+    insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, result, b2cstatus, b2bstatus ,createdAt) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    try:
+        conn.execute(insert_query, (run_id, flightNumber, flightDate, result, "Done", "Done", datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    except Exception as e:
+        logger.info(e)
 
 def updateAllocationAudit(endTime, run_id):
     update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE run_id = %s"

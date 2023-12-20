@@ -10,6 +10,7 @@ from pandas import read_sql
 from datetime import datetime
 from datetime import timedelta
 from datetime import date
+from redis import Redis
 
 warnings.filterwarnings('ignore')
 
@@ -21,12 +22,25 @@ DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{c
 
 USERNAME = "SYS2"
 
+CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
+CACHE_PORT = configsettings.RM_CACHE_PORT
+CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
+CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
+
+KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
+KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
+KEY_B2B_READY_COUNT = 'b2b_ready_count_'
+KEY_B2C_READY_COUNT = 'b2c_ready_count_'
+KEY_B2B_DONE_COUNT = 'b2b_done_count_'
+KEY_B2C_DONE_COUNT = 'b2c_done_count_'
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # create the database connection outside of the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
+    cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     conn = create_engine(DB_RD_CONN_STRING)
     wrconn = create_engine(DB_WR_CONN_STRING)
 except Exception as e:
@@ -34,6 +48,8 @@ except Exception as e:
     sys.exit()
 
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+if cache_client.ping():
+    logger.info("Connected to Redis")
 
 def lambda_handler(event, context):
     """
@@ -126,6 +142,13 @@ def lambda_handler(event, context):
     run_id = str(uuid4())
     insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method)
 
+    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 21600)
+
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
         
@@ -134,15 +157,19 @@ def lambda_handler(event, context):
         startNDO = data['PerStart']
         endNDO = data['PerEnd']
         PerType = data['PerType']
-        flightNumber = data['FlightNumber']
+        # flightNumber = data['FlightNumber']
 
         try:
             startNDO, endNDO = getStartEndDate(PerType, currDate, startNDO, endNDO)
-            
-            for ndocounter in range(startNDO, endNDO+1):
-                tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
-                # insert into run_audit table
-                insert_run_fltDate_audit(run_id, flightNumber, tgtDate)         
+            totalNDO = endNDO - startNDO + 1
+
+            cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, totalNDO)
+            cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, totalNDO)
+
+            # for ndocounter in range(startNDO, endNDO+1):
+            #     tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
+            #     # insert into run_audit table
+            #     insert_run_fltDate_audit(run_id, flightNumber, tgtDate)         
         except:
             logger.info("Error in Start or End Date at row: " + data)  
             logger.info("Run Id: " + run_id)  
@@ -197,13 +224,13 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         logger.info(e)
     logger.info("STARTED ALLOCATION RUN")
 
-def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
-    insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
-    try:
-        wrconn.execute(insert_query,
-                    (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-    except Exception as e:
-        logger.info(e)
+# def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
+#     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
+#     try:
+#         wrconn.execute(insert_query,
+#                     (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+#     except Exception as e:
+#         logger.info(e)
 
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "

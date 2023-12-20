@@ -87,6 +87,13 @@ CONST_MARKET_LIST_FILE_PATH = f"{sys.path[0]}/params/MarketList.csv"
 CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/output/AUGrid.csv"
 CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/output/summary.csv"
 
+KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
+KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
+KEY_B2B_READY_COUNT = 'b2b_ready_count_'
+KEY_B2C_READY_COUNT = 'b2c_ready_count_'
+KEY_B2B_DONE_COUNT = 'b2b_done_count_'
+KEY_B2C_DONE_COUNT = 'b2c_done_count_'
+
 TESTING_INPUT = {
     CONST_CURVES: TEST_DATA,
     CONST_MARKET_LIST: TEST_DATA,

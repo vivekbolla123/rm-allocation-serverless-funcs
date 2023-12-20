@@ -3,7 +3,7 @@ import pandas as pd
 import uuid
 import math
 import os
-import time
+import time as time_sleep
 import json
 import logging
 import warnings
@@ -44,14 +44,16 @@ class DynAlloc:
 		self.RBD_QUEUE_URL = self.inputSource["RBD_QUEUE_URL"]
 		self.AWS_SQS_QUEUE_URL=self.inputSource["AU_CHUNK_QUEUE_URL"]
 		self.NAV_DB_NAME = self.inputSource["NAV_DB_NAME"]
+		self.NAV_DB_DW_NAME = self.inputSource["NAV_DB_DW_NAME"]
 		self.API_KEY = self.inputSource["API_KEY"]
 		self.API_URL = self.inputSource["API_URL"]
 		
 		self.sqs = currParams["sqs"]
 		self.conn = currParams["dbconn"]
 		self.wrconn = currParams["wrconn"]
+		self.cache_client = currParams["cache_client"]
 		self.starttime=datetime.now()
-		# self.NavitaireConnection = currParams["NavitaireConnection"]
+		self.NavitaireConnection = currParams["NavitaireConnection"]
 
 		if(inputData["latestCode"]):
 			code_version = self.getLatestCodeVersion()
@@ -135,7 +137,7 @@ class DynAlloc:
 			canCopy = self.areAllInputsReady()
 			if canCopy == False:
 				self.logger.info('Waiting as inputs are busy...')
-				time.sleep(self.WAIT_TIME)
+				time_sleep.sleep(self.WAIT_TIME)
   
 		bookedLoad = self.getCurrentBookedLoads(origin, destination, startDate, endDate)
 		try: 
@@ -312,11 +314,7 @@ class DynAlloc:
 			self.outputResults()
 
 		if (self.inputSource['isUpdateNavitaire']) and (self.NavitaireUpdateMethod==CONST_SFTP):
-			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s "
-			try:
-				self.wrconn.execute(update_query, "Ready", "Ready", self.runId)
-			except Exception as e:
-				self.logger.error(e)
+			self.setAllRunStatus2Ready()
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoad, currParams, B2CBackstop, B2BBackstop,B2CAvgFare,B2BAvgFare, SkippingFactor):
 		currDate = self.getCurrentDate()
@@ -1317,7 +1315,7 @@ class DynAlloc:
                  				INNER JOIN {self.NAV_DB_NAME}rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
 								INNER JOIN {self.NAV_DB_NAME}rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID
 								LEFT JOIN {self.NAV_DB_NAME}rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-								LEFT JOIN {self.NAV_DB_NAME}dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
+								LEFT JOIN {self.NAV_DB_DW_NAME}dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
 							WHERE IL.Lid > 0
 								AND IL.Status NOT IN (2)
 								AND IL.DepartureDate = '{currFltDate}'
@@ -1330,20 +1328,20 @@ class DynAlloc:
 					) AS B
 					WHERE Sno = 1
 			'''
-			# farePrice = pd.read_sql(query, self.NavitaireConnection)
+			farePrice = pd.read_sql(query, self.NavitaireConnection)
 
-			payload = {
-            "query":query
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				farePrice = pd.DataFrame(data)
-			else:
-				farePrice = pd.DataFrame(columns=['B2Bfare', 'B2Cfare'])
+			# payload = {
+            # "query":query
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	farePrice = pd.DataFrame(data)
+			# else:
+			# 	farePrice = pd.DataFrame(columns=['B2Bfare', 'B2Cfare'])
     
 		return farePrice
 
@@ -1380,20 +1378,20 @@ class DynAlloc:
 					) A
 					where concat(A.BookingDate,' ',A.BookingTime) <= CONVERT(varchar, DATEADD(DAY, 0, '{currDate}'), 23)
 			'''
-			# farePrice = pd.read_sql(query, self.NavitaireConnection)
+			farePrice = pd.read_sql(query, self.NavitaireConnection)
 
-			payload = {
-            "query":query
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				farePrice = pd.DataFrame(data)
-			else:
-				farePrice = pd.DataFrame(columns=['BookingsCount', 'STD'])
+			# payload = {
+            # "query":query
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	farePrice = pd.DataFrame(data)
+			# else:
+			# 	farePrice = pd.DataFrame(columns=['BookingsCount', 'STD'])
     
 		return farePrice
 
@@ -1560,19 +1558,19 @@ class DynAlloc:
 			NavitaireQuery = NavitaireQuery + " and IL.DepartureStation = '" + origin + "' and IL.ArrivalStation = '" + destin + "'"
 			NavitaireQuery = NavitaireQuery + ") A group by Origin, Destination, FlightNumber, DepartureDate,STDUTC order by Origin, Destination, DepartureDate "
 
-			# bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
-			payload = {
-            "query":NavitaireQuery
-			}
-			headers = {
-				'x-api-key': self.API_KEY
-			}
-			response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
-			if response.status_code == 200:
-				data = json.loads(response.text)
-				bookedData = pd.DataFrame(data)
-			else:
-				bookedData = pd.DataFrame(columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate', 'DepartureTime', 'bookedPax', 'capacity'])
+			bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
+			# payload = {
+            # "query":NavitaireQuery
+			# }
+			# headers = {
+			# 	'x-api-key': self.API_KEY
+			# }
+			# response = requests.request("POST",self.API_URL,headers=headers, data=json.dumps(payload))
+			# if response.status_code == 200:
+			# 	data = json.loads(response.text)
+			# 	bookedData = pd.DataFrame(data)
+			# else:
+			# 	bookedData = pd.DataFrame(columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate', 'DepartureTime', 'bookedPax', 'capacity'])
    
 		if(self.debugMode):
 			self.logger.info(NavitaireQuery)
@@ -1766,11 +1764,13 @@ class DynAlloc:
   
 		auData['auClasses'] = auClass
 		auDataStr = json.dumps(auData)
-		update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s, result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-		try:
-			self.wrconn.execute(update_query, "Ready", "Ready", auDataStr, self.runId, flightNo, flightDate)
-		except Exception as e:
-				self.logger.error(e)
+		self.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
+
+		# update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s, result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+		# try:
+		# 	self.wrconn.execute(update_query, "Ready", "Ready", auDataStr, self.runId, flightNo, flightDate)
+		# except Exception as e:
+		# 		self.logger.error(e)
 
 	def getCurrentDateTime(self):
 		startTime = datetime.now()
@@ -1886,29 +1886,45 @@ class DynAlloc:
 			cur_time = self.starttime.astimezone(ist_timezone).time().strftime("%H:%M")
 			self.currentTime = cur_time
 
+	def insert_run_fltDate_audit(self, run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus):
+		insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, result, b2cstatus, b2bstatus ,createdAt) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+		try:
+			self.wrconn.execute(insert_query, (run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+		except Exception as e:
+			self.logger.info(e)
+
 	def updateRunAudit(self, b2cStatus, b2bStatus, flightNo, flightDate):
 		if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
-			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			try:
-				self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
-			except Exception as e:
-				self.logger.error(e)
+			self.cache_client.incr(KEY_B2B_DONE_COUNT + self.runId)
+			self.cache_client.incr(KEY_B2C_DONE_COUNT + self.runId)
+
+			# update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			# try:
+			# 	self.wrconn.execute(update_query, b2cStatus, b2bStatus,  self.runId, flightNo, flightDate)
+			# except Exception as e:
+			# 	self.logger.error(e)
 
 	def updateRunAuditb2c(self, b2cStatus, flightNo, flightDate):
-		if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
-			update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			try:
-				self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
-			except Exception as e:
-				self.logger.error(e)
+		pass
+		# if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
+		# 	self.cache_client.incr(KEY_B2C_DONE_COUNT + self.runId)
+
+			# update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			# try:
+			# 	self.wrconn.execute(update_query, b2cStatus,  self.runId, flightNo, flightDate)
+			# except Exception as e:
+			# 	self.logger.error(e)
   
 	def updateRunAuditb2b(self, b2bStatus, flightNo, flightDate):
-		if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
-			update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-			try:
-				self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
-			except Exception as e:
-				self.logger.error(e)
+		pass
+		# if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
+		# 	self.cache_client.incr(KEY_B2B_DONE_COUNT + self.runId)
+
+			# update_query = " UPDATE run_flight_date_audit SET b2bstatus = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
+			# try:
+			# 	self.wrconn.execute(update_query, b2bStatus,  self.runId, flightNo, flightDate)
+			# except Exception as e:
+			# 	self.logger.error(e)
   
 	def updateRunEnd(self, endTime):
 		if self.inputSource[CONST_LOGS][CONST_RUN_AUDIT] == DB:
@@ -1973,7 +1989,19 @@ class DynAlloc:
 					start_time = start
 					end_time = end
 					return min(lower_time, start_time), max(upper_time, end_time),dayspan
-			
+
+	def setAllRunStatus2Ready(self):
+		b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + self.runId)
+		b2cPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + self.runId)
+		self.cache_client.set(KEY_B2B_READY_COUNT + self.runId, b2bPendingCount)
+		self.cache_client.set(KEY_B2C_READY_COUNT + self.runId, b2cPendingCount)
+		
+		# update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s, b2bstatus = %s WHERE runId = %s "
+		# try:
+		# 	self.wrconn.execute(update_query, "Ready", "Ready", self.runId)
+		# except Exception as e:
+		# 	self.logger.error(e)
+		
 class OwnLogger:
     
 	def __init__(self,runid,input):
