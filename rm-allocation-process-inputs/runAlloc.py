@@ -45,6 +45,7 @@ class DynAlloc:
 		self.AWS_SQS_QUEUE_URL=self.inputSource["AU_CHUNK_QUEUE_URL"]
 		self.NAV_DB_NAME = self.inputSource["NAV_DB_NAME"]
 		self.NAV_DB_DW_NAME = self.inputSource["NAV_DB_DW_NAME"]
+		self.NAV_DB_WB_NAME = self.inputSource["NAV_DB_WB_NAME"]
 		self.API_KEY = self.inputSource["API_KEY"]
 		self.API_URL = self.inputSource["API_URL"]
 		
@@ -1034,27 +1035,37 @@ class DynAlloc:
 		# Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
 		if(defFareData.shape[0] == 0):
 			defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0)
-			
-		if(rbddata['RBD'][0] == self.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.LOWEST_B2C_RBD_VALUE):
-			defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
-			if(rbddata['RBD'][0] == defFareData['RBD'][0]):
-				extremeFareFlag = True
-				RBDtoOpen = rbddata['RBD'][0]
-				FareToOpen = rbddata['Total'][0]
-			else:
-				backstopFlag = True
-				RBDtoOpen = defFareData['RBD'][0]
-				FareToOpen = defFareData['Total'][0]
+		
+		if(defFareData.shape[0] == 0):
+			if (channel == 'B2B'):
+				rbdLevel = self.HIGHEST_B2B_RBD_VALUE
+			if (channel == 'B2C'):
+				rbdLevel = self.HIGHEST_B2C_RBD_VALUE
+    
+			openResult = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare higher than '+ rbdLevel +' levels - skipping ' + channel + ' allocation'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
+			self.updateRunAuditb2c("Done", flightNumber, currFltDate)
+			return openResult
 		else:
-			if(float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch])):
-				offsetToFetch=min(len(defFareData['Total'])-1,offsetToFetch)
-				if(rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0):
+			if(rbddata['RBD'][0] == self.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.LOWEST_B2C_RBD_VALUE):
+				defFareData = self.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop)
+				if(rbddata['RBD'][0] == defFareData['RBD'][0]):
+					extremeFareFlag = True
+					RBDtoOpen = rbddata['RBD'][0]
+					FareToOpen = rbddata['Total'][0]
+				else:
 					backstopFlag = True
-				RBDtoOpen = defFareData['RBD'][0]
-				FareToOpen = defFareData['Total'][0]
+					RBDtoOpen = defFareData['RBD'][0]
+					FareToOpen = defFareData['Total'][0]
 			else:
-				RBDtoOpen = rbddata['RBD'][offsetToFetch]
-				FareToOpen = rbddata['Total'][offsetToFetch]		
+				if(float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch])):
+					offsetToFetch=min(len(defFareData['Total'])-1,offsetToFetch)
+					if(rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0):
+						backstopFlag = True
+					RBDtoOpen = defFareData['RBD'][0]
+					FareToOpen = defFareData['Total'][0]
+				else:
+					RBDtoOpen = rbddata['RBD'][offsetToFetch]
+					FareToOpen = rbddata['Total'][offsetToFetch]		
 					
 		self.logger.info('Determining ' + channel + ' Fare ' + str(FareToOpen) + " " + str(RBDtoOpen))
 
@@ -1066,7 +1077,7 @@ class DynAlloc:
 			if (float(anchorFare) > limitB2BFare):
 				#Outside of B2B Levels - stick with B2C
 				openResult = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['Market Fare higher than '+ self.HIGHEST_B2B_RBD_VALUE +' levels - skipping B2B allocation'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
-				self.updateRunAuditb2c("Done", flightNumber, currFltDate)
+				self.updateRunAuditb2b("Done", flightNumber, currFltDate)
 				return openResult
     
 			else:
@@ -1295,38 +1306,11 @@ class DynAlloc:
 
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_BOOKLOAD] == DB:
 			query = f'''
-					SELECT
-						MAX(B2Bfare) as B2Bfare, MAX(B2Cfare) as B2Cfare
-					FROM (
-						SELECT
-							CASE WHEN SUBSTRING(FareBasis, 5, 1) = 'M' THEN Fare ELSE 0 END AS B2Bfare,
-							CASE WHEN SUBSTRING(FareBasis, 5, 1) = 'R' THEN Fare ELSE 0 END AS B2Cfare,
-							ROW_NUMBER() OVER (PARTITION BY SUBSTRING(FareBasis, 5, 1) ORDER BY BookingUTC DESC) AS Sno
-						FROM (
-							SELECT
-								B.BookingUTC,
-								BP.PassengerID,
-								PJS.FareBasis,
-								SUM(CASE WHEN PJC.ChargeType IN (0, 1, 2, 4, 5) AND PJL.LegNumber = PJS.SegmentNumber THEN (PJC.ChargeAmount * CTM.PositiveNegativeFlag) ELSE 0 END) AS Fare
-							FROM
-								{self.NAV_DB_NAME}rez.Booking B
-								INNER JOIN {self.NAV_DB_NAME}rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-            					INNER JOIN {self.NAV_DB_NAME}rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID and PJS.ClassOfService not in ('G','S') and SUBSTRING(PJS.FareBasis, 5, 1) in ('M','R')								
-                 				INNER JOIN {self.NAV_DB_NAME}rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
-								INNER JOIN {self.NAV_DB_NAME}rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID
-								LEFT JOIN {self.NAV_DB_NAME}rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-								LEFT JOIN {self.NAV_DB_DW_NAME}dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
-							WHERE IL.Lid > 0
-								AND IL.Status NOT IN (2)
-								AND IL.DepartureDate = '{currFltDate}'
-								AND IL.FlightNumber = '{currParams["FlightNumber"]}' 
-								AND IL.DepartureStation = '{currParams["Origin"]}'
-								AND IL.ArrivalStation = '{currParams["Destin"]}'
-							GROUP BY
-								B.BookingUTC, BP.PassengerID, PJS.FareBasis
-						) AS A
-					) AS B
-					WHERE Sno = 1
+					EXEC {self.NAV_DB_WB_NAME}[dbo].[LastFareForFlight]
+						@DepartureDate = N'{currFltDate}',
+						@FlightNumber = N'{currParams["FlightNumber"]}',
+						@DepartureStation = N'{currParams["Origin"]}',
+						@ArrivalStation = N'{currParams["Destin"]}'
 			'''
 			farePrice = pd.read_sql(query, self.NavitaireConnection)
 
@@ -1361,22 +1345,12 @@ class DynAlloc:
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_BOOKLOAD] == DB:
 			currDate = self.getCurrentDate()
 			query = f'''
-					select count(*) as BookingsCount from (
-						Select BP.PassengerID, IL.DepartureDate,
-						cast(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) as date) as BookingDate, 
-						cast(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) as time) as BookingTime
-						from {self.NAV_DB_NAME}rez.Booking B 
-						inner join {self.NAV_DB_NAME}rez.BookingPassenger BP on BP.BookingID=B.BookingID 
-						inner join {self.NAV_DB_NAME}rez.PassengerJourneySegment PJS on PJS.PassengerID=BP.PassengerID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) 
-						inner join {self.NAV_DB_NAME}rez.PassengerJourneyLeg PJL on PJL.PassengerID=PJS.PassengerID and PJL.SegmentID=PJS.SegmentID 
-						inner join {self.NAV_DB_NAME}rez.InventoryLeg IL on IL.InventoryLegId=PJL.InventoryLegID 
-						where IL.DepartureDate = '{currFltDate}'
-								AND IL.FlightNumber = '{currParams["FlightNumber"]}' 
-								AND IL.DepartureStation = '{currParams["Origin"]}'
-								AND IL.ArrivalStation = '{currParams["Destin"]}'
-						group by BP.PassengerID, B.BookingUTC,IL.DepartureDate, PJL.UnitDesignator
-					) A
-					where concat(A.BookingDate,' ',A.BookingTime) <= CONVERT(varchar, DATEADD(DAY, 0, '{currDate}'), 23)
+					EXEC {self.NAV_DB_WB_NAME}[dbo].[GetBookingsCount]
+						@DepartureDate = N'{currFltDate}',
+						@FlightNumber = N'{currParams["FlightNumber"]}',
+						@DepartureStation = N'{currParams["Origin"]}',
+						@ArrivalStation = N'{currParams["Destin"]}',
+						@ComparisonDate = N'{currDate}'
 			'''
 			farePrice = pd.read_sql(query, self.NavitaireConnection)
 

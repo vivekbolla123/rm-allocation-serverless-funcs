@@ -6,7 +6,7 @@ class AllocationSummaryReport:
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
-        self.interval_time = '1 hour'
+        self.interval_time = '2 hour'
 
         if 'interval_time' in overrides:
             self.interval_time = overrides['interval_time']

@@ -72,6 +72,7 @@ def lambda_handler(event, context):
         "AU_CHUNK_QUEUE_URL": configsettings.AUCHUNKS_QUEUE_URL,
         "NAV_DB_NAME": configsettings.NAV_DB_NAME,
         "NAV_DB_DW_NAME": configsettings.NAV_DB_DW_NAME,
+        "NAV_DB_WB_NAME": configsettings.NAV_DB_WB_NAME,
         "API_KEY": configsettings.RM_GW_API_KEY,
         "API_URL": configsettings.NAV_API_URL,
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,

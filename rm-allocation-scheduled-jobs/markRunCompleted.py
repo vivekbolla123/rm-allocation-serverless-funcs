@@ -34,8 +34,12 @@ class MarkRunCompleted:
         b2cPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
         b2bDoneCount = self.cache_client.get(KEY_B2B_DONE_COUNT + run_id)
         b2cDoneCount = self.cache_client.get(KEY_B2C_DONE_COUNT + run_id)
-        is_complete = int(b2bDoneCount) + int(b2cDoneCount) >= int(b2bPendingCount) + int(b2cPendingCount)
-
+        try:
+            is_complete = int(b2bDoneCount) + int(b2cDoneCount) >= int(b2bPendingCount) + int(b2cPendingCount)
+        except Exception as e:
+            self.logger.info(f"Run Id: {run_id} failed due to reason {e}")
+            is_complete = False
+            
         if is_complete:
             # Update the value to 1 if all flight are ready
             if audit_type == 'Adhoc':

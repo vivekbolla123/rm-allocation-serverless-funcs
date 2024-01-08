@@ -142,12 +142,12 @@ def lambda_handler(event, context):
     run_id = str(uuid4())
     insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, 0, 21600)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, 0, 21600)
-    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 21600)
-    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 21600)
-    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 21600)
-    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 21600)
+    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
 
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]

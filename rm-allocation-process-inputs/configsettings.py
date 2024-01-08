@@ -17,6 +17,7 @@ if env == 'prod':
     RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     NAV_DB_NAME = "[10.154.12.13,52900].[REZ0KOD01]."
     NAV_DB_DW_NAME = "[10.154.12.13,52900].[REZ0KDW01]."
+    NAV_DB_WB_NAME = "[10.154.12.13,52900].[REZ0KWB01]."
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds"
     AUCHUNKS_QUEUE_URL="https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-au-chunks"
@@ -33,6 +34,7 @@ if env == 'test':
     # RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     NAV_DB_NAME = "[10.154.12.19,52900].[TST0KOD01]."
     NAV_DB_DW_NAME = "[10.154.12.19,52900].[TST0KDW01]."
+    NAV_DB_WB_NAME = "[10.154.12.19,52900].[TST0KWB01]."
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-rbds"
     AUCHUNKS_QUEUE_URL="https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-au-chunks"
