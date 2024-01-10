@@ -1818,7 +1818,7 @@ class DynAlloc:
 				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneyLeg PJL on  PJL.InventoryLegID = IL.InventoryLegID 
 				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) 
 				left outer join {self.NAV_DB_NAME}[rez].BookingPassenger BP on  BP.PassengerID = PJS.PassengerID 
-				where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '{str(startDate)}' and IL.DepartureDate <= '{str(endDate)}' 
+				where IL.Lid > 0 and IL.Status NOT IN (2) and FORMAT(STDUTC, 'yyyy-MM-dd') >= '{str(startDate)}' and FORMAT(STDUTC, 'yyyy-MM-dd') <= '{str(endDate)}' 
 				and IL.DepartureStation = '{origin}' and IL.ArrivalStation = '{destin}' )
 				A group by Origin, Destination, FlightNumber, DepartureDate,STDUTC, AdjustedCapacity order by Origin, Destination, DepartureDate """
 
