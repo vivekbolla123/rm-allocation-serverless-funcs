@@ -31,7 +31,7 @@ class MarkRunCompleted:
         # self.logger.info(f"no of records are not ready  {count_ready}")
         
         b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
-        b2cPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
+        b2cPendingCount = self.cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
         b2bDoneCount = self.cache_client.get(KEY_B2B_DONE_COUNT + run_id)
         b2cDoneCount = self.cache_client.get(KEY_B2C_DONE_COUNT + run_id)
         try:

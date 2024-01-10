@@ -8,6 +8,7 @@ def get_credentials(parameter_name):
     return parameter_value
 
 env = getenv('env', default=None)
+
 if env == 'prod':
     RM_DB_APPUSER_USERNAME="rmappuser"
     RM_DB_APPUSER_URL="rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
@@ -16,6 +17,7 @@ if env == 'prod':
     sftp_rbd_queue_url = "rm-allocation-queues_rm-allocation-rbds-ftp"
     NAV_DB_NAME = "[REZ0KWB01]."
     NAV_API_URL="https://iuf5oc6rxe.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
+
 if env == 'test':
     RM_DB_APPUSER_USERNAME="rm-user"
     RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"

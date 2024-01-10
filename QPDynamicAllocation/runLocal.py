@@ -29,7 +29,14 @@ def localRun():
         "MARKET_LIST_QUEUE_URL": None,
         "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
-        "NAV_DB_NAME": "[10.154.12.19,52900].[TST0KOD01].",
+        "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
+        "NAV_DB_DW_NAME": "[10.154.12.13,52900].[REZ0KDW01].",
+        "NAV_DB_WB_NAME": "[10.154.12.13,52900].[REZ0KWB01].",
+        "NAV_BASE_API_URL":None,
+        "NAV_OCP_SUBSCRIPTION_KEY": None,
+        "NAV_USERNAME": None,
+        "NAV_PWD": None,
+        "NAV_DOMAIN": None,
         Constants.CONST_INPUT_SOURCE : Constants.LOCAL_INPUT,
         Constants.CONST_LOGS : Constants.LOCAL_LOGS,
         Constants.CONST_OUTPUT : Constants.LOCAL_OUTPUT,
@@ -47,6 +54,7 @@ def localRun():
         "wrconn": conn,
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "sqs": None,
+        "cache_client":None,
         "s3":None,
         "runTime":None
     }

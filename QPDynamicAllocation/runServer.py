@@ -35,6 +35,13 @@ def serverRun():
         "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
         "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
+        "NAV_DB_DW_NAME": "[10.154.12.13,52900].[REZ0KDW01].",
+        "NAV_DB_WB_NAME": "[10.154.12.13,52900].[REZ0KWB01].",
+        "NAV_BASE_API_URL":None,
+        "NAV_OCP_SUBSCRIPTION_KEY": None,
+        "NAV_USERNAME": None,
+        "NAV_PWD": None,
+        "NAV_DOMAIN": None,
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
         Constants.CONST_LOGS : Constants.SERVER_LOGS,
         Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,        
@@ -53,6 +60,7 @@ def serverRun():
         "sqs": None,
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "s3":None,
+        "cache_client":None,
         "runTime":None
     }
 

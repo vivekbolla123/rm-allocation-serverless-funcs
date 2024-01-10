@@ -26,6 +26,11 @@ class Schema:
         self.load_generic_table("config_opening_fares","config_opening_fares.csv")
         self.load_generic_table("config_share_of_booking","config_share_of_booking.csv")
         self.load_generic_table("config_runTime","config_runTime.csv")
+        self.load_generic_table("no_show_probabilities","no_show_probabilities.csv")
+        self.load_generic_table("config_ndo_range","config_ndo_range.csv")
+        self.load_generic_table("config_ownfare_grid","config_ownfare_grid.csv")
+        self.load_generic_table("config_ownfares_hourly","config_ownfares_hourly.csv")
+        self.load_generic_table("config_ownFares","config_ownFares.csv")
         self.alterTables()
 
     def load_generic_table(self, tableName, dataFile):
@@ -51,6 +56,9 @@ class Schema:
         self.conn.execute(alterQuery)
         
         alterQuery = "ALTER TABLE ndo_bands MODIFY COLUMN ndo_band INT, MODIFY COLUMN start INT, MODIFY COLUMN end INT"
+        self.conn.execute(alterQuery)
+        
+        alterQuery = "ALTER TABLE config_ownFares MODIFY COLUMN startTime time, MODIFY COLUMN endTime time, MODIFY COLUMN `0` INT, MODIFY COLUMN `1` INT, MODIFY COLUMN `2` INT, MODIFY COLUMN `3` INT, MODIFY COLUMN `4` INT, MODIFY COLUMN `5` INT, MODIFY COLUMN `6` INT"
         self.conn.execute(alterQuery)
 
 def __del__(self):

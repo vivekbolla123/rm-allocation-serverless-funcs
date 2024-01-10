@@ -36,7 +36,7 @@ class RunConnections:
             # is_complete = count_done == 0
 
             b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
-            b2cPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
+            b2cPendingCount = self.cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
             b2bDoneCount = self.cache_client.get(KEY_B2B_DONE_COUNT + run_id)
             b2cDoneCount = self.cache_client.get(KEY_B2C_DONE_COUNT + run_id)
             # is_complete = b2bDoneCount == b2bPendingCount and b2cDoneCount == b2cPendingCount

@@ -1,2 +1,2 @@
-Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,openingFares
-BOM,DEL,7300,D,11/13/2023,11/17/2023,1111111,1,18:30,20:40,C17440,AI,Strategy_1,,5,3,3600,3800,0.25,0,Kushal,1
+Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,SkippingFactor,B2BBackstop,B2CBackstop,B2BFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,openingFares,analystName,OverBooking
+BOM,BLR,1110,D,01/07/2024,01/09/2024,1111111,1,12:00,23:30,GOXAMD_Mon,**,Strategy_AS_Weak_L,,-99,3,7,8300,8300,0.5,N,0,0,1,Aparna,0

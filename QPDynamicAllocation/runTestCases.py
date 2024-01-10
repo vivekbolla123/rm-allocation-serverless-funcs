@@ -24,6 +24,13 @@ def testCase1():
         "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
         "NAV_DB_NAME": None,
+        "NAV_DB_DW_NAME": None,
+        "NAV_DB_WB_NAME": None,
+        "NAV_BASE_API_URL":None,
+        "NAV_OCP_SUBSCRIPTION_KEY": None,
+        "NAV_USERNAME": None,
+        "NAV_PWD": None,
+        "NAV_DOMAIN": None,
         Constants.CONST_INPUT_SOURCE: Constants.TESTING_INPUT,
         Constants.CONST_LOGS: Constants.TESTING_LOGS,
         Constants.CONST_OUTPUT: Constants.TESTING_OUTPUT,
@@ -42,7 +49,8 @@ def testCase1():
         "sqs": None,
         "NavitaireUpdateMethod":Constants.CONST_SKIP,
         "s3":None,
-        "runTime":None
+        "runTime":None,
+        "cache_client":None
     }
     outputData = {}
 

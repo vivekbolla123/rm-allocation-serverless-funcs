@@ -75,6 +75,11 @@ def lambda_handler(event, context):
         "NAV_DB_WB_NAME": configsettings.NAV_DB_WB_NAME,
         "API_KEY": configsettings.RM_GW_API_KEY,
         "API_URL": configsettings.NAV_API_URL,
+        "NAV_BASE_API_URL": configsettings.NAV_BASE_URL,
+        "NAV_OCP_SUBSCRIPTION_KEY": configsettings.NAV_OCP_SUBSCRIPTION_KEY,
+        "NAV_USERNAME": configsettings.NAV_USERNAME,
+        "NAV_PWD": configsettings.NAV_PWD,
+        "NAV_DOMAIN": configsettings.NAV_DOMAIN,
         Constants.CONST_INPUT_SOURCE : Constants.SERVER_INPUT,
         Constants.CONST_LOGS : Constants.SERVER_LOGS,
         Constants.CONST_OUTPUT : Constants.SERVER_OUTPUT,
@@ -103,6 +108,36 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"Origin":"VNS","Destin":"BOM","FlightNumber":1497,"PerType":"D","PerStart":"12/21/2023","PerEnd":"12/21/2023","DOW":9999199,"strategyFlag":1,"TimeWindowStart":"14:00","TimeWindowEnd":"17:00","CurveID":"BOMVNS_SUN","CarrExlusion":"**","fareAnchor":"Strategy_MM_BOMVNS_L","fareOffset":"","FirstRBDAlloc":3,"OtherRBDAlloc":2,"B2BBackstop":6500,"B2CBackstop":7000,"B2BFactor":"1","SkippingFactor":5,"OwnFareFlag":"N","DaySpan":0,"AutoTimeRangeFlag":0,"analystName":"Maya","openingFares":0,"runId":"765d0ad5-e7df-4df0-afe2-ea9ce066836b","update_navitaire_method":"api","runTime":1703085908156}
-# event = {'Records':[{'attributes':{"update_navitaire_method":"skip"}, 'body':json.dumps(messageBody)}]}
+# messageBody= {   "Origin": "BOM",
+#     "Destin": "BLR",
+#     "FlightNumber": 1363,
+#     "PerType": "D",
+#     "PerStart": "12/21/2023",
+#     "PerEnd": "12/21/2023",
+#     "DOW": 9999199,
+#     "strategyFlag": 1,
+#     "TimeWindowStart": "10:45",
+#     "TimeWindowEnd": "13:55",
+#     "CurveID": "BOMBLR_P",
+#     "CarrExlusion": "**",
+#     "fareAnchor": "Strategy_NP_Weak",
+#     "fareOffset": "",
+#     "FirstRBDAlloc": 3,
+#     "OtherRBDAlloc": 2,
+#     "B2BBackstop": 2810,
+#     "B2CBackstop": 3450,
+#     "B2BFactor": "0.5",
+#     "SkippingFactor": 0,
+#     "OwnFareFlag": "N",
+#     "DaySpan": 0,
+#     "AutoTimeRangeFlag": 0,
+#     "analystName": "Neha",
+#     "openingFares": "0",
+#     "OverBooking": "Y",
+#     "runId": "6a918d7c-7ed6-47cd-9a41-e5e64fcebb3b",
+#     "update_navitaire_method": "api",
+#     "runTime": 1703021133338
+# }
+
+# event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)

@@ -31,7 +31,7 @@ class PushRBDtoSFTP:
         # is_complete = count_ready == 0
 
         b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
-        b2cPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
+        b2cPendingCount = self.cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
         b2bReadyCount = self.cache_client.get(KEY_B2B_READY_COUNT + run_id)
         b2cReadyCount = self.cache_client.get(KEY_B2C_READY_COUNT + run_id)
         # is_complete = b2bReadyCount == b2bPendingCount and b2cReadyCount == b2cPendingCount
