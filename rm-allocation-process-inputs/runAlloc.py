@@ -396,7 +396,7 @@ class DynAlloc:
 				overBookingCount=self.checkNowShowProb(currParams["Origin"]+currParams["Destin"],currParams["FlightNumber"])
 				totalCapacity=totalCapacity+overBookingCount
 				if self.inputSource[CONST_INPUT_SOURCE][CONST_OVERBOOKING] == DB:
-					LidUpdate = NavLidUpdateAPI(self.NAV_BASE_API_URL,self.NAV_OCP_SUBSCRIPTION_KEY,self.NAV_USERNAME,self.NAV_PWD,self.NAV_DOMAIN)
+					LidUpdate = NavLidUpdateAPI(self.NAV_BASE_API_URL,self.NAV_OCP_SUBSCRIPTION_KEY,self.NAV_USERNAME,self.NAV_PWD,self.NAV_DOMAIN, self.runId, self.inputSource[CONST_LOGS][CONST_RUN_AUDIT])
 					leg_key,nest_key = LidUpdate.get_leg_nest_details(currFltDate, "QP", currParams["FlightNumber"])
 					lid_update_result = LidUpdate.update_leg(leg_key, lid=totalCapacity)
 					self.logger.info(lid_update_result)
@@ -486,7 +486,7 @@ class DynAlloc:
 					b2cAnchorFare = B2CAvgFare
      
 				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(lowFareB2C) + " to " + str(hiFareB2C))
-				openDataB2C, openingFaresFlag, lastSoldFareb2c, endOfDayTgtBookedLoadb2c, expectedEndOfDayDplfBandb2c, upsellb2c, bookingTodayb2c, expectedEndOfDayBookingb2c, strategyFareb2c, endOfDayBookingsb2c, historicOwnFareb2c, stateb2c, timeSectorDropb2c, gridDropb2c = self.determineRBDToOpen(b2cAnchorFare, b2c_offset,'B2C', B2CBackstop, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF)
+				openDataB2C, openingFaresFlag, lastSoldFareb2c, endOfDayTgtBookedLoadb2c, expectedEndOfDayDplfBandb2c, upsellb2c, bookingTodayb2c, expectedEndOfDayBookingb2c, strategyFareb2c, endOfDayBookingsb2c, historicOwnFareb2c, stateb2c, timeSectorDropb2c, gridDropb2c = self.determineRBDToOpen(b2cAnchorFare, b2c_offset,'B2C', B2CBackstop, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF, tgtBookloadFactor)
     
 				# if (OwnFareFlag==YES_FLAG and B2CAvgFare!=FARE_NOT_AVL and b2c_criteria==OWNF_FARE_ANCHOR and not openingFaresFlag):
 				# 	openDataB2C['FareResult'] = "Matched and allocated at Own Fare"
@@ -507,7 +507,7 @@ class DynAlloc:
 						b2bAnchorFare = B2BAvgFare
 		
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(lowFareB2B) + " to " + str(hiFareB2B))
-					openDataB2B, openingFaresFlag, lastSoldFareb2b, endOfDayTgtBookedLoadb2b, expectedEndOfDayDplfBandb2b, upsellb2b, bookingTodayb2b, expectedEndOfDayBookingb2b, strategyFareb2b, endOfDayBookingsb2b, historicOwnFareb2b, stateb2b, timeSectorDropb2b, gridDropb2b = self.determineRBDToOpen(b2bAnchorFare, b2b_offset,'B2B', B2BBackstop, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF)
+					openDataB2B, openingFaresFlag, lastSoldFareb2b, endOfDayTgtBookedLoadb2b, expectedEndOfDayDplfBandb2b, upsellb2b, bookingTodayb2b, expectedEndOfDayBookingb2b, strategyFareb2b, endOfDayBookingsb2b, historicOwnFareb2b, stateb2b, timeSectorDropb2b, gridDropb2b = self.determineRBDToOpen(b2bAnchorFare, b2b_offset,'B2B', B2BBackstop, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF, tgtBookloadFactor)
 		
 					# if (OwnFareFlag==YES_FLAG and B2BAvgFare!=FARE_NOT_AVL and b2b_criteria==OWNF_FARE_ANCHOR and not openingFaresFlag):
 					# 	openDataB2B['FareResult'] = "Matched and allocated at Own Fare"
@@ -694,7 +694,7 @@ class DynAlloc:
 				self.updateRunAudit("Done", "Done", currParams['FlightNumber'], dateFormatted)
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def getFares(self, currBookedLoad, currFltDate, currParams, ndocounter, totalCapacity, dplfBand, channel, plf, currFltDepartureTime):
+	def getFares(self, currBookedLoad, currFltDate, currParams, ndocounter, totalCapacity, dplfBand, channel, plf, currFltDepartureTime, tgtBookloadFactor):
 		lastSoldFare = 0
 		farePrice = self.getLastSellingFare(currFltDate, currParams)
 		self.logger.info("Last Sold Price fetched")
@@ -732,9 +732,14 @@ class DynAlloc:
 		expectedEndOfDaydPLF = ((expectedEndOfDayBooking/totalCapacity) - endOfDayTgtBookedLoad) * 100
 		expectedEndOfDayDplfBand = self.getdpflBand(expectedEndOfDaydPLF)
 		
+		startOfdayFactor = ((lastBookloadTillMidnight/totalCapacity) - tgtBookloadFactor) * 100
+		startEndOfDayDplfBand = self.getdpflBand(startOfdayFactor)
+
+		expectedEndOfDayDplfBand = self.getdpflBand(expectedEndOfDaydPLF)
 		self.logger.info("endOfDayTgtBookedLoad is: "+ str(endOfDayTgtBookedLoad))
 		self.logger.info("expectedEndOfDaydPLF is: "+ str(expectedEndOfDaydPLF))
 		self.logger.info("expectedEndOfDayDplfBand is: "+ str(expectedEndOfDayDplfBand))
+		self.logger.info("startEndOfDayDplfBand is: "+ str(startEndOfDayDplfBand))
 
 		if(ndocounter==0):
 			noon = time(12, 0)
@@ -758,7 +763,7 @@ class DynAlloc:
 		if(random.choice([True, False, False, False])):
 			timeValue = lastSoldFare * 0.025
     
-		return lastSoldFare, endOfDayTgtBookedLoad, expectedEndOfDayDplfBand, fares, upsell, timeValue, bookingToday, expectedEndOfDayBooking
+		return lastSoldFare, endOfDayTgtBookedLoad, expectedEndOfDayDplfBand, fares, upsell, timeValue, bookingToday, expectedEndOfDayBooking, startEndOfDayDplfBand
 
 	def getMarketFareAnchorFare(self, currFltDate, currParams, avgFare, channel, startTime, endTime, DaySpan, criteria, flightTime):
 		startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
@@ -1071,7 +1076,7 @@ class DynAlloc:
  
 		return queryResult
 
-	def determineRBDToOpen(self, anchorFare, offset, channel, backstop, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF):
+	def determineRBDToOpen(self, anchorFare, offset, channel, backstop, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, plf, currFltDepartureTime, ndoBand, dPLF, tgtBookloadFactor):
 		origin = currParams['Origin']
 		destin = currParams['Destin']
 		flightNumber = currParams['FlightNumber']
@@ -1087,6 +1092,7 @@ class DynAlloc:
 		state = 'NA'
 		timeSectorDrop = 'NA'
 		gridDrop = 'NA'
+		startEndOfDayDplfBand = 'NA'
   
 		openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 		
@@ -1100,7 +1106,7 @@ class DynAlloc:
 		if(rbddata.shape[0] == 0):
 			openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult)
 		else:
-			openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, dplfBand, ndocounter, plf, historicFareFlag)
+			openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, startEndOfDayDplfBand, ndocounter, plf, historicFareFlag)
 		strategyFare = openResult['Fare'][0]
 		anchorFare = strategyFare
   
@@ -1148,7 +1154,7 @@ class DynAlloc:
 				if(rbddata.shape[0] == 0):
 					openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult)
 				else:
-					openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, dplfBand, ndocounter, plf, historicFareFlag)
+					openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, startEndOfDayDplfBand, ndocounter, plf, historicFareFlag)
 
 		anchorFare = openResult['Fare'][0]
 		anchorState = 'Strategy fare'
@@ -1161,7 +1167,7 @@ class DynAlloc:
 			self.logger.info("Anchor fare is : " + str(anchorFare))
 			if(anchorFare != 'NA'):
 				#Get Last Selling B2B and B2C Fare
-				lastSoldFare, endOfDayTgtBookedLoad, expectedEndOfDayDplfBand, fares, upsell, timeValue, bookingToday, expectedEndOfDayBooking = self.getFares(currBookedLoad, currFltDate, currParams, ndocounter, totalCapacity, dplfBand, channel, plf, currFltDepartureTime)
+				lastSoldFare, endOfDayTgtBookedLoad, expectedEndOfDayDplfBand, fares, upsell, timeValue, bookingToday, expectedEndOfDayBooking, startEndOfDayDplfBand = self.getFares(currBookedLoad, currFltDate, currParams, ndocounter, totalCapacity, dplfBand, channel, plf, currFltDepartureTime, tgtBookloadFactor)
 				endOfDayTgtBookedLoad = endOfDayTgtBookedLoad * totalCapacity
 				endOfDayBookings = (float(expectedEndOfDayBooking) / float(totalCapacity)) * 100
 				if(len(fares) > 0):
@@ -1175,7 +1181,7 @@ class DynAlloc:
 						if(ndocounter == 0):
 							howDetermined = str(self.currentTime) + '_Load Factor_' + str(plf) + '_' + howDetermined
 						else:
-							howDetermined = str(self.currentTime) + '_' + str(dplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_' + howDetermined
+							howDetermined = str(self.currentTime) + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_' + howDetermined
 						openResult = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':[howDetermined],'anchorFare': ['NA'],'statusInd':[1], 'allocationStatus': [1]}
 						return openResult, openingFaresFlag, lastSoldFare, endOfDayTgtBookedLoad, expectedEndOfDayDplfBand, upsell, bookingToday, expectedEndOfDayBooking, strategyFare, endOfDayBookings, historicOwnFare, state, timeSectorDrop, gridDrop
 					openingFaresFlag = True
@@ -1188,7 +1194,7 @@ class DynAlloc:
 					if(rbddata.shape[0] == 0):
 						openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult)
 					else:
-						openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, dplfBand, ndocounter, plf, historicFareFlag)
+						openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, expectedEndOfDayDplfBand, startEndOfDayDplfBand, ndocounter, plf, historicFareFlag)
 				else:
 					lastSoldFare = 'NA'
 					endOfDayTgtBookedLoad = 'NA'
@@ -1225,7 +1231,7 @@ class DynAlloc:
       
 		return anchorFare, state
 
-	def getFaresWithBackstop(self, origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, endOfDayDplfBand, dplfBand, ndocounter, plf, historicFareFlag):
+	def getFaresWithBackstop(self, origin, destin, anchorFare, offset, channel, backstop, flightNumber, currFltDate, openResult, rbddata, openingFaresFlag, howDetermined, endOfDayDplfBand, startEndOfDayDplfBand, ndocounter, plf, historicFareFlag):
 		backstopFlag = False
 		extremeFareFlag = False
 		# We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
@@ -1308,7 +1314,7 @@ class DynAlloc:
 								if(ndocounter == 0):
 									howDetermined = str(self.currentTime) + '_Load Factor_' + str(plf) + '_' + howDetermined
 								else:
-									howDetermined = str(self.currentTime) + '_' + str(dplfBand) + '_' + str(endOfDayDplfBand) + '_' + howDetermined
+									howDetermined = str(self.currentTime) + '_' + str(startEndOfDayDplfBand) + '_' + str(endOfDayDplfBand) + '_' + howDetermined
 								openResult = {'RBD':[RBDtoOpen], 'Fare':[str(FareToOpen)], 'FareResult':[howDetermined],'anchorFare': [anchorFare],'statusInd':[0], 'allocationStatus': [1]}
 								return openResult
 							else:
@@ -1336,7 +1342,7 @@ class DynAlloc:
 							if(ndocounter == 0):
 								howDetermined = str(self.currentTime) + '_Load Factor_' + str(plf) + '_' + howDetermined
 							else:
-								howDetermined = str(self.currentTime) + '_' + str(dplfBand) + '_' + str(endOfDayDplfBand) + '_' + howDetermined
+								howDetermined = str(self.currentTime) + '_' + str(startEndOfDayDplfBand) + '_' + str(endOfDayDplfBand) + '_' + howDetermined
 							openResult = {'RBD':[RBDtoOpen], 'Fare':[str(FareToOpen)], 'FareResult':[howDetermined],'anchorFare': [anchorFare],'statusInd':[0], 'allocationStatus': [1]}			
 							return openResult
 						else:
@@ -1811,14 +1817,14 @@ class DynAlloc:
 			bookedData = pd.read_sql(NavitaireQuery, self.conn)
    
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_BOOKLOAD] == DB:
-			NavitaireQuery = f""" select Origin, Destination, FlightNumber,FORMAT(STDUTC, 'yyyy-MM-dd') as DepartureDate,FORMAT(STDUTC, 'HH:mm') as DepartureTime, 
+			NavitaireQuery = f""" select Origin, Destination, FlightNumber,DepartureDate,FORMAT(STDUTC, 'HH:mm') as DepartureTime, 
    				count(PassengerID) as bookedPax, max(Lid) as capacity, AdjustedCapacity as adjustedCapacity from (
 				select BP.PassengerID, IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.DepartureDate,IL.FlightNumber, IL.AdjustedCapacity, IL.Lid, IL.STDUTC 
 				from {self.NAV_DB_NAME}[rez].InventoryLeg IL 
 				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneyLeg PJL on  PJL.InventoryLegID = IL.InventoryLegID 
 				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) 
 				left outer join {self.NAV_DB_NAME}[rez].BookingPassenger BP on  BP.PassengerID = PJS.PassengerID 
-				where IL.Lid > 0 and IL.Status NOT IN (2) and FORMAT(STDUTC, 'yyyy-MM-dd') >= '{str(startDate)}' and FORMAT(STDUTC, 'yyyy-MM-dd') <= '{str(endDate)}' 
+				where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '{str(startDate)}' and IL.DepartureDate <= '{str(endDate)}' 
 				and IL.DepartureStation = '{origin}' and IL.ArrivalStation = '{destin}' )
 				A group by Origin, Destination, FlightNumber, DepartureDate,STDUTC, AdjustedCapacity order by Origin, Destination, DepartureDate """
 
@@ -2286,7 +2292,6 @@ class DynAlloc:
 			# 	df = pd.DataFrame()
 			df=pd.read_sql(query, self.NavitaireConnection)
 		df['FlightNumber'] = df['FlightNumber'].map(lambda x: str(x))
-		print(df)
 		row_index = df[((df['FlightNumber'])== str(currParams["FlightNumber"])) &
    (df['Origin'] == currParams["Origin"]) &
    (df['Destination'] == currParams["Destin"])].index
@@ -2336,7 +2341,8 @@ class OwnLogger:
 			print(errormessage)
 
 class NavLidUpdateAPI:
-    def __init__(self,NAV_BASE_API_URL,NAV_OCP_SUBSCRIPTION_KEY,NAV_USERNAME,NAV_PWD,NAV_DOMAIN):
+    def __init__(self,NAV_BASE_API_URL,NAV_OCP_SUBSCRIPTION_KEY,NAV_USERNAME,NAV_PWD,NAV_DOMAIN, runId, inputRunAudit):
+        self.logger= OwnLogger(runId, inputRunAudit)
         self.NAV_BASE_API_URL=NAV_BASE_API_URL
         self.NAV_OCP_SUBSCRIPTION_KEY=NAV_OCP_SUBSCRIPTION_KEY
         self.NAV_USERNAME=NAV_USERNAME
@@ -2364,7 +2370,7 @@ class NavLidUpdateAPI:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
             
         else:
-            self.logger.info("Failed to get token:", response.text)
+            self.logger.info("Failed to get token:"+ response.text)
 
     def get_leg_nest_details(self,  dep_date, carrier_code, identifier):
         dep_date=datetime.strptime(str(dep_date), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
@@ -2380,7 +2386,7 @@ class NavLidUpdateAPI:
                             nest_key = self.get_nest_key(leg_key)
                             return leg_key,nest_key
         else:
-            self.logger.info("Failed to get leg and nest keys:", response.text)
+            self.logger.info("Failed to get leg and nest keys:"+ response.text)
         return None,None
     
     def get_nest_key(self, leg_key):
@@ -2404,7 +2410,7 @@ class NavLidUpdateAPI:
         if response.status_code == 200:
             return "lid changed sucessfully"
         else:
-            self.logger.info("Failed to update leg :", response.text)
+            self.logger.info("Failed to update leg :"+ response.text)
             return None
         
     def update_leg_nest(self, leg_key, nest_key, lid):
@@ -2414,6 +2420,6 @@ class NavLidUpdateAPI:
         if response.status_code == 200:
             return "nest lid changed sucessfully"
         else:
-            self.logger.info("Failed to update leg nest:", response.text)
+            self.logger.info("Failed to update leg nest:"+ response.text)
             return None
         
