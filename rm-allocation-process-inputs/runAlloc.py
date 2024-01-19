@@ -2043,15 +2043,25 @@ class DynAlloc:
 		# 		self.logger.error(e)
 
 	def getCurrentDateTime(self):
-		startTime = datetime.now()
 		if self.inputSource["currDateTime"] != None:
-			startTime = self.inputSource["currDateTime"]
+			return self.inputSource["currDateTime"]
+
+		current_utc_time = datetime.utcnow()
+		# Define the UTC time zone
+		utc_timezone = pytz.timezone('UTC')
+		# Set the time zone to IST (Indian Standard Time)
+		ist_timezone = pytz.timezone('Asia/Kolkata')
+		# Convert the UTC time to IST
+		startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
+		# startTime = datetime.now()
 		return startTime
 
 	def getCurrentDate(self):
-		currDate = date.today()
 		if self.inputSource["currDate"] != None:
-			currDate = self.inputSource["currDate"]
+			return self.inputSource["currDate"]
+
+		currDate = self.getCurrentDateTime()
+		currDate = currDate.date()
 		return currDate
 
 	def getStartEndDate(self, PerType, currDate, startNDO, endNDO):
