@@ -2121,7 +2121,7 @@ class DynAlloc:
 			if val['parameterKey'] == 'HIGHEST_B2C_RBD_VALUE':
 				self.HIGHEST_B2C_RBD_VALUE = str(val['parameterValue'])
 			if val['parameterKey'] == 'OWN_FARE_DELTA':
-				self.OWN_FARE_DELTA = str(val['parameterValue'])
+				self.OWN_FARE_DELTA = float(val['parameterValue'])
 	
 	def getUniqueId(self):
 		return str(uuid.uuid4())
