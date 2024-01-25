@@ -786,7 +786,7 @@ class DynAlloc:
 			hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
 			lowFilghtNum = mktFareRange['outbound_flight'][0]
 			hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
-			if (criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR):
+			if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
 				lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
 				hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
 				lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
@@ -1503,6 +1503,15 @@ class DynAlloc:
 
 		return gridData
 
+	def getRoutedDestination(self, origin, destination):
+		query = f''' SELECT routedSector FROM config_marketFares_rerouting where sector = concat('{origin}','{destination}') '''
+		try:
+			routedData = pd.read_sql(query, self.conn)
+		except Exception as e:
+			self.logger.error(e)
+
+		return routedData
+
 	def getMarketFareRange(self, channel, currFltDateStr, currParams, DaySpan, startTime, endtime, Day3Flag):
 		
 		currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
@@ -1517,9 +1526,17 @@ class DynAlloc:
 			elif currFltDate<updateDate:
 				startDateTime=f"{currFltDate} {startTime}"
 				enddateTime=f"{updateDate} {endtime}"
-   
+
+		origin = currParams['Origin']
+		destination = currParams['Destin']
+		routedSector = self.getRoutedDestination(origin, destination)
+
+		if(len(routedSector) > 0):
+			origin = routedSector['routedSector'][0][:3]
+			destination = routedSector['routedSector'][0][3:]
+
 		mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight 
-  			from market_fares where source_airport = '{currParams['Origin']}' and destination_airport = '{currParams['Destin']}' 
+  			from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
 			and channel = '{channel}' and outbound_airline_code <> '{currParams['CarrExlusion']}' AND outbound_stop = 0
    			AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
    		"""
@@ -1535,6 +1552,7 @@ class DynAlloc:
 		if(self.inputSource[CONST_INPUT_SOURCE][CONST_MARKET_FARES] != TEST_DATA):
 			mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
 		mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
+  
 		try:
 			mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
 		except Exception as e:
@@ -1599,7 +1617,7 @@ class DynAlloc:
 
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_LAST_SELLING_FARE] == DB:
 			query = f'''
-					EXEC {self.NAV_DB_WB_NAME}[dbo].[LastFareForFlight]
+					EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastSoldFare]
 						@DepartureDate = N'{currFltDate}',
 						@FlightNumber = N'{currParams["FlightNumber"]}',
 						@DepartureStation = N'{currParams["Origin"]}',
@@ -1638,7 +1656,7 @@ class DynAlloc:
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_LAST_SELLING_FARE] == DB:
 			currDate = self.getCurrentDate()
 			query = f'''
-					EXEC {self.NAV_DB_WB_NAME}[dbo].[GetBookingsCount]
+					EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastBookingsCount]
 						@DepartureDate = N'{currFltDate}',
 						@FlightNumber = N'{currParams["FlightNumber"]}',
 						@DepartureStation = N'{currParams["Origin"]}',
@@ -1817,16 +1835,12 @@ class DynAlloc:
 			bookedData = pd.read_sql(NavitaireQuery, self.conn)
    
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_BOOKLOAD] == DB:
-			NavitaireQuery = f""" select Origin, Destination, FlightNumber,DepartureDate,FORMAT(STDUTC, 'HH:mm') as DepartureTime, 
-   				count(PassengerID) as bookedPax, max(Lid) as capacity, AdjustedCapacity as adjustedCapacity from (
-				select BP.PassengerID, IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.DepartureDate,IL.FlightNumber, IL.AdjustedCapacity, IL.Lid, IL.STDUTC 
-				from {self.NAV_DB_NAME}[rez].InventoryLeg IL 
-				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneyLeg PJL on  PJL.InventoryLegID = IL.InventoryLegID 
-				left outer join {self.NAV_DB_NAME}[rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (PJS.FareBasis != 'SO7NBSOL' or PJS.FareBasis IS NULL) 
-				left outer join {self.NAV_DB_NAME}[rez].BookingPassenger BP on  BP.PassengerID = PJS.PassengerID 
-				where IL.Lid > 0 and IL.Status NOT IN (2) and IL.DepartureDate >= '{str(startDate)}' and IL.DepartureDate <= '{str(endDate)}' 
-				and IL.DepartureStation = '{origin}' and IL.ArrivalStation = '{destin}' )
-				A group by Origin, Destination, FlightNumber, DepartureDate,STDUTC, AdjustedCapacity order by Origin, Destination, DepartureDate """
+			NavitaireQuery = f""" EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
+								@DepartureDate_from = N'{str(startDate)}',
+								@DepartureDate_to = N'{str(endDate)}',
+								@DepartureStation = N'{origin}',
+								@ArrivalStation = N'{destin}' 
+        					"""
 
 			bookedData = pd.read_sql(NavitaireQuery, self.NavitaireConnection)
 			# payload = {
@@ -2285,9 +2299,13 @@ class DynAlloc:
 			conn=self.conn
 			df = pd.read_sql(query, conn)
 
-
 		if self.inputSource[CONST_INPUT_SOURCE][CONST_BOOKLOAD] == DB:
-			query=f'''SELECT IL.DepartureStation as Origin, IL.ArrivalStation as Destination, IL.FlightNumber, FORMAT(IL.STD, 'HH:mm') as DepartureTime FROM {self.NAV_DB_NAME}[rez].InventoryLeg IL LEFT OUTER JOIN {self.NAV_DB_NAME}[rez].PassengerJourneyLeg PJL ON PJL.InventoryLegID = IL.InventoryLegID LEFT OUTER JOIN {self.NAV_DB_NAME}[rez].PassengerJourneySegment PJS ON PJS.PassengerID = PJL.PassengerID AND PJS.SegmentID = PJL.SegmentID LEFT OUTER JOIN {self.NAV_DB_NAME}[rez].BookingPassenger BP ON BP.PassengerID = PJS.PassengerID WHERE IL.Lid > 0 AND IL.Status NOT IN (2) AND IL.DepartureDate = '{currFltDate}' AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL) AND IL.DepartureStation = '{currParams["Origin"]}' AND IL.ArrivalStation = '{currParams["Destin"]}' GROUP BY IL.DepartureStation, IL.ArrivalStation, IL.FlightNumber, IL.STD ORDER BY IL.STD, IL.DepartureStation, IL.ArrivalStation, IL.FlightNumber;'''
+			query=f'''
+					EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_DailyFlights]
+						@DepartureDate = N'{currFltDate}',
+						@DepartureStation = N'{currParams["Origin"]}',
+						@ArrivalStation = N'{currParams["Destin"]}'
+   					'''
 			# payload = {
             # "query":query
 			# }

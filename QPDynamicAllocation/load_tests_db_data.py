@@ -31,6 +31,7 @@ class Schema:
         self.load_generic_table("config_ownfare_grid","config_ownfare_grid.csv")
         self.load_generic_table("config_ownfares_hourly","config_ownfares_hourly.csv")
         self.load_generic_table("config_ownFares","config_ownFares.csv")
+        self.load_generic_table("config_marketFares_rerouting","config_marketFares_rerouting.csv")
         self.alterTables()
 
     def load_generic_table(self, tableName, dataFile):
