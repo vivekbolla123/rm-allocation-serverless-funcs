@@ -4,6 +4,7 @@ import boto3
 import json
 import warnings
 import configsettings
+import pytz
 from uuid import uuid4
 from sqlalchemy import create_engine
 from pandas import read_sql
@@ -115,8 +116,16 @@ def lambda_handler(event, context):
         if not available_slot:
             logger.info("No slots available to run Adhoc API!")
             return False
+        
+    current_utc_time = datetime.utcnow()
+    # Define the UTC time zone
+    utc_timezone = pytz.timezone('UTC')
+    # Set the time zone to IST (Indian Standard Time)
+    ist_timezone = pytz.timezone('Asia/Kolkata')
+    # Convert the UTC time to IST
+    startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
+    curr_date = startTime.date()
     
-    curr_date = date.today()
     start_period = datetime.strftime(
         curr_date + timedelta(days=start_interval), "%Y-%m-%d"
     )
