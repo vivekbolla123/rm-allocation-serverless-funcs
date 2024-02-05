@@ -397,11 +397,11 @@ class DynAlloc:
 				totalCapacity=totalCapacity+overBookingCount
 				if self.inputSource[CONST_INPUT_SOURCE][CONST_OVERBOOKING] == DB:
 					LidUpdate = NavLidUpdateAPI(self.NAV_BASE_API_URL,self.NAV_OCP_SUBSCRIPTION_KEY,self.NAV_USERNAME,self.NAV_PWD,self.NAV_DOMAIN, self.runId, self.inputSource[CONST_LOGS][CONST_RUN_AUDIT])
-					leg_key,nest_key = LidUpdate.get_leg_nest_details(currFltDate, "QP", currParams["FlightNumber"])
-					lid_update_result = LidUpdate.update_leg(leg_key, lid=totalCapacity)
-					self.logger.info(lid_update_result)
-					lid_leg_nest_update_result=LidUpdate.update_leg_nest(leg_key,nest_key,totalCapacity)
-					self.logger.info(lid_leg_nest_update_result)
+					leg_key,nest_key, lid,nest_lid = LidUpdate.get_leg_nest_details(currFltDate, "QP", currParams["FlightNumber"])
+					if(not totalCapacity == lid):
+						LidUpdate.update_leg(leg_key, lid=totalCapacity)
+					if(not totalCapacity == nest_lid):
+						LidUpdate.update_leg_nest(leg_key,nest_key,totalCapacity)
 				b2boverbookingflag = True
     
 			self.logger.info("plfValue is " + str(plfValue))
@@ -2262,7 +2262,7 @@ class DynAlloc:
 
 	def find_time_range(self,input_time_str, time_bands,start_end_range):
 		input_time = datetime.strptime(input_time_str, '%H:%M').time()
-		date_today = datetime.today()
+		date_today = self.getCurrentDateTime()
 		lower_time = (datetime.combine(date_today, input_time) - timedelta(hours=1, minutes=30)).time()
 		upper_time = (datetime.combine(date_today, input_time) + timedelta(hours=1, minutes=30)).time()
 
@@ -2411,11 +2411,11 @@ class NavLidUpdateAPI:
                     for segment in journey.get('segments', []):
                         for leg in segment['legs']:
                             leg_key = leg['legKey']
-                            nest_key = self.get_nest_key(leg_key)
-                            return leg_key,nest_key
+                            nest_key,lid,nest_lid = self.get_nest_key(leg_key)
+                            return leg_key,nest_key,lid,nest_lid
         else:
             self.logger.info("Failed to get leg and nest keys:"+ response.text)
-        return None,None
+        return None,None, None, None
     
     def get_nest_key(self, leg_key):
         headers = {'Authorization': f'Bearer {self.token}'}
@@ -2423,12 +2423,16 @@ class NavLidUpdateAPI:
         response = self.session.get(url, headers=headers)
 
         if response.status_code != 200:
-            return None
+            return None,None,None
 
         nests = response.json().get('data', {}).get('nests', [])
+        lid = response.json().get('data', {}).get('legInformation', {}).get('lid')
         for nest in nests:
-            return nest.get('nestKey')
-        return None
+            nest_key = nest.get('nestKey')
+            nest_lid = nest.get('lid')
+            
+            return nest_key,lid,nest_lid
+        return None,None,None
     
     def update_leg(self, leg_key, lid):
         url = f"{self.base_url}/dcs/v1/inventory/legs/{leg_key}"
@@ -2436,18 +2440,16 @@ class NavLidUpdateAPI:
         
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
-            return "lid changed sucessfully"
+            self.logger.info('lid changed sucessfully to '+ str(lid))
         else:
             self.logger.info("Failed to update leg :"+ response.text)
-            return None
         
     def update_leg_nest(self, leg_key, nest_key, lid):
         url = f"{self.base_url}/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}"
         data = {"lid": int(lid)}
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
-            return "nest lid changed sucessfully"
+            self.logger.info('nest lid changed sucessfully to '+ str(lid))
         else:
             self.logger.info("Failed to update leg nest:"+ response.text)
-            return None
         
