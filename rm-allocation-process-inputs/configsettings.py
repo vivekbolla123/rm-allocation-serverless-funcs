@@ -8,7 +8,6 @@ def get_credentials(parameter_name):
     return parameter_value
 
 env = getenv('env', default=None)
-
 if env == 'prod':
     RM_DB_APPUSER_USERNAME="rmappuser"
     RM_DB_APPUSER_URL="rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"    

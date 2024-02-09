@@ -1,0 +1,32 @@
+from datetime import date, datetime
+
+import pytz
+
+class TimeUtils:
+    def __init__(self,inputsource) :
+        self.inputSource=inputsource
+        
+    
+    def parse_time(self,time_str):
+        return datetime.strptime(time_str, '%H:%M').time()
+    
+    def getCurrentDate(self):
+        if self.inputSource.currDate != None:
+            return self.inputSource.currDate
+        currDate = self.getCurrentDateTime()
+        currDate = currDate.date()
+        return currDate
+    
+    def getCurrentDateTime(self):
+        if self.inputSource.currDateTime != None:
+            return  self.inputSource.currDateTime
+        current_utc_time = datetime.utcnow()
+        # Define the UTC time zone
+        utc_timezone = pytz.timezone('UTC')
+        # Set the time zone to IST (Indian Standard Time)
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        # Convert the UTC time to IST
+        startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
+        return startTime
+    
+    

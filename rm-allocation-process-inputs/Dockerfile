@@ -13,6 +13,13 @@ COPY requirements.txt  .
 RUN  pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
 # Copy function code
+COPY ./models ${LAMBDA_TASK_ROOT}/models/
+COPY ./utilities ${LAMBDA_TASK_ROOT}/utilities/
+COPY ./helper ${LAMBDA_TASK_ROOT}/helper/
+COPY determine_rbd.py ${LAMBDA_TASK_ROOT}
+COPY get_dynamic_time_d2.py ${LAMBDA_TASK_ROOT}
+COPY market_fares_service.py ${LAMBDA_TASK_ROOT}
+COPY ownlogger.py ${LAMBDA_TASK_ROOT}
 COPY lambda_function.py ${LAMBDA_TASK_ROOT}
 COPY Constants.py ${LAMBDA_TASK_ROOT}
 COPY runAlloc.py ${LAMBDA_TASK_ROOT}
