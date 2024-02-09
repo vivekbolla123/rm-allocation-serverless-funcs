@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import requests
 from ownlogger import OwnLogger
 from Constants import *

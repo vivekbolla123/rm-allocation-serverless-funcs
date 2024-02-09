@@ -57,10 +57,10 @@ class ConstantsUtils:
                 self.OWN_FARE_DELTA = float(parameter_value)
                 
             elif parameter_key == 'OVERBOOKING_LF':
-                self.OVERBOOKING_LF = str(parameter_value)
+                self.OVERBOOKING_LF = float(parameter_value)
             elif parameter_key == 'OVERBOOKING_START_NDO':
-                self.OVERBOOKING_START_NDO = str(parameter_value)
+                self.OVERBOOKING_START_NDO = int(parameter_value)
             elif parameter_key == 'OVERBOOKING_END_NDO':
-                self.OVERBOOKING_END_NDO = str(parameter_value)
+                self.OVERBOOKING_END_NDO = int(parameter_value)
             elif parameter_key == 'OVERBOOKING_PROB':
                 self.OVERBOOKING_PROB = float(parameter_value)
