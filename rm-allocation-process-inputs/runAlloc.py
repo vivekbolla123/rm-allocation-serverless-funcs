@@ -481,7 +481,7 @@ class DynAlloc:
 		return totalCapacity,b2boverbookingflag
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight):
-		return self.currParams.over_booking==YES_FLAG and nextFlight and plf>self.constantsUtils.OVERBOOKING_LF and ndocounter<=self.constantsUtils.OVERBOOKING_END_NDO and ndocounter>=self.constantsUtils.OVERBOOKING_START_NDO and adjustedCapacity==totalCapacity
+		return self.currParams.over_booking==YES_FLAG and nextFlight and plf>self.constantsUtils.OVERBOOKING_LF and ndocounter<=self.constantsUtils.OVERBOOKING_END_NDO and ndocounter>=self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity)==int(totalCapacity)
 	
 	def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag,b2boverbookingflag,brd_counter):
 		isUpsellFlag = False
@@ -759,7 +759,7 @@ class DynAlloc:
 	
 	def find_time_range(self,input_time_str, time_bands,start_end_range):
 		input_time = datetime.strptime(input_time_str, '%H:%M').time()
-		date_today = self.getCurrentDateTime()
+		date_today = self.timeutils.getCurrentDateTime()
 		lower_time = (datetime.combine(date_today, input_time) - timedelta(hours=1, minutes=30)).time()
 		upper_time = (datetime.combine(date_today, input_time) + timedelta(hours=1, minutes=30)).time()
 
