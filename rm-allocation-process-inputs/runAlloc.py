@@ -720,7 +720,7 @@ class DynAlloc:
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week,
                   "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}
 
-		for i in range(self.AU_COLUMN_LENGTH-1):
+		for i in range(self.AU_COLUMN_LENGTH):
 			auClass = {"classOfService": getattr(rec, f"class_of_service_{i+1}", None), "classType": getattr(rec, f"class_type_{i+1}", None), "classNest": int(getattr(rec, f"class_nest_{i+1}", None)),
                        "classRank": int(getattr(rec, f"class_rank_{i+1}", None)), "classAU": int(getattr(rec, f"class_au_{i+1}", None)), "classAllotted": int(getattr(rec, f"class_allotted_{i+1}", None)), "apRestriction": int(getattr(rec, f"ap_restriction_{i+1}", None))}
 			auData['auClasses'][auClass['classOfService']] = auClass
@@ -734,14 +734,13 @@ class DynAlloc:
         )
 
 	def updateNavSFTP(self, rec):
-		flightNo = rec[1].split(" ")[1][2:7]
-		sector = rec[1].split(" ")[2]
-		flightDate = datetime.strptime(str(rec[2]), "%m-%d-%Y").date().strftime(DATE_FORMAT_2)
-		auData = {"type": rec[0], "sector1": sector, "flightNo1" : flightNo, "departureDate": flightDate, "auClasses": {}}
+		flightNo = rec.flight.split(" ")[1][2:7]
+		sector = rec.flight.split(" ")[2]
+		flightDate = datetime.strptime(str(rec.start_date), "%m-%d-%Y").date().strftime(DATE_FORMAT_2)
+		auData = {"type": rec.type, "sector1": sector, "flightNo1" : flightNo, "departureDate": flightDate, "auClasses": {}}
 		auClass={}
-		gap = 11
 		for i in range(self.AU_COLUMN_LENGTH):
-			auClass[rec[gap + i*7 + 1]] = int(rec[gap + i*7 + 5])
+			auClass[getattr(rec, f"class_of_service_{i+1}", None)] = int(getattr(rec, f"class_au_{i+1}", None))
   
 		auData['auClasses'] = auClass
 		auDataStr = json.dumps(auData)
