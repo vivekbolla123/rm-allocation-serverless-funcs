@@ -38,7 +38,7 @@ class MarketFareService:
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
         
-        isMarketFareAvailable = True
+            isMarketFareAvailable = True
 
         return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
 

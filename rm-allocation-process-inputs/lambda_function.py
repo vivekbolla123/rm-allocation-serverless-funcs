@@ -108,36 +108,38 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody= {   "Origin": "BOM",
+# messageBody= {
+#     "Origin": "DEL",
 #     "Destin": "BLR",
-#     "FlightNumber": 1374,
+#     "FlightNumber": 1350,
 #     "PerType": "D",
-#     "PerStart": "01/30/2024",
-#     "PerEnd": "01/30/2024",
+#     "PerStart": "05/19/2024",
+#     "PerEnd": "05/20/2024",
 #     "DOW": 1111111,
 #     "strategyFlag": 1,
-#     "TimeWindowStart": "10:45",
-#     "TimeWindowEnd": "13:55",
-#     "CurveID": "BOMBLR_P",
+#     "TimeWindowStart": "21:00",
+#     "TimeWindowEnd": "23:59",
+#     "CurveID": "C17440_30",
 #     "CarrExlusion": "**",
-#     "fareAnchor": "Strategy_NP_Weak",
+#     "fareAnchor": "Strategy_30_Med",
 #     "fareOffset": "",
-#     "FirstRBDAlloc": 3,
-#     "OtherRBDAlloc": 2,
-#     "B2BBackstop": 2810,
-#     "B2CBackstop": 3450,
-#     "B2BFactor": "0.5",
-#     "SkippingFactor": 0,
+#     "FirstRBDAlloc": 5,
+#     "OtherRBDAlloc": 5,
+#     "B2BBackstop": 6000,
+#     "B2CBackstop": 6000,
+#     "B2BFactor": "0.25",
+#     "SkippingFactor": 5,
 #     "OwnFareFlag": "N",
 #     "DaySpan": 0,
 #     "AutoTimeRangeFlag": 0,
-#     "analystName": "Neha",
-#     "openingFares": "0",
-#     "OverBooking": "Y",
-#     "runId": "6a918d7c-7ed6-47cd-9a41-e5e64fcebb3b",
+#     "analystName": "Kushal",
+#     "openingFares": 0,
+#     "OverBooking": "N",
+#     "runId": "afa2c411-7020-49a8-bb1d-713af72cb48a",
 #     "update_navitaire_method": "api",
-#     "runTime": 1703021133338
+#     "runTime": 1707840435771
 # }
+
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)
