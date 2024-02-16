@@ -22,6 +22,7 @@ COPY markRunCompleted.py ${LAMBDA_TASK_ROOT}
 COPY cleanup.py ${LAMBDA_TASK_ROOT}
 COPY scheduled_job_run_audit.py ${LAMBDA_TASK_ROOT}
 COPY sftp_error_rate.py ${LAMBDA_TASK_ROOT}
+COPY pushRBDToS3.py ${LAMBDA_TASK_ROOT}
 
 # Set the CMD to your handler (could also be done as a parameter override outside of the Dockerfile)
 CMD [ "lambda_function.lambda_handler" ] 

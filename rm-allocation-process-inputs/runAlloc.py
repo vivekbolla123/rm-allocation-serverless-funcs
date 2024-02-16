@@ -174,7 +174,7 @@ class DynAlloc:
 		if  (self.inputSource.isUpdateNavitaire == False):
 			self.outputResults()
 
-		if (self.inputSource.isUpdateNavitaire) and (self.NavitaireUpdateMethod==CONST_SFTP):
+		if (self.inputSource.isUpdateNavitaire) and (self.NavitaireUpdateMethod==CONST_SFTP or self.NavitaireUpdateMethod==S3):
 			self.redishelper.setAllRunStatus2Ready()
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoadPercent):
@@ -308,7 +308,7 @@ class DynAlloc:
 				currRec.end_date=datetime.strftime(datetime.strptime(currFltDate,'%m/%d/%Y'), '%m-%d-%Y')
 				currRec.day_of_week='Daily'
 				# Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
-				if (self.inputSource.isUpdateNavitaire):
+				if (self.inputSource.isUpdateNavitaire and not (self.NavitaireUpdateMethod==S3)):
 					currRec.b2crunid=b2cRunId #10
 					currRec.b2brunid=b2bRunId #11
 				# First - Adding all B2C RBD's
@@ -352,6 +352,10 @@ class DynAlloc:
      
 				if (self.inputSource.isUpdateNavitaire) and (self.NavitaireUpdateMethod==CONST_SFTP):
 					self.updateNavSFTP(currRec)
+     
+				if (self.inputSource.isUpdateNavitaire) and (self.NavitaireUpdateMethod==S3):
+					self.updateS3Push(currRec)
+   
 			if b2boverbookingflag:
 				openDataB2C['FareResult'][0]=openDataB2C['FareResult'][0]+' -Overbooking'
 				openDataB2B['FareResult'][0]=openDataB2B['FareResult'][0]+' -Overbooking'
@@ -746,6 +750,24 @@ class DynAlloc:
 		auDataStr = json.dumps(auData)
 		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
 
+
+	def updateS3Push(self, rec):
+		flightNo = rec.flight.split(" ")[1][2:7]
+		flightDate = datetime.strptime(str(rec.start_date), "%m-%d-%Y").date().strftime(DATE_FORMAT_2)
+		records = vars(rec)
+  
+		auData = {"type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week,
+                  "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "auClasses": {}}
+
+		for i in range(self.AU_COLUMN_LENGTH):
+			auClass = {"classOfService": getattr(rec, f"class_of_service_{i+1}", None), "classType": getattr(rec, f"class_type_{i+1}", None), "classNest": int(getattr(rec, f"class_nest_{i+1}", None)),
+                       "classRank": int(getattr(rec, f"class_rank_{i+1}", None)), "classAU": int(getattr(rec, f"class_au_{i+1}", None)), "classAllotted": int(getattr(rec, f"class_allotted_{i+1}", None)), "apRestriction": int(getattr(rec, f"ap_restriction_{i+1}", None))}
+			auData['auClasses'][auClass['classOfService']] = auClass
+
+		auDataStr = json.dumps(auData)
+  
+		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
+  
 	def getStartEndDate(self, currDate, startNDO, endNDO):
 		startDate = datetime.strptime(startNDO, DATE_FORMAT).date()
 		endDate = datetime.strptime(endNDO, DATE_FORMAT).date()

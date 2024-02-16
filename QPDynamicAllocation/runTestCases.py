@@ -17,7 +17,7 @@ def testCase1():
 
     inputData = {
         "debugMode": False,
-        "isUpdateNavitaire": False,
+        "isUpdateNavitaire": True,
         "currDate": datetime.date(2023, 8, 1),
         "currDateTime": datetime.datetime(2023, 8, 1, 12, 12, 12),
         "MARKET_LIST_QUEUE_URL": None,
@@ -47,7 +47,7 @@ def testCase1():
         "dbconn": conn,
         "wrconn": conn,
         "sqs": None,
-        "NavitaireUpdateMethod":Constants.CONST_SKIP,
+        "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
         "runTime":None,
         "cache_client":None

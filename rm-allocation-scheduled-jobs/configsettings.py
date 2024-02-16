@@ -17,6 +17,7 @@ if env == 'prod':
     sftp_rbd_queue_url = "rm-allocation-queues_rm-allocation-rbds-ftp"
     NAV_DB_NAME = "[REZ0KWB01]."
     NAV_API_URL="https://iuf5oc6rxe.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
+    S3_FILE_PATH = 'prod/'
 
 if env == 'test':
     RM_DB_APPUSER_USERNAME="rm-user"
@@ -26,6 +27,7 @@ if env == 'test':
     sftp_rbd_queue_url = "rm-allocation-queues_test-rm-allocation-rbds-ftp"
     NAV_DB_NAME = "[TST0KWB01]."
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
+    S3_FILE_PATH = 'test/'
 
 RM_CACHE_USERNAME="default"
 RM_CACHE_PASSWORD="bRT__04M})0"
@@ -36,3 +38,4 @@ RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPU
 RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
 RM_REPORTS_SCHEMA_NAME="QP_RM_REPORTS"
 EXP_TIME = 120000
+S3_BUCKET_NAME = 'qp-applications'

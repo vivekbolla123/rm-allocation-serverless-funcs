@@ -61,8 +61,8 @@ def lambda_handler(event, context):
     end_interval_key = "end_interval"
     queue_key = "queue"
     market_list_key = "market_list_table_name"
-    update_navitaire_method_key="update_navitaire_method"
-    
+    update_navitaire_method_key = "update_navitaire_method"
+    region_key = "region_method"    
     username_key = "username"
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
@@ -81,6 +81,7 @@ def lambda_handler(event, context):
     username = USERNAME
     type = "Adhoc"
     is_connections_required = "0"
+    region = "Domestic"
 
     # overrides
     if (queue_key in data):
@@ -103,6 +104,9 @@ def lambda_handler(event, context):
 
     if (run_type_key in data):
         type = data[run_type_key]
+        
+    if (region_key in data):
+        region = data[region_key]
         
     if(not type == "Adhoc"):
         is_connections_required = '1'
@@ -134,7 +138,7 @@ def lambda_handler(event, context):
     )
 
     market_list_query = f"""
-    SELECT Origin,Destin,FlightNumber,PerType, 
+    SELECT Origin,Destin,FlightNumber, 
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
     DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,
@@ -149,7 +153,7 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region)
 
     cache_client.set(KEY_B2B_PENDING_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_PENDING_COUNT + run_id, 0, 86400)
@@ -165,11 +169,10 @@ def lambda_handler(event, context):
         startNDO = data['PerStart']
         startNDO = data['PerStart']
         endNDO = data['PerEnd']
-        PerType = data['PerType']
         # flightNumber = data['FlightNumber']
 
         try:
-            startNDO, endNDO = getStartEndDate(PerType, currDate, startNDO, endNDO)
+            startNDO, endNDO = getStartEndDate(currDate, startNDO, endNDO)
             totalNDO = endNDO - startNDO + 1
 
             cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, totalNDO)
@@ -206,14 +209,15 @@ def lambda_handler(event, context):
 
     end_time = datetime.now()
     update_run_end(end_time, run_id)
-
+    if(update_navitaire_method == 'S3'):
+        insert_file_upload_s3(run_id, start_time)
     return {
         'statusCode': 200,
         'body': markets_count
     }
 
 
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
 
@@ -225,14 +229,22 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion['tableName']] = currVersion['curr_version']
 
-    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
-                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0'))
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region))
     except Exception as e:
         logger.info(e)
     logger.info("STARTED ALLOCATION RUN")
 
+def insert_file_upload_s3(run_id, createdAt):
+    insert_query = " INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"
+    try:
+        wrconn.execute(insert_query, (run_id, createdAt))
+    except Exception as e:
+        logger.info(e)
+    logger.info("S3 File Audited")
+    
 # def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
 #     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
 #     try:
@@ -254,18 +266,14 @@ def getCurrentDate():
     currDate = date.today()
     return currDate
 
-def getStartEndDate(PerType, currDate, startNDO, endNDO):
-    if(PerType == 'D'):
-        startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
-        endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
+def getStartEndDate(currDate, startNDO, endNDO):
+    startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
+    endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
 
-        #Reset the startNDO and endNDO to actually NDO
-        startNDO = (startDate - currDate).days
-        endNDO = (endDate - currDate).days
-    else:
-        startDate = currDate + timedelta(days=int(startNDO))
-        endDate = currDate + timedelta(days=int(endNDO))
-
+    #Reset the startNDO and endNDO to actually NDO
+    startNDO = (startDate - currDate).days
+    endNDO = (endDate - currDate).days
+    
     return startNDO, endNDO
 
 def deduct_available_slot():

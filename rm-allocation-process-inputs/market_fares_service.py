@@ -16,6 +16,7 @@ class MarketFareService:
         #We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
         # This is because, when we prepare the AU Grid, if we donr push inventory on to B2C RBD, then the flight will not be visible 
         # on OTA - Flag the error for correction here
+        isMarketFareAvailable = False
         lowFare = 0
         hiFare = 0
         lowAirlineCode = "Market Fare not found"

@@ -23,7 +23,7 @@ def localRun():
     
     inputData = {
         "debugMode" : False,
-        "isUpdateNavitaire" : False,
+        "isUpdateNavitaire" : True,
         "currDate": None,
         "currDateTime": None,
         "MARKET_LIST_QUEUE_URL": None,
@@ -52,7 +52,7 @@ def localRun():
         "NavitaireConnection": NavitaireConnection,
         "dbconn": conn,
         "wrconn": conn,
-        "NavitaireUpdateMethod":Constants.CONST_SKIP,
+        "NavitaireUpdateMethod":Constants.S3,
         "sqs": None,
         "cache_client":None,
         "s3":None,

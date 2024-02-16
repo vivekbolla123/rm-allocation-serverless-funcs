@@ -58,7 +58,7 @@ def serverRun():
         "dbconn": conn,
         "wrconn": conn,
         "sqs": None,
-        "NavitaireUpdateMethod":Constants.CONST_SKIP,
+        "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
         "cache_client":None,
         "runTime":None

@@ -16,6 +16,7 @@ from markRunCompleted import MarkRunCompleted
 from cleanup import CleanUpConfig
 from sftp_error_rate import SFTPErrorRate
 from scheduled_job_run_audit import AuditScheduledJob
+from pushRBDToS3 import pushRBDToS3
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -40,7 +41,7 @@ except Exception as e:
     sys.exit()
 
 module_map = { "mark_run_completed": MarkRunCompleted, 'sftp_push': PushRBDtoSFTP, 'connections': RunConnections, 
-              'alloc_summary': AllocationSummaryReport, 'clean_up': CleanUpConfig, 'sftp_error': SFTPErrorRate
+              'alloc_summary': AllocationSummaryReport, 'clean_up': CleanUpConfig, 'sftp_error': SFTPErrorRate, 's3_push': pushRBDToS3
               }
 
 def lambda_handler(event, context):
@@ -83,4 +84,8 @@ def lambda_handler(event, context):
 
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# lambda_handler(None,None)
+# event = {
+#   "body": "{\"modules\":{\"s3_push\": 1}}"
+# }
+
+# lambda_handler(event,None)
