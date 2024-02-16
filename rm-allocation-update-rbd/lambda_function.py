@@ -266,10 +266,10 @@ def lambda_handler(event, context):
         end_date = allocation_data['endDate']
         flight = allocation_data['flight']
 
-        carrier_code = flight[1:3]
-        identifier = flight[3:7]
-        origin = flight[8:11]
-        destination = flight[11:14]
+        identifier = flight.split(" ")[1][2:]        
+        carrier_code = flight.split(" ")[1][:2]
+        origin = flight.split(" ")[2][:3]
+        destination = flight.split(" ")[2][3:]
 
         start_date_f = format_date(start_date)
         end_date_f = format_date(end_date)
