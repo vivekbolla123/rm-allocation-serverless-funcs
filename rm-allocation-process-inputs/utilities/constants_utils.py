@@ -20,6 +20,7 @@ class ConstantsUtils:
         self.OVERBOOKING_START_NDO=OVERBOOKING_START_NDO
         self.OVERBOOKING_END_NDO=OVERBOOKING_END_NDO
         self.OVERBOOKING_PROB=OVERBOOKING_PROB
+        self.S_CLASS_PLF_THRESHOLD=S_CLASS_PLF_THRESHOLD
         
         # Generate constants from database values
         self.generateConstantValues()
@@ -64,3 +65,5 @@ class ConstantsUtils:
                 self.OVERBOOKING_END_NDO = int(parameter_value)
             elif parameter_key == 'OVERBOOKING_PROB':
                 self.OVERBOOKING_PROB = float(parameter_value)
+            elif parameter_key=='S_CLASS_PLF_THRESHOLD':
+                self.S_CLASS_PLF_THRESHOLD=float(parameter_value)

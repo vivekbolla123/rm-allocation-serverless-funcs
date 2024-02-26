@@ -344,6 +344,12 @@ class DynAlloc:
 					currRec.set_class_attribute(brd_counter, 'class_of_service','L')
 					currRec.set_class_attribute(brd_counter+1, 'class_au',-1)
 					currRec.set_class_attribute(brd_counter+1, 'class_of_service','P')
+				
+				currRec.set_class_attribute(brd_counter+2, 'class_of_service','S')
+				if plf>self.constantsUtils.S_CLASS_PLF_THRESHOLD:
+					currRec.set_class_attribute(brd_counter+2, 'class_au',0)
+				else:
+					currRec.set_class_attribute(brd_counter+2, 'class_au',-1)
      
 				self.AUFileData.append(currRec)
 				
