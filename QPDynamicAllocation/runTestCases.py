@@ -17,7 +17,7 @@ def testCase1():
 
     inputData = {
         "debugMode": False,
-        "isUpdateNavitaire": True,
+        "isUpdateNavitaire": False,
         "currDate": datetime.date(2023, 8, 1),
         "currDateTime": datetime.datetime(2023, 8, 1, 12, 12, 12),
         "MARKET_LIST_QUEUE_URL": None,
