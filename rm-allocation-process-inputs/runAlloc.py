@@ -323,7 +323,7 @@ class DynAlloc:
 					openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B allocation zero Overbooking'],'anchorFare': ['NA'],'statusInd':[1], 'allocationStatus': [1]}
 					
 				#Now add all the Z RBDs
-				isUpsellFlag ,brd_counter= self.b2BAllocation(currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag,b2boverbookingflag,brd_counter)
+				isUpsellFlag ,brd_counter= self.b2BAllocation(currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag,b2boverbookingflag,brd_counter,openDataB2C)
 
 				if(isUpsellFlag and not openingFaresFlag):
 					openDataB2B = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['B2B allocation skipped - Flight in upsell'],'anchorFare': ['NA'],'statusInd':[1], 'allocationStatus': [1]}
@@ -487,9 +487,14 @@ class DynAlloc:
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight):
 		return self.currParams.over_booking==YES_FLAG and nextFlight and plf>self.constantsUtils.OVERBOOKING_LF and ndocounter<=self.constantsUtils.OVERBOOKING_END_NDO and ndocounter>=self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity)==int(totalCapacity)
 	
-	def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag,b2boverbookingflag,brd_counter):
+	def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag,b2boverbookingflag,brd_counter,openDataB2C):
 		isUpsellFlag = False
 		B2BRBDs = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, '')
+		openingB2CRBD = openDataB2C['RBD'][0]
+  
+		B2CRBDs = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, openingB2CRBD)
+
+		openingB2CPrice = self.constantsUtils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['Total'][0]
 
 		openbuketFlag = False
 		openingRBD = openDataB2B['RBD'][0]
@@ -500,6 +505,7 @@ class DynAlloc:
 		
 		for b2bctr in range(B2BRBDs.shape[0]):
 			RBDLabel = B2BRBDs['RBD'][b2bctr]
+			price = B2BRBDs['Total'][b2bctr]
 			b2bStatus = openDataB2B['statusInd'][0]
 			currRec.set_class_attribute(brd_counter, 'class_of_service',RBDLabel)
 			if b2boverbookingflag:	
@@ -510,11 +516,12 @@ class DynAlloc:
 				else:
 					if RBDLabel == openingRBD:
 						openbuketFlag = True
-					
+						openingRBDPirce = price
+      
 					if (openbuketFlag):
 						#Allocation
 						if((b2bStatus == 0) or (b2bStatus == 2)):
-							if(dPLF < 0 and PLF < self.PLF_CURVE_VALUE):
+							if(dPLF < 0 and (PLF < self.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPirce))):
 								currRec.set_class_attribute(brd_counter, 'class_au',int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter])))
 							else:
 								currRec.set_class_attribute(brd_counter, 'class_au',0)
