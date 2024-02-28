@@ -440,9 +440,11 @@ class DetermineRBD:
             anchorFares =  min(anchorFare, lastSoldFare)
             delta=abs(anchorFare-lastSoldFare)
             howDetermined = 'UpsellN_AllocationY_Fare based from ' + anchorState
-            if((delta/anchorFares)>0.7):
+            upsell = 'NA'
+            if(anchorFares==0):
+                anchorFares=anchorFare
+            elif((delta/anchorFares)>0.7):
                 anchorFares=anchorFares+0.5*delta
                 howDetermined = 'UpsellN_AllocationY_Fare based from modified_last sold Fare'
-                upsell = 'NA'
         
         return anchorFares, howDetermined, upsell
