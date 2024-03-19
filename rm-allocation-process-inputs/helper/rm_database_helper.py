@@ -27,11 +27,11 @@ class RMDatabaseHelper:
         return inputsData['code_version'][0]
     
     def loadRunParams(self):
-		#load the list of sectors
+        # load the list of sectors
         if self.inputSource.input_source[CONST_MARKET_LIST] == FILE:
             self.mktList = pd.read_csv(CONST_MARKET_LIST_FILE_PATH)
         else:
-            marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking FROM market_list "
+            marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag FROM market_list "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -86,7 +86,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday, expectedEndOfDayBooking, expectedEndOfDayLoadFactor, historicOwnFare, historicFare, timeSectorDrop, gridDrop, overBookingCount, marketFaresSummary)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday, expectedEndOfDayBooking, expectedEndOfDayLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -130,11 +130,10 @@ class RMDatabaseHelper:
                     '{str(latest_row.expectedEndOfDayBooking)}',
                     '{str(latest_row.expectedEndOfDayLoadFactor)}',
                     '{str(latest_row.historicOwnFare)}',
-                    '{str(latest_row.state)}',
-                    '{str(latest_row.timeSectorDrop)}',
-                    '{str(latest_row.gridDrop)}',
                     '{str(latest_row.overBookingCount)}',
-                    '{str(latest_row.marketFaresSummary)}'
+                    '{str(latest_row.marketFaresSummary)}',
+                    '{str(latest_row.profileFare)}',
+                    '{str(latest_row.status)}'
                 )
             """
             try:
@@ -229,7 +228,6 @@ class RMDatabaseHelper:
         return rangeList
     
     def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag):
-		
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
         updateDate=currFltDate+timedelta(days=int(DaySpan))
         if Day3Flag == False:
@@ -276,7 +274,7 @@ class RMDatabaseHelper:
         return mktFareRange
     
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate,starttime):
-		#load the list of sectors
+        # load the list of sectors
         if currentTimeFlag:
             currFltDate = datetime.strptime(currFltDate, DATE_FORMAT).date()
             query = f''' 
@@ -307,7 +305,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         if(rbddata.shape[0] == 0):
             self.logger.info('QP Fare not available. Please validate Fares table')
-            openResult = {'RBD':['NA'], 'Fare':['NA'], 'FareResult':['QP Fares not available'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
+            openResult = {'RBD':[CONST_NA], 'Fare':[CONST_NA], 'FareResult':['QP Fares not available'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
             return openResult, None
 
@@ -416,27 +414,87 @@ class RMDatabaseHelper:
 
         return historicData
     
+    def getProfileFares(self, sector, month, dow, currTime, percentile):
+        query = f''' 
+                select {percentile} as price from (
+                    SELECT *
+                    FROM config_profile_fares
+                    WHERE sector='{sector}' and Month='{month}' and DOW = '{dow}' 
+                ) A where Cluster = 
+                CASE 
+                    WHEN TIME('{currTime}') >= '02:30:00' AND TIME('{currTime}') < '07:30:00' THEN 0
+                    WHEN TIME('{currTime}') >= '07:30:00' AND TIME('{currTime}') < '11:00:00' THEN 1
+                    WHEN TIME('{currTime}') >= '11:00:00' AND TIME('{currTime}') < '14:30:00' THEN 2
+                    WHEN TIME('{currTime}') >= '14:30:00' AND TIME('{currTime}') < '18:00:00' THEN 3
+                    WHEN TIME('{currTime}') >= '18:00:00' AND TIME('{currTime}') < '21:00:00' THEN 4
+                    ELSE 5 end 
+                '''
+        try:
+            profileData = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+        return profileData
+
+    def profileFaresExtract(self, origin, destin, month, dow, currTime):
+        query = f''' 
+                SELECT Q0,Q1,Q2,Q3,Q4,Q5,Q6,Q7,Q8,Q9,Q10,Q11,Q12,Q13,Q14,Q15,Q16,Q17,Q18,Q19,Q20
+                FROM config_profile_fares
+                WHERE sector = CONCAT('{origin}','{destin}') and Month = '{month}' and DOW = '{dow}'  
+                AND Cluster = 
+                CASE 
+                    WHEN TIME('{currTime}') >= '02:30:00' AND TIME('{currTime}') < '07:30:00' THEN 0
+                    WHEN TIME('{currTime}') >= '07:30:00' AND TIME('{currTime}') < '11:00:00' THEN 1
+                    WHEN TIME('{currTime}') >= '11:00:00' AND TIME('{currTime}') < '14:30:00' THEN 2
+                    WHEN TIME('{currTime}') >= '14:30:00' AND TIME('{currTime}') < '18:00:00' THEN 3
+                    WHEN TIME('{currTime}') >= '18:00:00' AND TIME('{currTime}') < '21:00:00' THEN 4
+                    ELSE 5 end 
+                '''
+        try:
+            profileData = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+        return profileData
+   
+    def getMappedMonth(self, currFltDate):
+        query = f''' SELECT mappedMonth FROM config_date_event where date = '{currFltDate}' '''
+        return pd.read_sql(query, self.conn)
+    
+    def getUpsellValueOrigin(self, currFltDate, origin):
+        query = f''' SELECT 
+                        REPLACE(MIN(SUBSTRING(value, INSTR(value, '-') + 1)),'%%','') AS percentage
+                    FROM
+                        config_profile_fare_station_upsell
+                    WHERE
+                        date = '{currFltDate}'
+                        AND station = '{origin}'
+                        AND (value LIKE 'BOTH%%' OR value LIKE 'OUT%%') '''
+        return pd.read_sql(query, self.conn)
+    
+    def getUpsellValueDestin(self, currFltDate, destin):
+        query = f''' SELECT 
+                        REPLACE(MIN(SUBSTRING(value, INSTR(value, '-') + 1)),'%%','') AS percentage
+                    FROM
+                        config_profile_fare_station_upsell
+                    WHERE
+                        date = '{currFltDate}'
+                        AND station = '{destin}'
+                        AND (value LIKE 'BOTH%%' OR value LIKE 'IN%%') '''
+        return pd.read_sql(query, self.conn)
+    
     def getArea(self, currentHour):
         query = f''' SELECT sum(shareOfBooking) as sum FROM config_share_of_booking where hours <= {currentHour} '''
         return pd.read_sql(query, self.conn)
     
-    def getOpeningFareValue(self, dplfBand, endOfDayDplfBand, currentTime, ndocounter, loadFactor, departureTime):
-	
+    def getRDBTable(self, dplfBand, endOfDayDplfBand, currentTime):
         query = f'''
             SELECT B2CValue, B2BValue 
-            FROM config_opening_fares 
+            FROM config_determine_fares 
             WHERE 1 = 1 
             AND IFNULL(TIME(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.start_time'))), '00:00') <= '{currentTime}' 
             AND IFNULL(TIME(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_time'))), '23:59') >= '{currentTime}' 
-            AND FIND_IN_SET('{ndocounter}',JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.ndo_band'))) 
             AND FIND_IN_SET('{dplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.start_of_day_dlf_band')), '{dplfBand}')) 
-            AND FIND_IN_SET('{endOfDayDplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_of_day_dlf_band')), '{endOfDayDplfBand}')) 
-            AND IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.min_load_factor')), 0) <= {loadFactor} 
-            AND IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.max_load_factor')), 100) >= {loadFactor} 
-            AND IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.departure_start_time')), '00:00') <= '{departureTime}' 
-            AND IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.departure_end_time')), '23:59') >= '{departureTime}' 
+            AND FIND_IN_SET('{endOfDayDplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_of_day_dlf_band')), '{endOfDayDplfBand}'))  
         '''
-        # self.logger.info(query)
         return pd.read_sql(query, self.conn)
     
     def fareExtract(self, origin, destination, channel, openingRBD):

@@ -43,7 +43,7 @@ class ConstantsUtils:
             elif parameter_key == 'COVERAGE_PARAMETER':
                 self.COVERAGE_PARAMETER = float(parameter_value)
             elif parameter_key == 'AU_COLUMN_LENGTH':
-                self.AU_COLUMN_LENGTH = str(parameter_value)
+                self.AU_COLUMN_LENGTH = int(parameter_value)
             elif parameter_key == 'B2B_RDB_COUNT':
                 self.B2B_RDB_COUNT = float(parameter_value)
             elif parameter_key == 'LOWEST_B2B_RBD_VALUE':

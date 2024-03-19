@@ -1,7 +1,8 @@
 class AuGridRow:
+    
     def __init__(self, au_column_length):
-        self.b2brunid=""
-        self.b2crunid=""
+        self.b2brunid = ""
+        self.b2crunid = ""
         self.type = ""
         self.flight = ""
         self.start_date = ""
@@ -32,7 +33,7 @@ class AuGridRow:
             else:
                 print(f'Attribute {attr_name} does not exist.')
         else:
-            print('Set Invalid class number - '+ str(class_number))
+            print('Set Invalid class number - ' + str(class_number))
 
     def get_class_attribute(self, class_number, attribute):
         if 1 <= class_number <= self.au_column_length:
@@ -42,4 +43,4 @@ class AuGridRow:
             else:
                 print(f'Attribute {attr_name} does not exist.')
         else:
-            print('Get Invalid class number - '+ str(class_number))
+            print('Get Invalid class number - ' + str(class_number))

@@ -58,7 +58,7 @@ class GetDynamicTimeD2:
     def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel):
         criteria = currParams.fare_anchor
         offset = currParams.fare_offset
-        strategy = 'NA'
+        strategy = CONST_NA
 
         if (str(currParams.strategy_flag)== '1'):
             dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)

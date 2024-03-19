@@ -38,7 +38,7 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# create the database connection outside of the handler to allow connections to be
+# create the database connection outside the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -142,7 +142,7 @@ def lambda_handler(event, context):
     date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
     date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
     DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,
-    B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking FROM {market_list_table} 
+    B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,profileFares,rbdPushFlag FROM {market_list_table} 
     WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
     str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
     """
@@ -169,7 +169,6 @@ def lambda_handler(event, context):
         startNDO = data['PerStart']
         startNDO = data['PerStart']
         endNDO = data['PerEnd']
-        # flightNumber = data['FlightNumber']
 
         try:
             startNDO, endNDO = getStartEndDate(currDate, startNDO, endNDO)
@@ -177,11 +176,7 @@ def lambda_handler(event, context):
 
             cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, totalNDO)
             cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, totalNDO)
-
-            # for ndocounter in range(startNDO, endNDO+1):
-            #     tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),"%Y-%m-%d")
-            #     # insert into run_audit table
-            #     insert_run_fltDate_audit(run_id, flightNumber, tgtDate)         
+    
         except:
             logger.info("Error in Start or End Date at row: " + data)  
             logger.info("Run Id: " + run_id)  
@@ -245,13 +240,6 @@ def insert_file_upload_s3(run_id, createdAt):
         logger.info(e)
     logger.info("S3 File Audited")
     
-# def insert_run_fltDate_audit(run_id, flightNumber, tgtDate):
-#     insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, b2cstatus, b2bstatus,createdAt) VALUES (%s, %s, %s, %s, %s, %s)"
-#     try:
-#         wrconn.execute(insert_query,
-#                     (run_id, flightNumber, tgtDate, "Pending", "Pending",datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-#     except Exception as e:
-#         logger.info(e)
 
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
