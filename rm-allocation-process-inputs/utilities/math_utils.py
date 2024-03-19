@@ -1,6 +1,5 @@
 import math
 
-
 class MathUtils:
     def __init__(self,inputsource) :
         self.inputSource=inputsource
@@ -20,3 +19,9 @@ class MathUtils:
 
     def generateMaxValue(self, remainingCapacity, ndocounter):
         return int(round(max((remainingCapacity/(1+ndocounter)),15),0))
+    
+    def getCeilNumber(self, number):
+        return math.ceil(number)
+
+    def calculateLogValueForD3(self, maxRBDPrice, openingRBDPirce, otherRDBAllocation):
+        return math.log(maxRBDPrice/openingRBDPirce, (1+otherRDBAllocation/100))

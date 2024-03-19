@@ -14,7 +14,6 @@ def localRun():
         host="43.204.99.181:1433",
         user="crm_navods_read",
         password="P3WjeMw4463nwm8"
-        # database="[10.154.12.13,52900][REZ0KDW01]"
     )
 
     RM_ALLOC_DB_URL = "mysql+mysqldb://"+Constants.DB_USERNAME+":"+Constants.DB_PASSWORD+"@"+Constants.DB_URL

@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
-s3=boto3.client('s3')
+s3 = boto3.client('s3')
 # DB settings
 WAIT_TIME = 30  # in seconds
 
@@ -39,7 +39,7 @@ if cache_client.ping():
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# create the database connection outside of the handler to allow connections to be
+# create the database connection outside the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
     wrconn = create_engine(DB_WR_CONN_STRING)
@@ -109,34 +109,36 @@ def lambda_handler(event, context):
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # messageBody= {
-#   "Origin": "DOH",
-#   "Destin": "BOM",
-#   "FlightNumber": 91,
-#   "PerStart": "03/20/2024",
-#   "PerEnd": "03/21/2024",
-#   "DOW": 1111111,
-#   "strategyFlag": 1,
-#   "TimeWindowStart": "06:00",
-#   "TimeWindowEnd": "10:55",
-#   "CurveID": "PNQBLR_P",
-#   "CarrExlusion": "**",
-#   "fareAnchor": "Strategy_1",
-#   "fareOffset": "",
-#   "FirstRBDAlloc": -99,
-#   "OtherRBDAlloc": 5,
-#   "B2BBackstop": 3600,
-#   "B2CBackstop": 3300,
-#   "B2BFactor": 0.7,
-#   "SkippingFactor": 4,
-#   "OwnFareFlag": "N",
-#   "DaySpan": 0,
-#   "AutoTimeRangeFlag": "0",
-#   "analystName": "Maulsiri",
-#   "openingFares": "0",
-#   "OverBooking": "N",
-#   "runId": "a5644638-30a7-43b5-bf26-7b93ca1e4fe1",
-#   "update_navitaire_method": "api",
-#   "runTime": 1708067501080
+#     "Origin": "AMD",
+#     "Destin": "BLR",
+#     "FlightNumber": 1332,
+#     "PerStart": "03/19/2024",
+#     "PerEnd": "03/19/2024",
+#     "DOW": 1111111,
+#     "strategyFlag": 1,
+#     "TimeWindowStart": "16:00",
+#     "TimeWindowEnd": "23:00",
+#     "CurveID": "C18940",
+#     "CarrExlusion": "**",
+#     "fareAnchor": "Strategy_1",
+#     "fareOffset": "",
+#     "FirstRBDAlloc": 5,
+#     "OtherRBDAlloc": 5,
+#     "B2BBackstop": 6000,
+#     "B2CBackstop": 6100,
+#     "B2BFactor": 0.5,
+#     "SkippingFactor": 5,
+#     "OwnFareFlag": "Y",
+#     "DaySpan": 0,
+#     "AutoTimeRangeFlag": "0",
+#     "analystName": "Maulsiri",
+#     "openingFares": "1",
+#     "OverBooking": "N",
+#     "profileFares": "1",
+#     "rbdPushFlag": "0",
+#     "runId": "013b247d-acd9-403a-8b3f-f2b77167a03a",
+#     "update_navitaire_method": "api",
+#     "runTime": 1710655235594
 # }
 
 
