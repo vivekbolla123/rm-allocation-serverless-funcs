@@ -13,7 +13,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -23,7 +23,6 @@ class DetermineRBD:
         profileFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
-        minValue = 0
 
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
@@ -40,18 +39,6 @@ class DetermineRBD:
         if strategyFare == CONST_NA:
             return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
 
-        upsellValueOrigin = self.rmdatabasehelper.getUpsellValueOrigin(currFltDate, origin)
-        upsellValueDestin = self.rmdatabasehelper.getUpsellValueDestin(currFltDate, destin)
-
-        val = []
-        if len(upsellValueOrigin) != 0 and upsellValueOrigin.percentage[0] != None:
-            val.append(float(upsellValueOrigin.percentage[0]))
-        if len(upsellValueDestin) != 0 and upsellValueDestin.percentage[0] != None:
-            val.append(float(upsellValueDestin.percentage[0]))
-
-        if len(val) != 0:
-            minValue = min(val)
-
         self.logger.info("totalCapacity: " + str(totalCapacity))
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
 
@@ -59,27 +46,24 @@ class DetermineRBD:
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
 
         if currParams.own_fare_flag == YES_FLAG:
-            self.logger.info("Calculating Historic fares")
             historicData = self.rmdatabasehelper.getFareHistoryData(ndocounter, sector, month, dow, channel, deptTime)
             if len(historicData) != 0:
                 historicOwnFare = historicData['price'][0]
-                if minValue != 0:
-                    historicOwnFare = (historicOwnFare * (1 + minValue/100))
+                if upsellValue != 0:
+                    historicOwnFare = (historicOwnFare * (1 + upsellValue/100))
 
         if currParams.profileFares == YES_FLAG:
-            self.logger.info("Calucating Profile fares")
             profileFaresData = self.rmdatabasehelper.getProfileFares(sector, month, dow, deptTime, percentile)
             if len(profileFaresData) != 0:
                 profileFare = profileFaresData['price'][0]
-                if minValue != 0:
-                    profileFare = (profileFare * (1 + minValue/100))
+                if upsellValue != 0:
+                    profileFare = (profileFare * (1 + upsellValue/100))
 
         if int(currParams.opening_fares) == 1:
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
                 farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
                 farePrice = self.navdatabasehelper.getLastSellingFare(currFltDate, currParams)
-            self.logger.info("Last Sold Price fetched") 
             if farePrice.shape[0] != 0:
                 if channel == B2C_CHANNEL:
                     lastSoldFare = farePrice["B2Cfare"][0]
@@ -93,12 +77,21 @@ class DetermineRBD:
             if channel == B2C_CHANNEL:
                 anchorValue = value['B2CValue'][0]
 
+        self.logger.info("Last Sold Price: " + str(lastSoldFare))
+        self.logger.info("Profile Fare: " + str(profileFare))
+        self.logger.info("Historic Fare: " + str(historicOwnFare))
+        self.logger.info("Startegy Fare: " + str(strategyFare))
+        
         anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF)
 
+        timeString = 'Pre10'
+        if curTime > TIME_10_AM:
+            timeString = 'Post10'
+            
         if dPLF > 0:
-            howDetermined = str(currenttime) + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_A_' + howDetermined
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_A_' + howDetermined
         else:
-            howDetermined = str(currenttime) + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_B_' + howDetermined
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_B_' + howDetermined
 
         if anchorFare != 0:
             offset = 0

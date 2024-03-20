@@ -291,10 +291,25 @@ class DynAlloc:
 			self.logger.info("bookloadPercentile: " + str(bookloadPercentile))
 			if bookloadPercentile > PROFILE_FARES_QUARTILE:
 				bookloadPercentile = PROFILE_FARES_QUARTILE
+			if bookloadPercentile < PROFILE_FARES_25PERCENT_QUARTILE:
+				bookloadPercentile = PROFILE_FARES_25PERCENT_QUARTILE
 			percentile = 'Q'+str(bookloadPercentile)
 
 			self.logger.info("percentile: " + str(percentile))
         
+			upsellValueOrigin = self.rmdatabasehelper.getUpsellValueOrigin(dateFormatted, self.currParams.origin)
+			upsellValueDestin = self.rmdatabasehelper.getUpsellValueDestin(dateFormatted, self.currParams.destin)
+
+			val = []
+			upsellValue = 0
+			if len(upsellValueOrigin) != 0 and upsellValueOrigin.percentage[0] != None:
+				val.append(float(upsellValueOrigin.percentage[0]))
+			if len(upsellValueDestin) != 0 and upsellValueDestin.percentage[0] != None:
+				val.append(float(upsellValueDestin.percentage[0]))
+
+			if len(val) != 0:
+				upsellValue = min(val)
+
 			if isB2CMarketFareAvailable:
 
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
@@ -303,7 +318,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 
 				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(self.outputSummaryRow_b2c.MktFare_Min) + " to " + str(self.outputSummaryRow_b2c.MktFare_Max))
-				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.historicOwnFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2c_backstop, self.currentTime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile)
+				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.historicOwnFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2c_backstop, self.currentTime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue)
 
 				if isB2BMarketFareAvailable:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
@@ -312,7 +327,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2b_backstop, self.currentTime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile)
+					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2b_backstop, self.currentTime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue)
 				else:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else:
@@ -343,7 +358,7 @@ class DynAlloc:
 				profileExtract = set(profileExtract.values.flatten())
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile)
+				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
@@ -497,7 +512,7 @@ class DynAlloc:
 
 	def calculateVariance(self, currBookedLoad, tgtBookedLoad, totalCapacity, ndocounter, expectedEndOfDaydPLF):
 		variance = expectedEndOfDaydPLF
-		if ndocounter >= 22 or self.currentTime < '10:00':
+		if ndocounter >= 22 or self.currentTime < TIME_10_AM:
 			variance = ((currBookedLoad - tgtBookedLoad) / totalCapacity) * 100
 		return variance
 
