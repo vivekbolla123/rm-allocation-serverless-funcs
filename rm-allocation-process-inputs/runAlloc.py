@@ -487,27 +487,33 @@ class DynAlloc:
 		expectedEndOfDayBooking = lastBookloadTillMidnight + ((bookingToday / area["sum"][0]) * 100)
 		endOfDayTgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter - 1, self.currParams.curve_id)
 		endOfDayTgtBookedLoad = float(endOfDayTgtBookedLoadList['LF'][0])
-		expectedEndOfDaydPLF = ((expectedEndOfDayBooking/totalCapacity) - endOfDayTgtBookedLoad) * 100
-
+		endOfDayTgtBookedLoad = endOfDayTgtBookedLoad * totalCapacity
+  
 		startOfdayFactor = ((lastBookloadTillMidnight/totalCapacity) - tgtBookloadFactor) * 100
 		startEndOfDayDplfBand = self.rmdatabasehelper.getdpflBand(startOfdayFactor)
-		expectedEndOfDayDplfBand = self.rmdatabasehelper.getdpflBand(expectedEndOfDaydPLF)
-		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
-		self.logger.info("expectedEndOfDaydPLF is: " + str(expectedEndOfDaydPLF))
-		self.logger.info("expectedEndOfDayDplfBand is: " + str(expectedEndOfDayDplfBand))
+		
 		self.logger.info("startEndOfDayDplfBand is: " + str(startEndOfDayDplfBand))
-
+		
+  
 		if ndocounter == 0:
+			endOfDayTgtBookedLoad = totalCapacity * self.constantsUtils.END_OF_DAY_LF_FACTOR
 			noon = time(12, 0)
 			if deptTime.time() > noon:
 				hours = (deptTime - timedelta(hours=2)).hour
 				areaTillDeparture = self.rmdatabasehelper.getArea(hours)
 				expectedEndOfDayBooking = lastBookloadTillMidnight + ((bookingToday * areaTillDeparture["sum"][0]) / area["sum"][0])
 
-		endOfDayTgtBookedLoad = endOfDayTgtBookedLoad * totalCapacity
+		expectedEndOfDaydPLF = ((expectedEndOfDayBooking - endOfDayTgtBookedLoad) / totalCapacity) * 100
+		expectedEndOfDayDplfBand = self.rmdatabasehelper.getdpflBand(expectedEndOfDaydPLF)
+
 		endOfDayBookings = (float(expectedEndOfDayBooking) / float(totalCapacity)) * 100
 
-		self.logger.info("expectedEndOfDayBooking is: " + str(expectedEndOfDayBooking))
+		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
+		self.logger.info("expectedEndOfDayBooking is: " + str(expectedEndOfDayBooking))		
+		self.logger.info("expectedEndOfDayDplfBand is: " + str(expectedEndOfDayDplfBand))
+		self.logger.info("expectedEndOfDaydPLF is: " + str(expectedEndOfDaydPLF))
+		self.logger.info("endOfDayBookings is: " + str(endOfDayBookings))
+  
 		return expectedEndOfDaydPLF, startEndOfDayDplfBand, expectedEndOfDayDplfBand, endOfDayBookings, bookingToday, endOfDayTgtBookedLoad, expectedEndOfDayBooking
 
 	def calculateVariance(self, currBookedLoad, tgtBookedLoad, totalCapacity, ndocounter, expectedEndOfDaydPLF):
