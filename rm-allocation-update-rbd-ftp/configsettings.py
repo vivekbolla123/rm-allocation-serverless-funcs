@@ -10,33 +10,30 @@ def get_credentials(parameter_name):
 env = getenv('env', default=None)
 
 if env == 'prod':
-    RM_DB_APPUSER_USERNAME="rmappuser"
-    RM_DB_APPUSER_URL="rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_USERNAME = "rmappuser"
+    RM_DB_APPUSER_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KProdr4x_sftp'
-    SFTP_DES_DIR = '/'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds-ftp"
     
 if env == 'test':
-    RM_DB_APPUSER_USERNAME="rm-user"
-    RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_USERNAME = "rm-user"
+    RM_DB_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KTestr4x_sftp'
-    SFTP_DES_DIR = '/'
-    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_test-rm-allocation-rbds-ftp"
+    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds-ftp"
 
-
-RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
+RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
+RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
+RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
 
-RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
+RM_CACHE_USERNAME = "default"
+RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+RM_CACHE_PORT = 6379
 
-RM_CACHE_USERNAME="default"
-RM_CACHE_PASSWORD="bRT__04M})0"
-RM_CACHE_ENDPOINT="ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
-RM_CACHE_PORT=6379
-
+SFTP_DES_DIR = '/'
 SFTP_HOST = 'sftp.akasaair.com'
 SFTP_PORT = 10022
 SFTP_TARG_FILE = 'AUUPDATE'
-TEMP_FILE_NAME="/tmp/AUUPDATE"
-EXP_TIME=300000
-MAX_FILE_SIZE=40*1024*1024
+TEMP_FILE_NAME = "/tmp/AUUPDATE"
+EXP_TIME = 300000
+MAX_FILE_SIZE = 40*1024*1024

@@ -21,7 +21,6 @@ def testCase1():
         "currDate": datetime.date(2023, 8, 1),
         "currDateTime": datetime.datetime(2023, 8, 1, 12, 12, 12),
         "MARKET_LIST_QUEUE_URL": None,
-        "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
         "NAV_DB_NAME": None,
         "NAV_DB_DW_NAME": None,

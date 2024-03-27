@@ -679,7 +679,6 @@ class DynAlloc:
 		self.TABLE_MARKET_FARES = TABLE_MARKET_FARES
 		self.MARKET_LIST_QUEUE_URL = inputData["MARKET_LIST_QUEUE_URL"]
 		self.RBD_QUEUE_URL = inputData["RBD_QUEUE_URL"]
-		self.AWS_SQS_QUEUE_URL = inputData["AU_CHUNK_QUEUE_URL"]
 		self.NAV_DB_NAME = inputData["NAV_DB_NAME"]
 		self.NAV_DB_DW_NAME = inputData["NAV_DB_DW_NAME"]
 		self.NAV_DB_WB_NAME = inputData["NAV_DB_WB_NAME"]

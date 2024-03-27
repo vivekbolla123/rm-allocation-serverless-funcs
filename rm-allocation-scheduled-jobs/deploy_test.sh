@@ -1,5 +1,7 @@
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 891377165721.dkr.ecr.ap-south-1.amazonaws.com
+
 docker build --no-cache -t test-rm-allocation-scheduled-jobs-image --build-arg ENVN=test .
 
-docker tag test-rm-allocation-scheduled-jobs-image 525872668219.dkr.ecr.ap-south-1.amazonaws.com/rm-allocation-serverless-funcs_test-rm-allocation-scheduled-jobs:latest
+docker tag test-rm-allocation-scheduled-jobs-image 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-scheduled-jobs:latest
 
-docker push 525872668219.dkr.ecr.ap-south-1.amazonaws.com/rm-allocation-serverless-funcs_test-rm-allocation-scheduled-jobs:latest
+docker push 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-scheduled-jobs:latest
