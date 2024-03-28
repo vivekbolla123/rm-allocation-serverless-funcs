@@ -69,7 +69,6 @@ def lambda_handler(event, context):
         "currDateTime": None,
         "MARKET_LIST_QUEUE_URL": configsettings.MARKET_LIST_QUEUE_URL,
         "RBD_QUEUE_URL": configsettings.RBD_QUEUE_URL,
-        "AU_CHUNK_QUEUE_URL": configsettings.AUCHUNKS_QUEUE_URL,
         "NAV_DB_NAME": configsettings.NAV_DB_NAME,
         "NAV_DB_DW_NAME": configsettings.NAV_DB_DW_NAME,
         "NAV_DB_WB_NAME": configsettings.NAV_DB_WB_NAME,

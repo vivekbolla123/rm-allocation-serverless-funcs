@@ -7,7 +7,6 @@ class InputSource:
         self.currDate = input_data.get("currDate",None)
         self.currDateTime = input_data.get("currDateTime", None)
         self.MARKET_LIST_QUEUE_URL = input_data.get("MARKET_LIST_QUEUE_URL", None)
-        self.AU_CHUNK_QUEUE_URL = input_data.get("AU_CHUNK_QUEUE_URL", None)
         self.RBD_QUEUE_URL = input_data.get("RBD_QUEUE_URL", None)
         self.NAV_DB_NAME = input_data.get("NAV_DB_NAME", None)
         self.NAV_DB_DW_NAME = input_data.get("NAV_DB_DW_NAME", None)

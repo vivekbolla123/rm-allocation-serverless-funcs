@@ -17,9 +17,10 @@ def serverRun():
     DB_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     
     NavitaireConnection = pymssql.connect(
-        host="43.204.99.181:1433",
-        user="crm_navods_read",
-        password="P3WjeMw4463nwm8"
+        host="10.154.12.19:52900",
+        user="0KODSUSER",
+        password="fruFR79on7TR"
+        # database="[10.154.12.13,52900][REZ0KDW01]"
     )
     RM_ALLOC_DB_URL = "mysql+mysqldb://"+DB_USERNAME+":"+DB_PASSWORD+"@"+DB_URL
     RM_ALLOC_DB = RM_ALLOC_DB_URL+"/QP_DW_RMALLOC"
@@ -31,11 +32,10 @@ def serverRun():
         "currDate": None,
         "currDateTime": None,
         "MARKET_LIST_QUEUE_URL": None,
-        "AU_CHUNK_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
-        "NAV_DB_NAME": "[10.154.12.13,52900].[REZ0KOD01].",
-        "NAV_DB_DW_NAME": "[10.154.12.13,52900].[REZ0KDW01].",
-        "NAV_DB_WB_NAME": "[10.154.12.13,52900].[REZ0KWB01].",
+        "NAV_DB_NAME": "[REZ0KOD01].",
+        "NAV_DB_DW_NAME": "[REZ0KDW01].",
+        "NAV_DB_WB_NAME": "[REZ0KWB01].",
         "NAV_BASE_API_URL":None,
         "NAV_OCP_SUBSCRIPTION_KEY": None,
         "NAV_USERNAME": None,

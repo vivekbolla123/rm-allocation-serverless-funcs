@@ -13,7 +13,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, expectedEndOfDayDplfBand, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -70,7 +70,7 @@ class DetermineRBD:
                 if channel == B2B_CHANNEL:
                     lastSoldFare = farePrice["B2Bfare"][0]
 
-        value = self.rmdatabasehelper.getRDBTable(dplfBand, expectedEndOfDayDplfBand, curTime)
+        value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime)
         if value.shape[0] != 0:
             if channel == B2B_CHANNEL:
                 anchorValue = value['B2BValue'][0]
@@ -89,9 +89,9 @@ class DetermineRBD:
             timeString = 'Post10'
             
         if dPLF > 0:
-            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_A_' + howDetermined
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_A_' + howDetermined
         else:
-            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(expectedEndOfDayDplfBand) + '_B_' + howDetermined
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_B_' + howDetermined
 
         if anchorFare != 0:
             offset = 0

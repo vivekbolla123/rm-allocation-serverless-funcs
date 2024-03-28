@@ -6,13 +6,13 @@ from utilities.time_utils import TimeUtils
 
 class NavDatabaseHelper:
     def __init__(self,navconn,conn,inputSource,nav_db_name,runId,debugMode,nav_db_wb_name):   
-       self.NavitaireConnection=navconn
-       self.conn=conn
-       self.logger= OwnLogger(runId, inputSource)
-       self.inputSource=inputSource
-       self.NAV_DB_NAME=nav_db_name
-       self.NAV_DB_WB_NAME=nav_db_wb_name
-       self.debugMode=debugMode
+       self.NavitaireConnection = navconn
+       self.conn = conn
+       self.logger = OwnLogger(runId, inputSource)
+       self.inputSource = inputSource
+       self.NAV_DB_NAME = nav_db_name
+       self.NAV_DB_WB_NAME = nav_db_wb_name
+       self.debugMode = debugMode
        self.timeutils=TimeUtils(inputSource)
         
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):

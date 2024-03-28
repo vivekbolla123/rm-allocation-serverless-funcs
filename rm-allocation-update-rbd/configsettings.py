@@ -12,25 +12,24 @@ env = getenv('env', default=None)
 if env == 'prod':
     RM_DB_APPUSER_USERNAME="rmappuser"
     RM_DB_APPUSER_URL="rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
-
-
-if env == 'test':
-    RM_DB_APPUSER_USERNAME="rm-user"
-    RM_DB_APPUSER_URL="esb-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-
+    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    RM_CACHE_PASSWORD = "bRT__04M})0"
+    
+if env == 'uat':
+    RM_DB_APPUSER_USERNAME = "rm-user"
+    RM_DB_APPUSER_URL="uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
+    RM_CACHE_ENDPOINT="ip-172-24-72-8.ap-south-1.compute.internal"
 
 RM_CACHE_USERNAME="default"
-RM_CACHE_PASSWORD="bRT__04M})0"
-RM_CACHE_ENDPOINT="ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
 RM_CACHE_PORT=6379
 
 NAV_USERNAME = "aumaster1"
 NAV_DOMAIN = "TOP"
-RM_DB_APPUSER_PASSWORD=get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
+RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 NAV_PWD = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_PASSWORD')
 NAV_OCP_SUBSCRIPTION_KEY = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_SUBSCRIPTION_KEY')
 
-RM_DB_SCHEMA_NAME="QP_DW_RMALLOC"
+RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
