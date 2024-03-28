@@ -13,8 +13,8 @@ class OutputSummary:
         self.bookedPlf = CONST_NA
         self.Variance = CONST_NA
         self.endOfDayTgtLoad = CONST_NA
-        self.expectedEndOfDayLoadFactor = CONST_NA
-        self.expectedEndOfDayBooking = CONST_NA
+        self.currentLoadFactor = CONST_NA
+        self.currentTgtLoad = CONST_NA
         self.bookingToday = CONST_NA
         self.historicOwnFare = CONST_NA
         self.strategyFare = CONST_NA

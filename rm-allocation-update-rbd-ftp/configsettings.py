@@ -14,22 +14,24 @@ if env == 'prod':
     RM_DB_APPUSER_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KProdr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds-ftp"
-    
-if env == 'test':
+    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    RM_CACHE_PASSWORD = "bRT__04M})0"
+       
+if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
     RM_DB_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KTestr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds-ftp"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
+    RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
 
 RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
-SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
-RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
 RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
 
 RM_CACHE_USERNAME = "default"
-RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
 RM_CACHE_PORT = 6379
 
+SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
 SFTP_DES_DIR = '/'
 SFTP_HOST = 'sftp.akasaair.com'
 SFTP_PORT = 10022

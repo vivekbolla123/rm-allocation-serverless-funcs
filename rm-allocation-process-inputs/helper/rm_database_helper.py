@@ -86,7 +86,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday, expectedEndOfDayBooking, expectedEndOfDayLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -127,8 +127,8 @@ class RMDatabaseHelper:
                     '{str(latest_row.lastSellingFare)}',
                     '{str(latest_row.upsell)}',
                     '{str(latest_row.bookingToday)}',
-                    '{str(latest_row.expectedEndOfDayBooking)}',
-                    '{str(latest_row.expectedEndOfDayLoadFactor)}',
+                    '{str(latest_row.currentTgtLoad)}',
+                    '{str(latest_row.currentLoadFactor)}',
                     '{str(latest_row.historicOwnFare)}',
                     '{str(latest_row.overBookingCount)}',
                     '{str(latest_row.marketFaresSummary)}',
