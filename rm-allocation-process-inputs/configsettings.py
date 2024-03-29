@@ -54,6 +54,7 @@ if env == 'uat':
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+    # RM_CACHE_ENDPOINT = "172.24.72.8"
     RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
 
 RM_CACHE_USERNAME = "default"
@@ -61,8 +62,6 @@ RM_CACHE_PORT = 6379
 
 RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
 RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
-
-
 
 NAV_USERNAME = "aumaster1"
 NAV_DOMAIN = "TOP"
