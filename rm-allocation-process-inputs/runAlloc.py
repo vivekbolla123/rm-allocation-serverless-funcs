@@ -288,7 +288,7 @@ class DynAlloc:
 			if len(mappedMonth) != 0:
 				month = mappedMonth['mappedMonth'][0]
 
-			actualPercentile = self.mathutils.generateRoundNumber(totalCapacity / PROFILE_FARES_QUARTILE)
+			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
 			bookloadPercentile = self.mathutils.getCeilNumber(currBookedLoad / actualPercentile)
 
 			self.logger.info("actualPercentile: " + str(actualPercentile))
@@ -359,7 +359,7 @@ class DynAlloc:
 
 				profileExtract = self.rmdatabasehelper.profileFaresExtract(self.currParams.origin, self.currParams.destin, month, dow, deptTime)
 				profileExtract = profileExtract.transpose()
-				profileExtract = set(profileExtract.values.flatten())
+				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
 				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)

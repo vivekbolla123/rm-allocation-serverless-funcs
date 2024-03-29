@@ -55,16 +55,13 @@ class RBDAllocations:
                                 newProfileFares.append(upsellVal)
 
                         count = len(newProfileFares)
+                        bookloadPercentile = PROFILE_FARES_QUARTILE - count                         
                         newProfileFares = sorted(set(newProfileFares))
-                        bookloadPercentile = PROFILE_FARES_QUARTILE - count
-                        # if len(newProfileFares) > 0:
-                        #     if openingRBDPirce != newProfileFares[0]:
-                        #         bookloadPercentile -= 1
                         
             # Allocation
             if openbuketFlag:
                 # Valid B2C Allocation
-                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status = self.getIncrementalValue(currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile)
+                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile = self.getIncrementalValue(currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile)
 
                 if incremental >= totalCapacity:
                     incremental = totalCapacity
@@ -105,14 +102,15 @@ class RBDAllocations:
                         jumpingRBDPrice = profileExtract[counter]
 
                         if price <= profileFare:
-                            firstRDBAllocation = 5
-                            otherRDBAllocation = self.mathutils.generateRoundNumber(totalCapacity / PROFILE_FARES_QUARTILE)
+                            firstRDBAllocation = currBookedLoad + 5
+                            otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE)  * int(bookloadPercentile))
                         else:
                             firstRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * int(bookloadPercentile))
-                            otherRDBAllocation = self.mathutils.generateRoundNumber(totalCapacity / PROFILE_FARES_QUARTILE)
+                            otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE)  * int(bookloadPercentile))
                             
-                        openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter = self.jumpWithFare(currBookedLoad, bookedDeficit, openRBDIndex, incremental, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b, counter)
-        return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status
+                        openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, bookloadPercentile = self.jumpWithFare(bookedDeficit, openRBDIndex, incremental, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b, counter, bookloadPercentile, price)
+                        
+        return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile
 
     def calculateD3D4Values(self, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice):
         # Positive Allocation
@@ -171,29 +169,31 @@ class RBDAllocations:
                 pass
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b
 
-    def jumpWithFare(self, currBookedLoad, bookedDeficit, openRBDIndex, incremental, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b, counter):
+    def jumpWithFare(self, bookedDeficit, openRBDIndex, incremental, d3Allocation, d4Allocation, profileFare, b2bFactor, incrementalb2b, counter, bookloadPercentile, currPrice):
         if incremental < 0:
             if d3Allocation >= 0:
                 # allocate the FirstRBD
-                incremental = currBookedLoad + d3Allocation
-                incrementalb2b = currBookedLoad + (d3Allocation * b2bFactor)
+                incremental = d3Allocation
+                incrementalb2b = (d3Allocation * b2bFactor)
             else:
                 # negative number means allocate the full deficit - Only if the deficit is positive - Lagging
                 if bookedDeficit > 0:
-                    incremental = currBookedLoad + bookedDeficit
+                    incremental = bookedDeficit
                 else:
-                    incremental = currBookedLoad + d4Allocation
-                    incrementalb2b = currBookedLoad + (d4Allocation * b2bFactor)
+                    incremental = d4Allocation
+                    incrementalb2b = (d4Allocation * b2bFactor)
+            bookloadPercentile += 1
         else:
-            if jumpingRBDPrice >= nextPrice:
+            if profileFare >= currPrice:
                 pass
             else:
-                incremental = incremental + d4Allocation
-                incrementalb2b = incrementalb2b + (d4Allocation * b2bFactor)
+                incremental = d4Allocation
+                incrementalb2b = (d4Allocation * b2bFactor)
                 openRBDIndex = openRBDIndex + 1
                 counter = counter + 1
+                bookloadPercentile += 1
                 
-        return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter
+        return openRBDIndex, incremental, profileFare, incrementalb2b, counter, bookloadPercentile
 
     def d3d4Calculations(self, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, entryRDB, remainingRBD, d3Allocation, jumpPercent):
         maxLimit = self.mathutils.generateMaxValue(remainingCapacity, ndocounter)
