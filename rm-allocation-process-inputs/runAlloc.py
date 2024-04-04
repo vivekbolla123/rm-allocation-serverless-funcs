@@ -279,10 +279,10 @@ class DynAlloc:
 
 			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.marketFaresSummary, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
 
-			mappedMonth = self.rmdatabasehelper.getMappedMonth(dateFormatted)
+			mappedMonth = self.rmdatabasehelper.getMappedMonth(currFltDate)
 			time_object = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
 			deptTime = f"{time_object.hour:02d}:{time_object.minute:02d}"
-			currentDate = datetime.strptime(dateFormatted, DATE_FORMAT_2)
+			currentDate = datetime.strptime(currFltDate, DATE_FORMAT)
 			dow = currentDate.strftime(DAY_OF_WEEK)
 			month = currentDate.strftime(MONTH)
 			if len(mappedMonth) != 0:
@@ -301,8 +301,8 @@ class DynAlloc:
 
 			self.logger.info("percentile: " + str(percentile))
         
-			upsellValueOrigin = self.rmdatabasehelper.getUpsellValueOrigin(dateFormatted, self.currParams.origin)
-			upsellValueDestin = self.rmdatabasehelper.getUpsellValueDestin(dateFormatted, self.currParams.destin)
+			upsellValueOrigin = self.rmdatabasehelper.getUpsellValueOrigin(currFltDate, self.currParams.origin)
+			upsellValueDestin = self.rmdatabasehelper.getUpsellValueDestin(currFltDate, self.currParams.destin)
 
 			val = []
 			upsellValue = 0
