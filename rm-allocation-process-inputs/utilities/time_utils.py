@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime,timedelta
 
 import pytz
 
@@ -29,4 +29,11 @@ class TimeUtils:
         startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
         return startTime
     
-    
+    def subtract_hours(self,time_str, hours):
+        time_obj = datetime.strptime(time_str, '%H:%M')
+        new_time = (time_obj - timedelta(hours=hours)).time()
+        return str(new_time)[:5]
+    def add_hours(self,time_str, hours):
+        time_obj = datetime.strptime(time_str, '%H:%M')
+        new_time = (time_obj + timedelta(hours=hours)).time()
+        return str(new_time)[:5]

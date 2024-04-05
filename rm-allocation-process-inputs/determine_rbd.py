@@ -143,11 +143,11 @@ class DetermineRBD:
             upsell = CONST_NA
             faresList = []
             max_value = 0
-            if lastSoldFare != CONST_NA and float(lastSoldFare) < float(strategyFare):
+            if lastSoldFare != CONST_NA and float(lastSoldFare) <= float(strategyFare):
                 faresList.append(float(lastSoldFare))
-            if historicOwnFare != CONST_NA and float(historicOwnFare) < float(strategyFare):
+            if historicOwnFare != CONST_NA and float(historicOwnFare) <= float(strategyFare):
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and float(profileFare) < float(strategyFare):
+            if profileFare != CONST_NA and float(profileFare) <= float(strategyFare):
                 faresList.append(float(profileFare))
 
             if faresList:

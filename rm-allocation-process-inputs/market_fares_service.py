@@ -5,9 +5,10 @@ import pandas as pd
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,constantsutils):
+    def __init__(self,rm_database_helper,constantsutils,timeutils):
         self.rmdatabasehelper=rm_database_helper
         self.constantsutils=constantsutils
+        self.timeutils=timeutils
         
     def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime):
         startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
@@ -51,41 +52,50 @@ class MarketFareService:
         summary = "MF_Org"
         
         if(len(mktFareRange) == 0):
-            if(flightTime <= '14:00'):
-                start_time="00:00"
-                end_time="14:00"
-            else:
-                start_time="14:01"
-                end_time="23:59"
-            criteria = "MINO"
-            summary = "MF_HalfDay"
-            mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
-       
-                        
-            if(len(mktFareRange) == 0):
-                start_time="00:00"
-                end_time="23:59"
-                summary = "MF_Fullday"
+            start_time=self.timeutils.subtract_hours(startTime,2)
+            end_time=self.timeutils.add_hours(endTime, 2)
+            mktFareRange = self.fetchMarketFareRange(
+                channel, currFltDate, currParams, DaySpan, start_time, end_time, includeWeekend=False
+            )
+    
+            summary = "MF_Extend_2hrs"
+            if(len(mktFareRange)==0):
+                
+                if(flightTime <= '14:00'):
+                    start_time="00:00"
+                    end_time="14:00"
+                else:
+                    start_time="14:01"
+                    end_time="23:59"
+                
+                summary = "MF_HalfDay"
                 mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
-
+        
+                            
                 if(len(mktFareRange) == 0):
-                    DaySpan = 3
-                    summary = "MF_TR_3Days"
-                    start_time=startTime
-                    end_time=endTime
-                    mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan, startTime, endTime,True)
+                    start_time="00:00"
+                    end_time="23:59"
+                    summary = "MF_Fullday"
+                    mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
 
                     if(len(mktFareRange) == 0):
-                        DaySpan=3
-                        start_time="00:00"
-                        end_time="23:59"
-                        summary = "MF_FR_3Days"
-                        mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
+                        DaySpan = 3
+                        summary = "MF_TR_3Days"
+                        start_time=startTime
+                        end_time=endTime
+                        mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan, startTime, endTime,True)
 
                         if(len(mktFareRange) == 0):
-                            summary = "MF_NA"
-                            start_time = startTime
-                            end_time = endTime
+                            DaySpan=3
+                            start_time="00:00"
+                            end_time="23:59"
+                            summary = "MF_FR_3Days"
+                            mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
+
+                            if(len(mktFareRange) == 0):
+                                summary = "MF_NA"
+                                start_time = startTime
+                                end_time = endTime
             
             startTime = start_time
             endTime = end_time
