@@ -12,3 +12,4 @@ mysql-connector-python
 pymssql
 waitress
 python-dotenv
+testcontainers.mysql

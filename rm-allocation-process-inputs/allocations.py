@@ -50,14 +50,18 @@ class RBDAllocations:
                     count = 0
                     if profileFare !='NA':
                         for x in profileExtract:
-                            upsellVal = x * (1 + upsellValue/100)
+                            upsellVal = x * (1 + float(upsellValue)/100)
                             if upsellVal >= openingRBDPirce and upsellVal >= float(profileFare):
                                 newProfileFares.append(upsellVal)
 
                         count = len(newProfileFares)
-                        bookloadPercentile = PROFILE_FARES_QUARTILE - count                         
+                        bookloadPercentile = PROFILE_FARES_QUARTILE
+                        if count != 0 and newProfileFares[0] == openingRBDPirce:
+                            bookloadPercentile = PROFILE_FARES_QUARTILE - count + 1
+                        elif count != 0:
+                            bookloadPercentile = PROFILE_FARES_QUARTILE - count
                         newProfileFares = sorted(set(newProfileFares))
-                        
+
             # Allocation
             if openbuketFlag:
                 # Valid B2C Allocation
@@ -81,18 +85,22 @@ class RBDAllocations:
             if b2cctr < B2CRBDs.shape[0]:
                 b2cctr = b2cctr + 1
             
-        return b2cAllocationsUnits, b2cctr+1, status
+        return b2cAllocationsUnits, b2cctr + 1, status
 
     def getIncrementalValue(self, currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, profileExtract, counter, bookloadPercentile):
         if int(currParams.rbdPushFlag) == 0:
             status = 'Normal AU allocation'
             openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice)
         if int(currParams.rbdPushFlag) == 1:
-            if profileFare == CONST_NA or profileFare == 0 or len(profileExtract) == 0:
+            if profileFare == CONST_NA or profileFare == 0:
                 status = 'Normal AU allocation-profileFare NA'
                 if currParams.profileFares == 'N':
                     status = 'Normal AU allocation-profileFare skipped'
                 openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPirce, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice)
+            elif len(profileExtract) == 0 and profileFare != CONST_NA :
+                status = 'AU allocation based on quartiles'
+                if profileFare <= openingRBDPirce:
+                    incremental = totalCapacity 
             else:
                 status = 'AU allocation based on quartiles'
                 if counter < len(profileExtract):
@@ -100,8 +108,7 @@ class RBDAllocations:
                         incremental = totalCapacity
                     else:
                         jumpingRBDPrice = profileExtract[counter]
-
-                        if price <= profileFare:
+                        if price < profileFare:
                             firstRDBAllocation = currBookedLoad + 5
                             otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE)  * int(bookloadPercentile))
                         else:
@@ -184,7 +191,7 @@ class RBDAllocations:
                     incrementalb2b = (d4Allocation * b2bFactor)
             bookloadPercentile += 1
         else:
-            if profileFare >= currPrice:
+            if profileFare > currPrice:
                 pass
             else:
                 incremental = d4Allocation

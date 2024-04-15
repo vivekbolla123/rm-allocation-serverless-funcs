@@ -8,16 +8,15 @@ from helper.redis_helper import RedisHelper
 
 class RMDatabaseHelper:
     def __init__(self,conn,wrconn,runId,inputSource,debugmode,cache_client):
-        self.conn=conn
-        self.wrconn=wrconn
-        self.runId=runId
-        self.logger= OwnLogger(runId, inputSource)
-        self.inputSource=inputSource
-        self.debugMode=debugmode
-        self.timeutils=TimeUtils(inputSource)
-        self.redishelper=RedisHelper(self.runId,cache_client,inputSource)
+        self.conn = conn
+        self.wrconn = wrconn
+        self.runId = runId
+        self.logger = OwnLogger(runId, inputSource)
+        self.inputSource = inputSource
+        self.debugMode = debugmode
+        self.timeutils = TimeUtils(inputSource)
+        self.redishelper = RedisHelper(self.runId, cache_client, inputSource)
 
-    
     def getLatestCodeVersion(self):
         lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
         try:
@@ -25,13 +24,13 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return inputsData['code_version'][0]
-    
+
     def loadRunParams(self):
         # load the list of sectors
         if self.inputSource.input_source[CONST_MARKET_LIST] == FILE:
             self.mktList = pd.read_csv(CONST_MARKET_LIST_FILE_PATH)
         else:
-            marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag FROM market_list "
+            marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance FROM market_list "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -41,7 +40,7 @@ class RMDatabaseHelper:
             self.logger.info("Loaded Market List")
             self.logger.info(self.mktList)
         return self.mktList
-            
+
     def insertRunStart(self, startTime, username):
         if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
             currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
@@ -55,14 +54,14 @@ class RMDatabaseHelper:
                 table_versions[currVersion['tableName']] = currVersion['curr_version']
 
             type = "Local Run"
-            
+
             insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, is_sftp_pushed, is_connections_required, update_navitaire_method) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
             try:
                 self.wrconn.execute(insert_query,
                             (self.runId, startTime.strftime(DATE_TIME_FORMAT), username, 0, 365, table_versions['Curves'], table_versions['d1_d2_strategies'], type, table_versions['Fares'], type, '0', '0', 'file'))
             except Exception as e:
                 self.logger.error(e)
-    
+
     def updateRunEnd(self, endTime):
         if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
             updateQuery = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
@@ -70,16 +69,18 @@ class RMDatabaseHelper:
                 self.wrconn.execute(updateQuery, (endTime.strftime(DATE_TIME_FORMAT), self.runId))
             except Exception as e:
                 self.logger.error(e)
-                
+
     def areAllInputsReady(self):
         if self.inputSource.input_source[CONST_INPUT_STATUS] == DB:
-            countQuery = "select count(*) as busyInputs from inputs_status WHERE is_running = b'1'"
+            countQuery = f"""select count(*) as busyInputs from inputs_status 
+            WHERE is_running = b'1' 
+            AND name not like 'market_list%%' """
             try:
                 inputsData = pd.read_sql(countQuery, self.conn)
             except Exception as e:
                 self.logger.error(e)
             return inputsData['busyInputs'][0] == 0
-        
+
     def insertSummaryRow(self,allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocResults[-1]
@@ -140,10 +141,10 @@ class RMDatabaseHelper:
                 self.wrconn.execute(insertQuery)
             except Exception as e:
                 self.logger.error(e)
-                
+
     def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
         tgtBookedLoad = []
-        #Fetch the Target Booked Load from the curve
+        # Fetch the Target Booked Load from the curve
         if ndocounter<0:
             ndocounter=0
         bookingCurveQuery = "Select LF,B2C_Avg_Fare,B2B_Avg_Fare from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
@@ -164,7 +165,7 @@ class RMDatabaseHelper:
         else:
             count=int(result["OverBookingCount"][0])
         return count
-    
+
     def getNdoBand(self, ndo):
         ndoBandQuery = "SELECT ndo_band FROM ndo_bands where start <= " + str(ndo) + " and end > " + str(ndo) 
         try:
@@ -173,7 +174,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         ndoBand = ndoBandList['ndo_band'][0]
         return ndoBand
-    
+
     def getdpflBand(self, dPLF):
         dplfBandQuery = "SELECT dplf_band FROM dplf_bands where start <= " + str(dPLF) + " and end > " + str(dPLF) 
         try:
@@ -182,7 +183,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         dplfBand = dplfBandList['dplf_band'][0]
         return dplfBand
-    
+
     def getPlfThreshhold(self, ndocounter, flightNumber):
         pflThresholdQuery = "SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
         pflThresholdQuery = pflThresholdQuery+ " SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
@@ -193,7 +194,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         threshold = pflThresholdList['plf_threshold']
         return threshold
-    
+
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
         time_bands = [(self.timeutils.parse_time(start), self.timeutils.parse_time(end), time_band) for start, end, time_band in result]
@@ -202,7 +203,7 @@ class RMDatabaseHelper:
         (SELECT StartTime FROM departure_time_ranges ORDER BY TimeBand ASC LIMIT 1 OFFSET 1) AS EndTime""")
         start_end_range=[(start,end) for start, end in rr]
         return time_bands,start_end_range
-    
+
     def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand,channel):
         dynamicD1D2Query = "SELECT criteria, time_range, offset, strategy FROM d1_d2_strategies where ndo_band = "+ str(ndoBand) +" and dplf_band = "+ str(dplfBand) +" and strategy = '"+ strategy +"'"+f" and channel='{channel}'"
         try:
@@ -210,7 +211,7 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return dynamicList
-    
+
     def getTimeRange(self, time_range):
         timeRangeQuery = "SELECT type, start, end FROM time_ranges where time_range = '"+ time_range +"'"
         try:
@@ -226,7 +227,7 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return rangeList
-    
+
     def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag):
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
         updateDate=currFltDate+timedelta(days=int(DaySpan))
@@ -240,7 +241,7 @@ class RMDatabaseHelper:
             elif currFltDate<updateDate:
                 startDateTime=f"{currFltDate} {startTime}"
                 enddateTime=f"{updateDate} {endtime}"
-            
+
         origin = currParams.origin
         destination = currParams.destin
         routedSector = self.getRoutedDestination(origin, destination)
@@ -272,7 +273,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return mktFareRange
-    
+
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate,starttime):
         # load the list of sectors
         if currentTimeFlag:
@@ -294,7 +295,7 @@ class RMDatabaseHelper:
             cur_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
             self.currentTime = cur_time
         return self.currentTime
-            
+
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
@@ -337,7 +338,7 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return openResult, rbddata
-    
+
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop):
 
         RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "'" 
@@ -357,7 +358,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return defFareData
-    
+
     def getHourlyOwnFareData(self, ndo, hour):
         query = f''' SELECT value FROM config_ownfares_hourly where {ndo} between ndoStart and ndoEnd and hour = {int(hour)} '''
         try:
@@ -366,7 +367,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return hourlyData
-    
+
     def getGridOwnFareData(self, ndoBand, dlfBand, channel):
 
         query = f''' SELECT value FROM config_ownfare_grid where ndoBand={ndoBand} and dlfBand={dlfBand} and channel='{channel}' '''
@@ -376,7 +377,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return gridData
-    
+
     def getFareHistoryData(self, ndo, sector, month, dow, channel, currTime):
 
         query = f''' SELECT value FROM config_ndo_range where start <= {ndo} and end > {ndo} '''
@@ -413,7 +414,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return historicData
-    
+
     def getProfileFares(self, sector, month, dow, currTime, percentile):
         query = f''' 
                 select {percentile} as price from (
@@ -454,37 +455,26 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return profileData
-   
+
     def getMappedMonth(self, currFltDate):
         query = f''' SELECT mappedMonth FROM config_date_event where date = '{currFltDate}' '''
         return pd.read_sql(query, self.conn)
-    
-    def getUpsellValueOrigin(self, currFltDate, origin):
+
+    def getUpsellValue(self, currFltDate, sector):
         query = f''' SELECT 
-                        REPLACE(MIN(SUBSTRING(value, INSTR(value, '-') + 1)),'%%','') AS percentage
+                        REPLACE(value,'%%','') AS percentage
                     FROM
                         config_profile_fare_station_upsell
                     WHERE
                         date = '{currFltDate}'
-                        AND station = '{origin}'
-                        AND (value LIKE 'BOTH%%' OR value LIKE 'OUT%%') '''
+                        AND sector = '{sector}' '''
+                        
         return pd.read_sql(query, self.conn)
-    
-    def getUpsellValueDestin(self, currFltDate, destin):
-        query = f''' SELECT 
-                        REPLACE(MIN(SUBSTRING(value, INSTR(value, '-') + 1)),'%%','') AS percentage
-                    FROM
-                        config_profile_fare_station_upsell
-                    WHERE
-                        date = '{currFltDate}'
-                        AND station = '{destin}'
-                        AND (value LIKE 'BOTH%%' OR value LIKE 'IN%%') '''
-        return pd.read_sql(query, self.conn)
-    
+
     def getArea(self, currentHour):
         query = f''' SELECT sum(shareOfBooking) as sum FROM config_share_of_booking where hours <= {currentHour} '''
         return pd.read_sql(query, self.conn)
-    
+
     def getRDBTable(self, dplfBand, endOfDayDplfBand, currentTime):
         query = f'''
             SELECT B2CValue, B2BValue 
@@ -496,11 +486,11 @@ class RMDatabaseHelper:
             AND FIND_IN_SET('{endOfDayDplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_of_day_dlf_band')), '{endOfDayDplfBand}'))  
         '''
         return pd.read_sql(query, self.conn)
-    
+
     def fareExtract(self, origin, destination, channel, openingRBD):
 
         RBDQuery = "select ROW_NUMBER() OVER (ORDER BY TOTAL) AS id, RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destination + "' "
-        
+
         if channel == 'B2C':
             RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z' "
         if channel == 'B2B':
@@ -515,16 +505,16 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return queryResult
-    
+
     def insert_run_fltDate_audit(self, run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus):
         insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, result, b2cstatus, b2bstatus ,createdAt) VALUES (%s, %s, %s, %s, %s, %s, %s)"
         try:
             self.wrconn.execute(insert_query, (run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         except Exception as e:
             self.logger.info(e)
-            
+
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
-        
+
         NavitaireQuery = f"""SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity ,DepartureTime, adjustedCapacity from bookload
             where DepartureDate >= '{str(startDate)}' and DepartureDate <= '{str(endDate)}'
             and Origin = '{origin}' and Destination = '{destin}' """
@@ -534,11 +524,11 @@ class RMDatabaseHelper:
             self.logger.info(NavitaireQuery)
 
         return bookedData
-    
+
     def checkForNextFLight(self, currFltDateStr, currParams):
-	
+
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()	
-       
+
         query=f'''
             select STD,Origin,Destin as Destination,FlightNumber from booking_fare_data where FlightDate = '{currFltDate}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}' order by STD ASC
         '''
@@ -549,11 +539,11 @@ class RMDatabaseHelper:
         row_index = df[((df['FlightNumber'])== str(currParams.flight_number)) &(df['Origin'] == currParams.origin) & (df['Destination'] == currParams.destin)].index
 
         return len(row_index) > 0 and row_index[0] < len(df) - 1
-    
+
     def getLastSellingFare(self, currFltDateStr, currParams):
-	
+
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
-        	
+
         query=f'''
             select B2Bfare,B2Cfare from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
@@ -561,11 +551,11 @@ class RMDatabaseHelper:
         farePrice = pd.read_sql(query, conn)
 
         return farePrice
-    
+
     def getNumberOfBookings(self, currFltDateStr, currParams):
-	
+
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()	
-        
+
         query=f'''
             select BookingsCount,STD from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
@@ -573,16 +563,16 @@ class RMDatabaseHelper:
         farePrice = pd.read_sql(query, conn)
 
         return farePrice
-    
+
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
         try:
             parameterValue = pd.read_sql(parameterValueQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
-            
+
         return parameterValue
-    
+
     def getRoutedDestination(self, origin, destination):
         query = f''' SELECT routedSector FROM config_marketFares_rerouting where sector = concat('{origin}','{destination}') '''
         try:
@@ -591,5 +581,3 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return routedData
-            
-    
