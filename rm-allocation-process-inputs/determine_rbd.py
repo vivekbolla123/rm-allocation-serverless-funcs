@@ -13,7 +13,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -50,14 +50,14 @@ class DetermineRBD:
             if len(historicData) != 0:
                 historicOwnFare = historicData['price'][0]
                 if upsellValue != 0:
-                    historicOwnFare = (historicOwnFare * (1 + upsellValue/100))
+                    historicOwnFare = (float(historicOwnFare) * (1 + float(upsellValue)/100))
 
         if currParams.profileFares == YES_FLAG:
             profileFaresData = self.rmdatabasehelper.getProfileFares(sector, month, dow, deptTime, percentile)
             if len(profileFaresData) != 0:
                 profileFare = profileFaresData['price'][0]
                 if upsellValue != 0:
-                    profileFare = (profileFare * (1 + upsellValue/100))
+                    profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
         if int(currParams.opening_fares) == 1:
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
@@ -82,7 +82,7 @@ class DetermineRBD:
         self.logger.info("Historic Fare: " + str(historicOwnFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare)
 
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
@@ -104,7 +104,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
 
-    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF):
+    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -136,8 +136,19 @@ class DetermineRBD:
                     anchorFare = max_value + upsell
                 else:
                     upsell = CONST_NA
-                    anchorFare = (max_value + strategyFare) / 2
+                    interpolatedValue = (max_value + strategyFare) / 2
                     howDetermined = 'AllocationY_UpsoldMaxOwnFare_UpsellN'
+                    
+                    if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA:
+                        anchorFare = interpolatedValue
+                    else:
+                        tolaranceValue = float(strategyFare) - float(toleranceFare)
+                        if interpolatedValue > tolaranceValue:
+                            anchorFare = interpolatedValue
+                        else:
+                            anchorFare = tolaranceValue
+                            howDetermined = howDetermined + '_ToleranceHit'
+                    
 
         if value == 'B':
             upsell = CONST_NA
@@ -160,9 +171,20 @@ class DetermineRBD:
                 delta = float(strategyFare) - float(max_value)
                 howDetermined = 'AllocationY_InterpolatedMaxOwnFare_UpsellN'
                 if(float(max_value) <= float(strategyFare)):
-                    anchorFare = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
+                    interpolatedValue = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
                 if(dPLF <= (float(self.constantsutils.OWN_FARE_DELTA) * -1)):
-                    anchorFare = max_value
+                    interpolatedValue = max_value
+
+                if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA:
+                    anchorFare = interpolatedValue
+                    
+                else:
+                    tolaranceValue = float(strategyFare) - float(toleranceFare)
+                    if interpolatedValue > tolaranceValue:
+                        anchorFare = interpolatedValue
+                    else:
+                        anchorFare = tolaranceValue
+                        howDetermined = howDetermined + '_ToleranceHit'
 
         if value == 'C':
             # Skip allocations
