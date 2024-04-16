@@ -48,6 +48,9 @@ class Schema:
         self.conn.execute("DROP TABLE if exists " + tablename)
 
     def alterTables(self):
+        alterQuery = "ALTER TABLE market_list MODIFY COLUMN B2BTolerance text,MODIFY COLUMN B2CTolerance text"
+        self.conn.execute(alterQuery)
+        
         alterQuery = "ALTER TABLE bookload MODIFY COLUMN DepartureDate DATE,MODIFY COLUMN FlightNumber text"
         self.conn.execute(alterQuery)
         

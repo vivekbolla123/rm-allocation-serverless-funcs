@@ -139,7 +139,7 @@ class DetermineRBD:
                     interpolatedValue = (max_value + strategyFare) / 2
                     howDetermined = 'AllocationY_UpsoldMaxOwnFare_UpsellN'
                     
-                    if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA:
+                    if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
                         anchorFare = interpolatedValue
                     else:
                         tolaranceValue = float(strategyFare) - float(toleranceFare)
@@ -148,7 +148,6 @@ class DetermineRBD:
                         else:
                             anchorFare = tolaranceValue
                             howDetermined = howDetermined + '_ToleranceHit'
-                    
 
         if value == 'B':
             upsell = CONST_NA
@@ -175,9 +174,8 @@ class DetermineRBD:
                 if(dPLF <= (float(self.constantsutils.OWN_FARE_DELTA) * -1)):
                     interpolatedValue = max_value
 
-                if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA:
+                if toleranceFare == None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
                     anchorFare = interpolatedValue
-                    
                 else:
                     tolaranceValue = float(strategyFare) - float(toleranceFare)
                     if interpolatedValue > tolaranceValue:
