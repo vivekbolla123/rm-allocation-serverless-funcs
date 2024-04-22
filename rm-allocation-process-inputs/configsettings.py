@@ -11,21 +11,21 @@ env = getenv('env', default=None)
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME = "rmappuser"
-    RM_DB_APPUSER_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_USERNAME_READ = "rmappuser"
-    RM_DB_APPUSER_URL_READ = "rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL_READ = "prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
-    NAV_DB_HOST = "43.204.99.181:1433"
-    NAV_DB_NAME = "[10.154.12.13,52900].[REZ0KOD01]."
-    NAV_DB_DW_NAME = "[10.154.12.13,52900].[REZ0KDW01]."
-    NAV_DB_WB_NAME = "[10.154.12.13,52900].[REZ0KWB01]."
+    NAV_DB_HOST = "10.154.12.13:52900"
+    NAV_DB_NAME = "[REZ0KOD01]."
+    NAV_DB_DW_NAME = "[REZ0KDW01]."
+    NAV_DB_WB_NAME = "[REZ0KWB01]."
     NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
-    MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-market-list"
-    RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds"
-    NAV_API_URL="https://iuf5oc6rxe.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
+    MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
+    RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds"
+    NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
-    NAV_DB_USER = "crm_navods_read"
-    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    NAV_DB_USER = "0KODSUSER"
+    RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     RM_CACHE_PASSWORD = "bRT__04M})0"
     
 if env == 'uat':
@@ -41,7 +41,7 @@ if env == 'uat':
     NAV_DB_USER = "0KODSUSER"
     NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
     # RM_DB_APPUSER_USERNAME_READ = "rmappuser"
-    # RM_DB_APPUSER_URL_READ = "rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    # RM_DB_APPUSER_URL_READ = "prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     # RM_DB_APPUSER_PASSWORD_READ = get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     # NAV_DB_USER = "0KODSUSER2"
     # NAV_DB_HOST = "10.154.12.13:52900"

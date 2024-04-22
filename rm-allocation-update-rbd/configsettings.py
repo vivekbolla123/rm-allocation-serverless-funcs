@@ -11,9 +11,9 @@ env = getenv('env', default=None)
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME="rmappuser"
-    RM_DB_APPUSER_URL="rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL="prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
-    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     RM_CACHE_PASSWORD = "bRT__04M})0"
     
 if env == 'uat':

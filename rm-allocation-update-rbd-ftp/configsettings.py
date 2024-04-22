@@ -11,10 +11,10 @@ env = getenv('env', default=None)
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME = "rmappuser"
-    RM_DB_APPUSER_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     SFTP_USERNAME = '0KProdr4x_sftp'
-    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/525872668219/rm-allocation-queues_rm-allocation-rbds-ftp"
-    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
+    RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     RM_CACHE_PASSWORD = "bRT__04M})0"
        
 if env == 'uat':

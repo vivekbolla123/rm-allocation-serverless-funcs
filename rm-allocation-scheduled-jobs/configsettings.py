@@ -11,15 +11,15 @@ env = getenv('env', default=None)
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME = "rmappuser"
-    RM_DB_APPUSER_URL = "rm-prod-db-replica.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
-    RM_DB_WR_APPUSER_URL = "rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL = "prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    RM_DB_WR_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     connection_queue_url = "rm-allocation-queues_rm-allocation-connections-trigger"
     sftp_rbd_queue_url = "rm-allocation-queues_rm-allocation-rbds-ftp"
-    NAV_DB_NAME = "[10.154.12.13,52900].[REZ0KOD01]."
-    NAV_API_URL = "https://iuf5oc6rxe.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
+    NAV_DB_NAME = "[REZ0KOD01]."
+    NAV_API_URL = "https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     S3_FILE_PATH = 'prod/'
     S3_BUCKET_NAME = 'qp-applications'
-    RM_CACHE_ENDPOINT = "ec2-43-204-209-150.ap-south-1.compute.amazonaws.com"
+    RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     RM_CACHE_PASSWORD = "bRT__04M})0"
 
 if env == 'uat':
