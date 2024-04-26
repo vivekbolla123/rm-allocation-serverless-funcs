@@ -1,5 +1,6 @@
 import logging
 import boto3
+import pymssql
 import configsettings
 import sys
 import json
@@ -25,6 +26,7 @@ logger.setLevel(logging.INFO)
 RM_ALLOC_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 RM_REPORTS_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 
+
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
 CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
@@ -34,6 +36,12 @@ cache_client=None
 try:
     rm_rd_conn = create_engine(RM_ALLOC_DB)
     rm_wr_conn = create_engine(RM_REPORTS_DB)
+
+    NavitaireConnection = pymssql.connect(
+            host=configsettings.NAV_DB_HOST,
+            user=configsettings.NAV_DB_USER,
+            password=configsettings.NAV_DB_PASSWORD
+        )
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     # Initialize AWS resources
     sqs = boto3.client('sqs')
@@ -64,6 +72,7 @@ def lambda_handler(event, context):
     for module_key in modules.keys():
         params['rdconn'] = rm_rd_conn
         params['wrconn'] = rm_wr_conn
+        params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['cache_client'] = cache_client
 
