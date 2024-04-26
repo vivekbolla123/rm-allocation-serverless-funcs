@@ -1,6 +1,8 @@
 import json
 import requests
 import configsettings
+import pandas as pd
+import traceback
 
 from allocation_summary import AllocationSummaryReport
 
@@ -11,6 +13,7 @@ class SFTPErrorRate:
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
         self.context=context
+        self.navconn = params['navconn']
 
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 
@@ -81,25 +84,15 @@ class SFTPErrorRate:
     def get_navitaire_rbd(self, flight_num, min_date, max_date, origin, destination):
         """Fetch RBD's from Navitaire ODS"""
         query = f'''
-            SELECT ClassOfService, ClassAU, DepartureDate
+            SELECT ClassOfService, ClassAU, CONVERT(VARCHAR(10), DepartureDate, 120) as DepartureDate
             FROM {configsettings.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
             JOIN {configsettings.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
             where IL.DepartureDate >= '{min_date}' and IL.DepartureDate <= '{max_date}'
             and IL.FlightNumber = '{flight_num}' and IL.DepartureStation='{origin}' and IL.ArrivalStation='{destination}'
             order by DepartureDate
         '''
-        payload = {
-            "query":query
-        }
-        headers = {
-            'x-api-key': configsettings.RM_GW_API_KEY
-        }
-
-        response = requests.request("POST",configsettings.NAV_API_URL ,headers=headers, data=json.dumps(payload))
-        if response.status_code == 200:
-            nav_data = json.loads(response.text)
-            return nav_data
-        return False
+        response=pd.read_sql(query,self.navconn)
+        return response
     
     def get_flight_date_range(self, flight_audit_result):
         """Get min date and max date for flight number"""
@@ -218,11 +211,11 @@ class SFTPErrorRate:
                         min_date, max_date = flight_details['min_date'] , flight_details['max_date']
                         nav_rbds = self.get_navitaire_rbd(flight_num, min_date, max_date, origin, destination)
                         # No nav_rbds found !
-                        if not nav_rbds:
+                        if nav_rbds.empty:
                             continue
 
                         error_rate , total_class = 0, 0
-                        for nav_rbd in nav_rbds:
+                        for i,nav_rbd in nav_rbds.iterrows():
                             
                             nav_dept_date = nav_rbd['DepartureDate']
                             if nav_dept_date not in flight_details["dates"]:
@@ -252,4 +245,4 @@ class SFTPErrorRate:
                     self.logger.info(f"Run id: {run_id} :: END")
         except Exception as err:
             self.logger.error(f"ERROR: {err}")
-    
+            traceback.print_exc()

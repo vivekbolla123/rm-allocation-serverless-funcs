@@ -45,6 +45,7 @@ FROM
             AND IL.FlightNumber = @FlightNumber
             AND IL.DepartureStation = @DepartureStation
             AND IL.ArrivalStation = @ArrivalStation
+            AND BookingUTC >= DATEADD(HOUR, -48, GETDATE())
         GROUP BY
             B.BookingUTC, BP.PassengerID, PJS.FareBasis
     ) AS A

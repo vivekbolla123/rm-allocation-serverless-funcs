@@ -63,7 +63,10 @@ class DailyRolling:
         return df_market_list
 
     def should_delete_record(self, start_date, end_date, current_date):
-        return start_date < current_date and end_date < current_date
+        c1 =  (start_date < current_date and end_date < current_date)
+        c2 = start_date==end_date
+        c3= (start_date-current_date).days==30
+        return c1 or (c2 and c3) 
 
     def should_update_record(self, start_date, end_date, current_date):
         return start_date < current_date and end_date >= current_date
