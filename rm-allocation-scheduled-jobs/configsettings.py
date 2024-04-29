@@ -22,6 +22,7 @@ if env == 'prod':
     NAV_DB_NAME = "[REZ0KOD01]."
     NAV_DB_DW_NAME = "[REZ0KDW01]."
     NAV_DB_WB_NAME = "[REZ0KWB01]."
+    NAV_DB_USER = "0KODSUSER"
     NAV_DB_PASSWORD = get_credentials(
         '/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
     NAV_API_URL = "https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
