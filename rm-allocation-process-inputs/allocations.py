@@ -11,7 +11,7 @@ class RBDAllocations:
 
     def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
         b2cAllocationsUnits = []
-        B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '')
+        B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['Total'].iloc[-1]
         openingRBD = openDataB2C['RBD'][0]
@@ -228,10 +228,10 @@ class RBDAllocations:
 
     def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams):
         isUpsellFlag = False
-        B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '')
+        B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
         openingB2CRBD = openDataB2C['RBD'][0]
 
-        B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, openingB2CRBD)
+        B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, openingB2CRBD, 'L')
 
         openingB2CPrice = self.constantsutils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['Total'][0]
 
@@ -277,3 +277,95 @@ class RBDAllocations:
             brd_counter = brd_counter+1
             
         return isUpsellFlag, brd_counter
+
+    def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor,currParams):
+        
+        b2cAllocationsUnits = []
+        origin = currParams.sector1[:3]
+        destin = currParams.sector2[-3:]
+        B2CRBDs = self.rmdatabasehelper.fareExtract(origin, destin , 'B2C', '', 'R')
+
+        openingRBD = openDataB2C['RBD'][0]
+        openbuketFlag = False
+        openRBDIndex = 0
+        incremental = -1
+        incrementalb2b = -1
+        size = B2CRBDs.shape[0] - 1
+        jumpingRBDPrice = 0
+        b2cctr = 0
+        b2bctr = 0
+        jumpPercent = SkippingFactor
+        # reset
+        # Loop Thru
+        while b2cctr < B2CRBDs.shape[0] or b2bctr < B2B_RDB_COUNT:
+
+            if b2cctr < B2CRBDs.shape[0]:
+                RBDLabel = B2CRBDs['RBD'][b2cctr]
+                firstRDBAllocation = int(currParams.first_rbd_alloc)
+                otherRDBAllocation = int(currParams.other_rbd_alloc)
+                price = B2CRBDs['Total'][b2cctr]
+                b2bFactor = float(currParams.b2b_factor)
+                nextPrice = price
+                if (size > b2cctr):
+                    nextPrice = B2CRBDs['Total'][b2cctr + 1]
+
+                currRec.set_class_attribute(b2cctr + 1, 'class_of_service', RBDLabel)
+                if RBDLabel == openingRBD:
+                    openbuketFlag = True
+
+            # Allocation
+            if (openbuketFlag):
+                # Valid B2C Allocation
+                # Positive Allocation
+                if (firstRDBAllocation >= 0):
+                    openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, 0, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
+
+                if (incremental >= totalCapacity):
+                    incremental = totalCapacity
+                if (incrementalb2b >= totalCapacity):
+                    incrementalb2b = totalCapacity
+                if b2cctr < B2CRBDs.shape[0]:
+                    currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
+                b2cAllocationsUnits.append(incrementalb2b)
+                b2bctr = b2bctr + 1
+
+            else:
+                currRec.set_class_attribute(b2cctr + 1, 'class_au', 0)
+
+            if b2cctr < B2CRBDs.shape[0]:
+                b2cctr = b2cctr + 1
+
+        return b2cAllocationsUnits,b2cctr+1
+
+    def b2BAllocation_connections(self, openDataB2B, currRec, b2cAllocationsUnits,brd_counter,currParams):
+        origin = currParams.sector1[:3]
+        destin = currParams.sector2[-3:]
+        B2BRBDs = self.rmdatabasehelper.fareExtract(origin, destin, 'B2B', '', 'R')
+        openbuketFlag = False
+        openingRBD = openDataB2B['RBD'][0]
+        counter = 0
+        #Loop Thru
+
+        for b2bctr in range(B2BRBDs.shape[0]):
+            RBDLabel = B2BRBDs['RBD'][b2bctr]
+            b2bStatus = openDataB2B['statusInd'][0]
+            currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+            if RBDLabel == openingRBD:
+                openbuketFlag = True
+                
+            if (openbuketFlag):
+                #Allocation
+                if((b2bStatus == 0) or (b2bStatus == 2)):
+                    currRec.set_class_attribute(brd_counter, 'class_au', int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter])))
+                    counter = counter + 1
+                else:
+                    #No B2B Allocaion - Leave it to B2C Fare
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+            else:
+                if b2bStatus == 3:
+                    currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                else:
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+
+            brd_counter = brd_counter+1
+        return brd_counter,currRec

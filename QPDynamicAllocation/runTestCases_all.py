@@ -1,4 +1,5 @@
 import sys,os
+
 path = os.path.abspath("rm-allocation-process-inputs")
 sys.path.insert(1,path)
 import Constants
@@ -8,6 +9,8 @@ from testcontainers.mysql import MySqlContainer
 from sqlalchemy import create_engine
 from load_tests_db_data import Schema
 from runAlloc import DynAlloc
+from runAlloc_Connections import DynAllocConnections
+
 
 def testCase1():
     mysql_container = MySqlContainer('mysql:latest')
@@ -49,7 +52,8 @@ def testCase1():
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
         "runTime":None,
-        "cache_client":None
+        "cache_client":None,
+        "route_type":"direct"
     }
     outputData = {}
 
@@ -57,5 +61,8 @@ def testCase1():
     schema.initializTables()
 
     DynAlloc(inputData, currParams)
+    currParams["route_type"]="connections"
+    DynAllocConnections(inputData, currParams)
+    
 
 testCase1()

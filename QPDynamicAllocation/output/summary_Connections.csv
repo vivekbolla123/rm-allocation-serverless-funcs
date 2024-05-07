@@ -1,0 +1,7 @@
+RunId,Sector1,Sector2,FltNum1,FltNum2,DepDate,Bookedload1,SellingFare1,SellingFare2,Bookedload2,OpenRBD1,OpenRBD2,Discount,BookedLoad,anchorFare,OpenRBD,SellingFare,Channel,HowDetermined,Backstop,analystName
+Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,0,0,10.0,V9,V9,0.0,10.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,4000,test
+Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,NA,NA,10.0,Z9,Z9,NA,10.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test
+Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,0,0,10.0,Y,V9,0.0,10.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,21500,test
+Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,NA,NA,10.0,Z0,Z9,NA,10.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test
+Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,0,0,10.0,V9,V9,0.0,20.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,3000,test
+Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,NA,NA,10.0,Z9,Z9,NA,20.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test

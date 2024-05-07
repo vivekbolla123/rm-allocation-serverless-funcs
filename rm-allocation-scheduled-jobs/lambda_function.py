@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from datetime import datetime
 
 from pushRBDToSFTP import PushRBDtoSFTP
-from runConnentions import RunConnections
+from runConnections import RunConnections
 from allocation_summary import AllocationSummaryReport
 from markRunCompleted import MarkRunCompleted
 from cleanup import CleanUpConfig
@@ -19,14 +19,18 @@ from sftp_error_rate import SFTPErrorRate
 from scheduled_job_run_audit import AuditScheduledJob
 from pushRBDToS3 import pushRBDToS3
 from daily_rolling import DailyRolling
+import pymssql
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 RM_ALLOC_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 RM_REPORTS_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-
-
+NavitaireConnection = pymssql.connect(
+        host=configsettings.NAV_DB_HOST,
+        user=configsettings.NAV_DB_USER,
+        password=configsettings.NAV_DB_PASSWORD
+    )
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
 CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
@@ -75,6 +79,7 @@ def lambda_handler(event, context):
         params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['cache_client'] = cache_client
+        params['navconn'] = NavitaireConnection
 
         Module = module_map[module_key]
         Module_obj = Module(logger, params, overrides, context)
@@ -95,7 +100,7 @@ def lambda_handler(event, context):
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # event = {
-#   "body": "{\"modules\":{\"daily_rolling\": 1}}"
+#   "body": "{\"modules\":{\"connections\": 1}}"
 # }
 
 # lambda_handler(event,None)

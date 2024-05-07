@@ -1,4 +1,6 @@
 import json
+import traceback
+import pandas as pd
 import requests
 import configsettings
 import pandas as pd
@@ -12,8 +14,9 @@ class SFTPErrorRate:
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
-        self.context=context
         self.navconn = params['navconn']
+        self.context=context
+        self.isconnections=False
 
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 
@@ -23,7 +26,7 @@ class SFTPErrorRate:
         params['wrconn'] = self.rm_wr_conn
 
         alloc_summary = AllocationSummaryReport(self.logger, params, {}, self.context)
-        allocation_count = alloc_summary.fetch_how_count_data(run_id)
+        allocation_count = alloc_summary.fetch_how_count_data(run_id, self.isconnections)
         return allocation_count[0]
 
     def add_allocation_summary_report(self, error_rate, total_rbd_count, sftp_push_run_id):
@@ -40,9 +43,9 @@ class SFTPErrorRate:
 
         insert_query = """INSERT INTO QP_RM_REPORTS.allocation_summary_report 
                         (report_time_reference, run_id, type, dtd, start_time, end_time, actual_end_time, 
-                        user, runTime, market_list_name, Id_marketList, Id_Curves, Id_Strategy, Id_QpFares,
+                        user, runTime, market_list_name, marketListCount, Id_marketList, Id_Curves, Id_Strategy, Id_QpFares,
                         failures, total, successfulAllocationCount, totalAllocationCount)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
         
         add_summary_report = self.rm_wr_conn.execute(insert_query, tuple(sftp_pushed_list))
         if add_summary_report.rowcount > 0:
@@ -91,6 +94,10 @@ class SFTPErrorRate:
             and IL.FlightNumber = '{flight_num}' and IL.DepartureStation='{origin}' and IL.ArrivalStation='{destination}'
             order by DepartureDate
         '''
+        if "/" in flight_num:
+            self.isconnections=True
+            flightnums=flight_num.split("/")
+            query=f'''SELECT  ClassOfService,ClassAU ,CONVERT(VARCHAR(10), DepartureDate, 120) as DepartureDate FROM {configsettings.NAV_DB_NAME}[Rez].[InventoryJourneyClassStatus] where DepartureDate>='{min_date}' and DepartureDate <= '{max_date}' and InventoryJourneyKey LIKE '%{flightnums[0]}%%{flightnums[1]}%'  order by DepartureDate'''
         response=pd.read_sql(query,self.navconn)
         return response
     
@@ -158,7 +165,8 @@ class SFTPErrorRate:
         try:
             # get run_ids of pending audits
             sftp_pushed_run_ids = self.rm_rd_conn.execute(f"""SELECT start_time AS report_time_reference,
-                                                            run_id AS runId, IFNULL(type, 0) AS type,
+                                                            run_id AS runId, 
+                                                            IFNULL(type, 0) AS type,
                                                             IFNULL(CONCAT(dtd_start, '-', dtd_end), 0) AS dtd,
                                                             start_time, 
                                                             IFNULL(actual_end_time, '') AS end_time,
@@ -166,6 +174,7 @@ class SFTPErrorRate:
                                                             user, 
                                                             IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, start_time, MAX(actual_end_time))), '') AS runTime,
                                                             market_list_name,
+                                                            marketListCount,
                                                             IFNULL(market_list, 0) AS Id_marketList,
                                                             IFNULL(Curves, 0) AS Id_Curves,
                                                             IFNULL(d1_d2_strategies, 0) AS Id_Strategy,
@@ -194,11 +203,11 @@ class SFTPErrorRate:
                     for flight_key in flights.keys():
                         
                         # Gets time left for the lambda function to die, if it is less than the configured time than terminate. 
-                        m_sec = self.context.get_remaining_time_in_millis()
+                        # m_sec = self.context.get_remaining_time_in_millis()
                     
-                        if m_sec < configsettings.EXP_TIME:
-                            self.logger.warning("Lambda function about to timeout! Terminating..")
-                            return False
+                        # if m_sec < configsettings.EXP_TIME:
+                        #     self.logger.warning("Lambda function about to timeout! Terminating..")
+                        #     return False
 
                         flight_num = flight_key[6:]
                         origin = flight_key[:3]
@@ -246,3 +255,4 @@ class SFTPErrorRate:
         except Exception as err:
             self.logger.error(f"ERROR: {err}")
             traceback.print_exc()
+    

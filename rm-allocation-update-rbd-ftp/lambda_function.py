@@ -150,10 +150,10 @@ class DataProcessor:
     def generate_file_content_conn(self,departurdate, flightno1, sector1, flightno2, sector2, rbds):
         file_content = ""
         for rbd_value in rbds:
-            if int(rbds[rbd_value]) > 0:
+            if int(rbds[rbd_value]) >= 0:
                 rbd, rbd_value = rbd_value, self.pad_rbd_value(int(rbds[rbd_value]))
                 final_date = self.format_date(departurdate)
-                line = f"{final_date} QP   {flightno1} {sector1} QP   {flightno2} {sector2}{' ' * (25 - len(sector2))}"
+                line = f"{final_date} QP   {flightno1.rjust(4, ' ')} {sector1} QP   {flightno2.rjust(4, ' ')} {sector2}{' ' * (24 - len(sector2))}"
                 line += f"C {rbd}{' ' * (9 - len(rbd))}{rbd_value} {rbd_value}\n"
                 file_content += line
         return file_content
@@ -161,10 +161,10 @@ class DataProcessor:
     def generate_file_content_direct(self, departurdate, flightno, sector, rbds):
         file_content = ""
         for rbd_value in rbds:
-            if int(rbds[rbd_value])>0:
+            if int(rbds[rbd_value])>=0:
                 rbd, rbd_value = rbd_value,self.pad_rbd_value(int(rbds[rbd_value]))
                 final_date=self.format_date(departurdate)
-                line = f"{final_date} QP   {flightno} {sector}{' ' * (41 - len(sector))}"
+                line = f"{final_date} QP   {flightno.rjust(4, ' ')} {sector}{' ' * (41 - len(sector))}"
                 line += f"C {rbd}{' ' * (9 - len(rbd))}{rbd_value} {rbd_value}\n"
                 file_content += line
         return file_content

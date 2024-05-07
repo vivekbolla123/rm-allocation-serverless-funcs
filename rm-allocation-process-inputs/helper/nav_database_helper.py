@@ -5,7 +5,7 @@ from ownlogger import OwnLogger
 from utilities.time_utils import TimeUtils
 
 class NavDatabaseHelper:
-    def __init__(self,navconn,conn,inputSource,nav_db_name,runId,debugMode,nav_db_wb_name):   
+    def __init__(self,navconn,conn,inputSource,nav_db_name,runId,debugMode,nav_db_wb_name,CurrParams):   
        self.NavitaireConnection = navconn
        self.conn = conn
        self.logger = OwnLogger(runId, inputSource)
@@ -14,6 +14,7 @@ class NavDatabaseHelper:
        self.NAV_DB_WB_NAME = nav_db_wb_name
        self.debugMode = debugMode
        self.timeutils=TimeUtils(inputSource)
+       self.currParams=CurrParams
         
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 
@@ -79,3 +80,26 @@ class NavDatabaseHelper:
         farePrice = pd.read_sql(query, self.NavitaireConnection)
 
         return farePrice
+    
+    def getcurrentRBD(self, departuredate, flightnumber, channel, sector,bookload):
+        if channel == 'B2C':
+            RBDQuery = "Substring(ClassOfService,1,1) != 'Z'"
+        if channel == 'B2B':
+            RBDQuery = "Substring(ClassOfService,1,1) = 'Z'"
+        query = f'''
+            SELECT top 1 ILC.ClassOfService, IL.STD
+FROM {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
+JOIN {self.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
+where IL.DepartureDate = '{departuredate}'
+and trim(IL.FlightNumber) ='{flightnumber}'
+and IL.DepartureStation + IL.ArrivalStation ='{sector}'
+and ClassType = ''
+and ClassAu != '0'
+and (ClassAU-{str(bookload)})>0
+and {RBDQuery}
+order by ILC.ModifiedUTC desc, ILC.ClassRank
+        '''
+        
+        
+        rbdsallocated = pd.read_sql(query,self.NavitaireConnection)
+        return rbdsallocated

@@ -45,4 +45,5 @@ class MarketListRow:
         self.s3 = currParams.get("s3", CONST_NA)
         self.cache_client = currParams.get("cache_client", CONST_NA)
         self.navitaire_update_method = currParams.get("NavitaireUpdateMethod", CONST_NA)
+        self.route_type=currParams.get("route_type",CONST_NA)
         self.strategy = CONST_NA

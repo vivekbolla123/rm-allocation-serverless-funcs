@@ -35,12 +35,16 @@ class PushRBDtoSFTP:
         b2bReadyCount = self.cache_client.get(KEY_B2B_READY_COUNT + run_id)
         b2cReadyCount = self.cache_client.get(KEY_B2C_READY_COUNT + run_id)
         # is_complete = b2bReadyCount == b2bPendingCount and b2cReadyCount == b2cPendingCount
-        is_complete = int(b2bReadyCount) + int(b2cReadyCount) >= int(b2bPendingCount) + int(b2cPendingCount)
-
+        try:
+            is_complete = int(b2bReadyCount) + int(b2cReadyCount) >= int(b2bPendingCount) + int(b2cPendingCount)
+        except Exception as e:
+            self.logger.info(f"Run Id: {run_id} failed due to reason {e}")
+            is_complete = False
+        
         if is_complete:
                 # All flights are ready, push run_id to the update_rbd_ftp
             self.sqs.send_message(
-                    QueueUrl=configsettings.sftp_rbd_queue_url,
+                    QueueUrl=configsettings.SFTP_RBD_QUEUE_URL,
                     MessageBody=json.dumps(
                         {
                             'run_id': run_id
