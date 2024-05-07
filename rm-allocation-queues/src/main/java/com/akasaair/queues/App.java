@@ -66,7 +66,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             final String finalKey = key;
             int lengthOfKey = finalKey.length();
-            String obj_id = finalKey.substring(7, lengthOfKey - 4);
+            String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length()+7, lengthOfKey - 4);
 
             // Initialize the tableName variable
             String tableName = null;
