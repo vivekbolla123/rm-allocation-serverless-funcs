@@ -26,7 +26,7 @@ public class CsvHelper {
                     if (value.get(header) != null) {
                         row.add(value.get(header).toString());
                     } else {
-                        row.add(EMPTY);
+                        row.add("");
                     }
                 });
                 String[] stringArray = row.toArray(new String[0]);

@@ -14,7 +14,7 @@ env = os.getenv('ENVN', default="uat")
 if env == "uat":
     RM_DB_URL = "jdbc:mysql://uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "rm-user"
-    FILE_PATH_NAME = "/test/rm-admin/"
+    FILE_PATH_NAME = "test/rm-admin/"
     S3_BUCKET_NAME = "uat-qp-applications"
     ENV_NAME_LAMBDA = "uat-"
     AWS_ACCOUNT_NUMBER = "891377165721"
@@ -22,7 +22,7 @@ if env == "uat":
 if env == "prod":
     RM_DB_URL = "jdbc:mysql://prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "rmappuser"
-    FILE_PATH_NAME = "/prod/rm-admin/"
+    FILE_PATH_NAME = "prod/rm-admin/"
     S3_BUCKET_NAME = "qp-applications"
     ENV_NAME_LAMBDA = ""
     AWS_ACCOUNT_NUMBER = "471112573018"

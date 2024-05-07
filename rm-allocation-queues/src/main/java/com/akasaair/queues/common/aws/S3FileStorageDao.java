@@ -20,8 +20,11 @@ public class S3FileStorageDao {
     }
 
     public void storeFile(ByteArrayInputStream file, String tableName, String fileName) throws IOException, ExecutionException, InterruptedException {
-        byte[] buffer = new byte[file.available()]; // Read the data into the buffer
+//        byte[] buffer = new byte[file.available()]; // Read the data into the buffer
+
+        byte[] buffer = file.readAllBytes();
         String filePath = generatePath(tableName, fileName);
+
         CompletableFuture<PutObjectResponse> future = s3Client.putObject(
                 PutObjectRequest.builder()
                         .bucket(S3_BUCKET_NAME)
@@ -43,8 +46,6 @@ public class S3FileStorageDao {
 
     private String generatePath(String path, String fileName) {
         // Example - test/rm-admin/d1_d2_strategies/3b908569-bc73-4745-9bcd-2c1453e218cc_d1_d2_strategies
-        return S3_FILE_PATH_NAME + path + fileName + UNDERSCORE + path;
+        return S3_FILE_PATH_NAME + path + SLASH + fileName + UNDERSCORE + path;
     }
-
-
 }

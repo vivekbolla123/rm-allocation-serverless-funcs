@@ -375,10 +375,6 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadStrategyGridFile(Reader file, String userName, String obj_id) {
-        if (getCurrentInputStatus(STRATEGY_TABLE_NAME) != 0) {
-            // Throw error here
-            System.out.println("Check Status");
-        }
         String uuid = generateUUID();
         try {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
@@ -446,7 +442,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
                 case QP_FARES_TABLE_NAME -> {
                     columnName = SECTOR_COLUMN_NAME;
-                    yield getUniqueValues(data, columnName);
+                    yield getUniqueFareSector(data, SECTOR_COLUMN_NAME, ROUTE_COLUMN_NAME);
                 }
                 case PROFILE_FARES_TABLE_NAME -> {
                     columnName = SECTOR_COLUMN_NAME.toLowerCase();
@@ -458,7 +454,11 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             };
 
-            deleteValues(uniqueValues, tableName, columnName);
+            if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
+                deleteValuesFare(uniqueValues,tableName);
+            }else{
+                deleteValues(uniqueValues, tableName, columnName);
+            }
             copyFromTempToMainTable(tableName, tempTableName);
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
@@ -537,6 +537,13 @@ public class App implements RequestHandler<S3Event, Object> {
         Set<String> uniqueValues = new HashSet<>();
         for (Map<String, String> singleData : data) {
             uniqueValues.add(singleData.get(columnName));
+        }
+        return uniqueValues;
+    }
+    private Set<String> getUniqueFareSector(List<Map<String, String>> data, String sector,String route) {
+        Set<String> uniqueValues = new HashSet<>();
+        for (Map<String, String> singleData : data) {
+            uniqueValues.add(singleData.get(sector)+singleData.get(route));
         }
         return uniqueValues;
     }
@@ -1205,6 +1212,27 @@ public class App implements RequestHandler<S3Event, Object> {
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
             // Build to delete SQL query using the placeholders
             String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
+            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+                // Set each value in the PreparedStatement
+                int index = 1;
+                for (String val : value) {
+                    pstmt.setString(index++, val);
+                }
+                // Execute the update
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                System.out.println(e.getMessage());
+            }
+        }
+    }
+    public void deleteValuesFare(Set<String> value, String tableName) {
+        if (!value.isEmpty()) {
+            StringBuilder values = new StringBuilder("'");
+            for (String name : value) {
+                values.append(name).append("','");
+            }
+            String deleteQuery = "DELETE FROM " + tableName + " WHERE CONCAT(" +SECTOR_COLUMN_NAME+","+ROUTE_COLUMN_NAME  + ") IN ("
+                    + values.substring(0, values.length() - 2) + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
                 // Set each value in the PreparedStatement
                 int index = 1;
