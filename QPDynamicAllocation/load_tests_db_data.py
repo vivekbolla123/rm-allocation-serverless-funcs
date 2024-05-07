@@ -14,6 +14,7 @@ class Schema:
         self.load_generic_table("market_fares", "MarketFares.csv")
         self.load_generic_table("bookload", "Bookload.csv")
         self.load_generic_table("market_list", "MarketList.csv")
+        self.load_generic_table("market_list_connections", "MarketList_Connections.csv")
         self.load_generic_table("d1_d2_strategies", "d1d2Strategy.csv")
         self.load_generic_table("allocation_acceptable_range_d1", "acceptableRange.csv")
         self.load_generic_table("dplf_bands", "dplf_bands.csv")
@@ -33,6 +34,8 @@ class Schema:
         self.load_generic_table("config_profile_fare_station_upsell","config_profile_fare_station_upsell.csv")
         self.load_generic_table("config_date_event","config_date_event.csv")
         self.load_generic_table("config_determine_fares","config_determine_fares.csv")
+        self.load_generic_table("current_opening_rbd","current_opening_rbd.csv")
+        
         self.alterTables()
 
     def load_generic_table(self, tableName, dataFile):

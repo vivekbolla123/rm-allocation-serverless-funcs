@@ -9,6 +9,7 @@ import boto3
 from redis import Redis
 import Constants
 from runAlloc import DynAlloc
+from runAlloc_Connections import DynAllocConnections
 
 warnings.filterwarnings('ignore')
 
@@ -99,7 +100,11 @@ def lambda_handler(event, context):
         data['cache_client']=cache_client
         data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
         data["runTime"]=data["runTime"]
-        DynAlloc(input_data, data)
+        route_type = data["route_type"]
+        if route_type == 'connections':
+            DynAllocConnections(input_data, data)
+        if route_type == 'direct':
+            DynAlloc(input_data, data)
 
     return {
         'statusCode': 200,
@@ -108,36 +113,28 @@ def lambda_handler(event, context):
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # messageBody = {
-#   "Origin": "BOM",
-#   "Destin": "DEL",
-#   "FlightNumber": 1127,
-#   "PerStart": "04/06/2024",
-#   "PerEnd": "04/06/2024",
-#   "DOW": 1111111,
-#   "strategyFlag": 1,
-#   "TimeWindowStart": "12:00",
-#   "TimeWindowEnd": "14:30",
-#   "CurveID": "C17440_30",
-#   "CarrExlusion": "**",
-#   "fareAnchor": "Strategy_30_Med",
-#   "fareOffset": "",
-#   "FirstRBDAlloc": 5,
-#   "OtherRBDAlloc": 5,
-#   "B2BBackstop": 5500,
-#   "B2CBackstop": 5500,
-#   "B2BFactor": 0.25,
-#   "SkippingFactor": 5,
-#   "OwnFareFlag": "Y",
-#   "DaySpan": 0,
-#   "AutoTimeRangeFlag": "0",
-#   "analystName": "Kushal",
-#   "openingFares": "1",
-#   "OverBooking": "N",
-#   "profileFares": "Y",
-#   "rbdPushFlag": "1",
-#   "runId": "a086b523-76a3-4c5b-8d5c-a0c2a99db81a",
-#   "update_navitaire_method": "api",
-#   "runTime": 1711705478737
+#     "Sector1": "BOMDEL",
+#     "Flight1": 8023,
+#     "Sector2": "DELAMD",
+#     "Flight2": 6501,
+#     "Outbound_stop": 1,
+#     "PerType": "D",
+#     "PerStart": "05/09/2024",
+#     "PerEnd": "05/10/2024",
+#     "DOW": 1111111,
+#     "Price_Strategy": 1,
+#     "Discount_Value": 10,
+#     "FirstRBDAlloc": 5,
+#     "OtherRBDAlloc": 10,
+#     "B2BBackstop": 0,
+#     "B2CBackstop": 4000,
+#     "B2BFactor": 1,
+#     "SkippingFactor": 5,
+#     "analystName": "VIKRAM",
+#     "runId": "b8494113-ae25-4d41-8b92-9a574e5d866f",
+#     "update_navitaire_method": "sftp",
+#     "route_type": "connections",
+#     "runTime": 1713513424573
 # }
 
 

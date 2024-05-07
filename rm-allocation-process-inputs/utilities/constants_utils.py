@@ -22,7 +22,7 @@ class ConstantsUtils:
         self.OVERBOOKING_PROB = OVERBOOKING_PROB
         self.S_CLASS_PLF_THRESHOLD = S_CLASS_PLF_THRESHOLD
         self.END_OF_DAY_LF_FACTOR = END_OF_DAY_LF_FACTOR
-        
+        self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -69,3 +69,5 @@ class ConstantsUtils:
                 self.S_CLASS_PLF_THRESHOLD = float(parameter_value)
             elif parameter_key == END_OF_DAY_LF_FACTOR_KEY:
                 self.END_OF_DAY_LF_FACTOR = float(parameter_value)
+            elif parameter_key == AU_COLUMN_LENGTH_CONNECTIONS_KEY:
+                self.AU_COLUMN_LENGTH_CONNECTIONS == int(parameter_value)

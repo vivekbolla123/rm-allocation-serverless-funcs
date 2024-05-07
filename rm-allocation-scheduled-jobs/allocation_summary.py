@@ -28,15 +28,16 @@ class AllocationSummaryReport:
                             "actual_end_time": row[7] or None,
                             "failures": row[8],
                             "total": row[9],
-                            "user": row[10],
-                            "runTime": row[11],
+                            "marketListCount": row[10],
+                            "user": row[11],
+                            "runTime": row[12],
                             "successfulAllocationCount": None,
                             "totalAllocationCount": None,
-                            "market_list_name": row[12],
-                            "Id_marketList": row[13],
-                            "Id_Curves": row[14],
-                            "Id_Strategy": row[15],
-                            "Id_QpFares": row[16],
+                            "market_list_name": row[13],
+                            "Id_marketList": row[14],
+                            "Id_Curves": row[15],
+                            "Id_Strategy": row[16],
+                            "Id_QpFares": row[17],
                             }
                 
                 output.append(row_dict)
@@ -77,6 +78,7 @@ class AllocationSummaryReport:
                         IFNULL(ara.actual_end_time, '') AS actual_end_time,
                         IFNULL(SUM(CASE WHEN naa.failures > 0 THEN 1 ELSE 0 END), - 1) AS failures,
                         IFNULL(COUNT(naa.totalApiCalls), - 1) AS total,
+                        IFNULL(COUNT(ara.marketListCount), - 1) AS marketListCount,
                         ara.user,
                         IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, ara.start_time, max(naa.end_time))), '') AS runTime,
                         ara.market_list_name,
@@ -94,8 +96,11 @@ class AllocationSummaryReport:
         result = self.rm_rd_conn.execute(select).fetchall()
         return result
 
-    def fetch_how_count_data(self, run_ids):
+    def fetch_how_count_data(self, run_ids,isconnections):
         """Get aggregate data of HowCount from run_summary"""
+        table="run_summary"
+        if isconnections:
+            table="run_summary_connections"
         if len(run_ids) == 1:
             run_ids = run_ids[0]
             condition = f" WHERE rs.RunId = '{run_ids}' "
@@ -110,7 +115,7 @@ class AllocationSummaryReport:
                                 count(1) AS totalAllocationCount,
                                 rs.runId
                             FROM
-                                QP_DW_RMALLOC.run_summary rs
+                                QP_DW_RMALLOC.{table} rs
                                 {condition}
                             GROUP BY rs.RunId"""
             

@@ -64,26 +64,31 @@ def lambda_handler(event, context):
     update_navitaire_method_key = "update_navitaire_method"
     region_key = "region_method"    
     username_key = "username"
+    route_type_key = "route_type"
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
 
     body = event['body']
     # Parse the JSON body
     data = json.loads(body)
-    
+
     # defaults
     start_interval = 30 #0
     end_interval = 90 #365
     market_list_table = "market_list"
     queue_name = configsettings.MARKET_LIST_QUEUE_URL
     update_navitaire_method="api"
-    
+    route_type = "direct"
+
     username = USERNAME
     type = "Adhoc"
     is_connections_required = "0"
     region = "Domestic"
 
     # overrides
+    if(route_type_key in data): 
+        route_type = data[route_type_key]
+
     if (queue_key in data):
         queue_name = data[queue_key]
 
@@ -95,32 +100,32 @@ def lambda_handler(event, context):
 
     if (market_list_key in data):
         market_list_table = data[market_list_key]
-    
+
     if(update_navitaire_method_key in data):
         update_navitaire_method=data[update_navitaire_method_key]
-       
+
     if (username_key in data):
         username = data[username_key]
 
     if (run_type_key in data):
         type = data[run_type_key]
-        
+
     if (region_key in data):
         region = data[region_key]
-        
+
     if(not type == "Adhoc"):
         is_connections_required = '1'
-    
+
     if(is_connections_required_key in data):
         is_connections_required = data[is_connections_required_key]
-        
+
     # start program
     if type == "Adhoc":
         available_slot = deduct_available_slot()
         if not available_slot:
             logger.info("No slots available to run Adhoc API!")
             return False
-        
+
     current_utc_time = datetime.utcnow()
     # Define the UTC time zone
     utc_timezone = pytz.timezone('UTC')
@@ -129,24 +134,17 @@ def lambda_handler(event, context):
     # Convert the UTC time to IST
     startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
     curr_date = startTime.date()
-    
-    start_period = datetime.strftime(
-        curr_date + timedelta(days=start_interval), "%Y-%m-%d"
-    )
-    end_period = datetime.strftime(
-        curr_date + timedelta(days=end_interval), "%Y-%m-%d"
-    )
+    start_period = datetime.strftime(curr_date + timedelta(days=start_interval), "%Y-%m-%d")
+    end_period = datetime.strftime(curr_date + timedelta(days=end_interval), "%Y-%m-%d")
 
-    market_list_query = f"""
-    SELECT Origin,Destin,FlightNumber, 
-    date_format(greatest(str_to_date(PerStart, '%%m/%%d/%%Y'), str_to_date('{start_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerStart, 
-    date_format(least(str_to_date(PerEnd, '%%m/%%d/%%Y'), str_to_date('{end_period}', '%%Y-%%m-%%d')), '%%m/%%d/%%Y') as PerEnd, 
-    DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,
-    B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance 
-    FROM {market_list_table} 
-    WHERE str_to_date('{start_period}', '%%Y-%%m-%%d') <= str_to_date(PerEnd, '%%m/%%d/%%Y') AND 
-    str_to_date('{end_period}', '%%Y-%%m-%%d') >= str_to_date(PerStart, '%%m/%%d/%%Y')
-    """
+    if route_type == "direct":
+        market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
+
+    if route_type == "connections":
+        update_navitaire_method = "sftp"
+        is_connections_required = "0"
+        region = 'Domestic'
+        market_list_query = getConnectionMarketListQuery(start_period, end_period, market_list_table)
 
     mkt_list = read_sql(market_list_query, conn)
     markets_count = mkt_list.shape[0]
@@ -154,10 +152,10 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, 0, 86400)
+    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
+    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
     cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
@@ -166,29 +164,11 @@ def lambda_handler(event, context):
     for mkt_index in range(markets_count):
         data = mkt_list.iloc[mkt_index]
         
-        currDate = getCurrentDate()
-        startNDO = data['PerStart']
-        startNDO = data['PerStart']
-        endNDO = data['PerEnd']
-
-        try:
-            startNDO, endNDO = getStartEndDate(currDate, startNDO, endNDO)
-            totalNDO = endNDO - startNDO + 1
-
-            cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, totalNDO)
-            cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, totalNDO)
-    
-        except:
-            logger.info("Error in Start or End Date at row: " + data)  
-            logger.info("Run Id: " + run_id)  
-
-    for mkt_index in range(markets_count):
-        data = mkt_list.iloc[mkt_index]
-        
         try:                
             data["runId"] = run_id
             data["update_navitaire_method"] = update_navitaire_method
             data["runTime"] = start_time
+            data["route_type"] = route_type
 
             data_str = data.to_json()
             logger.info(data_str)
@@ -212,8 +192,7 @@ def lambda_handler(event, context):
         'body': markets_count
     }
 
-
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
 
@@ -225,10 +204,10 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion['tableName']] = currVersion['curr_version']
 
-    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
-                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region))
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
     except Exception as e:
         logger.info(e)
     logger.info("STARTED ALLOCATION RUN")
@@ -240,7 +219,7 @@ def insert_file_upload_s3(run_id, createdAt):
     except Exception as e:
         logger.info(e)
     logger.info("S3 File Audited")
-    
+
 
 def update_run_end(end_time, run_id):
     update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
@@ -250,20 +229,6 @@ def update_run_end(end_time, run_id):
     except Exception as e:
         logger.info(e)
     logger.info("STOPPED ALLOCATION RUN")
-
-def getCurrentDate():
-    currDate = date.today()
-    return currDate
-
-def getStartEndDate(currDate, startNDO, endNDO):
-    startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
-    endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
-
-    #Reset the startNDO and endNDO to actually NDO
-    startNDO = (startDate - currDate).days
-    endNDO = (endDate - currDate).days
-    
-    return startNDO, endNDO
 
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
@@ -284,6 +249,83 @@ def deduct_available_slot():
         logger.info(e)
     logger.info(f"Slot Avaiable after Adhoc run started: {new_avaiable_slot}")
     return True
+
+def getMarketListQuery(start_period, end_period, market_list_table):
+    query = f"""
+    WITH RECURSIVE DateRange AS (
+        SELECT
+            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
+        UNION
+        ALL
+        SELECT
+            Date + INTERVAL 1 DAY
+        FROM
+            DateRange
+        WHERE
+            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
+    )
+    SELECT
+        *
+    FROM
+        (
+            SELECT
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
+                Origin,Destin,FlightNumber,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
+                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,profileFares,rbdPushFlag,
+                B2BTolerance,B2CTolerance,
+                substring(dow, dayofweek(Date), 1) as Flag
+            FROM
+                DateRange
+            CROSS JOIN 
+                {market_list_table} as ml
+            WHERE
+                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
+                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
+        ) A
+    WHERE
+        Flag = 1
+    ORDER BY
+        Origin, Destin, FlightNumber
+    """
+    return query
+
+def getConnectionMarketListQuery(start_period, end_period, market_list_table):
+    query = f"""
+    WITH RECURSIVE DateRange AS (
+        SELECT
+            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
+        UNION
+        ALL
+        SELECT
+            Date + INTERVAL 1 DAY
+        FROM
+            DateRange
+        WHERE
+            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
+    )
+    SELECT
+        *
+    FROM
+        (
+            SELECT
+                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,
+                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
+                substring(dow, dayofweek(Date), 1) as Flag
+            FROM
+                DateRange
+            CROSS JOIN 
+                {market_list_table} as ml
+            WHERE
+                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
+                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
+        ) A
+    WHERE
+        Flag = 1
+    """
+    return query
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({"body": "{\"start_interval\": 0, \"end_interval\": 7}"},None)

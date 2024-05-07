@@ -7,15 +7,16 @@ from utilities.time_utils import TimeUtils
 from helper.redis_helper import RedisHelper
 
 class RMDatabaseHelper:
-    def __init__(self,conn,wrconn,runId,inputSource,debugmode,cache_client):
-        self.conn = conn
-        self.wrconn = wrconn
-        self.runId = runId
-        self.logger = OwnLogger(runId, inputSource)
-        self.inputSource = inputSource
-        self.debugMode = debugmode
-        self.timeutils = TimeUtils(inputSource)
-        self.redishelper = RedisHelper(self.runId, cache_client, inputSource)
+    def __init__(self,conn,wrconn,runId,inputSource,debugmode,cache_client,currParams):
+        self.conn=conn
+        self.wrconn=wrconn
+        self.runId=runId
+        self.logger= OwnLogger(runId, inputSource)
+        self.currParams=currParams
+        self.inputSource=inputSource
+        self.debugMode=debugmode
+        self.timeutils=TimeUtils(inputSource)
+        self.redishelper=RedisHelper(self.runId,cache_client,inputSource)
 
     def getLatestCodeVersion(self):
         lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
@@ -27,10 +28,17 @@ class RMDatabaseHelper:
 
     def loadRunParams(self):
         # load the list of sectors
+        
         if self.inputSource.input_source[CONST_MARKET_LIST] == FILE:
-            self.mktList = pd.read_csv(CONST_MARKET_LIST_FILE_PATH)
+            if self.currParams.route_type=="direct":
+                self.mktList = pd.read_csv(CONST_MARKET_LIST_FILE_PATH)
+            else:
+                self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
-            marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance FROM market_list "
+            if self.currParams.route_type=="direct":
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance FROM market_list "
+            else:
+                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM market_list_connections "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -296,10 +304,10 @@ class RMDatabaseHelper:
             self.currentTime = cur_time
         return self.currentTime
 
-    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult):
+    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult,route):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
-        RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' "
+        RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' and route = '"+route+"'"
         try:
             rbddata = pd.read_sql(RBDQuery, self.conn)
         except Exception as e:
@@ -308,7 +316,7 @@ class RMDatabaseHelper:
             self.logger.info('QP Fare not available. Please validate Fares table')
             openResult = {'RBD':[CONST_NA], 'Fare':[CONST_NA], 'FareResult':['QP Fares not available'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
-            return openResult, None
+            return openResult, rbddata
 
         if channel == 'B2C':
             RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z'"
@@ -339,9 +347,9 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return openResult, rbddata
 
-    def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop):
+    def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop,route):
 
-        RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "'" 
+        RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' and route = '"+route+"'"
         if channel == 'B2C':
             if type == 'LOW':
                 RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z' and Total >= '" + str(backstop) + "' order by Total asc" 
@@ -487,9 +495,9 @@ class RMDatabaseHelper:
         '''
         return pd.read_sql(query, self.conn)
 
-    def fareExtract(self, origin, destination, channel, openingRBD):
+    def fareExtract(self, origin, destination, channel, openingRBD, route):
 
-        RBDQuery = "select ROW_NUMBER() OVER (ORDER BY TOTAL) AS id, RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destination + "' "
+        RBDQuery = "select ROW_NUMBER() OVER (ORDER BY TOTAL) AS id, RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destination + "' and Route= '"+route+"'"
 
         if channel == 'B2C':
             RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z' "
@@ -512,6 +520,7 @@ class RMDatabaseHelper:
             self.wrconn.execute(insert_query, (run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         except Exception as e:
             self.logger.info(e)
+    
 
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 
@@ -581,3 +590,92 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return routedData
+    
+    def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel):
+     
+        if channel == 'B2C':
+            condition = " and LEFT(RBD,1) != 'Z'"
+        if channel == 'B2B':
+            condition = " and LEFT(RBD,1) = 'Z'"
+
+        sector1_RBDquery = f"select Total from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector2_RBDquery = f"select Total from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
+
+        sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
+        sector2_result = pd.read_sql(sector2_RBDquery, self.conn)
+
+        if (sector1_result.shape[0] == 0 or sector2_result.shape[0] == 0):
+            total = 0
+            sector1_total=0
+            sector2_total=0
+        else:
+            sector1_total = sector1_result["Total"][0]
+            sector2_total = sector2_result["Total"][0]
+            total = sector1_total + sector2_total
+        return total,sector1_total,sector2_total
+    
+    def getSellingPrice(self, rbd, sector, channel,route):
+     
+        if channel == 'B2C':
+            condition = " and LEFT(RBD,1) != 'Z'"
+        if channel == 'B2B':
+            condition = " and LEFT(RBD,1) = 'Z'"
+
+        sector1_RBDquery = f"select Total from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
+       
+
+        sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
+       
+
+        if (sector1_result.shape[0] == 0):
+            
+            sector1_total=0
+            
+        else:
+            sector1_total = sector1_result["Total"][0]
+            
+        return sector1_total
+    def insertSummaryRow_connections(self,allocresults):
+        if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
+            latest_row = allocresults[-1]
+            insertQuery = f""" INSERT INTO run_summary_connections 
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName)  
+                VALUES (
+                    '{latest_row.Id}', 
+                    '{latest_row.RunId}', 
+                    '{latest_row.Sector1}', 
+                    '{latest_row.Sector2}', 
+                    '{str(latest_row.FltNum1)}', 
+                    '{str(latest_row.FltNum2)}', 
+                    '{latest_row.DepDate}', 
+                    '{str(latest_row.BookedLoad)}',
+                    '{str(latest_row.Bookedload1)}',
+                    '{str(latest_row.SellingFare1)}',
+                    '{str(latest_row.SellingFare2)}',
+                    '{str(latest_row.Bookedload2)}',
+                    '{str(latest_row.OpenRBD1)}',
+                    '{str(latest_row.OpenRBD2)}',
+                    '{str(latest_row.Discount)}',
+                    '{latest_row.anchorFare}', 
+                    '{str(latest_row.OpenRBD)}', 
+                    '{str(latest_row.SellingFare)}', 
+                    '{latest_row.Channel}', 
+                    '{latest_row.HowDetermined}', 
+                    '{latest_row.allocationStatus}', 
+                    '{str(latest_row.Backstop)}',
+                    '{self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT)}',
+                    '{str(latest_row.analystName)}'
+                )"""
+            self.wrconn.execute(insertQuery)
+            
+    def getcurrentRBD(self,current_date, flight, channel, sector,bookload):
+        
+        parameterValueQuery = f"""SELECT OpeningRBD as ClassOfService  FROM current_opening_rbd where DepartureDate = '{str(current_date)}' and concat(Origin,Destination)='{sector}' and flightno='{str(flight)}' and Channel='{channel}'"""
+        try:
+            parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+
+        return parameterValue
+            
+

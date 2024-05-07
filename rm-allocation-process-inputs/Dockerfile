@@ -26,6 +26,7 @@ COPY Constants.py ${LAMBDA_TASK_ROOT}
 COPY runAlloc.py ${LAMBDA_TASK_ROOT}
 COPY configsettings.py ${LAMBDA_TASK_ROOT}
 COPY allocations.py ${LAMBDA_TASK_ROOT}
+COPY runAlloc_Connections.py ${LAMBDA_TASK_ROOT}
 
 # Set the CMD to your handler (could also be done as a parameter override outside of the Dockerfile)
 CMD [ "lambda_function.lambda_handler" ] 

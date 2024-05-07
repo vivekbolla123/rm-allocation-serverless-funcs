@@ -17,7 +17,7 @@ COPY lambda_function.py ${LAMBDA_TASK_ROOT}
 COPY configsettings.py ${LAMBDA_TASK_ROOT}
 COPY pushRBDToSFTP.py ${LAMBDA_TASK_ROOT}
 COPY allocation_summary.py ${LAMBDA_TASK_ROOT}
-COPY runConnentions.py ${LAMBDA_TASK_ROOT}
+COPY runConnections.py ${LAMBDA_TASK_ROOT}
 COPY markRunCompleted.py ${LAMBDA_TASK_ROOT}
 COPY cleanup.py ${LAMBDA_TASK_ROOT}
 COPY scheduled_job_run_audit.py ${LAMBDA_TASK_ROOT}

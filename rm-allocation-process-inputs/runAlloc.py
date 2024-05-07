@@ -555,7 +555,7 @@ class DynAlloc:
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")
 		# self.logger.info(self.allocResults)
-		if self.inputSource.output[CONST_AU_GRID] == FILE:
+		if self.inputSource.output[CONST_AU_GRID] == FILE and len(self.AUFileData)!=0:
 			AUlist = ['Type', 'Flight', 'StartDate', 'EndDate', 'DayOfWeek', 'Aircraft Type', 'Aircraft Suffix', 'Lid', 'Capacity', 'Status']
 			length = self.AU_COLUMN_LENGTH
 			for i in range(int(length)):
@@ -688,12 +688,12 @@ class DynAlloc:
 			self.runId = self.utils.getUniqueId()
 
 		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client)
+		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
 		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
-		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME)
+		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams)
 		self.redishelper = RedisHelper(
 			self.runId, self.cache_client, self.inputSource)
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
