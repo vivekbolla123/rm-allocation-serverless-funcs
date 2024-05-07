@@ -15,6 +15,7 @@ public interface ColumnNamesConstants {
     String COUNT_COLUMN_NAME = "count";
     String PARAMETER_VALUE_COLUMN_NAME = "parameterValue";
     String SECTOR_COLUMN_NAME = "SECTOR";
+    String ROUTE_COLUMN_NAME = "route";
     String OFFSET_COLUMN_NAME = "offset";
     String NDO_START_COLUMN_NAME = "ndoStart";
     String NDO_END_COLUMN_NAME = "ndoEnd";

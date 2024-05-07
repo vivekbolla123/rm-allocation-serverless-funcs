@@ -7,7 +7,6 @@ import java.sql.SQLException;
 public class JdbcConnection {
 
     private static final String url = System.getenv("RM_DB_URL");
-
     private static final String user = System.getenv("RM_DB_USERNAME");
     private static final String password = System.getenv("RM_DB_PASSWORD");
 

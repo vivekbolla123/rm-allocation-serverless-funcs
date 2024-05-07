@@ -44,7 +44,7 @@ class AllocationSummaryReport:
                 run_ids.append(row[1])
             
             run_ids = tuple(run_ids)
-            how_counts = self.fetch_how_count_data(run_ids)
+            how_counts = self.fetch_how_count_data(run_ids,False)
             if how_counts:
                 idx = 0
                 for data in output:
