@@ -13,7 +13,6 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
 
-import java.util.logging.*;
 
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
@@ -390,7 +389,7 @@ public class App implements RequestHandler<S3Event, Object> {
             Set<String> strategy = getUniqueStrategies(strategyMap);
             deleteValuesStrategyTable(strategy, STRATEGY_TABLE_NAME, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
             List<String> headers = Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA));
-            insertStatement(new ArrayList<>(strategyMap.values()), headers, STRATEGY_TABLE_NAME);
+            insertStatement(strategyMap.values().stream().toList(), headers, STRATEGY_TABLE_NAME);
             s3FileStorageDao.storeFile(createCSV(STRATEGY_TABLE_NAME), STRATEGY_TABLE_NAME, uuid);
             updateAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), uuid);
         } catch (DataMismatchedException | IOException | ExecutionException | InterruptedException e) {
@@ -907,7 +906,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     System.out.println(count % 10000 + " records inserted successfully.");
                 }
             } catch (SQLException e) {
-                connection.rollback();
+                connection2.rollback();
                 System.out.println("Failed to execute batch insert, transaction rolled back.");
                 e.printStackTrace();
             }
@@ -936,16 +935,16 @@ public class App implements RequestHandler<S3Event, Object> {
     public void deleteValuesStrategyTable(Set<String> value, String tableName, String strategyColumnName, String channelColumnName) {
         if (!value.isEmpty()) {
             // Creating the placeholder string for the SQL IN clause
-            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining("','", "'", "'"));
+            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
             // Constructing to delete SQL query
             // Note: Direct table and column name insertion into the query can lead to SQL injection if not handled properly.
             String deleteQuery = "DELETE FROM " + tableName + " WHERE concat(" + strategyColumnName + "," + channelColumnName + ") IN (" + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+                // Execute the update
                 int index = 1;
                 for (String val : value) {
                     pstmt.setString(index++, val);
                 }
-                // Execute the update
                 pstmt.executeUpdate();
             } catch (SQLException e) {
                 System.out.println(e.getMessage());
@@ -1227,12 +1226,9 @@ public class App implements RequestHandler<S3Event, Object> {
     }
     public void deleteValuesFare(Set<String> value, String tableName) {
         if (!value.isEmpty()) {
-            StringBuilder values = new StringBuilder("'");
-            for (String name : value) {
-                values.append(name).append("','");
-            }
+            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
             String deleteQuery = "DELETE FROM " + tableName + " WHERE CONCAT(" +SECTOR_COLUMN_NAME+","+ROUTE_COLUMN_NAME  + ") IN ("
-                    + values.substring(0, values.length() - 2) + ")";
+                    +  placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
                 // Set each value in the PreparedStatement
                 int index = 1;
