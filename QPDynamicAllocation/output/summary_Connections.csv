@@ -1,7 +1,18 @@
-RunId,Sector1,Sector2,FltNum1,FltNum2,DepDate,Bookedload1,SellingFare1,SellingFare2,Bookedload2,OpenRBD1,OpenRBD2,Discount,BookedLoad,anchorFare,OpenRBD,SellingFare,Channel,HowDetermined,Backstop,analystName
-Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,0,0,10.0,V9,V9,0.0,10.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,4000,test
-Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,NA,NA,10.0,Z9,Z9,NA,10.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test
-Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,0,0,10.0,Y,V9,0.0,10.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,21500,test
-Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,NA,NA,10.0,Z0,Z9,NA,10.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test
-Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,0,0,10.0,V9,V9,0.0,20.0,NA,NA,NA,B2C,B2C Fares NA - Skipping allocation,3000,test
-Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,NA,NA,10.0,Z9,Z9,NA,20.0,NA,NA,NA,B2B,B2B Fares NA - Skipping allocation,0,test
+RunId,Sector1,Sector2,FltNum1,FltNum2,DepDate,Bookedload1,SellingFare1,SellingFare2,Bookedload2,OpenRBD1,OpenRBD2,Discount,BookedLoad,anchorFare,OpenRBD,SellingFare,Channel,HowDetermined,Backstop,analystName,allocationStatus
+Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,4474.0,5345.0,10.0,V9,V9,981.9000000000001,10.0,8837.1,R3,9152.0,B2C,Matched and allocated,4000,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/01/2023,8.0,3510.0,7287.0,10.0,Z9,Z9,1079.7,10.0,9717.3,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,28674.0,5345.0,10.0,Y,V9,3401.9,10.0,30617.1,Y,30446.0,B2C,Unable to Match Mkt - B2C allocation at extreme value,21500,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/02/2023,8.0,5360.0,7287.0,10.0,Z0,Z9,1264.7,10.0,11382.3,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,4474.0,5345.0,10.0,V9,V9,981.9000000000001,20.0,8837.1,R3,9152.0,B2C,Matched and allocated,3000,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/03/2023,20.0,3510.0,7287.0,10.0,Z9,Z9,1079.7,20.0,9717.3,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/04/2023,20.0,28674.0,30446.0,10.0,Y,Y,49500.0,20.0,9620.0,F,21236.0,B2C,Matched and allocated - Backstop Hit,20500,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/04/2023,20.0,5360.0,9298.0,10.0,Z0,Z0,49500.0,20.0,-34842.0,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/05/2023,10.0,28674.0,30446.0,20.0,Y,Y,8500.0,20.0,50620.0,Y,30446.0,B2C,Unable to Match Mkt - B2C allocation at extreme value,4900,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/05/2023,10.0,5360.0,9298.0,20.0,Z0,Z0,8500.0,20.0,6158.0,Z2,8737.0,B2B,Matched and allocated - Backstop Hit,8500,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/06/2023,5.0,4474.0,5345.0,10.0,V9,V9,5500.0,10.0,4319.0,V9,5345.0,B2C,Unable to Match Mkt - B2C allocation at extreme value,3510,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/06/2023,5.0,3510.0,7287.0,10.0,Z9,Z9,5500.0,10.0,5297.0,ZJ,5910.0,B2B,Unable to Match Mkt - B2B allocation at extreme value,5500,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/07/2023,15.0,4474.0,30446.0,20.0,V9,Y,32500.0,20.0,2420.0,V9,5345.0,B2C,Unable to Match Mkt - B2C allocation at extreme value,32500,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/07/2023,15.0,3510.0,9298.0,20.0,Z9,Z0,32500.0,20.0,-19692.0,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/08/2023,10.0,4474.0,30446.0,10.0,V9,Y,1746.0,10.0,33174.0,Y,30446.0,B2C,Unable to Match Mkt - B2C allocation at extreme value,0,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/08/2023,10.0,3510.0,9298.0,10.0,Z9,Z0,640.4000000000001,10.0,12167.6,NA,NA,B2B,Market Fare higher than Z0 levels - skipping B2B allocation,7200,test,1
+Test12345,BLRAMD,AMDDEL,1331,1606,08/09/2023,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,unable to get Booked loads,NA,test,0
