@@ -155,7 +155,7 @@ class RMDatabaseHelper:
         # Fetch the Target Booked Load from the curve
         if ndocounter<0:
             ndocounter=0
-        bookingCurveQuery = "Select LF,B2C_Avg_Fare,B2B_Avg_Fare from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
+        bookingCurveQuery = "Select LF from Curves where NDO = " + str(ndocounter) + " and CurveID = '" + curveID + "'"
         try:
             benchmark = pd.read_sql(bookingCurveQuery, self.conn)
         except Exception as e:

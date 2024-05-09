@@ -233,11 +233,11 @@ class DynAlloc:
 
 			plf = (currBookedLoad/adjustedCapacity) * 100
 
-			startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour = self.getStartOfDayValues(currBookedLoad, dateFormatted, ndocounter, tgtBookloadFactor, totalCapacity)
+			startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad = self.getStartOfDayValues(currBookedLoad, dateFormatted, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime)
 			self.outputSummaryRow_b2b.currentTgtLoad = tgtAtCurrentHour
 			self.outputSummaryRow_b2c.currentTgtLoad = tgtAtCurrentHour
-			self.outputSummaryRow_b2b.currentLoadFactor = tgtAtCurrentHour / totalCapacity
-			self.outputSummaryRow_b2c.currentLoadFactor = tgtAtCurrentHour / totalCapacity
+			self.outputSummaryRow_b2b.currentLoadFactor = (tgtAtCurrentHour / totalCapacity) * 100
+			self.outputSummaryRow_b2c.currentLoadFactor = (tgtAtCurrentHour / totalCapacity) * 100
 			self.outputSummaryRow_b2b.bookingToday = bookingToday
 			self.outputSummaryRow_b2c.bookingToday = bookingToday
 			self.outputSummaryRow_b2b.endOfDayTgtLoad = endOfDayTgtBookedLoad
@@ -245,7 +245,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.dlfBand = startEndOfDayDplfBand
 			self.outputSummaryRow_b2b.dlfBand = startEndOfDayDplfBand
 
-			variance = self.calculateVariance(currBookedLoad, tgtBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour)
+			variance = self.calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad)
 
 			totalCapacity, b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
 			overBookingCount =float(totalCapacity-adjustedCapacity)
@@ -420,7 +420,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.FltNum = str(currFlt)
 			self.outputSummaryRow_b2c.DepDate = str(currFltDate)
 			self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
-			self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
+			self.outputSummaryRow_b2c.TgtLoad = str(startOfDayBookLoad * totalCapacity)
 			self.outputSummaryRow_b2c.ndoBand = str(ndoBand)
 			self.outputSummaryRow_b2c.anchorFare = str(openDataB2C["anchorFare"][0])
 			self.outputSummaryRow_b2c.OpenRBD = str(openDataB2C['RBD'][0])
@@ -443,7 +443,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2b.FltNum = str(currFlt)
 			self.outputSummaryRow_b2b.DepDate = str(currFltDate)
 			self.outputSummaryRow_b2b.BookedLoad = str(currBookedLoad)
-			self.outputSummaryRow_b2b.TgtLoad = str(tgtBookedLoad)
+			self.outputSummaryRow_b2b.TgtLoad = str(startOfDayBookLoad * totalCapacity)
 			self.outputSummaryRow_b2b.ndoBand = str(ndoBand)
 			self.outputSummaryRow_b2b.anchorFare = str(openDataB2B["anchorFare"][0])
 			self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
@@ -464,7 +464,7 @@ class DynAlloc:
 				self.redishelper.updateRunAudit()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity):
+	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime):
 		bookings = []
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 			bookings = self.rmdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
@@ -477,34 +477,43 @@ class DynAlloc:
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
+		deptTime = datetime.strptime(str(currFltDepartureTime), TIME_FORMAT)
 
 		area = self.rmdatabasehelper.getArea(curTime.hour)
 		areaAtCurrentTime = area["sum"][0] / 100
 		self.logger.info("Area is:" + str(areaAtCurrentTime))
 
 		bookingToday = currBookedLoad - lastBookloadTillMidnight
-		endOfDayTgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter - 1, self.currParams.curve_id)
-		endOfDayTgtBookedLoad = float(endOfDayTgtBookedLoadList['LF'][0])
-		endOfDayTgtBookedLoad = endOfDayTgtBookedLoad * totalCapacity
   
-		startOfdayFactor = ((lastBookloadTillMidnight/totalCapacity) - tgtBookloadFactor) * 100
+		startOfDayTgtList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter + 1, self.currParams.curve_id)
+		if startOfDayTgtList.shape[0] == 0:
+			startOfDayTgtList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, self.currParams.curve_id)
+
+		startOfDayBookLoad = float(startOfDayTgtList['LF'][0])
+		startOfDayTgtBookedLoad = startOfDayBookLoad * totalCapacity
+  
+		startOfdayFactor = ((lastBookloadTillMidnight/totalCapacity) - startOfDayBookLoad) * 100
 		startEndOfDayDplfBand = self.rmdatabasehelper.getdpflBand(startOfdayFactor)
 
 		self.logger.info("startEndOfDayDplfBand is: " + str(startEndOfDayDplfBand))
-
-		if ndocounter == 0:
-			endOfDayTgtBookedLoad = totalCapacity * self.constantsUtils.END_OF_DAY_LF_FACTOR
-
-		tgtAtCurrentHour = (endOfDayTgtBookedLoad - (tgtBookloadFactor * totalCapacity)) * areaAtCurrentTime + (tgtBookloadFactor * totalCapacity)
-
-		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
+		endOfDayTgtBookedLoad = tgtBookloadFactor * totalCapacity
   
-		return startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour
+		if ndocounter == 0:
+			endOfDayTgtBookedLoad = max((totalCapacity * self.constantsUtils.END_OF_DAY_LF_FACTOR), endOfDayTgtBookedLoad)
+			hours = (deptTime - timedelta(hours=2)).hour
+			area = self.rmdatabasehelper.getArea(hours)
+			areaAtCurrentTime = area["sum"][0] / 100
 
-	def calculateVariance(self, currBookedLoad, tgtBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour):
+		tgtAtCurrentHour = (endOfDayTgtBookedLoad - startOfDayTgtBookedLoad) * areaAtCurrentTime + startOfDayTgtBookedLoad
+  
+		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
+
+		return startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad
+
+	def calculateVariance(self, currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad):
 		variance = ((currBookedLoad / totalCapacity) - (tgtAtCurrentHour / totalCapacity)) * 100
 		if ndocounter >= 22:
-			variance = ((currBookedLoad - tgtBookedLoad) / totalCapacity) * 100
+			variance = ((currBookedLoad - startOfDayBookLoad) / totalCapacity) * 100
 		return variance
 
 	def calculateDplf(self, currBookedLoad, tgtBookloadFactor, totalCapacity):
