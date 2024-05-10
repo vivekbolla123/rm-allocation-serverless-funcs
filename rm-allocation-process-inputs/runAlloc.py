@@ -233,7 +233,7 @@ class DynAlloc:
 
 			plf = (currBookedLoad/adjustedCapacity) * 100
 
-			startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad = self.getStartOfDayValues(currBookedLoad, dateFormatted, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime)
+			startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad = self.getStartOfDayValues(currBookedLoad, dateFormatted, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime)
 			self.outputSummaryRow_b2b.currentTgtLoad = tgtAtCurrentHour
 			self.outputSummaryRow_b2c.currentTgtLoad = tgtAtCurrentHour
 			self.outputSummaryRow_b2b.currentLoadFactor = (tgtAtCurrentHour / totalCapacity) * 100
@@ -245,7 +245,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.dlfBand = startEndOfDayDplfBand
 			self.outputSummaryRow_b2b.dlfBand = startEndOfDayDplfBand
 
-			variance = self.calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad)
+			variance = self.calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad)
 
 			totalCapacity, b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
 			overBookingCount =float(totalCapacity-adjustedCapacity)
@@ -501,19 +501,23 @@ class DynAlloc:
 		if ndocounter == 0:
 			endOfDayTgtBookedLoad = max((totalCapacity * self.constantsUtils.END_OF_DAY_LF_FACTOR), endOfDayTgtBookedLoad)
 			hours = (deptTime - timedelta(hours=2)).hour
-			area = self.rmdatabasehelper.getArea(hours)
-			areaAtCurrentTime = area["sum"][0] / 100
+			area_current_time=self.rmdatabasehelper.getArea(curTime.hour)
+			area_2hrs_departure=self.rmdatabasehelper.getArea(hours)
+			area =area_current_time["sum"][0] /area_2hrs_departure["sum"][0]
+			if area_current_time["sum"][0]>area_2hrs_departure["sum"][0]:
+				area=1
+			areaAtCurrentTime = area
 
 		tgtAtCurrentHour = (endOfDayTgtBookedLoad - startOfDayTgtBookedLoad) * areaAtCurrentTime + startOfDayTgtBookedLoad
   
 		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
 
-		return startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad
+		return startEndOfDayDplfBand, bookingToday, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad
 
-	def calculateVariance(self, currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad):
+	def calculateVariance(self, currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad):
 		variance = ((currBookedLoad / totalCapacity) - (tgtAtCurrentHour / totalCapacity)) * 100
 		if ndocounter >= 22:
-			variance = ((currBookedLoad - startOfDayBookLoad) / totalCapacity) * 100
+			variance = ((currBookedLoad - (startOfDayTgtBookedLoad)) / totalCapacity) * 100
 		return variance
 
 	def calculateDplf(self, currBookedLoad, tgtBookloadFactor, totalCapacity):
