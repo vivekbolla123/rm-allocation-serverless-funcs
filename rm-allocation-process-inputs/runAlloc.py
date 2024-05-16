@@ -248,14 +248,14 @@ class DynAlloc:
 			variance = self.calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad)
 
 			totalCapacity, b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
-			overBookingCount =float(totalCapacity-adjustedCapacity)
+			overBookingCount = float(totalCapacity-adjustedCapacity)
 			self.logger.info("variance is " + str(variance))
 			ndoBand = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand = self.rmdatabasehelper.getdpflBand(variance)
-   
+
 			self.outputSummaryRow_b2c.endOfDaydlfBand = dplfBand
 			self.outputSummaryRow_b2b.endOfDaydlfBand = dplfBand
-   
+
 			self.checkTreshold(currFlt, ndocounter, plf)
 
 			# Get Dynamic D1 (Time) Value
@@ -300,12 +300,12 @@ class DynAlloc:
 			percentile = 'Q'+str(bookloadPercentile)
 
 			self.logger.info("percentile: " + str(percentile))
-        
+
 			sector = self.currParams.origin + self.currParams.destin
 			upsellValueData = self.rmdatabasehelper.getUpsellValue(currFltDate, sector)
 
 			upsellValue = 0
-			if len(upsellValueData) != 0 and upsellValueData.percentage[0] != None:
+			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
 
 			if isB2CMarketFareAvailable:
@@ -360,7 +360,7 @@ class DynAlloc:
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
-    
+
 				isUpsellFlag = False
 				b2bSkipFlag = False
 
@@ -413,7 +413,11 @@ class DynAlloc:
 
 			self.logger.info("Anchor fare b2c is: " + str(openDataB2C["anchorFare"][0]))
 			self.logger.info("Anchor fare b2b is: " + str(openDataB2B["anchorFare"][0]))
-   
+
+			if self.currParams.profileFares == NO_FLAG:
+				self.outputSummaryRow_b2b.profileFare = CONST_NA
+				self.outputSummaryRow_b2c.profileFare = CONST_NA
+    
 			self.outputSummaryRow_b2c.RunId = self.runId
 			self.outputSummaryRow_b2c.Origin = self.currParams.origin
 			self.outputSummaryRow_b2c.Destin = self.currParams.destin
