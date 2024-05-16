@@ -1198,7 +1198,9 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(26, marketListEntity.getOverBooking());
             pstmt.setString(27, marketListEntity.getRbdPushFlag());
             pstmt.setString(28, marketListEntity.getProfileFares());
-            pstmt.setString(29, marketListEntity.getUuid());
+            pstmt.setString(29, marketListEntity.getB2cTolerance());
+            pstmt.setString(30, marketListEntity.getB2bTolerance());
+            pstmt.setString(31, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
