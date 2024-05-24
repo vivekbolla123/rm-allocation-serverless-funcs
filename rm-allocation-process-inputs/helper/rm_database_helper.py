@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM market_list_connections "
             try:
@@ -677,5 +677,63 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return parameterValue
-            
+    
+    def getDefaultAu(self, departure_date):
+        month_name = datetime.strptime(departure_date, '%Y-%m-%d').strftime('%B')
+        query = f"""
+        SELECT default_au, au_cap
+        FROM default_distress_inventory
+        WHERE month='{str(month_name)}'
+        """
+        try:
+            parameter_value = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+        return parameter_value["default_au"][0], parameter_value["au_cap"][0]
 
+    def getDistressAu(self, ndo_band, dplf_band):
+        query = f"""
+        SELECT au_value
+        FROM distress_inventory_strategy
+        WHERE ndo_band='{str(ndo_band)}' AND dplf_band='{str(dplf_band)}'
+        """
+        try:
+            parameter_value = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+        return parameter_value["au_value"][0]
+    
+    def get_seats_sold_by_class(self, flight_number, origin, destination, departure_date):
+        query = f'''
+        SELECT 
+           ClassOfService as class_code,
+           ClassSold as seats_sold
+        FROM current_rbd
+        WHERE
+            FlightNumber = "{str(flight_number)}"
+            AND DepartureDate = "{str(departure_date)}"
+            AND Origin = "{origin}"
+            AND Destin = "{destination}"
+            AND (ClassOfService = 'P' or ClassOfService = 'L')
+        '''
+        df = pd.read_sql(query, self.conn)
+        l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
+        p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
+        return l_class_seats_sold, p_class_seats_sold
+
+    def get_current_rbds_by_class(self, departure_date, flight_number, sector):
+            query = f"""
+            SELECT
+                ClassOfService as class_code,
+                ClassAu as current_availability
+            FROM current_rbd
+            WHERE
+                DepartureDate = "{departure_date}"
+                AND FlightNumber = "{str(flight_number)}"
+                AND Origin + Destin = "{str(sector)}"
+                AND (ClassOfService = 'P' or ClassOfService = 'L')
+            """
+            df = pd.read_sql(query, self.conn)
+            l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
+            p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
+            return l_class_rbd, p_class_rbd

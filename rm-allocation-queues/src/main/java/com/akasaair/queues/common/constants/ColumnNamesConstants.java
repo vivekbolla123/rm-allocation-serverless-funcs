@@ -21,8 +21,14 @@ public interface ColumnNamesConstants {
     String NDO_END_COLUMN_NAME = "ndoEnd";
     String HOUR_COLUMN_NAME = "hour";
     String VALUE_COLUMN_NAME = "value";
+    String AU_VALUE_COLUMN_NAME = "au_value";
+
     String NDO_BANDS_COLUMN_NAME = "ndoBand";
+    String DISTRESS_NDO_BANDS_COLUMN_NAME = "ndo_band";
+
     String DLF_BANDS_COLUMN_NAME = "dlfBand";
+    String DISTRESS_DLF_BANDS_COLUMN_NAME = "dplf_band";
+
     String DATE_COLUMN_NAME = "date";
     String STATION_COLUMN_NAME = "station";
     String SECTOR_MAP_USER1_COLUMN_NAME = "user1";
