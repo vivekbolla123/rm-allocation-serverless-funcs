@@ -80,5 +80,7 @@ public class MarketListEntity {
     public String b2bTolerance;
     @Column(name = "B2CTolerance")
     public String b2cTolerance;
+    @Column(name = "distressInventoryFlag")
+    public String distressInventoryFlag;
 }
 

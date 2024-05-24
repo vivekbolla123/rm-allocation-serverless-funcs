@@ -30,6 +30,8 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_OVER_BOOKING = 25;
     int CSV_HEADER_PROFILE_FARES = 26;
     int CSV_HEADER_RBD_PUSH_FLAG = 27;
+    int CSV_HEADER_DISTRESS_INVENTORY_FLAG = 28;
+
     String CSV_HEADER_TIME = "Time";
     String CSV_HEADER_CRITERIA = "Criteria";
     String CSV_HEADER_OFFSET = "Offset";

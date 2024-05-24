@@ -379,22 +379,11 @@ class DynAlloc:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - B2B Factor is -1'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 				# Ends statsusInd == 0
-				if self.thresholdflag:
-					currRec.set_class_attribute(brd_counter, 'class_au', 0)
-					currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
-					currRec.set_class_attribute(brd_counter+1, 'class_au', 0)
-					currRec.set_class_attribute(brd_counter+1, 'class_of_service', 'P')
-				else:
-					currRec.set_class_attribute(brd_counter, 'class_au', -1)
-					currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
-					currRec.set_class_attribute(brd_counter+1, 'class_au', -1)
-					currRec.set_class_attribute(brd_counter+1, 'class_of_service', 'P')
+    
+				self.pl_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
+							
 
-				currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'S')
-				if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
-					currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
-				else:
-					currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
+				self.s_rbd_allocation(plf, currRec, brd_counter)
 
 				self.AUFileData.append(currRec)
 
@@ -468,7 +457,79 @@ class DynAlloc:
 				self.redishelper.updateRunAudit()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime):
+	def s_rbd_allocation(self, plf, currRec, brd_counter):
+		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'S')
+		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
+			currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
+
+	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
+		if self.thresholdflag:
+			self.set_default_class_attributes(currRec, brd_counter)
+		elif int(self.currParams.distressInventoryFlag) == 1:
+			self.allocate_distress_inventory(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
+		else:
+			currRec.set_class_attribute(brd_counter, 'class_au', -1)
+			currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
+			currRec.set_class_attribute(brd_counter + 1, 'class_au', -1)
+			currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
+
+	def set_default_class_attributes(self, currRec, brd_counter):
+		currRec.set_class_attribute(brd_counter, 'class_au', 0)
+		currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
+		currRec.set_class_attribute(brd_counter + 1, 'class_au', 0)
+		currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
+
+	def allocate_distress_inventory(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
+		default_au, au_cap = self.rmdatabasehelper.getDefaultAu(dateFormatted)
+		distress_au = self.rmdatabasehelper.getDistressAu(ndoBand, dplfBand)
+		l_class_seats_sold, p_class_seats_sold = self.get_seats_sold(dateFormatted)
+		l_class_rbd, p_class_rbd = self.get_current_rbds(dateFormatted)
+
+		self.allocate_class_inventory(currRec, brd_counter, default_au, au_cap, distress_au,
+									l_class_seats_sold, p_class_seats_sold, l_class_rbd, p_class_rbd)
+
+	def get_seats_sold(self, dateFormatted):
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
+			return self.rmdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
+																self.currParams.origin, self.currParams.destin,
+																dateFormatted)
+		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+			return self.navdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
+																self.currParams.origin, self.currParams.destin,
+																dateFormatted)
+
+	def get_current_rbds(self, dateFormatted):
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
+			return self.rmdatabasehelper.get_current_rbds_by_class(dateFormatted,
+															str(self.currParams.flight_number),
+															self.currParams.origin + self.currParams.destin)
+		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+			return self.navdatabasehelper.get_current_rbds_by_class(dateFormatted,
+															str(self.currParams.flight_number),
+															self.currParams.origin + self.currParams.destin)
+
+	def allocate_class_inventory(self, currRec, brd_counter, default_au, au_cap, distress_au,
+								l_class_seats_sold, p_class_seats_sold, l_class_rbd, p_class_rbd):
+		self.allocate_individual_class(currRec, brd_counter, default_au, au_cap, distress_au,
+										l_class_seats_sold, l_class_rbd, 'L')
+		self.allocate_individual_class(currRec, brd_counter + 1, default_au, au_cap, distress_au,
+										p_class_seats_sold, p_class_rbd, 'P')
+
+	def allocate_individual_class(self, currRec, brd_counter, default_au, au_cap, distress_au,
+								class_seats_sold, class_rbd, class_of_service):
+		if class_seats_sold < default_au:
+			currRec.set_class_attribute(brd_counter, 'class_au', default_au)
+		elif class_seats_sold == class_rbd:
+			new_au = class_rbd + distress_au
+			currRec.set_class_attribute(brd_counter, 'class_au', min(new_au, au_cap))
+		else:
+			currRec.set_class_attribute(brd_counter, 'class_au', -1)
+		currRec.set_class_attribute(brd_counter, 'class_of_service', class_of_service)
+
+
+	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity,currFltDepartureTime):
 		bookings = []
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 			bookings = self.rmdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)

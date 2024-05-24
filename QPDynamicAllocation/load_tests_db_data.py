@@ -35,6 +35,9 @@ class Schema:
         self.load_generic_table("config_date_event","config_date_event.csv")
         self.load_generic_table("config_determine_fares","config_determine_fares.csv")
         self.load_generic_table("current_opening_rbd","current_opening_rbd.csv")
+        self.load_generic_table("default_distress_inventory","default_distress_inventory.csv")
+        self.load_generic_table("distress_inventory_strategy","distress_inventory_strategy.csv")
+        self.load_generic_table("current_rbd","current_rbd.csv")
         
         self.alterTables()
 

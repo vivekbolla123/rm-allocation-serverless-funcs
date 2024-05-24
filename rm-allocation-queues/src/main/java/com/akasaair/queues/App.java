@@ -412,6 +412,7 @@ public class App implements RequestHandler<S3Event, Object> {
             List<Map<String, String>> data = switch (tableName) {
                 case HISTORIC_HOURLY_DROP_TABLE_NAME -> getHourlyDropData(csvData).values().stream().toList();
                 case HISTORIC_GRID_DROP_TABLE_NAME -> getGridDropData(csvData).values().stream().toList();
+                case DISTRESS_INVENTORY_STRATEGY_TABLE_NAME -> getDistressStrategy(csvData).values().stream().toList();
                 default -> createListOfMap(csvData, headers);
             };
 
@@ -594,6 +595,13 @@ public class App implements RequestHandler<S3Event, Object> {
         return createTransformDataSet(csvData, ndoBandHeader, channelHeader, startColumn, NDO_BANDS_COLUMN_NAME, CHANNEL_COLUMN_NAME, gridValueNames, DLF_BANDS_COLUMN_NAME);
     }
 
+    public Map<String, Map<String, String>> getDistressStrategy(List<List<String>> csvData) {
+        int ndoBandHeader = 0;
+        int startColumn = 1;
+        String[] gridValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
+        return createTransformDataSetDistress(csvData, ndoBandHeader, startColumn, DISTRESS_NDO_BANDS_COLUMN_NAME, gridValueNames, DISTRESS_DLF_BANDS_COLUMN_NAME);
+    }
+
     public Map<String, Map<String, String>> getHourlyDropData(List<List<String>> csvData) {
         int ndoStartHeader = 0;
         int ndoEndHeader = 1;
@@ -621,6 +629,27 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
                 Map<String, String> map = resultMap.get(keyVal);
                 map.put(VALUE_COLUMN_NAME, value);
+            }
+        }
+        return resultMap;
+    }
+    public Map<String, Map<String, String>> createTransformDataSetDistress(List<List<String>> csvData, int key1Header,  int valueStartColumn, String key1Name, String[] valueNames, String headerKey) {
+        Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            String key1 = csvData.get(i).get(key1Header);
+            for (int j = valueStartColumn; j < inputRow.size(); j++) {
+                String value = csvData.get(i).get(j);
+                String valueName = valueNames[j - valueStartColumn];
+                String keyVal = key1  + valueName;
+                if (!resultMap.containsKey(keyVal)) {
+                    Map<String, String> map = new HashMap<>();
+                    map.put(key1Name, key1);
+                    map.put(headerKey, valueName);
+                    resultMap.put(keyVal, map);
+                }
+                Map<String, String> map = resultMap.get(keyVal);
+                map.put(AU_VALUE_COLUMN_NAME, value);
             }
         }
         return resultMap;
@@ -1200,7 +1229,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(28, marketListEntity.getProfileFares());
             pstmt.setString(29, marketListEntity.getB2cTolerance());
             pstmt.setString(30, marketListEntity.getB2bTolerance());
-            pstmt.setString(31, marketListEntity.getUuid());
+            pstmt.setString(31, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(32, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1380,6 +1410,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .profileFares(record.get(CSV_HEADER_PROFILE_FARES))
                 .b2bTolerance(record.get(CSV_HEADER_B2B_TOLERANCE))
                 .b2cTolerance(record.get(CSV_HEADER_B2C_TOLERANCE))
+                .distressInventoryFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))
                 .analystName(analystName)
                 .build());
     }
@@ -1594,6 +1625,9 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         if (!checkStrategyFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
             listOfErrors.add(lineNum + "RBD Push has value other than '1' or '0'");
+        }
+        if (!checkStrategyFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
+            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than '1' or '0'");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
             listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
