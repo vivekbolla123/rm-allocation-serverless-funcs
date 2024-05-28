@@ -714,12 +714,14 @@ class RMDatabaseHelper:
             AND DepartureDate = "{str(departure_date)}"
             AND Origin = "{origin}"
             AND Destin = "{destination}"
-            AND (ClassOfService = 'P' or ClassOfService = 'L')
+            AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
         '''
         df = pd.read_sql(query, self.conn)
         l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
         p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
-        return l_class_seats_sold, p_class_seats_sold
+        G8_class_seats_sold = df[df['class_code'] == 'G8']['seats_sold'].values[0]
+        G9_class_seats_sold = df[df['class_code'] == 'G9']['seats_sold'].values[0]
+        return l_class_seats_sold, p_class_seats_sold, G8_class_seats_sold, G9_class_seats_sold
 
     def get_current_rbds_by_class(self, departure_date, flight_number, sector):
             query = f"""
@@ -731,9 +733,11 @@ class RMDatabaseHelper:
                 DepartureDate = "{departure_date}"
                 AND FlightNumber = "{str(flight_number)}"
                 AND Origin + Destin = "{str(sector)}"
-                AND (ClassOfService = 'P' or ClassOfService = 'L')
+                AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
             """
             df = pd.read_sql(query, self.conn)
             l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
             p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
-            return l_class_rbd, p_class_rbd
+            G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
+            G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
+            return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
