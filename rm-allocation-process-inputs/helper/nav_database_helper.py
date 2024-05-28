@@ -106,7 +106,7 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
     
     def get_seats_sold_by_class(self, flight_number, origin, destination, departure_date):
         query = f'''
-        SELECT TOP 2
+        SELECT TOP 4
             ILCS.[ClassOfService] as class_code,
             ILCS.[ClassSold] as seats_sold
         FROM {self.NAV_DB_NAME}[Rez].[InventoryLegVersion] ILV
@@ -116,17 +116,19 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
             AND ILV.DepartureDate = '{str(departure_date)}'
             AND ILV.DepartureStation = '{origin}'
             AND ILV.ArrivalStation = '{destination}'
-            AND (ILCS.ClassOfService = 'P' or ILCS.ClassOfService = 'L')
+            AND (ILCS.ClassOfService = 'P' or ILCS.ClassOfService = 'L' or ILCS.ClassOfService = 'G8' or ILCS.ClassOfService = 'G9')
         ORDER BY ILV.ModifiedUTC DESC
         '''
         df = pd.read_sql(query, self.NavitaireConnection)
         l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
         p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
-        return l_class_seats_sold, p_class_seats_sold
+        G8_class_seats_sold = df[df['class_code'] == 'G8']['seats_sold'].values[0]
+        G9_class_seats_sold = df[df['class_code'] == 'G9']['seats_sold'].values[0]
+        return l_class_seats_sold, p_class_seats_sold, G8_class_seats_sold, G9_class_seats_sold
 
     def get_current_rbds_by_class(self, departure_date, flight_number, sector):
             query = f"""
-            SELECT TOP 2
+            SELECT TOP 4
                 ILC.ClassOfService as class_code,
                 ILC.ClassAu as current_availability
             FROM {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
@@ -135,10 +137,12 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
                 IL.DepartureDate = '{departure_date}'
                 AND TRIM(IL.FlightNumber) = '{str(flight_number)}'
                 AND IL.DepartureStation + IL.ArrivalStation = '{str(sector)}'
-                AND (ILC.ClassOfService = 'P' or ILC.ClassOfService = 'L')
+                AND (ILC.ClassOfService = 'P' or ILC.ClassOfService = 'L' or ILC.ClassOfService = 'G8' or ILC.ClassOfService = 'G9')
             ORDER BY ILC.ModifiedUTC DESC
             """
             df = pd.read_sql(query, self.NavitaireConnection)
             l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
             p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
-            return l_class_rbd, p_class_rbd
+            G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
+            G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
+            return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
