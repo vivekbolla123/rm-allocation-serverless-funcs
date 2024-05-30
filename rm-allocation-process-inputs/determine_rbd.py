@@ -32,8 +32,8 @@ class DetermineRBD:
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
         else:
-            openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
-
+            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
+        
         strategyFare = openResult['Fare'][0]
 
         if strategyFare == CONST_NA:
@@ -212,7 +212,6 @@ class DetermineRBD:
             if channel == B2B_CHANNEL:
                 if defFareData['RBD'][0] == self.constantsutils.HIGHEST_B2B_RBD_VALUE:
                     openResult = {'RBD':  [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Market Fare higher than ' + self.constantsutils.HIGHEST_B2B_RBD_VALUE + ' levels - skipping B2B allocation'], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-                    
                     return openResult
                 else:
                     openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['Total'][0]], 'FareResult': ['Unable to Match Mkt - B2B allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
@@ -269,6 +268,7 @@ class DetermineRBD:
                 else:
                     RBDtoOpen = rbddata['RBD'][offsetToFetch]
                     FareToOpen = rbddata['Total'][offsetToFetch]
+                    
             else:
                 RBDtoOpen = rbddata['RBD'][offsetToFetch]
                 FareToOpen = rbddata['Total'][offsetToFetch]
@@ -310,3 +310,80 @@ class DetermineRBD:
         openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
         return openResult
       
+    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route):
+        extremeFareFlag = False
+        # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
+
+        # Calculating the offset that is required based on entries remaining in the RBD table
+        offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1)
+        if int(offset) < 0:
+            offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
+
+        # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route)
+            
+        # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
+        if defFareData.shape[0] == 0:
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            
+        if rbddata['RBD'][0] == self.constantsutils.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.constantsutils.LOWEST_B2C_RBD_VALUE:
+            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route)
+            if len(defFareData) == 0:
+                extremeFareFlag = True
+                RBDtoOpen = rbddata['RBD'][0]
+                FareToOpen = rbddata['Total'][0]
+            else:
+                if rbddata['RBD'][0] == defFareData['RBD'][0]:
+                    extremeFareFlag = True
+                    RBDtoOpen = rbddata['RBD'][0]
+                    FareToOpen = rbddata['Total'][0]
+                else:
+                    RBDtoOpen = defFareData['RBD'][0]
+                    FareToOpen = defFareData['Total'][0]
+        else:
+            if defFareData.shape[0] != 0:
+                if float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch]):
+                    offsetToFetch = min(len(defFareData['Total'])-1, offsetToFetch)
+                    RBDtoOpen = defFareData['RBD'][0]
+                    FareToOpen = defFareData['Total'][0]
+                else:
+                    RBDtoOpen = rbddata['RBD'][offsetToFetch]
+                    FareToOpen = rbddata['Total'][offsetToFetch]
+
+            else:
+                RBDtoOpen = rbddata['RBD'][offsetToFetch]
+                FareToOpen = rbddata['Total'][offsetToFetch]
+                    
+        self.logger.info('Determining ' + channel + ' Fare ' + str(FareToOpen) + " " + str(RBDtoOpen))
+
+        if channel == B2B_CHANNEL:
+            # Special handling for B2B - if the B2B Anchor fare is higher than Z0 - Skip B2B
+            limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
+            limitB2BFare = 0
+            if defFareData.shape[0] != 0:
+                limitB2BFare = float(limitB2BFare_Data['Total'][0])
+
+            if float(anchorFare) > limitB2BFare:
+                # Outside B2B Levels - stick with B2C
+                openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Market Fare higher than ' + self.constantsutils.HIGHEST_B2B_RBD_VALUE + ' levels - skipping B2B allocation'], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
+                return openResult
+
+            if offsetToFetch == rbddata.shape[0]:
+                openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': ['Not Enough Levels available - taking the Max/Min Available'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
+                return openResult
+            
+            if extremeFareFlag:
+                openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': ['Unable to Match Mkt - B2B allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
+                return openResult
+
+        else:
+            if offsetToFetch == rbddata.shape[0]:
+                openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': ['Not Enough Levels available - taking the Max/Min Available'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
+                return openResult
+            if extremeFareFlag:
+                openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': ['Unable to Match Mkt - B2C allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
+                return openResult
+        
+        openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
+        return openResult
+
