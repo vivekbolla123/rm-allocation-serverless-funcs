@@ -1,3 +1,4 @@
+import copy
 import json
 import traceback
 import Constants
@@ -101,7 +102,7 @@ class DynAllocConnections:
 
 		try:
 			for ndocounter in range(startNDO, endNDO+1):
-				self.outputSummaryRow = OutputSummaryConnections()
+				self.outputSummaryRow_b2c = OutputSummaryConnections()
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter),DATE_FORMAT_2)
     
@@ -122,19 +123,27 @@ class DynAllocConnections:
 				if(bookedLoadSingleRowSector1.shape[0] == 0 or bookedLoadSingleRowSector2.shape[0] == 0):
 					dateFormatted = datetime.strptime(str(startDate),DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					print("Unable to get the Booked Load - Aborting")
-					self.outputSummaryRow.Id = self.utils.getUniqueId()
-					self.outputSummaryRow.RunId = self.runId
-					self.outputSummaryRow.Sector1=sector1
-					self.outputSummaryRow.Sector2=sector2
-					self.outputSummaryRow.FltNum1=str(flightNo1)
-					self.outputSummaryRow.FltNum2=str(flightNo2)
-					self.outputSummaryRow.DepDate=str(dateFormatted)
-					self.outputSummaryRow.HowDetermined = "unable to get Booked loads"
-					self.outputSummaryRow.analystName=self.currParams.analyst_name
-					self.allocResults.append(self.outputSummaryRow)
-					self.outputSummaryRow.allocationStatus = 0
-					self.redishelper.updateRunAudit()
+					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2c.RunId = self.runId
+					self.outputSummaryRow_b2c.Sector1=sector1
+					self.outputSummaryRow_b2c.Sector2=sector2
+					self.outputSummaryRow_b2c.FltNum1=str(flightNo1)
+					self.outputSummaryRow_b2c.FltNum2=str(flightNo2)
+					self.outputSummaryRow_b2c.DepDate=str(dateFormatted)
+					self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
+					self.outputSummaryRow_b2c.analystName=self.currParams.analyst_name
+					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
+					self.outputSummaryRow_b2b=copy.deepcopy(self.outputSummaryRow_b2c)
+					self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2b.Channel=B2B_CHANNEL
+					self.allocResults.append(self.outputSummaryRow_b2c)
 					self.rmdatabasehelper.insertSummaryRow_connections(self.allocResults)
+					self.allocResults.append(self.outputSummaryRow_b2b)
+					self.rmdatabasehelper.insertSummaryRow_connections(self.allocResults)
+					self.outputSummaryRow_b2c.allocationStatus = 0
+					self.outputSummaryRow_b2b.allocationStatus = 0
+					self.redishelper.updateRunAudit()
+					
 					break
 				else:
 					self.allocateAUforflights(tgtDate, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter)

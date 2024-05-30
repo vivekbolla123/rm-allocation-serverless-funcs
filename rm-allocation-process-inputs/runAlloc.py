@@ -1,3 +1,4 @@
+import copy
 import traceback
 import os
 import json
@@ -109,24 +110,31 @@ class DynAlloc:
 		try:
 			# For each NDO
 			for ndocounter in range(startNDO, endNDO+1):
-				self.outputSummaryRow = OutputSummary()
+				self.outputSummaryRow_b2c = OutputSummary()
+    
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
 				if bookedLoad.shape[0] == 0:
 					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
-					self.outputSummaryRow.Id = self.utils.getUniqueId()
-					self.outputSummaryRow.RunId = self.runId
-					self.outputSummaryRow.Origin = origin
-					self.outputSummaryRow.Destin = destination
-					self.outputSummaryRow.FltNum = str(FlightNumber)
-					self.outputSummaryRow.DepDate = str(dateFormatted)
-					self.outputSummaryRow.HowDetermined = "unable to get Booked loads"
-					self.outputSummaryRow.analystName = analystName
-					self.outputSummaryRow.allocationStatus = 0
-					self.allocResults.append(self.outputSummaryRow)
-					self.redishelper.updateRunAudit()
+					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2c.RunId = self.runId
+					self.outputSummaryRow_b2c.Origin = origin
+					self.outputSummaryRow_b2c.Destin = destination
+					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+					self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
+					self.outputSummaryRow_b2c.analystName = analystName
+					self.outputSummaryRow_b2c.allocationStatus = 0
+					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
+					self.outputSummaryRow_b2b= copy.deepcopy(self.outputSummaryRow_b2c)
+					self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2b.Channel=B2B_CHANNEL
+					self.allocResults.append(self.outputSummaryRow_b2c)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.allocResults.append(self.outputSummaryRow_b2b)
+					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.redishelper.updateRunAudit()
 					break
 				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
 				if FlightNumber == '*':
@@ -139,19 +147,25 @@ class DynAlloc:
 				if bookedLoadSingleRow.shape[0] == 0:
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
-					self.outputSummaryRow.Id = self.utils.getUniqueId()
-					self.outputSummaryRow.RunId = self.runId
-					self.outputSummaryRow.Origin = origin
-					self.outputSummaryRow.Destin = destination
-					self.outputSummaryRow.FltNum = str(FlightNumber)
-					self.outputSummaryRow.DepDate = str(dateFormatted)
-					self.outputSummaryRow.TgtLoad = str(tgtBookedLoad)
-					self.outputSummaryRow.HowDetermined = "unable to get Booked loads"
-					self.outputSummaryRow.analystName = analystName
-					self.outputSummaryRow.allocationStatus = 0
-					self.allocResults.append(self.outputSummaryRow)
-					self.redishelper.updateRunAudit()
+					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2c.RunId = self.runId
+					self.outputSummaryRow_b2c.Origin = origin
+					self.outputSummaryRow_b2c.Destin = destination
+					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+					self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
+					self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
+					self.outputSummaryRow_b2c.analystName = analystName
+					self.outputSummaryRow_b2c.allocationStatus = 0
+					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
+					self.outputSummaryRow_b2b=copy.deepcopy(self.outputSummaryRow_b2c)
+					self.outputSummaryRow_b2b.Channel=B2B_CHANNEL
+					self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+					self.allocResults.append(self.outputSummaryRow_b2c)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.allocResults.append(self.outputSummaryRow_b2b)
+					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.redishelper.updateRunAudit()
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					if len(tgtBookedLoadList) > 0:
@@ -160,20 +174,26 @@ class DynAlloc:
 					else:
 						# Cannot get a reference curve - Abort
 						self.logger.info("Unable to get a Target - Check the booking curves")
-						self.outputSummaryRow.Id = self.utils.getUniqueId()
-						self.outputSummaryRow.RunId = self.runId
-						self.outputSummaryRow.Origin = origin
-						self.outputSummaryRow.Destin = destination
-						self.outputSummaryRow.FltNum = str(FlightNumber)
-						self.outputSummaryRow.DepDate = str(tgtDate)
-						self.outputSummaryRow.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
-						self.outputSummaryRow.TgtLoad = str(tgtBookedLoad)
-						self.outputSummaryRow.HowDetermined = "No Reference Curve Found"
-						self.outputSummaryRow.analystName = analystName
-						self.outputSummaryRow.allocationStatus = 0
-						self.allocResults.append(self.outputSummaryRow)
-						self.redishelper.updateRunAudit()
+						self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+						self.outputSummaryRow_b2c.RunId = self.runId
+						self.outputSummaryRow_b2c.Origin = origin
+						self.outputSummaryRow_b2c.Destin = destination
+						self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
+						self.outputSummaryRow_b2c.HowDetermined = "No Reference Curve Found"
+						self.outputSummaryRow_b2c.analystName = analystName
+						self.outputSummaryRow_b2c.allocationStatus = 0
+						self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
+						self.outputSummaryRow_b2b=copy.deepcopy(self.outputSummaryRow_b2c)
+						self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+						self.outputSummaryRow_b2b.Channel=B2B_CHANNEL
+						self.allocResults.append(self.outputSummaryRow_b2c)
 						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+						self.allocResults.append(self.outputSummaryRow_b2b)
+						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+						self.redishelper.updateRunAudit()		
 		except Exception as e:
 			self.logger.info("Exception occurred")
 			traceback.print_exc()
