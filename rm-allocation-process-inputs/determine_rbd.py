@@ -69,7 +69,7 @@ class DetermineRBD:
                 if channel == B2B_CHANNEL:
                     lastSoldFare = farePrice["B2Bfare"][0]
 
-        value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime)
+        value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
             if channel == B2B_CHANNEL:
                 anchorValue = value['B2BValue'][0]

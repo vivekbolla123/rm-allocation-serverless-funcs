@@ -1,0 +1,5 @@
+INSERT INTO `QP_DW_RMALLOC`.`config_determine_fares` (`id`, `conditions`, `B2BValue`, `B2CValue`) VALUES ('9', '{\"ndo_band\":\"0\",\"start_of_day_dlf_band\":\"3,4,5,6\",\"end_of_day_dlf_band\":\"0,1,2\"}', 'B', 'B');
+INSERT INTO `QP_DW_RMALLOC`.`config_determine_fares` (`id`, `conditions`, `B2BValue`, `B2CValue`) VALUES ('10', '{\"ndo_band\":\"0\",\"start_of_day_dlf_band\":\"3,4,5,6\",\"end_of_day_dlf_band\":\"0,1,2\"}', 'B', 'B');
+UPDATE `QP_DW_RMALLOC`.`config_determine_fares` SET `conditions` = '{\"ndo_band\":\"0\",\"start_of_day_dlf_band\":\"3,4,5,6\",\"end_of_day_dlf_band\":\"3,4,5,6\"}', `B2BValue` = 'C', `B2CValue` = 'A' WHERE (`id` = '9');
+INSERT INTO `QP_DW_RMALLOC`.`config_determine_fares` (`id`, `conditions`, `B2BValue`, `B2CValue`) VALUES ('11', '{\"ndo_band\":\"0\",\"start_of_day_dlf_band\":\"0,1,2\",\"end_of_day_dlf_band\":\"0,1,2\"}', 'B', 'B');
+INSERT INTO `QP_DW_RMALLOC`.`config_determine_fares` (`id`, `conditions`, `B2BValue`, `B2CValue`) VALUES ('12', '{\"ndo_band\":\"0\",\"start_of_day_dlf_band\":\"0,1,2\",\"end_of_day_dlf_band\":\"3,4,5,6\"}', 'B', 'B');

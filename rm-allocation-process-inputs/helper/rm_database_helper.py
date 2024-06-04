@@ -483,7 +483,7 @@ class RMDatabaseHelper:
         query = f''' SELECT sum(shareOfBooking) as sum FROM config_share_of_booking where hours <= {currentHour} '''
         return pd.read_sql(query, self.conn)
 
-    def getRDBTable(self, dplfBand, endOfDayDplfBand, currentTime):
+    def getRDBTable(self, dplfBand, endOfDayDplfBand, currentTime, ndoBand):
         query = f'''
             SELECT B2CValue, B2BValue 
             FROM config_determine_fares 
@@ -491,7 +491,8 @@ class RMDatabaseHelper:
             AND IFNULL(TIME(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.start_time'))), '00:00') <= '{currentTime}' 
             AND IFNULL(TIME(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_time'))), '23:59') >= '{currentTime}' 
             AND FIND_IN_SET('{dplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.start_of_day_dlf_band')), '{dplfBand}')) 
-            AND FIND_IN_SET('{endOfDayDplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_of_day_dlf_band')), '{endOfDayDplfBand}'))  
+            AND FIND_IN_SET('{endOfDayDplfBand}',IFNULL(JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.end_of_day_dlf_band')), '{endOfDayDplfBand}')) 
+            AND IFNULL(FIND_IN_SET('{ndoBand}',JSON_UNQUOTE(JSON_EXTRACT(conditions, '$.ndo_band'))), '{ndoBand}')
         '''
         return pd.read_sql(query, self.conn)
 

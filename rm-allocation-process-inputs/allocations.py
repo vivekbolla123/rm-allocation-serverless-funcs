@@ -109,12 +109,16 @@ class RBDAllocations:
                         jumpingRBDPrice = profileExtract[counter]
                         if price < profileFare:
                             firstRDBAllocation = currBookedLoad + 5
+                            firstRDBAllocationb2b = currBookedLoad + (5 * b2bFactor)
                             otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * int(bookloadPercentile))
+                            otherRDBAllocationb2b = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * (int(bookloadPercentile) * b2bFactor))
                         else:
                             firstRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * int(bookloadPercentile))
+                            firstRDBAllocationb2b = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * (int(bookloadPercentile) * b2bFactor)) 
                             otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * int(bookloadPercentile))
+                            otherRDBAllocationb2b = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * (int(bookloadPercentile) * b2bFactor))
 
-                        openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, bookloadPercentile = self.jumpWithFare(bookedDeficit, openRBDIndex, incremental, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b, counter, bookloadPercentile, price)
+                        openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, bookloadPercentile = self.jumpWithFare(bookedDeficit, openRBDIndex, incremental, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b, counter, bookloadPercentile, price, firstRDBAllocationb2b, otherRDBAllocationb2b)
 
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile
 
@@ -175,26 +179,26 @@ class RBDAllocations:
                 pass
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b
 
-    def jumpWithFare(self, bookedDeficit, openRBDIndex, incremental, d3Allocation, d4Allocation, profileFare, b2bFactor, incrementalb2b, counter, bookloadPercentile, currPrice):
+    def jumpWithFare(self, bookedDeficit, openRBDIndex, incremental, d3Allocation, d4Allocation, profileFare, b2bFactor, incrementalb2b, counter, bookloadPercentile, currPrice, firstRDBAllocationb2b, otherRDBAllocationb2b):
         if incremental < 0:
             if d3Allocation >= 0:
                 # allocate the FirstRBD
                 incremental = d3Allocation
-                incrementalb2b = (d3Allocation * b2bFactor)
+                incrementalb2b = firstRDBAllocationb2b
             else:
                 # negative number means allocate the full deficit - Only if the deficit is positive - Lagging
                 if bookedDeficit > 0:
                     incremental = bookedDeficit
                 else:
                     incremental = d4Allocation
-                    incrementalb2b = (d4Allocation * b2bFactor)
+                    incrementalb2b = otherRDBAllocationb2b
             bookloadPercentile += 1
         else:
             if profileFare > currPrice:
                 pass
             else:
                 incremental = d4Allocation
-                incrementalb2b = (d4Allocation * b2bFactor)
+                incrementalb2b = otherRDBAllocationb2b
                 openRBDIndex = openRBDIndex + 1
                 counter = counter + 1
                 bookloadPercentile += 1
