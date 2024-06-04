@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 import uuid
 import pandas as pd
 import pytz
+import configsettings
 
 class DailyRolling:
     def __init__(self, logger, params, overrides, context):
@@ -9,6 +10,7 @@ class DailyRolling:
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
+        self.nav_conn = params['navconn']
 
     def run(self):
         self.logger.info("Starting the run method.")
@@ -16,9 +18,11 @@ class DailyRolling:
         df_sector_map = self.fetch_sector_map()
         current_date = self.get_current_date_ist()
         self.logger.info(f"Current date: {current_date}")
-
+        print(len(df_market_list))
         df_market_list = self.process_market_list(df_market_list, df_sector_map, current_date)
-
+        print(len(df_market_list))
+        df_market_list=self.create_new_row(df_market_list,current_date,df_sector_map)
+        print(len(df_market_list))
         self.logger.info("Writing modified DataFrame back to the database.")
         df_market_list.to_sql('market_list', self.rm_wr_conn, if_exists='replace', index=False)
         self.logger.info("Finished writing to market_list table.")
@@ -47,7 +51,7 @@ class DailyRolling:
         for index, row in df_market_list.iterrows():
             start_date = datetime.strptime(row['PerStart'], '%m/%d/%Y').date()
             end_date = datetime.strptime(row['PerEnd'], '%m/%d/%Y').date()
-
+            
             if self.should_delete_record(start_date, end_date, current_date):
                 self.logger.info(f"Deleting record with index: {index}")
                 df_market_list.drop(index, inplace=True)
@@ -85,7 +89,7 @@ class DailyRolling:
 
         if duration > 30 and (start_date - current_date).days <= 30:
             new_end_date = end_date - timedelta(days=duration-30)
-            # new_row = self.create_new_row(row, current_date, new_end_date, user1)
+            # new_row = self.create_new_row(row, current_date, new_end_date, user1,df_market_list)
             # new_rows.append(new_row)
             df_market_list.at[index, 'PerStart'] = (new_end_date + timedelta(days=1)).strftime('%m/%d/%Y')
 
@@ -103,20 +107,73 @@ class DailyRolling:
 
         if duration > 30 and (start_date - current_date).days <= 30:
             new_end_date = end_date - timedelta(days=duration-30)
-            # new_row = self.create_new_row(row, start_date, new_end_date, user1)
+            # new_row = self.create_new_row(row, start_date, new_end_date, user1,df_market_list)
             # new_rows.append(new_row)
             df_market_list.at[index, 'PerStart'] = (new_end_date + timedelta(days=1)).strftime('%m/%d/%Y')
 
         return df_market_list, new_rows
 
-    def create_new_row(self, row, start_date, end_date, user):
-        new_row = row.copy()
-        new_row['PerEnd'] = end_date.strftime('%m/%d/%Y')
-        new_row['PerStart'] = start_date.strftime('%m/%d/%Y')
-        new_row['UUID'] = str(uuid.uuid4())
-        new_row['analystName'] = user
-        new_row['DOW']=self.update_dow(start_date,end_date)
-        return new_row
+    def create_new_row(self,df_market_list,current_date,df_sector_map):
+        tgt_date=current_date+timedelta(days=30)
+        all_flights=self.get_nav_dump(tgt_date)
+        new_row=pd.DataFrame().reindex_like(df_market_list).head(1)
+        for index, row in all_flights.iterrows():
+            new_row['PerEnd'][0] = tgt_date.strftime('%m/%d/%Y')
+            new_row['PerStart'][0] = tgt_date.strftime('%m/%d/%Y')
+            new_row['UUID'][0] = str(uuid.uuid4())
+            sector = row['Origin'] + row['Destination']
+            self.logger.info(f"Sector for index {index}: {sector}")
+            if df_sector_map[df_sector_map['sector'] == sector].shape[0]==0:
+                continue
+            sector_row = df_sector_map[df_sector_map['sector'] == sector].iloc[0]
+            user = sector_row['user1']
+            new_row['analystName'][0] = user
+            new_row['DOW'][0] = self.update_dow(tgt_date, tgt_date)
+
+            corresponding_row = self.lookup_corresponding_row(df_market_list, row['Origin'], row['Destination'], row['FlightNumber'], tgt_date)
+            if corresponding_row is not None:
+                self.logger.info(f"Updating new row with data from corresponding row: {corresponding_row}")
+                columns_to_exclude = ['PerStart', 'PerEnd', 'DOW', 'UUID', 'analystName']
+                for column in df_market_list.columns:
+                    if column not in columns_to_exclude:
+                        new_row[column][0] = corresponding_row[column]
+                df_market_list = pd.concat([df_market_list, new_row], ignore_index=True)
+        return df_market_list
+            
+    def lookup_corresponding_row(self, df_market_list, origin, destin, flight_number, date):
+        # Filter rows based on origin, destination, and flight number
+        previous_rows = df_market_list[
+            (df_market_list['Origin'] == origin) &
+            (df_market_list['Destin'] == destin) &
+            (df_market_list['FlightNumber'] == int(flight_number))
+        ]
+
+        # Parse the date into a datetime object
+        target_date = date
+        
+        # Further filter rows to ensure PerStart and PerEnd are before the target date
+        previous_rows = previous_rows[
+            (previous_rows['PerStart'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date()) < target_date) &
+            (previous_rows['PerEnd'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date()) < target_date)
+        ]
+        if previous_rows.shape[0]!=0:
+        # Convert 'PerStart' to datetime format for sorting
+            previous_rows['PerStart'] = previous_rows['PerStart'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date())
+
+            # Sort by PerStart date in descending order
+            previous_rows = previous_rows.sort_values(by='PerStart', ascending=False)
+
+            # Iterate through the sorted rows
+            for _, prev_row in previous_rows.iterrows():
+                prev_start_date = prev_row['PerStart']
+                prev_end_date = datetime.strptime(prev_row['PerEnd'], '%m/%d/%Y').date()
+                if prev_start_date.weekday() <= target_date.weekday() <= prev_end_date.weekday():
+                    # Convert 'PerStart' back to original format before returning
+                    prev_row['PerStart'] = prev_row['PerStart'].strftime('%m/%d/%Y')
+                    # prev_row['PerEnd'] = prev_row['PerEnd']
+                    return prev_row
+
+        return None
     
     def update_dow(self,start_date, end_date):
         # Initialize DOW string to all '9's indicating closed
@@ -133,4 +190,26 @@ class DailyRolling:
             current_date += timedelta(days=1)
 
         return ''.join(dow_list)
+    
+    def get_nav_dump(self,depDate):
+        station_master_query="select station from config_station_master where route='I'"
+        station_master=pd.read_sql(station_master_query,self.rm_rd_conn)
+        int_stations=tuple(f"{val}" for val in station_master["station"])
+        if (len(int_stations)==1):
+            int_stations=f"('{int_stations[0]}')"
+        query=f"""SELECT IL.DepartureStation as Origin,IL.ArrivalStation as Destination, 
+		IL.DepartureDate,
+         TRIM(IL.FlightNumber) as FlightNumber 
+         FROM 
+         {configsettings.NAV_DB_NAME}[rez].InventoryLeg IL 
+         WHERE 
+         IL.Lid > 0 
+         and IL.Status NOT IN (2) 
+		 and LEN(TRIM(IL.FlightNumber))=4
+         and IL.DepartureDate >= '{depDate.strftime('%Y-%m-%d')}' 
+         and IL.DepartureDate <= '{depDate.strftime('%Y-%m-%d')}'
+         and IL.DepartureStation NOT IN {int_stations} and IL.ArrivalStation NOT IN{int_stations};
+         """
+        dump=pd.read_sql(query,self.nav_conn)
+        return dump
     
