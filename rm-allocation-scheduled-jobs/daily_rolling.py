@@ -24,8 +24,8 @@ class DailyRolling:
         df_market_list=self.create_new_row(df_market_list,current_date,df_sector_map)
         print(len(df_market_list))
         self.logger.info("Writing modified DataFrame back to the database.")
-        df_market_list.to_sql('market_list', self.rm_wr_conn, if_exists='replace', index=False)
-        self.logger.info("Finished writing to market_list table.")
+        self.rm_wr_conn.execute("TRUNCATE TABLE market_list")
+        df_market_list.to_sql('market_list', self.rm_wr_conn, if_exists='append', index=False)
 
     def get_current_date_ist(self):
         local_tz = pytz.timezone('Asia/Kolkata')  # IST timezone
@@ -147,7 +147,7 @@ class DailyRolling:
             (df_market_list['Destin'] == destin) &
             (df_market_list['FlightNumber'] == int(flight_number))
         ]
-
+        self.logger.info(f"previous_rows: {previous_rows}")
         # Parse the date into a datetime object
         target_date = date
         
@@ -211,5 +211,6 @@ class DailyRolling:
          and IL.DepartureStation NOT IN {int_stations} and IL.ArrivalStation NOT IN{int_stations};
          """
         dump=pd.read_sql(query,self.nav_conn)
+        self.logger.info(f"dump legth {len(dump)}")
         return dump
     
