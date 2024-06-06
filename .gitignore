@@ -4,3 +4,4 @@ package
 \venv
 
 .vscode/
+.idea/
