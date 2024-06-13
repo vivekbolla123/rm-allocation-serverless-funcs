@@ -20,7 +20,7 @@ BEGIN
             CAST(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) AS TIME) AS BookingTime
         FROM rez.Booking B 
         INNER JOIN rez.BookingPassenger BP ON BP.BookingID = B.BookingID 
-        INNER JOIN rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL) 
+        INNER JOIN rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL)  AND PJS.ClassOfService NOT IN ('S') 
         INNER JOIN rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID 
         INNER JOIN rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID 
         WHERE  IL.DepartureDate = @DepartureDate
