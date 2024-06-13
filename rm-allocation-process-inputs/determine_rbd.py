@@ -13,7 +13,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -58,7 +58,7 @@ class DetermineRBD:
             if upsellValue != 0:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
-        if int(currParams.opening_fares) == 1:
+        if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
                 farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
@@ -81,7 +81,7 @@ class DetermineRBD:
         self.logger.info("Historic Fare: " + str(historicOwnFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount)
 
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
@@ -103,7 +103,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
 
-    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams):
+    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -188,6 +188,19 @@ class DetermineRBD:
             upsell = CONST_NA
             howDetermined = 'AllocationN'
             anchorFare =  0
+        
+        if plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0:
+            howDetermined = "Overbooking Calculated Fare"
+            upsell = CONST_NA
+            calculatedFare = strategyFare
+            if lastSoldFare != CONST_NA and lastSoldFare != 0:
+                fare1 = self.constantsutils.OVERBOOKING_FARE_PERCENT_VALUE*lastSoldFare
+                fare2 = lastSoldFare+self.constantsutils.OVERBOOKING_FARE_ABSOLUTE_VALUE
+                calculatedFare = max(fare1,fare2)
+            if calculatedFare < strategyFare:
+                anchorFare = (calculatedFare+strategyFare)/2
+            else:
+                anchorFare = calculatedFare  
 
         return anchorFare, howDetermined, upsell
 

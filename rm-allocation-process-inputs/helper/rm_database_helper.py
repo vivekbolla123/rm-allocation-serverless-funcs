@@ -28,7 +28,7 @@ class RMDatabaseHelper:
 
     def loadRunParams(self):
         # load the list of sectors
-        
+
         if self.inputSource.input_source[CONST_MARKET_LIST] == FILE:
             if self.currParams.route_type=="direct":
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_FILE_PATH)
@@ -165,13 +165,22 @@ class RMDatabaseHelper:
 
         return tgtBookedLoad
 
-    def checkNowShowProb(self,sector,flighnno,constantsutils):
-        query=f'''SELECT CASE WHEN Prob1 >= '{constantsutils.OVERBOOKING_PROB}' AND Prob2 >='{constantsutils.OVERBOOKING_PROB}' THEN 2 ELSE 1 END AS OverBookingCount FROM no_show_probabilities WHERE (Sector = '{sector}' AND `FlightNumber` = '{flighnno}') AND (Prob1 >= '{constantsutils.OVERBOOKING_PROB}' OR Prob2 >= '{constantsutils.OVERBOOKING_PROB}');'''
-        result=pd.read_sql(query,self.conn)
+    def checkNowShowProb(self, sector, probability, month, deptTime):
+        query = f"""
+        SELECT
+        OBCount AS OverBookingCount
+        FROM no_show_probabilities
+        JOIN config_clusters c ON c.cluster = no_show_probabilities.Cluster
+        WHERE Sector = '{sector}' AND Month = '{month}'
+        AND Prob >= '{probability}' 
+        AND TIME(c.startTime) <= '{deptTime}' AND TIME(c.endTime) > '{deptTime}' AND N>20
+        order by OBCount desc
+        """
+        result = pd.read_sql(query, self.conn)
         if result.empty:
-            count=0
+            count = 0
         else:
-            count=int(result["OverBookingCount"][0])
+            count = int(result["OverBookingCount"][0])
         return count
 
     def getNdoBand(self, ndo):
@@ -476,7 +485,7 @@ class RMDatabaseHelper:
                     WHERE
                         date = '{currFltDate}'
                         AND sector = '{sector}' '''
-                        
+
         return pd.read_sql(query, self.conn)
 
     def getArea(self, currentHour):
@@ -521,7 +530,6 @@ class RMDatabaseHelper:
             self.wrconn.execute(insert_query, (run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         except Exception as e:
             self.logger.info(e)
-    
 
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 
@@ -540,7 +548,7 @@ class RMDatabaseHelper:
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()	
 
         query=f'''
-            select STD,Origin,Destin as Destination,FlightNumber from booking_fare_data where FlightDate = '{currFltDate}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}' order by STD ASC
+            select DepartureTime,Origin,Destination,FlightNumber from bookload where DepartureDate = '{currFltDate}' AND Origin = '{currParams.origin}' AND Destination = '{currParams.destin}' order by DepartureTime ASC
         '''
         conn=self.conn
         df = pd.read_sql(query, conn)
@@ -591,9 +599,9 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return routedData
-    
+
     def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel):
-     
+
         if channel == 'B2C':
             condition = " and LEFT(RBD,1) != 'Z'"
         if channel == 'B2B':
@@ -614,27 +622,25 @@ class RMDatabaseHelper:
             sector2_total = sector2_result["Total"][0]
             total = sector1_total + sector2_total
         return total,sector1_total,sector2_total
-    
+
     def getSellingPrice(self, rbd, sector, channel,route):
-     
+
         if channel == 'B2C':
             condition = " and LEFT(RBD,1) != 'Z'"
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
         sector1_RBDquery = f"select Total from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
-       
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
-       
 
         if (sector1_result.shape[0] == 0):
-            
+
             sector1_total=0
-            
+
         else:
             sector1_total = sector1_result["Total"][0]
-            
+
         return sector1_total
     def insertSummaryRow_connections(self,allocresults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
@@ -668,9 +674,9 @@ class RMDatabaseHelper:
                     '{str(latest_row.analystName)}'
                 )"""
             self.wrconn.execute(insertQuery)
-            
+
     def getcurrentRBD(self,current_date, flight, channel, sector,bookload):
-        
+
         parameterValueQuery = f"""SELECT OpeningRBD as ClassOfService  FROM current_opening_rbd where DepartureDate = '{str(current_date)}' and concat(Origin,Destination)='{sector}' and flightno='{str(flight)}' and Channel='{channel}'"""
         try:
             parameterValue = pd.read_sql(parameterValueQuery, self.conn)
@@ -678,7 +684,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return parameterValue
-    
+
     def getDefaultAu(self, departure_date):
         month_name = datetime.strptime(departure_date, '%Y-%m-%d').strftime('%B')
         query = f"""
@@ -703,7 +709,7 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return parameter_value["au_value"][0]
-    
+
     def get_seats_sold_by_class(self, flight_number, origin, destination, departure_date):
         query = f'''
         SELECT 
@@ -725,7 +731,7 @@ class RMDatabaseHelper:
         return l_class_seats_sold, p_class_seats_sold, G8_class_seats_sold, G9_class_seats_sold
 
     def get_current_rbds_by_class(self, departure_date, flight_number, sector):
-            query = f"""
+        query = f"""
             SELECT
                 ClassOfService as class_code,
                 ClassAu as current_availability
@@ -736,9 +742,9 @@ class RMDatabaseHelper:
                 AND Origin + Destin = "{str(sector)}"
                 AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
             """
-            df = pd.read_sql(query, self.conn)
-            l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
-            p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
-            G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
-            G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
-            return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
+        df = pd.read_sql(query, self.conn)
+        l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
+        p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
+        G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
+        G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
+        return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd

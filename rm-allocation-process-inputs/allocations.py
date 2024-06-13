@@ -229,7 +229,7 @@ class RBDAllocations:
 
         return openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD
 
-    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams):
+    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
         openingB2CRBD = openDataB2C['RBD'][0]
@@ -250,7 +250,7 @@ class RBDAllocations:
             price = B2BRBDs['Total'][b2bctr]
             b2bStatus = openDataB2B['statusInd'][0]
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            if b2boverbookingflag:
+            if overBookingCount>0:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
             else:
                 if b2bSkipFlag:

@@ -38,6 +38,7 @@ class Schema:
         self.load_generic_table("default_distress_inventory","default_distress_inventory.csv")
         self.load_generic_table("distress_inventory_strategy","distress_inventory_strategy.csv")
         self.load_generic_table("current_rbd","current_rbd.csv")
+        self.load_generic_table("config_clusters","config_clusters.csv")
         
         self.alterTables()
 
