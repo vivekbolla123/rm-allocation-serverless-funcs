@@ -212,7 +212,7 @@ class HistoricFaresModule:
                    "DepartureDate", "AvgFare", "NDO", ]
         response = self.s3.get_object(Bucket=self.S3_RM_BUCKET_NAME, Key=path)
         parquet_file = response["Body"].read()
-        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols).rename(
+        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols,engine="fastparquet").rename(
             columns={
                 "SourceAirport": "Origin",
                 "DestinationAirport": "Destination",
