@@ -238,7 +238,7 @@ class ProfileFaresModule:
 
         response = s3_client.get_object(Bucket=self.S3_RM_BUCKET_NAME, Key=path)
         parquet_file = response["Body"].read()
-        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols)
+        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols,engine="fastparquet")
 
         dfx = dfx[dfx.NDO.between(30, 40)]
 
