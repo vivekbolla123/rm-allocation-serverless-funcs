@@ -21,6 +21,7 @@ from daily_rolling import DailyRolling
 from faresUpdate import Fares
 from historicFares import HistoricFaresModule
 from profileFares import ProfileFaresModule
+from noShowProb import NoShowProbs
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -67,7 +68,8 @@ module_map = {
     "daily_rolling": DailyRolling,
     "fares": Fares,
     "historicFares": HistoricFaresModule,
-    "profileFares": ProfileFaresModule
+    "profileFares": ProfileFaresModule,
+    "noShowProb" : NoShowProbs
 }
 
 
