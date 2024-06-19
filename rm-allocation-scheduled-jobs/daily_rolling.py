@@ -113,31 +113,44 @@ class DailyRolling:
 
         return df_market_list, new_rows
 
-    def create_new_row(self,df_market_list,current_date,df_sector_map):
-        tgt_date=current_date+timedelta(days=30)
-        all_flights=self.get_nav_dump(tgt_date)
-        new_row=pd.DataFrame().reindex_like(df_market_list).head(1)
+    def create_new_row(self, df_market_list, current_date, df_sector_map):
+        tgt_date = current_date + timedelta(days=30)
+        all_flights = self.get_nav_dump(tgt_date)
+
+        # Create a base new_row with the static values set
+        new_row_template = {
+            'PerEnd': [tgt_date.strftime('%m/%d/%Y')],
+            'PerStart': [tgt_date.strftime('%m/%d/%Y')],
+            'UUID': [str(uuid.uuid4())],
+            'DOW': [self.update_dow(tgt_date, tgt_date)]
+        }
+
         for index, row in all_flights.iterrows():
-            new_row['PerEnd'][0] = tgt_date.strftime('%m/%d/%Y')
-            new_row['PerStart'][0] = tgt_date.strftime('%m/%d/%Y')
-            new_row['UUID'][0] = str(uuid.uuid4())
             sector = row['Origin'] + row['Destination']
             self.logger.info(f"Sector for index {index}: {sector}")
-            if df_sector_map[df_sector_map['sector'] == sector].shape[0]==0:
+
+            # Check if sector exists in df_sector_map
+            sector_rows = df_sector_map[df_sector_map['sector'] == sector]
+            if sector_rows.empty:
                 continue
-            sector_row = df_sector_map[df_sector_map['sector'] == sector].iloc[0]
-            user = sector_row['user1']
-            new_row['analystName'][0] = user
-            new_row['DOW'][0] = self.update_dow(tgt_date, tgt_date)
+
+            sector_row = sector_rows.iloc[0]
+            new_row_template['analystName'] = sector_row['user1']
 
             corresponding_row = self.lookup_corresponding_row(df_market_list, row['Origin'], row['Destination'], row['FlightNumber'], tgt_date)
             if corresponding_row is not None:
                 self.logger.info(f"Updating new row with data from corresponding row: {corresponding_row}")
-                columns_to_exclude = ['PerStart', 'PerEnd', 'DOW', 'UUID', 'analystName']
+
+                # Create a new row with the data from corresponding_row and new_row_template
+                new_row = {**new_row_template}
+                new_row['UUID'] = [str(uuid.uuid4())]
                 for column in df_market_list.columns:
-                    if column not in columns_to_exclude:
-                        new_row[column][0] = corresponding_row[column]
-                df_market_list = pd.concat([df_market_list, new_row], ignore_index=True)
+                    if column not in new_row_template:
+                        new_row[column] = [corresponding_row[column]]
+                new_row = pd.DataFrame(new_row)
+                # Concat the new row to the DataFrame
+                df_market_list = pd.concat([df_market_list,new_row], ignore_index=True)
+
         return df_market_list
             
     def lookup_corresponding_row(self, df_market_list, origin, destin, flight_number, date):
@@ -213,4 +226,3 @@ class DailyRolling:
         dump=pd.read_sql(query,self.nav_conn)
         self.logger.info(f"dump legth {len(dump)}")
         return dump
-    
