@@ -573,8 +573,10 @@ class DynAlloc:
 			bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
 
 		lastBookloadTillMidnight = 0
+		bookingToday = 0
 		if bookings.shape[0] != 0:
 			lastBookloadTillMidnight = bookings["BookingsCount"][0]
+			bookingToday = bookings["BookingToday"][0]
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -583,8 +585,6 @@ class DynAlloc:
 		area = self.rmdatabasehelper.getArea(curTime.hour)
 		areaAtCurrentTime = area["sum"][0] / 100
 		self.logger.info("Area is:" + str(areaAtCurrentTime))
-
-		bookingToday = currBookedLoad - lastBookloadTillMidnight
   
 		startOfDayTgtList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter + 1, self.currParams.curve_id)
 		if startOfDayTgtList.shape[0] == 0:
