@@ -59,7 +59,7 @@ class DetermineRBD:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
         if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
-            
+
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
                 farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
                 if farePrice.shape[0] != 0:
