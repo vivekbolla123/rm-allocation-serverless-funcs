@@ -30,6 +30,7 @@ if env == 'prod':
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     FETCH_INPUTS_API_URL = "http://prod-internal-nlb-b7a4a0b9d3b5ddcb.elb.ap-south-1.amazonaws.com/lambda/rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     CALCULATE_COMPONENTS_QUEUE_URL = "rm-allocation-queues_rm-allocation-scheduled-jobs"
+    MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
 
 if env == 'uat':
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
@@ -52,6 +53,7 @@ if env == 'uat':
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
     FETCH_INPUTS_API_URL = "https://uat-intsvc.qp.akasaair.com/rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     CALCULATE_COMPONENTS_QUEUE_URL = 'rm-allocation-queues_test-rm-allocation-scheduled-jobs'
+    MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379

@@ -12,6 +12,7 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import date
 from redis import Redis
+from constants_utils import ConstantsUtils
 
 warnings.filterwarnings('ignore')
 
@@ -52,11 +53,24 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 if cache_client.ping():
     logger.info("Connected to Redis")
 
+constantsutils=ConstantsUtils(conn)
+
+def number_of_batches_required(total_records,adhoc_batch_size):
+
+    if total_records<adhoc_batch_size:
+        return [1,0]
+    if total_records%adhoc_batch_size!=0:
+        return [total_records//adhoc_batch_size,total_records%adhoc_batch_size]
+    else:
+        return [total_records//adhoc_batch_size,0]
+
+
 def lambda_handler(event, context):
     """
     This function fetches the market_list and inserts it into the queue
     """
     # keys
+    temp_list=[]
     start_interval_key = "start_interval"
     end_interval_key = "end_interval"
     queue_key = "queue"
@@ -68,6 +82,7 @@ def lambda_handler(event, context):
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
 
+    adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE   #This is the batch size for Adhoc runs
     body = event['body']
     # Parse the JSON body
     data = json.loads(body)
@@ -152,7 +167,8 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
+
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region,markets_count)
 
     cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
     cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
@@ -161,35 +177,112 @@ def lambda_handler(event, context):
     cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
 
+    batches_required = number_of_batches_required(markets_count,adhoc_batch_size)
+    c=1
+    k=0
+    print("MARKETS COUNT: ",markets_count)
+    print("BATCHES REQUIRED: ",batches_required)
+
     for mkt_index in range(markets_count):
+
         data = mkt_list.iloc[mkt_index]
-        
+
         try:                
             data["runId"] = run_id
             data["update_navitaire_method"] = update_navitaire_method
             data["runTime"] = start_time
             data["route_type"] = route_type
+            data["queue"] = queue_name
 
             data_str = data.to_json()
             logger.info(data_str)
-            print(data_str)
-            
-        except:
-            logger.info("Error in Start or End Date at row: " + data)  
-            logger.info("Run Id: " + run_id)  
-            
-        sqs.send_message(
+            # print(data_str)
+
+        except Exception as e:
+            print("Error in Start or End Date at row: " + data)  
+            print("Exception->",e)
+            print("Run Id: " + run_id)  
+
+        if not type=="Adhoc":
+            print("If not adhoc")
+            print("Total records: ",markets_count)
+            sqs.send_message(
             QueueUrl=queue_name,
-            MessageBody=data_str
-        )
+            MessageBody=data_str)
+
+        if type == "Adhoc":
+            print("Initial C=", c)
+            if (len(temp_list) < adhoc_batch_size and (c <= batches_required[0])  and c != -1):  # max length of the batch should be written here instead of 6(same for below)
+                temp_list.append(data_str)
+                print("Current Length-->", len(temp_list))
+                if markets_count < adhoc_batch_size and mkt_index == markets_count - 1:
+                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(c)
+                    my_list_json = json.dumps(temp_list)
+
+                    cache_client.set(temp_name, my_list_json, 86400)
+                    stored_list = cache_client.get(temp_name)
+                    decoded_list = json.loads(stored_list)
+                    print("HERE IS UR LIST: ", decoded_list)
+                    temp_list = []
+                    print("name=", temp_name)
+                    allocation_run_batch_audit(run_id, temp_name)
+                    print(batches_required[0])
+                    if c == batches_required[0]:
+                        print("Came here")
+                        k = c + 1
+                        if batches_required[1] == 0:
+                            update_run_with_batches(c, run_id)
+                        c = -1
+                    else:
+                        c += 1
+                    print("NEW C=", c)
+                if len(temp_list) == adhoc_batch_size:
+
+                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(c)
+                    my_list_json = json.dumps(temp_list)
+
+                    cache_client.set(temp_name, my_list_json, 86400)
+
+                    stored_list = cache_client.get(temp_name)
+
+                    decoded_list = json.loads(stored_list)
+                    print("HERE IS UR LIST: ", decoded_list)
+                    temp_list = []
+                    allocation_run_batch_audit(run_id, temp_name)
+
+                    if c == batches_required[0]:
+                        print("Came here")
+                        k = c + 1
+                        if batches_required[1] == 0:
+                            update_run_with_batches(c, run_id)
+                        c = -1
+                    else:
+                        c += 1
+                    print("NEW C=", c)
+
+            elif c == -1 and batches_required[1] != 0:
+                temp_list.append(data_str)
+                if mkt_index == markets_count - 1:
+                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(k)
+
+                    cache_client.set(temp_name, my_list_json, 86400)
+                    stored_list = cache_client.get(temp_name)
+                    decoded_list = json.loads(stored_list)
+                    print("Here man--->", decoded_list)
+                    update_run_with_batches(k, run_id)
+                    allocation_run_batch_audit(run_id, temp_name)
 
     end_time = datetime.now()
-    update_run_end(end_time, run_id)
-    if(update_navitaire_method == 'S3'):
+    
+    if type != "Adhoc":
+        update_run_end(end_time, run_id)
+        
+    if update_navitaire_method == "S3":
         insert_file_upload_s3(run_id, start_time)
+        
     return {
-        'statusCode': 200,
-        'body': markets_count
+        "statusCode": 200, 
+        "body": markets_count
     }
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
@@ -197,12 +290,12 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
     currVersionValues = read_sql(currVersionQuery, conn)
 
     table_versions = {}
-    for index,currVersion in currVersionValues.iterrows():
-        if market_list_table == currVersion['tableName']:
-            table_versions['market_list'] = currVersion['curr_version']
-            table_versions['market_list_name'] = currVersion['tableName']
+    for index, currVersion in currVersionValues.iterrows():
+        if market_list_table == currVersion["tableName"]:
+            table_versions["market_list"] = currVersion["curr_version"]
+            table_versions["market_list_name"] = currVersion["tableName"]
         else:
-            table_versions[currVersion['tableName']] = currVersion['curr_version']
+            table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
     insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
@@ -229,6 +322,33 @@ def update_run_end(end_time, run_id):
     except Exception as e:
         logger.info(e)
     logger.info("STOPPED ALLOCATION RUN")
+
+
+def update_run_with_batches(total_batches, run_id):
+    update_query = " UPDATE allocation_run_audit SET total_batch_size = %s, batch_completed = %s, adhoc_run_status = %s where run_id = %s"
+    try:
+        wrconn.execute(update_query, (total_batches, 0, "IN-QUEUE", run_id))
+    except Exception as e:
+        logger.info(e)
+        print(e)
+
+def allocation_run_batch_audit(run_id, batch_id):
+    start_time = datetime.now()
+    update_query = "INSERT INTO allocation_run_batch_audit (runId,start_time,batch_id) VALUES (%s, %s, %s)"
+    try:
+        wrconn.execute(update_query, (run_id, start_time.strftime("%Y-%m-%d %H:%M:%S"), batch_id))
+        print("Inserted")
+    except Exception as e:
+        logger.info(e)
+        print(e)
+
+def getCurrentDate():
+    currDate = date.today()
+    return currDate
+
+def getStartEndDate(currDate, startNDO, endNDO):
+    startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
+    endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
 
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
@@ -328,4 +448,4 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     return query
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# lambda_handler({"body": "{\"start_interval\": 0, \"end_interval\": 7}"},None)
+# lambda_handler({"body": "{\"start_interval\": 0, \"end_interval\": 100, \"market_list_table_name\": \"market_list_adhoc_SV\"}"},None)

@@ -7,7 +7,7 @@ def get_credentials(parameter_name):
     parameter_value = response['Parameter']['Value']
     return parameter_value
 
-env = getenv('env', default=None)
+env = getenv('env', default='uat')
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME = "rmappuser"

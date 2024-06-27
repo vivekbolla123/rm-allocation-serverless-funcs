@@ -5,7 +5,7 @@ SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-ALTER PROCEDURE [dbo].[LastBookingsCount]
+ALTER PROCEDURE [dbo].[SP_LastBookingsCount]
     @DepartureDate DATE,
     @FlightNumber NVARCHAR(255),
     @DepartureStation NVARCHAR(255),

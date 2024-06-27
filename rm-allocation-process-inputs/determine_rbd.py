@@ -59,16 +59,43 @@ class DetermineRBD:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
         if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
+
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
                 farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
-            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-                farePrice = self.navdatabasehelper.getLastSellingFare(currFltDate, currParams)
-            if farePrice.shape[0] != 0:
-                if channel == B2C_CHANNEL:
-                    lastSoldFare = farePrice["B2Cfare"][0]
-                if channel == B2B_CHANNEL:
-                    lastSoldFare = farePrice["B2Bfare"][0]
+                if farePrice.shape[0] != 0:
+                    if channel == B2C_CHANNEL:
+                        lastSoldFare = farePrice["B2Cfare"][0]
+                    if channel == B2B_CHANNEL:
+                        lastSoldFare = farePrice["B2Bfare"][0]
 
+
+            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+                farePrice = self.navdatabasehelper.getLastSellingFare(currFltDate)
+                if farePrice.shape[0] != 0:
+                    farePrice['FareBasis'] = farePrice.groupby(['RecordLocator', 'BookingID', 'PassengerID'])['FareBasis'].apply(lambda x: x.replace('', pd.NA).ffill().bfill().replace(pd.NA, ''))
+                    currDate = datetime.strptime(str(currFltDate), DATE_FORMAT_2).date()
+                    
+                    # Filter farePrice based on conditions
+                    farePrice = farePrice[
+                        (farePrice['DepartureDate'] == currDate) &
+                        (farePrice['FlightNumber'] == str(currParams.flight_number)) &
+                        (farePrice['DepartureStation'] == origin) &
+                        (farePrice['ArrivalStation'] == destin)
+                    ]
+
+                    # Sort farePrice by BookingUTC and FareBasis in descending order
+                    farePrice = farePrice.sort_values(by=['BookingUTC', 'FareBasis'], ascending=[False, False])
+
+                    # Get last sold fare based on channel
+                    if channel == B2C_CHANNEL:
+                        fare_basis_code = 'R'
+                    elif channel == B2B_CHANNEL:
+                        fare_basis_code = 'M'
+
+                    if len(farePrice[farePrice['FareBasis'] == fare_basis_code]['Fare']) != 0:
+                        lastSoldFare = farePrice[farePrice['FareBasis'] == fare_basis_code]['Fare'].values[0]
+                    
+                
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
             if channel == B2B_CHANNEL:
@@ -399,4 +426,3 @@ class DetermineRBD:
         
         openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
         return openResult
-
