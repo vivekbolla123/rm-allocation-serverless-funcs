@@ -684,7 +684,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return parameterValue
-
+    
     def getDefaultAu(self, departure_date):
         month_name = datetime.strptime(departure_date, '%Y-%m-%d').strftime('%B')
         query = f"""
@@ -709,7 +709,7 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
         return parameter_value["au_value"][0]
-
+    
     def get_seats_sold_by_class(self, flight_number, origin, destination, departure_date):
         query = f'''
         SELECT 
@@ -732,16 +732,16 @@ class RMDatabaseHelper:
 
     def get_current_rbds_by_class(self, departure_date, flight_number, sector):
         query = f"""
-            SELECT
-                ClassOfService as class_code,
-                ClassAu as current_availability
-            FROM current_rbd
-            WHERE
-                DepartureDate = "{departure_date}"
-                AND FlightNumber = "{str(flight_number)}"
-                AND Origin + Destin = "{str(sector)}"
-                AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
-            """
+        SELECT
+            ClassOfService as class_code,
+            ClassAu as current_availability
+        FROM current_rbd
+        WHERE
+            DepartureDate = "{departure_date}"
+            AND FlightNumber = "{str(flight_number)}"
+            AND Origin + Destin = "{str(sector)}"
+            AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
+        """
         df = pd.read_sql(query, self.conn)
         l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
         p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]

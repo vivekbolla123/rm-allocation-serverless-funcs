@@ -9,10 +9,13 @@ from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
 
+from constants_utils import ConstantsUtils
+
 from pushRBDToSFTP import PushRBDtoSFTP
 from runConnections import RunConnections
 from allocation_summary import AllocationSummaryReport
 from markRunCompleted import MarkRunCompleted
+from run_adhocs_class import SchedulerHandler
 from cleanup import CleanUpConfig
 from sftp_error_rate import SFTPErrorRate
 from scheduled_job_run_audit import AuditScheduledJob
@@ -50,7 +53,8 @@ try:
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     # Initialize AWS resources
-    sqs = boto3.client("sqs")
+    sqs = boto3.client('sqs')
+    
     s3 = boto3.client("s3")
 
 except Exception as e:
@@ -69,12 +73,13 @@ module_map = {
     "fares": Fares,
     "historicFares": HistoricFaresModule,
     "profileFares": ProfileFaresModule,
-    "noShowProb" : NoShowProbs
+    "noShowProb" : NoShowProbs,
+    "run_adhocs_queue":SchedulerHandler
 }
 
 
 def lambda_handler(event, context):
-
+    events = boto3.client('events')
     if "Records" in event:
         events = event["Records"]
         for i in events:
@@ -105,7 +110,9 @@ def lambda_handler(event, context):
         params['sqs'] = sqs
         params['s3'] = s3
         params['cache_client'] = cache_client
-
+        params['events'] = events 
+        params['constantutils'] = ConstantsUtils(rm_rd_conn)
+        
         Module = module_map[module_key]
         Module_obj = Module(logger, params, overrides, context)
 

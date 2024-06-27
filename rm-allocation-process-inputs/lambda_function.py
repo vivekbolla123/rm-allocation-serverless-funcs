@@ -86,10 +86,10 @@ def lambda_handler(event, context):
         "latestCode": True,
         "currentTime": False
     }
-
+    print("Records-->",records)
     for record in records:
         content = record['body']
-        # NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
+#        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
         data["NavitaireConnection"] = NavitaireConnection
         data["dbconn"] = rdconn
@@ -113,28 +113,42 @@ def lambda_handler(event, context):
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # messageBody = {
-#     "Sector1": "BOMDEL",
-#     "Flight1": 8023,
-#     "Sector2": "DELAMD",
-#     "Flight2": 6501,
-#     "Outbound_stop": 1,
-#     "PerType": "D",
-#     "PerStart": "05/09/2024",
-#     "PerEnd": "05/10/2024",
+#     "PerStart": "07/02/2024",
+#     "PerEnd": "07/02/2024",
+#     "Origin": "BLR",
+#     "Destin": "COK",
+#     "FlightNumber": 1353,
 #     "DOW": 1111111,
-#     "Price_Strategy": 1,
-#     "Discount_Value": 10,
+#     "strategyFlag": 0,
+#     "TimeWindowStart": "00:00",
+#     "TimeWindowEnd": "23:59",
+#     "CurveID": "C18946",
+#     "CarrExlusion": "**",
+#     "fareAnchor": "MIN",
+#     "fareOffset": "0",
 #     "FirstRBDAlloc": 5,
 #     "OtherRBDAlloc": 10,
 #     "B2BBackstop": 0,
-#     "B2CBackstop": 4000,
-#     "B2BFactor": 1,
-#     "SkippingFactor": 5,
-#     "analystName": "VIKRAM",
-#     "runId": "b8494113-ae25-4d41-8b92-9a574e5d866f",
-#     "update_navitaire_method": "sftp",
-#     "route_type": "connections",
-#     "runTime": 1713513424573
+#     "B2CBackstop": 0,
+#     "B2BFactor": "0.5",
+#     "SkippingFactor": 0,
+#     "OwnFareFlag": "Y",
+#     "DaySpan": 0,
+#     "AutoTimeRangeFlag": 0,
+#     "analystName": "SRISHTI",
+#     "openingFares": 1,
+#     "OverBooking": "Y",
+#     "profileFares": "N",
+#     "rbdPushFlag": "0",
+#     "B2BTolerance": "0",
+#     "B2CTolerance": "1",
+#     "distressInventoryFlag": "1",
+#     "Flag": "1",
+#     "runId": "677f3d9c-3882-453d-bbf9-6021518712e3",
+#     "update_navitaire_method": "api",
+#     "runTime": 1719376742758,
+#     "route_type": "direct",
+#     "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
 # }
 
 

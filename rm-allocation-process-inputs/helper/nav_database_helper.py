@@ -50,15 +50,12 @@ class NavDatabaseHelper:
 
         return len(row_index) > 0 and row_index[0] < len(df) - 1
     
-    def getLastSellingFare(self, currFltDateStr, currParams):
+    def getLastSellingFare(self, currFltDateStr):
 	
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()	
         query = f"""
                 EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastSoldFare]
-                    @DepartureDate = N'{currFltDate}',
-                    @FlightNumber = N'{currParams.flight_number}',
-                    @DepartureStation = N'{currParams.origin}',
-                    @ArrivalStation = N'{currParams.destin}'
+                    @DepartureDate = N'{currFltDate}'
         """
         farePrice = pd.read_sql(query, self.NavitaireConnection)
 
