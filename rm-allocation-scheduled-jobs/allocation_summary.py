@@ -94,7 +94,7 @@ class AllocationSummaryReport:
                         QP_DW_RMALLOC.allocation_run_audit ara 
                     LEFT JOIN
                         QP_DW_RMALLOC.navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
-                    {condition} AND ara.type != 'Local Run' AND ara.total_batch_size-ara.batch_completed=0
+                    {condition} AND ara.type != 'Local Run' AND (ara.total_batch_size-ara.batch_completed=0 or ara.total_batch_size is null)
                     GROUP BY ara.run_id"""
             
         result = self.rm_rd_conn.execute(select).fetchall()
