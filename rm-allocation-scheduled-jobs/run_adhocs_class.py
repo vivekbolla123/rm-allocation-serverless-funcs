@@ -48,7 +48,7 @@ class SchedulerHandler:
             print("Connected to Redis")
 
         # main code
-        scheduler_names = self.does_redis_list_exist()
+        scheduler_names = self.get_scheduler_names()
         dic = {}
         xz=self.get_shortest_run()
 
@@ -113,6 +113,7 @@ class SchedulerHandler:
                 query = text("SELECT schedulerName FROM QP_DW_RMALLOC.config_schedulers WHERE allocationType != 'S'")
                 result = connection.execute(query)
                 scheduler_names = [row[0] for row in result.fetchall()]
+                print(scheduler_names)
         except Exception as e:
             self.logger.error(e)
             sys.exit()
@@ -147,7 +148,7 @@ class SchedulerHandler:
     def get_shortest_run(self):
         try:
             with self.wrconn.connect() as connection:
-                query = text("SELECT run_id,batch_completed,total_batch_size FROM QP_DW_RMALLOC.allocation_run_audit WHERE total_batch_size - batch_completed <> 0 AND adhoc_run_status = 'IN-QUEUE' ORDER BY (total_batch_size - batch_completed) ASC, marketListCount DESC LIMIT 1")
+                query = text("SELECT run_id,batch_completed,total_batch_size FROM QP_DW_RMALLOC.allocation_run_audit WHERE total_batch_size - batch_completed <> 0 AND adhoc_run_status = 'IN-QUEUE' ORDER BY (total_batch_size - batch_completed) ASC, CONVERT(marketListCount,UNSIGNED INTEGER) ASC LIMIT 1")
                 result = connection.execute(query)
                 shortest_run = result.fetchone()
                 if shortest_run:
@@ -229,16 +230,16 @@ class SchedulerHandler:
             update_query = f"UPDATE allocation_run_audit SET  adhoc_run_status = 'DONE' WHERE run_id = '{smallest_batch_id[0]}' and total_batch_size=batch_completed"
             self.wrconn.execute(update_query)
 
-    def does_redis_list_exist(self):
-        if self.cache_client.exists("list_of_scheduler_names"):
-            my_list = self.cache_client.lrange("list_of_scheduler_names", 0, -1)
-            my_list = [item.decode("utf-8") for item in my_list]
-            print("Here:", my_list)
-            return my_list
-        else:
-            my_list = self.get_scheduler_names()
-            for item in my_list:
-                self.cache_client.rpush("list_of_scheduler_names", item)
-            print("Here it comes")
-            print(my_list)
-            return my_list
+    # def does_redis_list_exist(self):
+    #     if self.cache_client.exists("list_of_scheduler_names"):
+    #         my_list = self.cache_client.lrange("list_of_scheduler_names", 0, -1)
+    #         my_list = [item.decode("utf-8") for item in my_list]
+    #         print("Here:", my_list)
+    #         return my_list
+    #     else:
+    #         my_list = self.get_scheduler_names()
+    #         for item in my_list:
+    #             self.cache_client.rpush("list_of_scheduler_names", item)
+    #         print("Here it comes")
+    #         print(my_list)
+    #         return my_list
