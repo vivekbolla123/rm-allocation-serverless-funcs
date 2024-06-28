@@ -6,7 +6,7 @@ class AllocationSummaryReport:
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
-        self.interval_time = '2 hour'
+        self.interval_time = '6 hour'
 
         if 'interval_time' in overrides:
             self.interval_time = overrides['interval_time']
@@ -94,7 +94,7 @@ class AllocationSummaryReport:
                         QP_DW_RMALLOC.allocation_run_audit ara 
                     LEFT JOIN
                         QP_DW_RMALLOC.navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
-                    {condition} AND ara.type != 'Local Run'
+                    {condition} AND ara.type != 'Local Run' AND ara.total_batch_size-ara.batch_completed=0
                     GROUP BY ara.run_id"""
             
         result = self.rm_rd_conn.execute(select).fetchall()
