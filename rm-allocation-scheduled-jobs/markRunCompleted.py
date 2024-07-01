@@ -42,11 +42,12 @@ class MarkRunCompleted:
             
         if is_complete:
             # Update the value to 1 if all flight are ready
+            update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
             if audit_type == 'Adhoc':
                 self.logger.info(f"Adhoc run for run_id: {run_id}")
                 self.add_available_slot()
+                update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
             
-            update_query = "UPDATE allocation_run_audit SET is_run_completed = %s WHERE run_id = %s "
             self.rm_wr_conn.execute(update_query, ('1', run_id))
             self.logger.info(
                 f"Updated value for {run_id} since run is completed")

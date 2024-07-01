@@ -56,8 +56,8 @@ class NavDatabaseHelper:
         query = f"""
                 EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastSoldFare]
                     @DepartureDate = N'{currFltDate}',
-                    @FlightNumber = N'{currParams.flight_number}',
-                    @DepartureStation = N'{currParams.origin}',
+                    @FlightNumber = N'{currParams.flight_number}',	
+                    @DepartureStation = N'{currParams.origin}',	
                     @ArrivalStation = N'{currParams.destin}'
         """
         farePrice = pd.read_sql(query, self.NavitaireConnection)

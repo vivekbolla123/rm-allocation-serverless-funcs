@@ -1,9 +1,9 @@
 #! /bin/bash
 #Variable definition section
-Lmd_Func="m-allocation-serverless-funcs_rm-allocation-scheduled-jobs"
+Lmd_Func="rm-allocation-serverless-funcs_rm-allocation-scheduled-jobs"
 ECR_Repo="$Lmd_Func" #If ECR repo name and Lambda function name are both same
 ECR_Domain="471112573018.dkr.ecr.ap-south-1.amazonaws.com"
-Local_Img_Tag="m-allocation-scheduled-jobs-image"
+Local_Img_Tag="rm-allocation-scheduled-jobs-image"
 ECR_Img_Tag="latest"
 ECR_Image_URL=$ECR_Domain/$ECR_Repo:$ECR_Img_Tag
 AWS_Region="ap-south-1"

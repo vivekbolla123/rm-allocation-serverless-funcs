@@ -892,7 +892,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (!strategyMap.containsKey(keyVal) && !value.equalsIgnoreCase(EMPTY)) {
                     Map<String, String> map = new HashMap<>();
                     map.put(DATE_COLUMN_NAME, dateKey);
-                    map.put(SECTOR_COLUMN_NAME, stationKey);
+                    map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
                     map.put(VALUE_COLUMN_NAME, value);
                     strategyMap.put(keyVal, map);
                 }

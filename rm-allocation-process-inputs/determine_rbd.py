@@ -68,7 +68,8 @@ class DetermineRBD:
                     lastSoldFare = farePrice["B2Cfare"][0]
                 if channel == B2B_CHANNEL:
                     lastSoldFare = farePrice["B2Bfare"][0]
-
+                    
+                
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
             if channel == B2B_CHANNEL:
@@ -399,4 +400,3 @@ class DetermineRBD:
         
         openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
         return openResult
-

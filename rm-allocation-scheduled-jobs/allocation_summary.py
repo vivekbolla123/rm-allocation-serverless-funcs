@@ -6,7 +6,7 @@ class AllocationSummaryReport:
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
-        self.interval_time = '2 hour'
+        self.interval_time = '6 hour'
 
         if 'interval_time' in overrides:
             self.interval_time = overrides['interval_time']
@@ -38,6 +38,7 @@ class AllocationSummaryReport:
                             "Id_Curves": row[15],
                             "Id_Strategy": row[16],
                             "Id_QpFares": row[17],
+                            "adhoc_run_status": row[18]
                             }
                 
                 output.append(row_dict)
@@ -45,6 +46,8 @@ class AllocationSummaryReport:
             
             run_ids = tuple(run_ids)
             how_counts = self.fetch_how_count_data(run_ids,False)
+            how_counts=sorted(how_counts, key=lambda x: x[2], reverse=True)
+            output=sorted(output, key=lambda x: x["run_id"], reverse=True)
             if how_counts:
                 idx = 0
                 for data in output:
@@ -85,12 +88,13 @@ class AllocationSummaryReport:
                         IFNULL(ara.market_list, 0) AS Id_marketList,
                         IFNULL(ara.Curves, 0) AS Id_Curves,
                         IFNULL(ara.d1_d2_strategies, 0) AS Id_Strategy,
-                        IFNULL(ara.Fares, 0) AS Id_QpFares
+                        IFNULL(ara.Fares, 0) AS Id_QpFares,
+                        IFNULL(ara.adhoc_run_status, '') AS adhoc_run_status
                     FROM
                         QP_DW_RMALLOC.allocation_run_audit ara 
                     LEFT JOIN
                         QP_DW_RMALLOC.navitaire_allocation_audit naa ON ara.run_id = naa.run_id 
-                    {condition} AND ara.type != 'Local Run'
+                    {condition} AND ara.type != 'Local Run' AND (ara.total_batch_size-ara.batch_completed=0 or ara.total_batch_size is null)
                     GROUP BY ara.run_id"""
             
         result = self.rm_rd_conn.execute(select).fetchall()
