@@ -5,6 +5,7 @@ import json
 import warnings
 
 import time as time_sleep
+import numpy as np
 import pandas as pd
 
 from datetime import timedelta
@@ -243,6 +244,8 @@ class DynAlloc:
 
 		dateFormatted = datetime.strptime(str(currFltDate), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
 		if ((str(currFlt) == str(self.currParams.flight_number)) or (self.currParams.flight_number == '*')) and (str(self.currParams.dow)[dow:(dow+1)] == "1"):
+			if self.currParams.seriesBlock == YES_FLAG:
+				currBookedLoad = self.getBookloadSeries(dateFormatted,currBookedLoad)
 			self.logger.info("Actual Booked Load for " + str(self.currParams.flight_number) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
 			self.currentTime = self.rmdatabasehelper.getCurrentTime(self.inputSource.currentTime, self.currParams, currFltDate, self.starttime)
 			totalCapacity = currLid
@@ -843,3 +846,14 @@ class DynAlloc:
 			if can_copy == False:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
+
+	def getBookloadSeries(self,dep_date,currBookedLoad):
+		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
+			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+			booked_seats = self.navdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
+		merged_df=blocked_seats.merge(booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
+		merged_df['count'] = np.maximum(merged_df['SeatsBlocked'] - merged_df['bookedPax'], 0)
+		total_count = merged_df['count'].sum()
+		return currBookedLoad+total_count

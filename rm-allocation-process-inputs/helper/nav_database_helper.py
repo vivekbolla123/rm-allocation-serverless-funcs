@@ -146,3 +146,46 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
             G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
             G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
             return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
+        
+    def get_series_seats(self,departure_date, flight_number, sector):
+        query=f"""
+                select
+                Origin,
+                Destination,
+                TRIM(FlightNumber) as FlightNumber,
+                DepartureDate,
+                count(PassengerID) as bookedPax,
+                SourceOrganizationCode as OrgCode
+
+            from
+                (
+                    select
+                        BP.PassengerID,
+                        IL.DepartureStation as Origin,
+                        IL.ArrivalStation as Destination,
+                        IL.DepartureDate,
+                        IL.FlightNumber,
+                        PJS.SourceOrganizationCode,
+                        PJS.ClassOfService
+                    from
+                        [rez].InventoryLeg IL
+                        left outer join [rez].PassengerJourneyLeg PJL on PJL.InventoryLegID = IL.InventoryLegID
+                        left outer join [rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (RIGHT(PJS.FareBasis, 3) = 'SER' ) 
+                        left outer join [rez].BookingPassenger BP on BP.PassengerID = PJS.PassengerID 
+                    where
+                        IL.Lid > 0
+                        and IL.Status NOT IN (2)
+                        and IL.DepartureDate >='{departure_date}'
+                        and IL.DepartureDate <= '{departure_date}'
+                        and CONCAT( IL.DepartureStation,IL.ArrivalStation) = '{sector}'
+                        and IL.FlightNumber = '{flight_number}'
+                        and PJS.SourceOrganizationCode is NOT NULL
+                        and PJS.ClassOfService='G'
+                ) A
+            group by
+                Origin, Destination, FlightNumber, DepartureDate,SourceOrganizationCode 
+            order by
+                Origin, Destination, DepartureDate,FlightNumber
+        """
+        df = pd.read_sql(query, self.NavitaireConnection)
+        return df
