@@ -413,6 +413,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 case HISTORIC_HOURLY_DROP_TABLE_NAME -> getHourlyDropData(csvData).values().stream().toList();
                 case HISTORIC_GRID_DROP_TABLE_NAME -> getGridDropData(csvData).values().stream().toList();
                 case DISTRESS_INVENTORY_STRATEGY_TABLE_NAME -> getDistressStrategy(csvData).values().stream().toList();
+                case SERIES_BLOCKING_TABLE_NAME -> createListOfMapSeriesBlock(csvData);
                 default -> createListOfMap(csvData, headers);
             };
 
@@ -583,6 +584,24 @@ public class App implements RequestHandler<S3Event, Object> {
                 map.put(headers.get(i), singleCsvData.get(i));
             }
             data.add(map);
+        }
+        return data;
+    }
+    private List<Map<String, String>> createListOfMapSeriesBlock(List<List<String>> csvData) {
+        List<String> headers = csvData.get(0);
+        csvData.remove(0);
+        List<Map<String, String>> data = new ArrayList<>();
+
+        for (List<String> singleCsvData : csvData) {
+            String departureDate = singleCsvData.get(0);
+
+            for (int i = 1; i < singleCsvData.size(); i++) {
+                Map<String, String> map = new HashMap<>();
+                map.put("DepartureDate", departureDate);
+                map.put("OrgCode", headers.get(i));
+                map.put("SeatsBlocked", singleCsvData.get(i));
+                data.add(map);
+            }
         }
         return data;
     }
