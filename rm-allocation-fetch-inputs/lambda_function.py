@@ -213,7 +213,7 @@ def lambda_handler(event, context):
             batch_df['route_type'] = route_type
             batch_df['queue_name'] = queue_name
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
-            my_list_json = batch_df.to_json(orient='records')
+            my_list_json = [json.dumps(record) for record in batch_df.to_dict(orient='records')]
             cache_client.set(temp_name, my_list_json, 86400)
             allocation_run_batch_audit(run_id, temp_name)
         
