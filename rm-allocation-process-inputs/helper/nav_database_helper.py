@@ -168,10 +168,10 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
                         PJS.SourceOrganizationCode,
                         PJS.ClassOfService
                     from
-                        [rez].InventoryLeg IL
-                        left outer join [rez].PassengerJourneyLeg PJL on PJL.InventoryLegID = IL.InventoryLegID
-                        left outer join [rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (RIGHT(PJS.FareBasis, 3) = 'SER' ) 
-                        left outer join [rez].BookingPassenger BP on BP.PassengerID = PJS.PassengerID 
+                        {self.NAV_DB_NAME}[Rez].InventoryLeg IL
+                        left outer join {self.NAV_DB_NAME}[Rez].PassengerJourneyLeg PJL on PJL.InventoryLegID = IL.InventoryLegID
+                        left outer join {self.NAV_DB_NAME}[Rez].PassengerJourneySegment PJS on PJS.PassengerID = PJL.PassengerID and PJS.SegmentID = PJL.SegmentID and (RIGHT(PJS.FareBasis, 3) = 'SER' ) 
+                        left outer join {self.NAV_DB_NAME}[Rez].BookingPassenger BP on BP.PassengerID = PJS.PassengerID 
                     where
                         IL.Lid > 0
                         and IL.Status NOT IN (2)
