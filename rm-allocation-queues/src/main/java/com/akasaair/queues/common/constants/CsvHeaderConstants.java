@@ -31,6 +31,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_PROFILE_FARES = 26;
     int CSV_HEADER_RBD_PUSH_FLAG = 27;
     int CSV_HEADER_DISTRESS_INVENTORY_FLAG = 28;
+    int CSV_HEADER_SERIES_BLOCK_FLAG = 29;
 
     String CSV_HEADER_TIME = "Time";
     String CSV_HEADER_CRITERIA = "Criteria";

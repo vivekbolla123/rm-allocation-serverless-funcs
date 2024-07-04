@@ -413,6 +413,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 case HISTORIC_HOURLY_DROP_TABLE_NAME -> getHourlyDropData(csvData).values().stream().toList();
                 case HISTORIC_GRID_DROP_TABLE_NAME -> getGridDropData(csvData).values().stream().toList();
                 case DISTRESS_INVENTORY_STRATEGY_TABLE_NAME -> getDistressStrategy(csvData).values().stream().toList();
+                case SERIES_BLOCKING_TABLE_NAME -> createListOfMapSeriesBlock(csvData);
                 default -> createListOfMap(csvData, headers);
             };
 
@@ -583,6 +584,24 @@ public class App implements RequestHandler<S3Event, Object> {
                 map.put(headers.get(i), singleCsvData.get(i));
             }
             data.add(map);
+        }
+        return data;
+    }
+    private List<Map<String, String>> createListOfMapSeriesBlock(List<List<String>> csvData) {
+        List<String> headers = csvData.get(0);
+        csvData.remove(0);
+        List<Map<String, String>> data = new ArrayList<>();
+
+        for (List<String> singleCsvData : csvData) {
+            String departureDate = singleCsvData.get(0);
+
+            for (int i = 1; i < singleCsvData.size(); i++) {
+                Map<String, String> map = new HashMap<>();
+                map.put("DepartureDate", departureDate);
+                map.put("OrgCode", headers.get(i));
+                map.put("SeatsBlocked", singleCsvData.get(i));
+                data.add(map);
+            }
         }
         return data;
     }
@@ -1230,7 +1249,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(29, marketListEntity.getB2cTolerance());
             pstmt.setString(30, marketListEntity.getB2bTolerance());
             pstmt.setString(31, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(32, marketListEntity.getUuid());
+            pstmt.setString(32, marketListEntity.getSeriesBlock());
+            pstmt.setString(33, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1411,6 +1431,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bTolerance(record.get(CSV_HEADER_B2B_TOLERANCE))
                 .b2cTolerance(record.get(CSV_HEADER_B2C_TOLERANCE))
                 .distressInventoryFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))
+                .seriesBlock(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))
                 .analystName(analystName)
                 .build());
     }
@@ -1622,6 +1643,9 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+        }
+        if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
+            listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
         }
         if (!checkStrategyFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
             listOfErrors.add(lineNum + "RBD Push has value other than '1' or '0'");
