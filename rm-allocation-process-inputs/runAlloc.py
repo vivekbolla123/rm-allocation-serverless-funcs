@@ -244,6 +244,7 @@ class DynAlloc:
 
 		dateFormatted = datetime.strptime(str(currFltDate), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
 		if ((str(currFlt) == str(self.currParams.flight_number)) or (self.currParams.flight_number == '*')) and (str(self.currParams.dow)[dow:(dow+1)] == "1"):
+			orgBookedLoad = currBookedLoad
 			if self.currParams.seriesBlock == YES_FLAG:
 				currBookedLoad = self.getBookloadSeries(dateFormatted,currBookedLoad)
 			self.logger.info("Actual Booked Load for " + str(self.currParams.flight_number) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
@@ -379,7 +380,7 @@ class DynAlloc:
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
+				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
@@ -393,7 +394,7 @@ class DynAlloc:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation zero Overbooking'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 				# Now add all the Z RBDs
-				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(currBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
+				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(orgBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
 
 				if isUpsellFlag:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - Flight in upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
