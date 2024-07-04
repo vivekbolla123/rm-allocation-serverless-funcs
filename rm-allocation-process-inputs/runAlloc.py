@@ -854,7 +854,13 @@ class DynAlloc:
 			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
 			booked_seats = self.navdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
-		merged_df=blocked_seats.merge(booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
+		booked_seats['DepartureDate'] = booked_seats['DepartureDate'].astype(str)
+		merged_df=pd.merge(blocked_seats, booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
+		merged_df['bookedPax'].fillna(0, inplace=True)
+		first_row_values = booked_seats.iloc[0]
+		for column in ['Origin', 'Destination', 'FlightNumber']:
+			merged_df[column].fillna(first_row_values[column], inplace=True)
+		merged_df['SeatsBlocked'] = merged_df['SeatsBlocked'].astype(int)
 		merged_df['count'] = np.maximum(merged_df['SeatsBlocked'] - merged_df['bookedPax'], 0)
 		total_count = merged_df['count'].sum()
 		return currBookedLoad+total_count
