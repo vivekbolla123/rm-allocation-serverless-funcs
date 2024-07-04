@@ -218,7 +218,7 @@ class SchedulerHandler:
             for record in list_of_values:
                 self.sqs.send_message(
                 QueueUrl=queue_name,
-                MessageBody=record)
+                MessageBody=json.dumps(record))
 
             self.update_allocation_run_batch_audit(required_batch_id)
             self.cache_client.delete(required_batch_id)
