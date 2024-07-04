@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM market_list_connections "
             try:
@@ -748,3 +748,12 @@ class RMDatabaseHelper:
         G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
         G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
         return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
+    
+    def getSeriesBlockedSeats(self,departure_date):
+        query=f"""select * from series_blocking where DepartureDate = '{departure_date}'"""
+        df = pd.read_sql(query, self.conn)
+        return df
+    def get_series_seats(self,departure_date, flight_number, sector):
+        query = f"""select Origin,Destination,FlightNumber,DepartureDate,bookedPax,OrgCode from series_booked where FlightNumber='{flight_number}' and DepartureDate = '{departure_date}' and concat(Origin,Destination)='{sector}'"""
+        df = pd.read_sql(query, self.conn)
+        return df
