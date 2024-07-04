@@ -213,7 +213,7 @@ class SchedulerHandler:
             temp_list_of_values = self.cache_client.get(required_batch_id)
             list_of_values = json.loads(temp_list_of_values)
 
-            data_dict = json.loads(list_of_values[0])
+            data_dict = list_of_values[0]
             queue_name = data_dict["queue"]
             for record in list_of_values:
                 self.sqs.send_message(

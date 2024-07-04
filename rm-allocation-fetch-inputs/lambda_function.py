@@ -7,12 +7,11 @@ import configsettings
 import pytz
 from uuid import uuid4
 from sqlalchemy import create_engine
-from pandas import read_sql
-from datetime import datetime
-from datetime import timedelta
-from datetime import date
+from pandas import read_sql,Timestamp
+from datetime import datetime, timedelta, date
 from redis import Redis
 from constants_utils import ConstantsUtils
+from concurrent.futures import ThreadPoolExecutor
 
 warnings.filterwarnings('ignore')
 
@@ -53,24 +52,59 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 if cache_client.ping():
     logger.info("Connected to Redis")
 
-constantsutils=ConstantsUtils(conn)
+constantsutils = ConstantsUtils(conn)
 
-def number_of_batches_required(total_records,adhoc_batch_size):
-
-    if total_records<adhoc_batch_size:
-        return [1,0]
-    if total_records%adhoc_batch_size!=0:
-        return [total_records//adhoc_batch_size,total_records%adhoc_batch_size]
+def number_of_batches_required(total_records, adhoc_batch_size):
+    if total_records < adhoc_batch_size:
+        return [1, 0]
+    if total_records % adhoc_batch_size != 0:
+        return [total_records // adhoc_batch_size, total_records % adhoc_batch_size]
     else:
-        return [total_records//adhoc_batch_size,0]
+        return [total_records // adhoc_batch_size, 0]
 
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name):
+    record["runId"] = run_id
+    record["update_navitaire_method"] = update_navitaire_method
+    record["runTime"] = start_time
+    record["route_type"] = route_type
+    record["queue"] = queue_name
+    return record
+
+def send_batch_to_sqs(batch, queue_url, additional_fields):
+    entries = [
+        {
+            'Id': str(i),
+            'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
+        } for i, record in enumerate(batch)
+    ]
+    
+    response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+    
+    if 'Failed' in response:
+        logger.error(f"Failed to send {len(response['Failed'])} messages")
+        # Implement retry logic here if needed
+
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, batch_size=10, max_workers=5):
+    records = df.to_dict('records')
+    batches = [records[i:i+batch_size] for i in range(0, len(records), batch_size)]
+    
+    start_time = datetime.now().isoformat()
+    additional_fields = {
+        'run_id': run_id,
+        'update_navitaire_method': update_navitaire_method,
+        'start_time': start_time,
+        'route_type': route_type,
+        'queue_name': queue_name
+    }
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        executor.map(lambda batch: send_batch_to_sqs(batch, queue_url, additional_fields), batches)
 
 def lambda_handler(event, context):
     """
     This function fetches the market_list and inserts it into the queue
     """
     # keys
-    temp_list=[]
     start_interval_key = "start_interval"
     end_interval_key = "end_interval"
     queue_key = "queue"
@@ -88,50 +122,39 @@ def lambda_handler(event, context):
     data = json.loads(body)
 
     # defaults
-    start_interval = 30 #0
-    end_interval = 90 #365
+    start_interval = 30
+    end_interval = 90
     market_list_table = "market_list"
     queue_name = configsettings.MARKET_LIST_QUEUE_URL
-    update_navitaire_method="api"
+    update_navitaire_method = "api"
     route_type = "direct"
-
     username = USERNAME
     type = "Adhoc"
     is_connections_required = "0"
     region = "Domestic"
 
     # overrides
-    if(route_type_key in data): 
+    if route_type_key in data: 
         route_type = data[route_type_key]
-
-    if (queue_key in data):
+    if queue_key in data:
         queue_name = data[queue_key]
-
-    if (start_interval_key in data):
+    if start_interval_key in data:
         start_interval = data[start_interval_key]
-
-    if (end_interval_key in data):
+    if end_interval_key in data:
         end_interval = data[end_interval_key]
-
-    if (market_list_key in data):
+    if market_list_key in data:
         market_list_table = data[market_list_key]
-
-    if(update_navitaire_method_key in data):
-        update_navitaire_method=data[update_navitaire_method_key]
-
-    if (username_key in data):
+    if update_navitaire_method_key in data:
+        update_navitaire_method = data[update_navitaire_method_key]
+    if username_key in data:
         username = data[username_key]
-
-    if (run_type_key in data):
+    if run_type_key in data:
         type = data[run_type_key]
-
-    if (region_key in data):
+    if region_key in data:
         region = data[region_key]
-
-    if(not type == "Adhoc"):
+    if not type == "Adhoc":
         is_connections_required = '1'
-
-    if(is_connections_required_key in data):
+    if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]
 
     # start program
@@ -154,8 +177,7 @@ def lambda_handler(event, context):
 
     if route_type == "direct":
         market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
-
-    if route_type == "connections":
+    elif route_type == "connections":
         update_navitaire_method = "sftp"
         is_connections_required = "0"
         region = 'Domestic'
@@ -163,12 +185,12 @@ def lambda_handler(event, context):
 
     mkt_list = read_sql(market_list_query, conn)
     markets_count = mkt_list.shape[0]
-    logger.info(markets_count)
+    logger.info(f"Total markets: {markets_count}")
 
     start_time = datetime.now()
     run_id = str(uuid4())
 
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region,markets_count)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
     cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
     cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
@@ -177,100 +199,34 @@ def lambda_handler(event, context):
     cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
 
-    batches_required = number_of_batches_required(markets_count,adhoc_batch_size)
-    c=1
-    k=0
-    print("MARKETS COUNT: ",markets_count)
-    print("BATCHES REQUIRED: ",batches_required)
-
-    for mkt_index in range(markets_count):
-
-        data = mkt_list.iloc[mkt_index]
-
-        try:                
-            data["runId"] = run_id
-            data["update_navitaire_method"] = update_navitaire_method
-            data["runTime"] = start_time
-            data["route_type"] = route_type
-            data["queue"] = queue_name
-
-            data_str = data.to_json()
-            logger.info(data_str)
-            # print(data_str)
-
-        except Exception as e:
-            print("Error in Start or End Date at row: " + data)  
-            print("Exception->",e)
-            print("Run Id: " + run_id)  
-
-        if not type=="Adhoc":
-            print("If not adhoc")
-            print("Total records: ",markets_count)
-            sqs.send_message(
-            QueueUrl=queue_name,
-            MessageBody=data_str)
-
-        if type == "Adhoc":
-            print("Initial C=", c)
-            if (len(temp_list) < adhoc_batch_size and (c <= batches_required[0])  and c != -1):  # max length of the batch should be written here instead of 6(same for below)
-                temp_list.append(data_str)
-                print("Current Length-->", len(temp_list))
-                if markets_count < adhoc_batch_size and mkt_index == markets_count - 1:
-                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(c)
-                    my_list_json = json.dumps(temp_list)
-
-                    cache_client.set(temp_name, my_list_json, 86400)
-                    stored_list = cache_client.get(temp_name)
-                    decoded_list = json.loads(stored_list)
-                    print("HERE IS UR LIST: ", decoded_list)
-                    temp_list = []
-                    print("name=", temp_name)
-                    allocation_run_batch_audit(run_id, temp_name)
-                    print(batches_required[0])
-                    if c == batches_required[0]:
-                        print("Came here")
-                        k = c + 1
-                        if batches_required[1] == 0:
-                            update_run_with_batches(c, run_id)
-                        c = -1
-                    else:
-                        c += 1
-                    print("NEW C=", c)
-                if len(temp_list) == adhoc_batch_size:
-
-                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(c)
-                    my_list_json = json.dumps(temp_list)
-
-                    cache_client.set(temp_name, my_list_json, 86400)
-
-                    stored_list = cache_client.get(temp_name)
-
-                    decoded_list = json.loads(stored_list)
-                    print("HERE IS UR LIST: ", decoded_list)
-                    temp_list = []
-                    allocation_run_batch_audit(run_id, temp_name)
-
-                    if c == batches_required[0]:
-                        print("Came here")
-                        k = c + 1
-                        if batches_required[1] == 0:
-                            update_run_with_batches(c, run_id)
-                        c = -1
-                    else:
-                        c += 1
-                    print("NEW C=", c)
-
-            elif c == -1 and batches_required[1] != 0:
-                temp_list.append(data_str)
-                if mkt_index == markets_count - 1:
-                    temp_name = "adhoc_stack_" + run_id + "_batch_" + str(k)
-
-                    cache_client.set(temp_name, my_list_json, 86400)
-                    stored_list = cache_client.get(temp_name)
-                    decoded_list = json.loads(stored_list)
-                    print("Here man--->", decoded_list)
-                    update_run_with_batches(k, run_id)
-                    allocation_run_batch_audit(run_id, temp_name)
+    if type != "Adhoc":
+        send_dataframe_to_sqs(mkt_list, queue_name, run_id, update_navitaire_method, route_type, queue_name)
+    else:
+        batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
+        for batch_num in range(batches_required[0]):
+            start_idx = batch_num * adhoc_batch_size
+            end_idx = start_idx + adhoc_batch_size
+            batch_df = mkt_list.iloc[start_idx:end_idx]
+            batch_df['run_id'] = run_id
+            batch_df['update_navitaire_method'] = update_navitaire_method
+            batch_df['start_time'] = start_time
+            batch_df['route_type'] = route_type
+            batch_df['queue'] = queue_name
+            temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
+            data_to_serialize = batch_df.to_dict(orient='records')
+            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+            cache_client.set(temp_name, my_list_json, 86400)
+            allocation_run_batch_audit(run_id, temp_name)
+        
+        if batches_required[1] > 0:
+            last_batch_df = mkt_list.iloc[-batches_required[1]:]
+            temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
+            my_list_json = last_batch_df.to_json(orient='records')
+            
+            cache_client.set(temp_name, my_list_json, 86400)
+            allocation_run_batch_audit(run_id, temp_name)
+        
+        update_run_with_batches(batches_required[0] + (1 if batches_required[1] > 0 else 0), run_id)
 
     end_time = datetime.now()
     
@@ -285,6 +241,12 @@ def lambda_handler(event, context):
         "body": markets_count
     }
 
+def custom_serializer(obj):
+    if isinstance(obj, Timestamp):
+        return str(obj.isoformat())
+    return str(obj)# Convert Timestamp to ISO format string
+    raise TypeError(f'Type {type(obj)} not serializable')
+
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
@@ -297,7 +259,7 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
-    insert_query = " INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
                     (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
@@ -306,49 +268,35 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
     logger.info("STARTED ALLOCATION RUN")
 
 def insert_file_upload_s3(run_id, createdAt):
-    insert_query = " INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"
+    insert_query = "INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"
     try:
         wrconn.execute(insert_query, (run_id, createdAt))
     except Exception as e:
         logger.info(e)
     logger.info("S3 File Audited")
 
-
 def update_run_end(end_time, run_id):
-    update_query = " UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s "
+    update_query = "UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s"
     try:
-        wrconn.execute(update_query,
-                    (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
+        wrconn.execute(update_query, (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
     except Exception as e:
         logger.info(e)
     logger.info("STOPPED ALLOCATION RUN")
 
-
 def update_run_with_batches(total_batches, run_id):
-    update_query = " UPDATE allocation_run_audit SET total_batch_size = %s, batch_completed = %s, adhoc_run_status = %s where run_id = %s"
+    update_query = "UPDATE allocation_run_audit SET total_batch_size = %s, batch_completed = %s, adhoc_run_status = %s WHERE run_id = %s"
     try:
         wrconn.execute(update_query, (total_batches, 0, "IN-QUEUE", run_id))
     except Exception as e:
         logger.info(e)
-        print(e)
 
 def allocation_run_batch_audit(run_id, batch_id):
     start_time = datetime.now()
-    update_query = "INSERT INTO allocation_run_batch_audit (runId,start_time,batch_id) VALUES (%s, %s, %s)"
+    update_query = "INSERT INTO allocation_run_batch_audit (runId, start_time, batch_id) VALUES (%s, %s, %s)"
     try:
         wrconn.execute(update_query, (run_id, start_time.strftime("%Y-%m-%d %H:%M:%S"), batch_id))
-        print("Inserted")
     except Exception as e:
         logger.info(e)
-        print(e)
-
-def getCurrentDate():
-    currDate = date.today()
-    return currDate
-
-def getStartEndDate(currDate, startNDO, endNDO):
-    startDate = datetime.strptime(startNDO, "%m/%d/%Y").date()
-    endDate = datetime.strptime(endNDO, "%m/%d/%Y").date()
 
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
@@ -393,7 +341,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,profileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
@@ -448,4 +396,6 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     return query
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# lambda_handler({"body": "{\"start_interval\": 0, \"end_interval\": 100, \"market_list_table_name\": \"market_list_adhoc_SV\"}"},None)
+# lambda_handler({
+#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_Test\"}"
+# },None)

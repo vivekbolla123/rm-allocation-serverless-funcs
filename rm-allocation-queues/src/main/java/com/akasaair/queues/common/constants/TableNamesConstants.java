@@ -27,4 +27,5 @@ public interface TableNamesConstants {
     String STATION_MASTER_TABLE_NAME = "config_station_master";
     String STRATEGY_INPUT_NAME = "strategy_input";
     String CONFIG_PROFILE_FARE_STATION_UPSELL = "config_profile_fare_station_upsell";
+    String SERIES_BLOCKING_TABLE_NAME = "series_blocking";
 }

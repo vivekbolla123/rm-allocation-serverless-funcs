@@ -5,6 +5,7 @@ import json
 import warnings
 
 import time as time_sleep
+import numpy as np
 import pandas as pd
 
 from datetime import timedelta
@@ -243,6 +244,9 @@ class DynAlloc:
 
 		dateFormatted = datetime.strptime(str(currFltDate), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
 		if ((str(currFlt) == str(self.currParams.flight_number)) or (self.currParams.flight_number == '*')) and (str(self.currParams.dow)[dow:(dow+1)] == "1"):
+			orgBookedLoad = currBookedLoad
+			if self.currParams.seriesBlock == YES_FLAG:
+				currBookedLoad = self.getBookloadSeries(dateFormatted,currBookedLoad)
 			self.logger.info("Actual Booked Load for " + str(self.currParams.flight_number) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
 			self.currentTime = self.rmdatabasehelper.getCurrentTime(self.inputSource.currentTime, self.currParams, currFltDate, self.starttime)
 			totalCapacity = currLid
@@ -376,7 +380,7 @@ class DynAlloc:
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
+				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
@@ -390,7 +394,7 @@ class DynAlloc:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation zero Overbooking'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 				# Now add all the Z RBDs
-				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(currBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
+				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(orgBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
 
 				if isUpsellFlag:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - Flight in upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
@@ -573,8 +577,10 @@ class DynAlloc:
 			bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
 
 		lastBookloadTillMidnight = 0
+		bookingToday = 0
 		if bookings.shape[0] != 0:
 			lastBookloadTillMidnight = bookings["BookingsCount"][0]
+			bookingToday = bookings["BookingToday"][0]
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -583,8 +589,6 @@ class DynAlloc:
 		area = self.rmdatabasehelper.getArea(curTime.hour)
 		areaAtCurrentTime = area["sum"][0] / 100
 		self.logger.info("Area is:" + str(areaAtCurrentTime))
-
-		bookingToday = currBookedLoad - lastBookloadTillMidnight
   
 		startOfDayTgtList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter + 1, self.currParams.curve_id)
 		if startOfDayTgtList.shape[0] == 0:
@@ -843,3 +847,20 @@ class DynAlloc:
 			if can_copy == False:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
+
+	def getBookloadSeries(self,dep_date,currBookedLoad):
+		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
+			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
+		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+			booked_seats = self.navdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
+		booked_seats['DepartureDate'] = booked_seats['DepartureDate'].astype(str)
+		merged_df=pd.merge(blocked_seats, booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
+		merged_df['bookedPax'].fillna(0, inplace=True)
+		first_row_values = booked_seats.iloc[0]
+		for column in ['Origin', 'Destination', 'FlightNumber']:
+			merged_df[column].fillna(first_row_values[column], inplace=True)
+		merged_df['SeatsBlocked'] = merged_df['SeatsBlocked'].astype(int)
+		merged_df['count'] = np.maximum(merged_df['SeatsBlocked'] - merged_df['bookedPax'], 0)
+		total_count = merged_df['count'].sum()
+		return currBookedLoad+total_count
