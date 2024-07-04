@@ -209,7 +209,7 @@ def lambda_handler(event, context):
             batch_df = mkt_list.iloc[start_idx:end_idx]
             batch_df['run_id'] = run_id
             batch_df['update_navitaire_method'] = update_navitaire_method
-            batch_df['start_time'] = start_time
+            batch_df['runTime'] = start_time
             batch_df['route_type'] = route_type
             batch_df['queue'] = queue_name
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
