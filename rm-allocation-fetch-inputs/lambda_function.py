@@ -7,7 +7,7 @@ import configsettings
 import pytz
 from uuid import uuid4
 from sqlalchemy import create_engine
-from pandas import read_sql
+from pandas import read_sql,Timestamp
 from datetime import datetime, timedelta, date
 from redis import Redis
 from constants_utils import ConstantsUtils
@@ -211,10 +211,10 @@ def lambda_handler(event, context):
             batch_df['update_navitaire_method'] = update_navitaire_method
             batch_df['start_time'] = start_time
             batch_df['route_type'] = route_type
-            batch_df['queue_name'] = queue_name
+            batch_df['queue'] = queue_name
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
-            my_list_json = [json.dumps(record) for record in batch_df.to_dict(orient='records')]
-            my_list_json=json.dumps(my_list_json)
+            data_to_serialize = batch_df.to_dict(orient='records')
+            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
             cache_client.set(temp_name, my_list_json, 86400)
             allocation_run_batch_audit(run_id, temp_name)
         
@@ -240,6 +240,12 @@ def lambda_handler(event, context):
         "statusCode": 200, 
         "body": markets_count
     }
+
+def custom_serializer(obj):
+    if isinstance(obj, Timestamp):
+        return str(obj.isoformat())
+    return str(obj)# Convert Timestamp to ISO format string
+    raise TypeError(f'Type {type(obj)} not serializable')
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
@@ -390,6 +396,6 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     return query
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-lambda_handler({
-  "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Scheduled\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_KJ\"}"
-},None)
+# lambda_handler({
+#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_Test\"}"
+# },None)
