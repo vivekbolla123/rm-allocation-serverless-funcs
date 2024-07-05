@@ -155,7 +155,7 @@ class SchedulerHandler:
                     return shortest_run
                 else:
                     print("No shortest run found")
-                    return None
+                    sys.exit()
         except Exception as e:
             self.logger.error(e)
             print("Nothing to run")

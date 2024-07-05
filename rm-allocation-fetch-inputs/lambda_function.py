@@ -207,7 +207,7 @@ def lambda_handler(event, context):
             start_idx = batch_num * adhoc_batch_size
             end_idx = start_idx + adhoc_batch_size
             batch_df = mkt_list.iloc[start_idx:end_idx]
-            batch_df['run_id'] = run_id
+            batch_df['runId'] = run_id
             batch_df['update_navitaire_method'] = update_navitaire_method
             batch_df['runTime'] = start_time
             batch_df['route_type'] = route_type
