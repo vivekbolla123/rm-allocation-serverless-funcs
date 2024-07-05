@@ -77,6 +77,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
             'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
         } for i, record in enumerate(batch)
     ]
+    logger.info(entries)
     
     response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
     
@@ -215,6 +216,7 @@ def lambda_handler(event, context):
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
             data_to_serialize = batch_df.to_dict(orient='records')
             my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+            logger.info(my_list_json)
             cache_client.set(temp_name, my_list_json, 86400)
             allocation_run_batch_audit(run_id, temp_name)
         
