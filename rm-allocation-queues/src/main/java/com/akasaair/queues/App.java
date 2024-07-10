@@ -51,7 +51,11 @@ public class App implements RequestHandler<S3Event, Object> {
     public App() throws SQLException {
         s3Client = DependencyFactory.s3Client();
     }
-
+    public static void main(String[] args) throws SQLException {
+        App app = new App();
+        String key = FILE_NAME;
+        app.uploadFile(key,S3_BUCKET_NAME);
+    }
     @Override
     public Object handleRequest(S3Event event, Context context) {
         event.getRecords().forEach(record -> {
@@ -63,89 +67,96 @@ public class App implements RequestHandler<S3Event, Object> {
                 throw new RuntimeException(e);
             }
 
-            final String finalKey = key;
-            int lengthOfKey = finalKey.length();
-            String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length()+7, lengthOfKey - 4);
+            uploadFile(key, bucketName);
 
-            // Initialize the tableName variable
-            String tableName = null;
-            Object role = null;
-            String usern = null;
-            String routeStr = null;
-            String nameForadhoc = null;
-            LocalDateTime startTime = null;
-            AtomicLong numOfRows = new AtomicLong();
+        });
+        error_occurred = 0;
+        return null;
+    }
 
-            // Database query to get the tableName
-            try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_INSERT())) {
-                pstmt.setString(1, obj_id);
-                try (ResultSet resultSet = pstmt.executeQuery()) {
-                    if (resultSet.next()) {
-                        tableName = resultSet.getString("tableName");
-                        role = resultSet.getObject("role");
-                        usern = resultSet.getString("username");
-                        nameForadhoc = resultSet.getString("name");
-                        startTime = resultSet.getTimestamp("init_timestamp").toLocalDateTime();
-                        routeStr = resultSet.getString("route_for_adhoc");
-                    }
+    private void uploadFile(String key, String bucketName) {
+        final String finalKey = key;
+        int lengthOfKey = finalKey.length();
+        String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length()+7, lengthOfKey - 4);
+
+        // Initialize the tableName variable
+        String tableName = null;
+        Object role = null;
+        String usern = null;
+        String routeStr = null;
+        String nameForadhoc = null;
+        LocalDateTime startTime = null;
+        AtomicLong numOfRows = new AtomicLong();
+
+        // Database query to get the tableName
+        try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_INSERT())) {
+            pstmt.setString(1, obj_id);
+            try (ResultSet resultSet = pstmt.executeQuery()) {
+                if (resultSet.next()) {
+                    tableName = resultSet.getString("tableName");
+                    role = resultSet.getObject("role");
+                    usern = resultSet.getString("username");
+                    nameForadhoc = resultSet.getString("name");
+                    startTime = resultSet.getTimestamp("init_timestamp").toLocalDateTime();
+                    routeStr = resultSet.getString("route_for_adhoc");
                 }
-            } catch (SQLException e) {
-                System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                e.printStackTrace();
             }
-            final String table = tableName;
-            final Object role_obj = role;
-            final String userName = usern;
-            final String adhocUsername = nameForadhoc;
-            final String routeString = routeStr;
-            String status = UPLOAD_QUEUE_STATUS_IN_PROGRESS;
+        } catch (SQLException e) {
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+        final String table = tableName;
+        final Object role_obj = role;
+        final String userName = usern;
+        final String adhocUsername = nameForadhoc;
+        final String routeString = routeStr;
+        String status = UPLOAD_QUEUE_STATUS_IN_PROGRESS;
 
-            // Now you can use tableName in your subsequent logic
-            System.out.println("The table name is -> " + table);
+        // Now you can use tableName in your subsequent logic
+        System.out.println("The table name is -> " + table);
 
-            insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
+        insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
 
-            if (error_occurred == 0) {
-                status = UPLOAD_QUEUE_STATUS_DONE;
-            } else {
-                status = UPLOAD_QUEUE_STATUS_FAILED;
-            }
-            int rNum = (int) numOfRows.get();
+        if (error_occurred == 0) {
+            status = UPLOAD_QUEUE_STATUS_DONE;
+        } else {
+            status = UPLOAD_QUEUE_STATUS_FAILED;
+        }
+        int rNum = (int) numOfRows.get();
 
-            LocalDateTime endTime = LocalDateTime.now();
-            Duration duration = Duration.between(startTime, endTime);
-            long seconds = duration.getSeconds();
-            long hours = seconds / 3600;
-            long minutes = (seconds % 3600) / 60;
-            long secs = seconds % 60;
+        LocalDateTime endTime = LocalDateTime.now();
+        Duration duration = Duration.between(startTime, endTime);
+        long seconds = duration.getSeconds();
+        long hours = seconds / 3600;
+        long minutes = (seconds % 3600) / 60;
+        long secs = seconds % 60;
 
-            // Formatting the string as hh:mm:ss
-            String formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
-            System.out.println("Status--->" + status);
+        // Formatting the string as hh:mm:ss
+        String formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
+        System.out.println("Status--->" + status);
 
-            try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE())) {
-                pstmt.setString(1, status);
-                pstmt.setObject(2, endTime);
-                pstmt.setInt(3, rNum);
-                pstmt.setString(4, formattedDuration);
-                pstmt.setString(5, obj_id);
-                pstmt.executeUpdate();
-                System.out.println("Status Updated");
-            } catch (SQLException e) {
-                System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                e.printStackTrace();
-            }
+        try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE())) {
+            pstmt.setString(1, status);
+            pstmt.setObject(2, endTime);
+            pstmt.setInt(3, rNum);
+            pstmt.setString(4, formattedDuration);
+            pstmt.setString(5, obj_id);
+            pstmt.executeUpdate();
+            System.out.println("Status Updated");
+        } catch (SQLException e) {
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
+            e.printStackTrace();
+        }
 
-            // Deleting the object from S3
+        // Deleting the object from S3
+        if(!finalKey.substring(S3_FILE_PATH_NAME.length(),20).equalsIgnoreCase("locals")){
             s3Client.deleteObject(DeleteObjectRequest.builder()
                             .bucket(bucketName)
                             .key(finalKey)
                             .build())
                     .join();
+        }
 
-        });
-        error_occurred = 0;
-        return null;
     }
 
     private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) {
