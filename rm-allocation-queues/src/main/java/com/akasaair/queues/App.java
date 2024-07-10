@@ -53,8 +53,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
     public static void main(String[] args) throws SQLException {
         App app = new App();
-        String key = FILE_NAME;
-        app.uploadFile(key,S3_BUCKET_NAME);
+        app.uploadFile(FILE_NAME,S3_BUCKET_NAME);
     }
     @Override
     public Object handleRequest(S3Event event, Context context) {
