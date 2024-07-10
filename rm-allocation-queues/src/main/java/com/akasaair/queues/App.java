@@ -12,7 +12,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
-
+import java.time.temporal.ChronoUnit;
+import java.time.format.DateTimeFormatter;
 
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
@@ -197,8 +198,6 @@ public class App implements RequestHandler<S3Event, Object> {
                                 AsyncResponseTransformer.toBytes())
                         .thenAccept(response -> {
                             String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
 
                             try {
                                 // Use tableName in your method call
@@ -208,7 +207,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                     } else if (finalTableName.toLowerCase().startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
                                         uploadMarketListConnectionsFile(reader, finalTableName, userName, role_obj, obj_id);
                                     } else {
-                                        uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute, obj_id);
+                                        uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute, obj_id, numOfRows);
                                     }
                                 }
                             } catch (Exception e) {
@@ -320,7 +319,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id) throws DataMismatchedException {
+    public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
         List<String> listOfErrors = new ArrayList<>();
         List<MarketListEntity> marketListEntityList = new ArrayList<>();
         try {
@@ -339,7 +338,8 @@ public class App implements RequestHandler<S3Event, Object> {
             List<Object> listOfCriteria = searchDistinctResults(CRITERIA_COLUMN_NAME, CRITERIA_TABLE);
 
             List<List<String>> csvData = getDataFromCSVFile(file);
-
+            csvData = splitRowsByDateRange(csvData,listOfErrors);
+            numOfRows.set(csvData.size()-1);
             for (int i = 1; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i, role, userName, listOfCurves, listOfStrategies, listOfCriteria);
@@ -369,6 +369,60 @@ public class App implements RequestHandler<S3Event, Object> {
             updateInputStatus(tableName);
         }
     }
+
+    public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData,List<String> listOfErrors)  {
+        DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        List<List<String>> result = new ArrayList<>();
+        Set<String> uniqueKeys = new HashSet<>();
+
+        // Add the header row to the result without processing
+        if (!csvData.isEmpty()) {
+            result.add(new ArrayList<>(csvData.get(0)));
+        }
+
+        // Process the rest of the rows, starting from index 1
+        for (int rowIndex = 1; rowIndex < csvData.size(); rowIndex++) {
+            List<String> row = csvData.get(rowIndex);
+            LocalDate startDate = LocalDate.parse(row.get(3), DATE_FORMATTER);
+            LocalDate endDate = LocalDate.parse(row.get(4), DATE_FORMATTER);
+            String dowPattern = row.get(5);
+
+            if (startDate.equals(endDate)) {
+                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
+                if (dowPattern.charAt(dayOfWeek) == '1') {
+                    addRowWithDuplicateCheck(result, uniqueKeys, row, listOfErrors, rowIndex);
+                }
+                // If DOW doesn't match, the record is implicitly removed by not adding it to the result
+            } else {
+                long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
+
+                for (int i = 0; i <= daysBetween; i++) {
+                    LocalDate currentDate = startDate.plusDays(i);
+                    int dayOfWeek = currentDate.getDayOfWeek().getValue() % 7;
+
+                    if (dowPattern.charAt(dayOfWeek) == '1') {
+                        List<String> newRow = new ArrayList<>(row);
+                        newRow.set(3, currentDate.format(DATE_FORMATTER));
+                        newRow.set(4, currentDate.format(DATE_FORMATTER));
+                        addRowWithDuplicateCheck(result, uniqueKeys, newRow, listOfErrors, rowIndex);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,List<String> listOfErrors, int rowIndex) {
+        String key = row.get(0) + "|" + row.get(1) + "|" + row.get(2) + "|" + row.get(3);
+        if (!uniqueKeys.add(key)) {
+            listOfErrors.add("Duplicate record found at Line"+rowIndex+": " + key);
+        }
+        result.add(row);
+    }
+
+
+
 
     public void addErrorsToTable(List<String> errorsList, String obj_id) {
         String errorsString = String.join(", ", errorsList);
