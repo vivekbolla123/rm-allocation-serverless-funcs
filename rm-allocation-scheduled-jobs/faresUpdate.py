@@ -21,6 +21,10 @@ class Fares:
         """Helper values to be generated"""
 
         # Initiliaze other variables
+        previous_month = (pd.Timestamp("today") - pd.DateOffset(months=1)).replace(day=1).strftime("%b%y")
+        current_month = pd.Timestamp("today").strftime("%b%y")
+        self.monthList = [previous_month, current_month]
+
         sectors = self.load_sectors()
         print('Loaded all Sectors from Database, shape:', sectors.shape)
 
@@ -52,7 +56,7 @@ class Fares:
                     QueueUrl=self.queue_name,
                     MessageBody=json.dumps(data)
                 )
-                print(data)
+                # print(data)
 
                 # Call Profile Fares
                 data['modules'] = {'profileFares' : 1}
@@ -60,7 +64,9 @@ class Fares:
                     QueueUrl=self.queue_name,
                     MessageBody=json.dumps(data)
                 )
-                print(data)
+                # print(data)
+                
+        print("All data sent in queue")
 
     def load_sectors(self):
         return pd.read_sql(
@@ -101,11 +107,11 @@ class Fares:
             # Get the key (path) of the object
             key = obj['Key']
             # Retrieve the object from the bucket
-            paths.append(key)
-            # Do something with the object data (object_response['Body'].read())
-            print(f"Retrieved object: {key}")
+            if any(month in key for month in self.monthList):
+                paths.append(key)
+                print(f"Retrieved object: {key}")
 
-        paths = paths[1:]
+        # paths = paths[1:]
         print(paths)
 
         return paths
