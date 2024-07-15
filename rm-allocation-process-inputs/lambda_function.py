@@ -86,7 +86,7 @@ def lambda_handler(event, context):
         "latestCode": True,
         "currentTime": False
     }
-    print("Records-->",records)
+
     for record in records:
         content = record['body']
 #        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
