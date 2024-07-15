@@ -5,13 +5,14 @@ import random
 
 class DetermineRBD:
     
-    def __init__(self, rmdatabasehelper, logger, inputsource, constantsutils, navdatabasehelper, mathutils):
+    def __init__(self, rmdatabasehelper, logger, inputsource, constantsutils, navdatabasehelper, mathutils, redisHelper):
         self.inputSource = inputsource
         self.rmdatabasehelper = rmdatabasehelper
         self.navdatabasehelper = navdatabasehelper
         self.logger = logger
         self.constantsutils = constantsutils
         self.mathutils = mathutils
+        self.redishelper = redisHelper
 
     def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount):
 
@@ -61,14 +62,19 @@ class DetermineRBD:
         if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
                 farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
+                if farePrice.shape[0] != 0:
+                    if channel == B2C_CHANNEL:
+                        lastSoldFare = farePrice["B2Cfare"][0]
+                    if channel == B2B_CHANNEL:
+                        lastSoldFare = farePrice["B2Bfare"][0]
+                        
             if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-                farePrice = self.navdatabasehelper.getLastSellingFare(currFltDate, currParams)
-            if farePrice.shape[0] != 0:
-                if channel == B2C_CHANNEL:
-                    lastSoldFare = farePrice["B2Cfare"][0]
-                if channel == B2B_CHANNEL:
-                    lastSoldFare = farePrice["B2Bfare"][0]
-                    
+                lastSoldFare = 0
+                flag = 'R' if channel == B2C_CHANNEL else 'M' if channel == B2B_CHANNEL else ''
+                flightDate = datetime.strptime(currFltDate, DATE_FORMAT_2).date()	
+                key = f"LastSoldFare:{currParams.origin}{currParams.destin}{currParams.flight_number}_{flightDate}_{flag}"
+                if self.redishelper.exists(key):
+                    lastSoldFare = self.redishelper.get(key).decode('utf-8')
                 
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
