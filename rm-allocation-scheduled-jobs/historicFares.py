@@ -1,9 +1,10 @@
 import datetime
 import io
-import pandas as pd
-import configsettings
-from outliers import Outliers
+import sys
 import json
+import configsettings
+import pandas as pd
+from outliers import Outliers
 
 class HistoricFaresModule:
 
@@ -37,9 +38,10 @@ class HistoricFaresModule:
 
     def run(self):
         print("Historic Fares started.....")
+        self.prevmdate = (pd.Timestamp('today') - pd.DateOffset(months=1)).replace(day=1).strftime('%Y-%m-%d')
         # Call Outliers
         outliers = Outliers(self.rm_rd_esb_conn)
-        self.OutliersPath = outliers.outliers(self.dcluster, self.dsectors)
+        self.OutliersPath = outliers.outliers(self.dcluster, self.dsectors, self.prevmdate)
         
         print("Outliers data fetched")
         
@@ -52,7 +54,7 @@ class HistoricFaresModule:
         ###################################################################
 
         self.Historic_Config = self.Historic_Config.dropna()
-        self.logger.info("Historic fares completed for:" + self.dsectors)
+        print("Historic fares completed for:" + self.dsectors)
 
         for index, value in self.Historic_Config.iterrows():
             query = f'''
@@ -127,7 +129,7 @@ class HistoricFaresModule:
                     ON qdf.InventoryLegID = qil.InventoryLegID
                 WHERE
                     CONCAT(qdf.Origin, qdf.Destination) = '{sector}' AND
-                    qdf.DepartureDate >= '2023-10-01' AND
+                    qdf.DepartureDate >= '{self.prevmdate}' AND
                     CAST(TRIM(qdf.FlightNumber) AS UNSIGNED) < 4000
         """
         dk = pd.read_sql(sql_query, self.rm_rd_esb_conn)
@@ -136,6 +138,7 @@ class HistoricFaresModule:
         return dk
 
     def query_writer_pax(self, sector):
+
         sql_query = f"""
         SELECT
             CONCAT(qdf.Origin, qdf.Destination) AS Sector,
@@ -151,7 +154,7 @@ class HistoricFaresModule:
             QP_DL_FLOWNDATAPAX qdf
         WHERE
             CONCAT(qdf.Origin, qdf.Destination) = '{sector}' AND
-            qdf.DepartureDate >= '2023-10-01' AND
+            qdf.DepartureDate >= '{self.prevmdate}' AND
             SUBSTRING(qdf.farebasis, 5, 1) IN ('R', 'M') AND
             CAST(TRIM(qdf.FlightNumber) AS UNSIGNED) < 4000
         """
@@ -212,7 +215,7 @@ class HistoricFaresModule:
                    "DepartureDate", "AvgFare", "NDO", ]
         response = self.s3.get_object(Bucket=self.S3_RM_BUCKET_NAME, Key=path)
         parquet_file = response["Body"].read()
-        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols,engine="fastparquet").rename(
+        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols).rename(
             columns={
                 "SourceAirport": "Origin",
                 "DestinationAirport": "Destination",
@@ -252,8 +255,12 @@ class HistoricFaresModule:
         rgs = [str(x) + "_RG" for x in range(8)]
 
         dfz = pd.merge(full_df.round(1), full_RG.round(1), "left", on=ons, suffixes=("_QP", "_RG"))
-        dfz["Mean_RG"] = dfz[rgs].mean(axis=1)
-        dfz["Mean_QP"] = dfz[qpcs].mean(axis=1)
+        try:
+            dfz["Mean_RG"] = dfz[rgs].mean(axis=1)
+            dfz["Mean_QP"] = dfz[qpcs].mean(axis=1)
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+            sys.exit(1)
 
         for i in range(8):
             idx = dfz[dfz[f"{i}_QP"].isna()].index

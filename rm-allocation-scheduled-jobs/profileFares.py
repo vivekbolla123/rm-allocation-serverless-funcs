@@ -45,10 +45,11 @@ class ProfileFaresModule:
         self.Profile_Config = None
 
     def run(self):
-        print("profile fares tarted.....")
+        print("profile fares started.....")
+        self.prevmdate = (pd.Timestamp('today') - pd.DateOffset(months=1)).replace(day=1).strftime('%Y-%m-%d')
         # Call Outliers
         outliers = Outliers(self.rm_rd_esb_conn)
-        self.OutliersPath = outliers.outliers(self.dcluster, self.dsectors)
+        self.OutliersPath = outliers.outliers(self.dcluster, self.dsectors, self.prevmdate)
         print("Outliers data fetched")
         
         print("******* Now Fetching Profile Fares ********")
@@ -105,6 +106,7 @@ class ProfileFaresModule:
         self.logger.info("Profile fares completed for:" + self.dsectors)
 
     def query_writer_pax(self, sector):
+
         sql_query = f"""
         SELECT
             CONCAT(qdf.Origin, qdf.Destination) AS Sector,
@@ -114,7 +116,7 @@ class ProfileFaresModule:
             QP_DL_FLOWNDATAPAX qdf
         WHERE
             CONCAT(qdf.Origin, qdf.Destination) = '{sector}' AND
-            qdf.DepartureDate >= '2023-10-01' AND 
+            qdf.DepartureDate >= '{self.prevmdate}' AND 
             SUBSTRING(qdf.farebasis, 5, 1) IN ('R', 'M') AND
             CAST(TRIM(qdf.FlightNumber) AS UNSIGNED) < 4000
         """
@@ -188,7 +190,7 @@ class ProfileFaresModule:
             ON qdf.InventoryLegID = il.InventoryLegID
         WHERE
             CONCAT(qdf.Origin, qdf.Destination) = '{sector}' AND
-            qdf.DepartureDate >= '2023-10-01' AND
+            qdf.DepartureDate >= '{self.prevmdate}' AND
             CAST(TRIM(qdf.FlightNumber) AS UNSIGNED) < 4000
         """
         dk = pd.read_sql(sql_query, self.rm_rd_esb_conn)
@@ -233,12 +235,11 @@ class ProfileFaresModule:
         return None
 
     def fetch_RG_pathwise(self, path):
-        s3_client = client("s3")
         usecols = ["AirlineCode", "Sector", "Stops", "Dep_Time", "DepartureDate", "AvgFare", "NDO", ]
 
-        response = s3_client.get_object(Bucket=self.S3_RM_BUCKET_NAME, Key=path)
+        response = self.s3.get_object(Bucket=self.S3_RM_BUCKET_NAME, Key=path)
         parquet_file = response["Body"].read()
-        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols,engine="fastparquet")
+        dfx = pd.read_parquet(io.BytesIO(parquet_file), columns=usecols)
 
         dfx = dfx[dfx.NDO.between(30, 40)]
 

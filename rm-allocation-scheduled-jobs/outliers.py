@@ -9,11 +9,14 @@ class Outliers:
     def __init__(self, rm_rd_esb_conn):
         self.rm_rd_esb_conn = rm_rd_esb_conn
 
-    def outliers(self, clusters, sector):
+    def outliers(self, clusters, sector, date):
+        self.Outliers = None
         self.dcluster = clusters
+        self.prevmdate = date
         self.process_AF(sector)
-        if self.Outliers is not None and not self.Outliers.empty:
-            return self.Outliers.dropna()
+        if self.Outliers is not None:
+            if not self.Outliers.empty:
+                return self.Outliers.dropna()
         # dfAF.to_csv('OutliersTest.csv', index=False)
         return None
 
@@ -43,7 +46,7 @@ class Outliers:
             # Now, we will finally make assignments:
             # Initially all points are normal
             dhist['Outlier'] = 0
-            self.Outliers = None
+            
             if dhist.shape[0] != 0:
 
                 # Now those points with Score < -1.6 is guaranteed to be an outlier initially
@@ -108,7 +111,8 @@ class Outliers:
                 ON qf.InventoryLegID = il.InventoryLegID
             WHERE
                 CONCAT(qf.Origin, qf.Destination) = '{sector}' AND
-                qf.DepartureDate >= '2023-09-01' AND qf.RevenuePax > 0
+                qf.DepartureDate >= '{self.prevmdate}' 
+                AND qf.RevenuePax > 0
                 AND CAST(TRIM(qf.FlightNumber) AS UNSIGNED) < 4000
             """
         df = pd.read_sql(sql_query, self.rm_rd_esb_conn)
@@ -124,8 +128,19 @@ class Outliers:
         df['s_DOW'] = np.sin((2 * np.pi * df['DOW']) / 7)
         df['c_DOW'] = np.cos((2 * np.pi * df['DOW']) / 7)
         df['ord'] = pd.to_datetime(df['DepartureDate']).apply(lambda x: x.toordinal())
-        maxord, minord = df['ord'].max(), df['ord'].min()
-        df['ord'] = (df['ord'] - minord) / (maxord - minord)
+        valid_ord = df['ord'].dropna()
+        if len(valid_ord) > 0:
+            maxord, minord = valid_ord.max(), valid_ord.min()
+            if maxord != minord:  # Prevent division by zero
+                df['ord'] = (df['ord'] - minord) / (maxord - minord)
+            else:
+                df['ord'] = 0
+        else:
+            # Handle the case where all values are NaT
+            df['ord'] = np.nan
+            
+        # maxord, minord = df['ord'].max(), df['ord'].min()
+        # df['ord'] = (df['ord'] - minord) / (maxord - minord)
         df.drop(columns=['Seats', 'Revenue'], inplace=True)
 
         # ensure that only those groups that have more than 60 points are considered:
