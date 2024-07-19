@@ -74,7 +74,9 @@ class RBDAllocations:
 
                 if RBDLabel == self.constantsutils.HIGHEST_B2C_RBD_VALUE:
                     incremental = totalCapacity
-
+                if currRec.get_class_attribute(b2cctr,'class_au') is not None:
+                    if incremental<currRec.get_class_attribute(b2cctr,'class_au'):
+                        incremental=currRec.get_class_attribute(b2cctr,'class_au')
                 if b2cctr < B2CRBDs.shape[0]:
                     currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
                 b2cAllocationsUnits.append(incrementalb2b)
@@ -264,7 +266,11 @@ class RBDAllocations:
                         # Allocation
                         if (b2bStatus == 0) or (b2bStatus == 2):
                             if dPLF < 0 and (PLF < self.constantsutils.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPrice)):
-                                currRec.set_class_attribute(brd_counter, 'class_au', int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter])))
+                                value=int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter]))
+                                if currRec.get_class_attribute(brd_counter-1,'class_au') is not None:
+                                    if value<currRec.get_class_attribute(brd_counter-1,'class_au'):
+                                        value=currRec.get_class_attribute(brd_counter-1,'class_au')
+                                currRec.set_class_attribute(brd_counter, 'class_au', value)
                             else:
                                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
                                 isUpsellFlag = True
