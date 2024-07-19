@@ -267,9 +267,9 @@ class RBDAllocations:
                         if (b2bStatus == 0) or (b2bStatus == 2):
                             if dPLF < 0 and (PLF < self.constantsutils.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPrice)):
                                 value=int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter]))
-                                if currRec.get_class_attribute(brd_counter-1,'class_au') is not None:
-                                    if value<currRec.get_class_attribute(brd_counter-1,'class_au'):
-                                        value=currRec.get_class_attribute(brd_counter-1,'class_au')
+                                if currRec.get_class_attribute(brd_counter-b2bctr,'class_au') is not None:
+                                    if value<currRec.get_class_attribute(brd_counter-b2bctr,'class_au'):
+                                        value=currRec.get_class_attribute(brd_counter-b2bctr,'class_au')
                                 currRec.set_class_attribute(brd_counter, 'class_au', value)
                             else:
                                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
