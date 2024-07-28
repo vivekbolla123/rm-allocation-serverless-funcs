@@ -41,6 +41,7 @@ class Schema:
         self.load_generic_table("config_clusters","config_clusters.csv")
         self.load_generic_table("series_blocking","series_blocking.csv")
         self.load_generic_table("series_booked","series_booked.csv")
+        self.load_generic_table("config_conversion_rate","config_conversion_rate.csv")
         
         self.alterTables()
 

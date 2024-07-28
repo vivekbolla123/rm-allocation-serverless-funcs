@@ -757,3 +757,8 @@ class RMDatabaseHelper:
         query = f"""select Origin,Destination,FlightNumber,DepartureDate,bookedPax,OrgCode from series_booked where FlightNumber='{flight_number}' and DepartureDate = '{departure_date}' and concat(Origin,Destination)='{sector}'"""
         df = pd.read_sql(query, self.conn)
         return df
+    
+    def convert_currency(self,from_currency,to_currency,value):
+        query = f"SELECT '{from_currency}' AS FromCurrency, '{to_currency}' AS ToCurrency, {value} AS OriginalValue, {value} * ConversionRate AS ConvertedValue FROM config_conversion_rate WHERE FromCurrencyCode = '{from_currency}' AND ToCurrencyCode = '{to_currency}'"
+        df = pd.read_sql(query, self.conn)
+        return df['ConvertedValue'][0]
