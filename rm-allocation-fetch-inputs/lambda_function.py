@@ -222,9 +222,15 @@ def lambda_handler(event, context):
         
         if batches_required[1] > 0:
             last_batch_df = mkt_list.iloc[-batches_required[1]:]
+            last_batch_df['runId'] = run_id
+            last_batch_df['update_navitaire_method'] = update_navitaire_method
+            last_batch_df['runTime'] = start_time
+            last_batch_df['route_type'] = route_type
+            last_batch_df['queue'] = queue_name
             temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
-            my_list_json = last_batch_df.to_json(orient='records')
-            
+            data_to_serialize = last_batch_df.to_dict(orient='records')
+            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+            logger.info(my_list_json)
             cache_client.set(temp_name, my_list_json, 86400)
             allocation_run_batch_audit(run_id, temp_name)
         

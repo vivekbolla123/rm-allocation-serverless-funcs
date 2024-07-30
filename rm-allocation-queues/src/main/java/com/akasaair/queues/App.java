@@ -570,6 +570,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     row.put(CHANNEL_COLUMN_NAME, resultSet.getString(CHANNEL_COLUMN_NAME));
                     row.put(DECISION_COLUMN_NAME, resultSet.getString(DECISION_COLUMN_NAME));
                     row.put(BAND_COLUMN_NAME, resultSet.getString(BAND_COLUMN_NAME));
+                    for (int i = 0; i <= 6; i++) {
+                        row.put(String.valueOf(i), resultSet.getString(String.valueOf(i)));
+                    }
+
                     listObj.add(row);
                 }
             }
