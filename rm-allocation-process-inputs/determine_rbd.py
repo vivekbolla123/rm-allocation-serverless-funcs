@@ -197,6 +197,7 @@ class DetermineRBD:
             anchorFare =  0
         
         if plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0:
+            lastSoldFare=float(lastSoldFare)
             howDetermined = "Overbooking Calculated Fare"
             upsell = CONST_NA
             calculatedFare = strategyFare
