@@ -290,6 +290,31 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return mktFareRange
+    
+    def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,transitTime):
+        
+        currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT)
+        currFltDate = currFltDate.strftime("%Y-%m-%d")
+        origin = currParams.origin
+        destination = currParams.destin
+        
+        mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
+            from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
+            and channel = '{channel}' and outbound_airline_code <> '{currParams.carr_exclusion}' AND outbound_stop = '{outBoundStop}' and transit_time <= '{transitTime}'
+            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
+        """
+        
+        mktLowestQuery = mktLowestQuery + f""" AND departure_date  = '{currFltDate}' """
+
+        if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
+            mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
+        try:
+            mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+
+        return mktFareRange
 
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate,starttime):
         # load the list of sectors

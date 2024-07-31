@@ -816,7 +816,7 @@ class DynAlloc:
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
-		self.marketfaresservice = MarketFareService(self.rmdatabasehelper, self.constantsUtils,self.timeutils)
+		self.marketfaresservice = MarketFareService(self.rmdatabasehelper, self.navdatabasehelper,self.constantsUtils,self.timeutils)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.navdatabasehelper, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
 

@@ -5,8 +5,9 @@ import pandas as pd
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,constantsutils,timeutils):
+    def __init__(self,rm_database_helper,nav_database_helper,constantsutils,timeutils):
         self.rmdatabasehelper=rm_database_helper
+        self.navdatabasehelper=nav_database_helper
         self.constantsutils=constantsutils
         self.timeutils=timeutils
         
@@ -154,5 +155,30 @@ class MarketFareService:
     def prepareResponse(self, startTime, endTime, criteria, marketFareRange, summary):
         minMaxFare = self.getMarketFareRangeminomaxo(marketFareRange)
         return startTime, endTime, criteria, marketFareRange, minMaxFare, summary
+    
+    def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,transitTime):
+        
+        return self.rmdatabasehelper.getMarketFareRangeConnections(
+            channel, params,flightDate, outBoundStop,transitTime
+        )
+
+    
+    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime):
+        
+        mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,transitTime)
+        minMaxFare=0
+        
+        if len(mktFareRange)!=0:
+            for index, row in mktFareRange.iterrows():
+                if row['currency'] != 'INR':
+                    if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
+                        converted_fare = self.navdatabasehelper.convert_currency(row['currency'], 'INR', row['gross_fare'])
+                    else:
+                        converted_fare = self.rmdatabasehelper.convert_currency(row['currency'], 'INR', row['gross_fare'])
+                    mktFareRange.at[index, 'gross_fare'] = converted_fare
+                    mktFareRange.at[index, 'currency'] = 'INR'
+            minMaxFare = self.getMarketFareRangeminomaxo(mktFareRange)
+        
+        return mktFareRange,minMaxFare
 
 

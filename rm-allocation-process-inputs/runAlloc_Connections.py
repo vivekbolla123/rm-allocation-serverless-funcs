@@ -30,6 +30,7 @@ from determine_rbd import DetermineRBD
 from datetime import  datetime, timedelta
 from models.market_list_connections_row import MarketListConnectiosnsRow
 from models.input_source import InputSource
+from market_fares_service import MarketFareService
 warnings.filterwarnings('ignore')
 
 class DynAllocConnections:
@@ -218,6 +219,11 @@ class DynAllocConnections:
 				self.outputSummaryRow_b2c.OpenRBD1=b2c_rbd_sector1["ClassOfService"].values[0]
 				self.outputSummaryRow_b2c.OpenRBD2=b2c_rbd_sector2["ClassOfService"].values[0]
 				b2cSectorTotal,self.outputSummaryRow_b2c.SellingFare1,self.outputSummaryRow_b2c.SellingFare2 = self.rmdatabasehelper.getFinalPrice(b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, "B2C")
+				fare1=b2cSectorTotal
+				lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria=self.marketfaresservice.getMarketFareAnchorFareConnections(B2C_CHANNEL,self.currParams,current_date,self.currParams.outboundstop,self.currParams.transit_time,criteria)
+				fare2=hiFare
+				if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
+					fare2=lowFare
 				origin = sector1[:3]
 				destin = sector2[-3:]
 				b2cTotal,b2cdiscount = self.getTotalPriceForConnections(priceStrategy, discountValue, b2cSectorTotal)
@@ -415,6 +421,7 @@ class DynAllocConnections:
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
 		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams)
+		self.marketfaresservice = MarketFareService(self.rmdatabasehelper, self.navdatabasehelper,self.constantsUtils,self.timeutils)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.navdatabasehelper, self.mathutils,self.redishelper)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
 		self.AU_COLUMN_LENGTH_CONNECTIONS = self.constantsUtils.AU_COLUMN_LENGTH_CONNECTIONS
