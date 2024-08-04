@@ -163,11 +163,16 @@ class MarketFareService:
         )
 
     
-    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime):
+    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime,criteria):
         
         mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,transitTime)
-        minMaxFare=0
-        
+        isMarketFareAvailable = False
+        lowFare = 0
+        hiFare = 0
+        lowAirlineCode = "Market Fare not found"
+        hiAirlineCode = "Market Fare not found"
+        lowFilghtNum = "Market Fare not found"
+        hiFilghtNum = "Market Fare not found"
         if len(mktFareRange)!=0:
             for index, row in mktFareRange.iterrows():
                 if row['currency'] != 'INR':
@@ -177,8 +182,21 @@ class MarketFareService:
                         converted_fare = self.rmdatabasehelper.convert_currency(row['currency'], 'INR', row['gross_fare'])
                     mktFareRange.at[index, 'gross_fare'] = converted_fare
                     mktFareRange.at[index, 'currency'] = 'INR'
-            minMaxFare = self.getMarketFareRangeminomaxo(mktFareRange)
+            mktfareRange_minomaxo = self.getMarketFareRangeminomaxo(mktFareRange)
+            lowFare = mktFareRange['gross_fare'][0]
+            hiFare = mktFareRange['gross_fare'].iloc[-1]
+            lowAirlineCode = mktFareRange['outbound_airline_code'][0]
+            hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
+            lowFilghtNum = mktFareRange['outbound_flight'][0]
+            hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
+            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
+                lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
+                hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
+                lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
+                hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
+                lowFare = mktfareRange_minomaxo['LowFare'][0]
+                hiFare = mktfareRange_minomaxo['HiFare'][0]
         
-        return mktFareRange,minMaxFare
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria
 
 

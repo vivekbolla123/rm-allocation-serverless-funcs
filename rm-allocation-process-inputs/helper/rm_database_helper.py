@@ -38,7 +38,7 @@ class RMDatabaseHelper:
             if self.currParams.route_type=="direct":
                 marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
             else:
-                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Transit_time,Currency,analystName FROM market_list_connections "
+                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Transit_time,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -293,14 +293,13 @@ class RMDatabaseHelper:
     
     def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,transitTime):
         
-        currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT)
-        currFltDate = currFltDate.strftime("%Y-%m-%d")
-        origin = currParams.origin
-        destination = currParams.destin
+        currFltDate = currFltDateStr
+        origin = currParams.sector1[:3]
+        destination = currParams.sector2[3:]
         
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' and outbound_airline_code <> '{currParams.carr_exclusion}' AND outbound_stop = '{outBoundStop}' and transit_time <= '{transitTime}'
+            and channel = '{channel}' AND outbound_stop = '{outBoundStop}' and transit_time <= '{transitTime}'
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
         """
         
@@ -665,13 +664,12 @@ class RMDatabaseHelper:
 
         else:
             sector1_total = sector1_result["Total"][0]
-
         return sector1_total
     def insertSummaryRow_connections(self,allocresults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocresults[-1]
             insertQuery = f""" INSERT INTO run_summary_connections 
-                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName)  
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime) 
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.RunId}', 
@@ -697,6 +695,20 @@ class RMDatabaseHelper:
                     '{str(latest_row.Backstop)}',
                     '{self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT)}',
                     '{str(latest_row.analystName)}'
+                    '{str(latest_row.variance1)}'
+                    '{str(latest_row.variance2)}'
+                    '{str(latest_row.strategyfare)}'
+                    '{str(latest_row.criteria)}'
+                    '{str(latest_row.fareOffset)}'
+                    '{str(latest_row.MktFare_Min)}'
+                    '{str(latest_row.AirlineCode_Min)}'
+                    '{str(latest_row.FlightNumber_Min)}'
+                    '{str(latest_row.MktFare_Max)}'
+                    '{str(latest_row.AirlineCode_Max)}'
+                    '{str(latest_row.FlightNumber_Max)}'
+                    '{str(latest_row.outBoundStop)}'
+                    '{str(latest_row.transitTime)}'
+                    
                 )"""
             self.wrconn.execute(insertQuery)
 
@@ -787,3 +799,17 @@ class RMDatabaseHelper:
         query = f"SELECT '{from_currency}' AS FromCurrency, '{to_currency}' AS ToCurrency, {value} AS OriginalValue, {value} * ConversionRate AS ConvertedValue FROM config_conversion_rate WHERE FromCurrencyCode = '{from_currency}' AND ToCurrencyCode = '{to_currency}'"
         df = pd.read_sql(query, self.conn)
         return df['ConvertedValue'][0]
+    
+    def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):
+        if(self.inputSource.input_source[CONST_MARKET_FARES] == DB):
+            query = f"SELECT ml.CurveID FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION SELECT mli.CurveID FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
+        if(self.inputSource.input_source[CONST_MARKET_FARES] == TEST_DATA):
+            query = f"SELECT CurveID FROM market_list_DOM WHERE (CONCAT(Origin,Destin) = '{sector1}' AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') = '{dep1}' AND FlightNumber = '{fltno1}') OR (CONCAT(Origin,Destin) = '{sector2}' AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') = '{dep2}' AND FlightNumber = '{fltno2}')"
+
+        df = pd.read_sql(query, self.conn)
+        return df
+    
+    def get_second_flight_dep(self,flightno1,flightno2,org,destin,depDate):
+        query = f"""select Departuredate2 from connections_details where FlightNo1='{flightno1}' and FlightNo2 = '{flightno2}' and Origin1='{org}' and Destnination2='{destin}' and Departuredate1='{depDate}'"""
+        df = pd.read_sql(query, self.conn)
+        return df['Departuredate2'][0]
