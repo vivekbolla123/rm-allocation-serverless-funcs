@@ -695,19 +695,19 @@ class RMDatabaseHelper:
                     '{latest_row.allocationStatus}', 
                     '{str(latest_row.Backstop)}',
                     '{self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT)}',
-                    '{str(latest_row.analystName)}'
-                    '{str(latest_row.variance1)}'
-                    '{str(latest_row.variance2)}'
-                    '{str(latest_row.strategyfare)}'
-                    '{str(latest_row.criteria)}'
-                    '{str(latest_row.fareOffset)}'
-                    '{str(latest_row.MktFare_Min)}'
-                    '{str(latest_row.AirlineCode_Min)}'
-                    '{str(latest_row.FlightNumber_Min)}'
-                    '{str(latest_row.MktFare_Max)}'
-                    '{str(latest_row.AirlineCode_Max)}'
-                    '{str(latest_row.FlightNumber_Max)}'
-                    '{str(latest_row.outBoundStop)}'
+                    '{str(latest_row.analystName)}',
+                    '{str(latest_row.variance1)}',
+                    '{str(latest_row.variance2)}',
+                    '{str(latest_row.strategyfare)}',
+                    '{str(latest_row.criteria)}',
+                    '{str(latest_row.fareOffset)}',
+                    '{str(latest_row.MktFare_Min)}',
+                    '{str(latest_row.AirlineCode_Min)}',
+                    '{str(latest_row.FlightNumber_Min)}',
+                    '{str(latest_row.MktFare_Max)}',
+                    '{str(latest_row.AirlineCode_Max)}',
+                    '{str(latest_row.FlightNumber_Max)}',
+                    '{str(latest_row.outBoundStop)}',
                     '{str(latest_row.transitTime)}'
                     
                 )"""
