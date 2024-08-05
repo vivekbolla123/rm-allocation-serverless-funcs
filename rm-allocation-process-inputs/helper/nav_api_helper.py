@@ -139,6 +139,7 @@ class NavAPIHelper:
         trip_info_simple_url = f"{self.base_url}/nsk/v4/availability/search/simple"
         response = self.session.post(trip_info_simple_url, json=data, verify=False)
         data = response.json()
+        departure=""
         for result in data["data"]["results"]:
             for trip in result["trips"]:
                 for journey in trip["journeysAvailableByMarket"].values():
@@ -149,4 +150,6 @@ class NavAPIHelper:
                                 # origin = segment["designator"]["origin"]
                                 # destination = segment["designator"]["destination"]
                                 departure = segment["designator"]["departure"]
+                                departure=datetime.fromisoformat(departure)
+                                departure=departure.date().isoformat()
         return departure
