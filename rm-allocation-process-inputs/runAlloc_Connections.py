@@ -111,6 +111,33 @@ class DynAllocConnections:
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
             endDate2Str = self.rmdatabasehelper.get_second_flight_dep(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+        if startDate2Str=="" or endDate2Str=="":
+            print("Unable to get the DepDate of SecondFlight - Aborting")
+            self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+            self.outputSummaryRow_b2c.RunId = self.runId
+            self.outputSummaryRow_b2c.Sector1 = sector1
+            self.outputSummaryRow_b2c.Sector2 = sector2
+            self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
+            self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
+            self.outputSummaryRow_b2c.DepDate1 = str(dateFormatted1)
+            self.outputSummaryRow_b2c.DepDate2 = str(dateFormatted2)
+            self.outputSummaryRow_b2c.HowDetermined = "unable to get DepDate of SecondFlight"
+            self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
+            self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
+            self.outputSummaryRow_b2b = copy.deepcopy(
+                self.outputSummaryRow_b2c)
+            self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+            self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
+            self.allocResults.append(self.outputSummaryRow_b2c)
+            self.rmdatabasehelper.insertSummaryRow_connections(
+                self.allocResults)
+            self.allocResults.append(self.outputSummaryRow_b2b)
+            self.rmdatabasehelper.insertSummaryRow_connections(
+                self.allocResults)
+            self.outputSummaryRow_b2c.allocationStatus = 0
+            self.outputSummaryRow_b2b.allocationStatus = 0
+            self.redishelper.updateRunAudit()
+            return
         startDate2=datetime.strptime(startDate2Str,DATE_FORMAT_2).date()
         endDate2=datetime.strptime(endDate2Str,DATE_FORMAT_2).date()
         if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
