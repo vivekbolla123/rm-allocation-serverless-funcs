@@ -154,6 +154,10 @@ class DynAllocConnections:
                 cdf = self.rmdatabasehelper.get_curveids(
                     self.currParams.sector1, self.currParams.sector2, self.currParams.flight1, self.currParams.flight2, tgtDate, tgdDate2)
                 if (len(cdf)) < 2:
+                    dateFormatted1 = datetime.strptime(
+                        str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+                    dateFormatted2 = datetime.strptime(
+                        str(startDate2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
                     print("Unable to get the CurevId - Aborting")
                     self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
                     self.outputSummaryRow_b2c.RunId = self.runId
@@ -161,7 +165,8 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2c.Sector2 = sector2
                     self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
                     self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
-                    self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+                    self.outputSummaryRow_b2c.DepDate1 = str(dateFormatted1)
+                    self.outputSummaryRow_b2c.DepDate2 = str(dateFormatted2)
                     self.outputSummaryRow_b2c.HowDetermined = "unable to get CurevId"
                     self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
                     self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
@@ -188,6 +193,10 @@ class DynAllocConnections:
                     tgtBookedLoad2 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
                         (date2-currDate).days, CurveId2)
                     if (len(tgtBookedLoad1) == 0 or len(tgtBookedLoad2) == 0):
+                        dateFormatted1 = datetime.strptime(
+                        str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+                        dateFormatted2 = datetime.strptime(
+                        str(startDate2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
                         print("No Reference Curve Found - Aborting")
                         self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
                         self.outputSummaryRow_b2c.RunId = self.runId
@@ -195,7 +204,8 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2c.Sector2 = sector2
                         self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
                         self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
-                        self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+                        self.outputSummaryRow_b2c.DepDate = str(dateFormatted1)
+                        self.outputSummaryRow_b2c.DepDate = str(dateFormatted2)
                         self.outputSummaryRow_b2c.HowDetermined = "No Reference Curve Found"
                         self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
                         self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
@@ -221,8 +231,10 @@ class DynAllocConnections:
                 bookedLoadSingleRowSector2 = bookedLoad_sector2[c1 & c2]
 
                 if (bookedLoadSingleRowSector1.shape[0] == 0 or bookedLoadSingleRowSector2.shape[0] == 0):
-                    dateFormatted = datetime.strptime(
+                    dateFormatted1 = datetime.strptime(
                         str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+                    dateFormatted2 = datetime.strptime(
+                        str(startDate2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
                     print("Unable to get the Booked Load - Aborting")
                     self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
                     self.outputSummaryRow_b2c.RunId = self.runId
@@ -230,7 +242,9 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2c.Sector2 = sector2
                     self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
                     self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
-                    self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+                    self.outputSummaryRow_b2c.DepDate1 = str(dateFormatted1)
+                    self.outputSummaryRow_b2c.DepDate2 = str(dateFormatted2)
+                    
                     self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
                     self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
                     self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
@@ -307,18 +321,18 @@ class DynAllocConnections:
                 b2b_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
                     current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2c_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date2, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2b_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date1, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
                 b2c_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
                     current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
             if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
                 b2b_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
                     current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2c_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date2, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2b_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date1, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
                 b2c_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
                     current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
 
@@ -354,7 +368,7 @@ class DynAllocConnections:
                 if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                     fare2 = lowFare
                 self.outputSummaryRow_b2c.strategyfare=fare2
-                if self.currParams.currency!="INR":
+                if self.currParams.currency!="INR" and isMarketFareAvailable:
                     if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
                         fare2 = self.navdatabasehelper.convert_currency('INR', self.currParams.currency, fare2)
                     else:   
@@ -362,6 +376,7 @@ class DynAllocConnections:
                 origin = sector1[:3]
                 destin = sector2[-3:]
                 b2cdiscount = "NA"
+                b2cTotal = "NA"
                 self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
                 self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
                 self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
@@ -369,14 +384,19 @@ class DynAllocConnections:
                 if self.currParams.discountflag == "1":
                     b2cTotal, b2cdiscount = self.getTotalPriceForConnections(
                         priceStrategy, discountValue, b2cSectorTotal)
-                else:
+                elif isMarketFareAvailable:
                     if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
                         b2cTotal = max(fare1, fare2)
                     else:
                         b2cTotal = min(fare1, fare2)
-
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
-                openDataB2C = self.determineRBDToOpen(
+                if b2cTotal=="NA":
+                    self.outputSummaryRow_b2c.Backstop = B2CBackstop
+                    self.outputSummaryRow_b2b.Backstop = B2BBackstop
+                    openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
+                        'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
+                else:
+                    openDataB2C = self.determineRBDToOpen(
                     b2cTotal, origin, destin, "B2C", B2CBackstop)
                 if (b2b_rbd_sector1.shape[0] == 0 or b2b_rbd_sector2.shape[0] == 0):
                     # unable to get bookload aborting
@@ -407,6 +427,9 @@ class DynAllocConnections:
                             b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
                         lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
                             B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
+                        b2bTotal="NA"
+                        b2bdiscount="NA"
+                        fare1=b2bSectorTotal
                         fare2 = hiFare
                         if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                             fare2 = lowFare
@@ -417,18 +440,23 @@ class DynAllocConnections:
                             else:   
                                 fare2 = self.rmdatabasehelper.convert_currency('INR', self.currParams.currency, fare2)
                         if self.currParams.discountflag == "1":
-                            b2cTotal, b2cdiscount = self.getTotalPriceForConnections(
-                                priceStrategy, discountValue, b2cSectorTotal)
+                            b2bTotal, b2bdiscount = self.getTotalPriceForConnections(
+                                priceStrategy, discountValue, b2bSectorTotal)
                         else:
-                            if (bookload1 > tgtBookedLoad1 or bookload2 > tgtBookedLoad2):
-                                b2cTotal = max(fare1, fare2)
+                            if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
+                                b2bTotal = max(fare1, fare2)
                             else:
-                                b2cTotal = min(fare1, fare2)
-                        b2bTotal, b2bdiscount = self.getTotalPriceForConnections(
-                            priceStrategy, discountValue, b2bSectorTotal)
-                        self.outputSummaryRow_b2b.Discount = b2bdiscount
-                        openDataB2B = self.determineRBDToOpen(
+                                b2bTotal = min(fare1, fare2)
+                        
+                        if b2bTotal=="NA":
+                            self.outputSummaryRow_b2c.Backstop = B2CBackstop
+                            self.outputSummaryRow_b2b.Backstop = B2BBackstop
+                            openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
+                                'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
+                        else:
+                            openDataB2B = self.determineRBDToOpen(
                             b2bTotal, origin, destin, "B2B", B2BBackstop)
+                        self.outputSummaryRow_b2b.Discount = b2bdiscount
 
             if (openDataB2C['statusInd'][0] != 1):
                 # Legit Allocation - Write to AU File

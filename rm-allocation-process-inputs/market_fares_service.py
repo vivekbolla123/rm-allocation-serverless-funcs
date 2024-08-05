@@ -174,6 +174,7 @@ class MarketFareService:
         lowFilghtNum = "Market Fare not found"
         hiFilghtNum = "Market Fare not found"
         if len(mktFareRange)!=0:
+            isMarketFareAvailable = True
             for index, row in mktFareRange.iterrows():
                 if row['currency'] != 'INR':
                     if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
