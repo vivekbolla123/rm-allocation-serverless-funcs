@@ -16,9 +16,9 @@ public class QueryConstants {
         return "INSERT INTO " + tableName +
                 " (Sector1,Sector2,Flight1,Flight2,Pertype,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value," +
                 "FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName," +
-                "UUID,Outbound_stop) " +
+                "UUID,Outbound_stop,Transit_time,Currency,fareAnchor,Offset,DiscountFlag) " +
                 "VALUES " +
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ";
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ";
     }
 
     public static String SELECT_MARKET_LIST_CONNECTIONS(String tableName) {
