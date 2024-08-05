@@ -97,16 +97,32 @@ class DynAllocConnections:
         print("Allocation for " + sector1 + " " + sector2 +
               " from " + str(startDate) + " to " + str(endDate))
         self.wait_for_inputs()
+        startDateStr = datetime.strftime(
+                    startDate , DATE_FORMAT_2)
+        endDateStr = datetime.strftime(
+                    endDate , DATE_FORMAT_2)
+        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
+            startDate2Str = self.navapihelper.get_second_flight_dep(
+                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
+            endDate2Str = self.navapihelper.get_second_flight_dep(
+                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+        if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
+            startDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
+            endDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+        startDate2=datetime.strptime(startDate2Str,DATE_FORMAT_2).date()
+        endDate2=datetime.strptime(endDate2Str,DATE_FORMAT_2).date()
         if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
             bookedLoad_sector1 = self.rmdatabasehelper.getCurrentBookedLoads(
                 sector1[:3], sector1[-3:], startDate, endDate)
             bookedLoad_sector2 = self.rmdatabasehelper.getCurrentBookedLoads(
-                sector2[:3], sector2[-3:], startDate, endDate)
+                sector2[:3], sector2[-3:], startDate2, endDate2)
         if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
             bookedLoad_sector1 = self.navdatabasehelper.getCurrentBookedLoads(
                 sector1[:3], sector1[-3:], startDate, endDate)
             bookedLoad_sector2 = self.navdatabasehelper.getCurrentBookedLoads(
-                sector2[:3], sector2[-3:], startDate, endDate)
+                sector2[:3], sector2[-3:], startDate2, endDate2)
 
         try:
             for ndocounter in range(startNDO, endNDO+1):
@@ -235,7 +251,7 @@ class DynAllocConnections:
                     break
                 else:
                     self.allocateAUforflights(
-                        tgtDate, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2)
+                        tgtDate,tgdDate2 ,bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2)
 
         except Exception as e:
             print("Exception occurred")
@@ -249,7 +265,7 @@ class DynAllocConnections:
             update_query = " UPDATE run_flight_date_audit SET status = %s WHERE runId = %s and status = 'Pending' "
             self.wrconn.execute(update_query, "Ready", self.runId)
 
-    def allocateAUforflights(self, current_date, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2):
+    def allocateAUforflights(self, current_date1,current_date2, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2):
         self.outputSummaryRow_b2b = OutputSummaryConnections()
         self.outputSummaryRow_b2c = OutputSummaryConnections()
         self.outputSummaryRow_b2c.Bookedload1 = bookedLoadSingleRowSector1["bookedPax"].values[0]
@@ -274,9 +290,9 @@ class DynAllocConnections:
         b2cRunId = self.utils.getUniqueId()
 
         print("Determining pricing for NDO " +
-              str(ndocounter) + " on  " + str(current_date))
+              str(ndocounter) + " on  " + str(current_date1))
         dow = int(datetime.strftime(datetime.strptime(
-            current_date, '%Y-%m-%d') + timedelta(days=ndocounter), "%w"))
+            current_date1, '%Y-%m-%d') + timedelta(days=ndocounter), "%w"))
 
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" and bookedLoadSingleRowSector1['FlightNumber'].values[0] == str(flight1) and bookedLoadSingleRowSector2['FlightNumber'].values[0] == str(flight2)):
             bookload1 = bookedLoadSingleRowSector1['bookedPax'].values[0]
@@ -286,25 +302,25 @@ class DynAllocConnections:
             bookload = max(
                 bookedLoadSingleRowSector1['bookedPax'].values[0], bookedLoadSingleRowSector2['bookedPax'].values[0])
             print("Combined Booked Load for " + bookedLoadSingleRowSector1['FlightNumber'].values[0]+" "+str(
-                bookedLoadSingleRowSector2['FlightNumber'].values[0]) + " on " + str(current_date) + " is :" + str(bookload))
+                bookedLoadSingleRowSector2['FlightNumber'].values[0]) + " on " + str(current_date1) + " is :" + str(bookload))
             if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
                 b2b_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2c_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date2, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2b_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date1, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
                 b2c_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
             if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
                 b2b_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2c_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date2, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
                 b2b_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date1, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
                 b2c_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
 
             if (b2c_rbd_sector1.shape[0] == 0 or b2c_rbd_sector2.shape[0] == 0):
                 # unable to get bookload aborting
@@ -333,7 +349,7 @@ class DynAllocConnections:
                     b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, "B2C")
                 fare1 = b2cSectorTotal
                 lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                    B2C_CHANNEL, self.currParams, current_date, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
+                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
                 fare2 = hiFare
                 if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                     fare2 = lowFare
@@ -390,7 +406,7 @@ class DynAllocConnections:
                         b2bSectorTotal, self.outputSummaryRow_b2b.SellingFare1, self.outputSummaryRow_b2b.SellingFare2 = self.rmdatabasehelper.getFinalPrice(
                             b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
                         lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                            B2B_CHANNEL, self.currParams, current_date, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
+                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
                         fare2 = hiFare
                         if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                             fare2 = lowFare
@@ -422,9 +438,9 @@ class DynAllocConnections:
                     str(flight1) + ' ' + sector1+'/' + \
                     ' QP' + str(flight2) + ' ' + sector2
                 currRec.start_date = datetime.strftime(
-                    datetime.strptime(current_date, '%Y-%m-%d'), '%m-%d-%Y')
+                    datetime.strptime(current_date1, '%Y-%m-%d'), '%m-%d-%Y')
                 currRec.end_date = datetime.strftime(
-                    datetime.strptime(current_date, '%Y-%m-%d'), '%m-%d-%Y')
+                    datetime.strptime(current_date1, '%Y-%m-%d'), '%m-%d-%Y')
                 currRec.day_of_week = 'Daily'
                 # Condition Added since we dont need to update the AU Grid in Local but we need the Run Id's when we update Navitare via Server Run
                 if self.inputSource.isUpdateNavitaire:
@@ -443,8 +459,10 @@ class DynAllocConnections:
                 if self.inputSource.isUpdateNavitaire:
                     self.redishelper.setAllRunStatus2Ready()
                     self.updateNavSFTP(currRec)
-            current_date = datetime.strptime(
-                str(current_date), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+            current_date1 = datetime.strptime(
+                str(current_date1), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+            current_date2 = datetime.strptime(
+                str(current_date2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
             self.outputSummaryRow_b2c.criteria = criteria
             self.outputSummaryRow_b2c.outBoundStop = self.currParams.outboundstop
             self.outputSummaryRow_b2c.transitTime = self.currParams.transit_time
@@ -461,7 +479,8 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.Sector2 = sector2
             self.outputSummaryRow_b2c.FltNum1 = str(flight1)
             self.outputSummaryRow_b2c.FltNum2 = str(flight2)
-            self.outputSummaryRow_b2c.DepDate = str(current_date)
+            self.outputSummaryRow_b2c.DepDate1 = str(current_date1)
+            self.outputSummaryRow_b2c.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2c.BookedLoad = str(bookload)
             self.outputSummaryRow_b2c.allocationStatus = str(
                 openDataB2C["allocationStatus"][0])
@@ -495,7 +514,8 @@ class DynAllocConnections:
             self.outputSummaryRow_b2b.Sector2 = sector2
             self.outputSummaryRow_b2b.FltNum1 = str(flight1)
             self.outputSummaryRow_b2b.FltNum2 = str(flight2)
-            self.outputSummaryRow_b2b.DepDate = str(current_date)
+            self.outputSummaryRow_b2b.DepDate1 = str(current_date1)
+            self.outputSummaryRow_b2b.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2b.BookedLoad = str(bookload)
             self.outputSummaryRow_b2b.allocationStatus = str(
                 openDataB2B["allocationStatus"][0])

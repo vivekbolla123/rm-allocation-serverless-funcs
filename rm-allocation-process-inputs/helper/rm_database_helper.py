@@ -669,7 +669,7 @@ class RMDatabaseHelper:
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocresults[-1]
             insertQuery = f""" INSERT INTO run_summary_connections 
-                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime) 
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate1, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime) 
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.RunId}', 
@@ -677,7 +677,8 @@ class RMDatabaseHelper:
                     '{latest_row.Sector2}', 
                     '{str(latest_row.FltNum1)}', 
                     '{str(latest_row.FltNum2)}', 
-                    '{latest_row.DepDate}', 
+                    '{latest_row.DepDate1}', 
+                    '{latest_row.DepDate2}', 
                     '{str(latest_row.BookedLoad)}',
                     '{str(latest_row.Bookedload1)}',
                     '{str(latest_row.SellingFare1)}',

@@ -8,7 +8,8 @@ class OutputSummaryConnections:
         self.Sector2 = CONST_NA 
         self.FltNum1 = CONST_NA 
         self.FltNum2 = CONST_NA 
-        self.DepDate = CONST_NA
+        self.DepDate1 = CONST_NA
+        self.DepDate2 = CONST_NA
         self.Bookedload1=CONST_NA
         self.SellingFare1=CONST_NA
         self.SellingFare2=CONST_NA
