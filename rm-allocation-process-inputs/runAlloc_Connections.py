@@ -120,7 +120,7 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.Sector2 = sector2
             self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
             self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
-            self.outputSummaryRow_b2c.DepDate1 = str(startDateStr)
+            self.outputSummaryRow_b2c.DepDate1 = str(self.currParams.per_start)
             self.outputSummaryRow_b2c.DepDate2 = CONST_NA
             self.outputSummaryRow_b2c.HowDetermined = "unable to get DepDate of SecondFlight"
             self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
