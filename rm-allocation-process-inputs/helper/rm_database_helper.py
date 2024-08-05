@@ -813,4 +813,6 @@ class RMDatabaseHelper:
     def get_second_flight_dep(self,flightno1,flightno2,org,destin,depDate):
         query = f"""select Departuredate2 from connections_details where FlightNo1='{flightno1}' and FlightNo2 = '{flightno2}' and Origin1='{org}' and Destnination2='{destin}' and Departuredate1='{depDate}'"""
         df = pd.read_sql(query, self.conn)
+        if len(df)==0:
+            return ""
         return df['Departuredate2'][0]
