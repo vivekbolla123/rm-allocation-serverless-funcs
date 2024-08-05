@@ -112,6 +112,7 @@ class DynAllocConnections:
             endDate2Str = self.rmdatabasehelper.get_second_flight_dep(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
         if startDate2Str=="" or endDate2Str=="":
+            self.outputSummaryRow_b2c = OutputSummaryConnections()
             print("Unable to get the DepDate of SecondFlight - Aborting")
             self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
             self.outputSummaryRow_b2c.RunId = self.runId
