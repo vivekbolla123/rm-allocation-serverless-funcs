@@ -113,7 +113,7 @@ class DynAllocConnections:
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
         if startDate2Str=="" or endDate2Str=="":
             self.outputSummaryRow_b2c = OutputSummaryConnections()
-            print("Unable to get the DepDate of SecondFlight - Aborting")
+            print("Unable to get the DepDate of SecondFlight invalid connection- Aborting")
             self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
             self.outputSummaryRow_b2c.RunId = self.runId
             self.outputSummaryRow_b2c.Sector1 = sector1
@@ -122,7 +122,7 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
             self.outputSummaryRow_b2c.DepDate1 = str(self.currParams.per_start)
             self.outputSummaryRow_b2c.DepDate2 = CONST_NA
-            self.outputSummaryRow_b2c.HowDetermined = "unable to get DepDate of SecondFlight"
+            self.outputSummaryRow_b2c.HowDetermined = "Connection is invalid"
             self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
             self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
             self.outputSummaryRow_b2b = copy.deepcopy(
@@ -415,7 +415,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
                 self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
                 self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
-                if self.currParams.discountflag == "1":
+                if str(self.currParams.discountflag) == "1":
                     b2cTotal, b2cdiscount = self.getTotalPriceForConnections(
                         priceStrategy, discountValue, b2cSectorTotal)
                 elif isMarketFareAvailable:
@@ -473,7 +473,7 @@ class DynAllocConnections:
                                 fare2 = self.navdatabasehelper.convert_currency('INR', self.currParams.currency, fare2)
                             else:   
                                 fare2 = self.rmdatabasehelper.convert_currency('INR', self.currParams.currency, fare2)
-                        if self.currParams.discountflag == "1":
+                        if str(self.currParams.discountflag) == "1":
                             b2bTotal, b2bdiscount = self.getTotalPriceForConnections(
                                 priceStrategy, discountValue, b2bSectorTotal)
                         else:
