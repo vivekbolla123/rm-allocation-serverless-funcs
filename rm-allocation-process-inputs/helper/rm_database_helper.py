@@ -802,11 +802,9 @@ class RMDatabaseHelper:
         return df['ConvertedValue'][0]
     
     def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):
-        if(self.inputSource.input_source[CONST_MARKET_FARES] == DB):
-            query = f"SELECT * FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION SELECT * FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
-        if(self.inputSource.input_source[CONST_MARKET_FARES] == TEST_DATA):
-            query = f"SELECT * FROM market_list_DOM WHERE (CONCAT(Origin,Destin) = '{sector1}' AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') = '{dep1}' AND FlightNumber = '{fltno1}') OR (CONCAT(Origin,Destin) = '{sector2}' AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') = '{dep2}' AND FlightNumber = '{fltno2}')"
-
+        
+        query = f"SELECT * FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION SELECT * FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
+        
         df = pd.read_sql(query, self.conn)
         return df
     

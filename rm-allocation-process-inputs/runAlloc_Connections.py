@@ -366,6 +366,12 @@ class DynAllocConnections:
 
             if (b2c_rbd_sector1.shape[0] == 0 or b2c_rbd_sector2.shape[0] == 0):
                 # unable to get bookload aborting
+                lowFare="NA"
+                lowAirlineCode="NA"
+                lowFilghtNum="NA"
+                hiFare="NA"
+                hiAirlineCode="NA"
+                hiFilghtNum="NA"
                 self.outputSummaryRow_b2c.Backstop = B2CBackstop
                 self.outputSummaryRow_b2b.Backstop = B2BBackstop
                 openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
@@ -519,7 +525,7 @@ class DynAllocConnections:
                 str(current_date1), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
             current_date2 = datetime.strptime(
                 str(current_date2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
-            self.outputSummaryRow_b2c.criteria = criteria
+            self.outputSummaryRow_b2c.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2c.outBoundStop = self.currParams.outboundstop
             self.outputSummaryRow_b2c.transitTime = self.currParams.transit_time
             self.outputSummaryRow_b2c.fareOffset = self.currParams.offset
@@ -554,7 +560,7 @@ class DynAllocConnections:
                 self.allocResults)
             
             
-            self.outputSummaryRow_b2b.criteria = criteria
+            self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2b.outBoundStop = self.currParams.outboundstop
             self.outputSummaryRow_b2b.transitTime = self.currParams.transit_time
             self.outputSummaryRow_b2b.fareOffset = self.currParams.offset
