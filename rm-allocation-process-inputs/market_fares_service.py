@@ -163,7 +163,7 @@ class MarketFareService:
         )
 
     
-    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime,criteria):
+    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime,criteria,inputSource):
         
         mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,transitTime)
         isMarketFareAvailable = False
@@ -177,7 +177,7 @@ class MarketFareService:
             isMarketFareAvailable = True
             for index, row in mktFareRange.iterrows():
                 if row['currency'] != 'INR':
-                    if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
+                    if(inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
                         converted_fare = self.navdatabasehelper.convert_currency(row['currency'], 'INR', row['gross_fare'])
                     else:
                         converted_fare = self.rmdatabasehelper.convert_currency(row['currency'], 'INR', row['gross_fare'])

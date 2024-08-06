@@ -397,7 +397,7 @@ class DynAllocConnections:
                     b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, "B2C")
                 fare1 = b2cSectorTotal
                 lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
+                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor,self.inputSource)
                 fare2 = hiFare
                 if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                     fare2 = lowFare
@@ -460,7 +460,7 @@ class DynAllocConnections:
                         b2bSectorTotal, self.outputSummaryRow_b2b.SellingFare1, self.outputSummaryRow_b2b.SellingFare2 = self.rmdatabasehelper.getFinalPrice(
                             b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
                         lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor)
+                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor,self.inputSource)
                         b2bTotal="NA"
                         b2bdiscount="NA"
                         fare1=b2bSectorTotal
