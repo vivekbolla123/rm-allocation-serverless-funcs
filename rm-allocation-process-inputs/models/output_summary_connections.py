@@ -17,6 +17,8 @@ class OutputSummaryConnections:
         self.variance1=CONST_NA
         self.variance2=CONST_NA
         self.strategyfare=CONST_NA
+        self.discountedFare=CONST_NA
+        self.currency=CONST_NA
         self.criteria=CONST_NA
         self.fareOffset=CONST_NA
         self.MktFare_Min=CONST_NA

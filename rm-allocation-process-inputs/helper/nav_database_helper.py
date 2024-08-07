@@ -190,7 +190,6 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
         df = pd.read_sql(query, self.NavitaireConnection)
         return df
     
-    def convert_currency(self,from_currency,to_currency,value):
-        query = f"SELECT '{from_currency}' AS FromCurrency, '{to_currency}' AS ToCurrency, {value} AS OriginalValue, {value} * ConversionRate AS ConvertedValue FROM {self.NAV_DB_WB_NAME}[Reference].[CurrencyConversion] WHERE FromCurrencyCode = '{from_currency}' AND ToCurrencyCode = '{to_currency}'"
-        df = pd.read_sql(query, self.conn)
-        return df['ConvertedValue'][0]
+    def fetch_all_conversion_data(self):
+        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM {self.NAV_DB_WB_NAME}[Reference].[CurrencyConversion]"
+        return pd.read_sql(query, self.conn)

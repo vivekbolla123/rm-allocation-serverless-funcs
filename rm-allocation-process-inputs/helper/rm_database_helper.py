@@ -299,7 +299,7 @@ class RMDatabaseHelper:
         
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' AND outbound_stop = '{outBoundStop}' and transit_time <= '{transitTime}'
+            and channel = '{channel}' AND outbound_stop <= '{outBoundStop}' and transit_time <= '{transitTime}'
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
         """
         
@@ -336,7 +336,14 @@ class RMDatabaseHelper:
             cur_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
             self.currentTime = cur_time
         return self.currentTime
-
+    def get_qp_currency(self,origin, destin):
+        query= "select currency from Fares where Org = '" + origin + "' and Dst = '" + destin + "'"
+        try:
+            rbddata = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e) 
+        return rbddata["currency"][0]
+    
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult,route):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
@@ -631,8 +638,8 @@ class RMDatabaseHelper:
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
-        sector1_RBDquery = f"select Total from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
-        sector2_RBDquery = f"select Total from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector1_RBDquery = f"select Total ,currency from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector2_RBDquery = f"select Total ,currency from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
         sector2_result = pd.read_sql(sector2_RBDquery, self.conn)
@@ -641,11 +648,15 @@ class RMDatabaseHelper:
             total = 0
             sector1_total=0
             sector2_total=0
+            currency1=""
+            currency2=""
         else:
             sector1_total = sector1_result["Total"][0]
             sector2_total = sector2_result["Total"][0]
+            currency1=sector1_result["currency"][0]
+            currency2=sector2_result["currency"][0]
             total = sector1_total + sector2_total
-        return total,sector1_total,sector2_total
+        return total,sector1_total,sector2_total,currency1,currency2
 
     def getSellingPrice(self, rbd, sector, channel,route):
 
@@ -654,22 +665,24 @@ class RMDatabaseHelper:
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
-        sector1_RBDquery = f"select Total from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
+        sector1_RBDquery = f"select Total,currency from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
 
         if (sector1_result.shape[0] == 0):
 
             sector1_total=0
+            currency=""
 
         else:
             sector1_total = sector1_result["Total"][0]
-        return sector1_total
+            currency = sector1_result["currency"][0]
+        return sector1_total,currency
     def insertSummaryRow_connections(self,allocresults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocresults[-1]
             insertQuery = f""" INSERT INTO run_summary_connections 
-                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate2, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime) 
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate2, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime,DiscountedFare,Currency) 
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.RunId}', 
@@ -708,7 +721,10 @@ class RMDatabaseHelper:
                     '{str(latest_row.AirlineCode_Max)}',
                     '{str(latest_row.FlightNumber_Max)}',
                     '{str(latest_row.outBoundStop)}',
-                    '{str(latest_row.transitTime)}'
+                    '{str(latest_row.transitTime)}',
+                    '{str(latest_row.discountedFare)}',
+                    '{str(latest_row.currency)}'
+                    
                     
                 )"""
             self.wrconn.execute(insertQuery)
@@ -796,10 +812,10 @@ class RMDatabaseHelper:
         df = pd.read_sql(query, self.conn)
         return df
     
-    def convert_currency(self,from_currency,to_currency,value):
-        query = f"SELECT '{from_currency}' AS FromCurrency, '{to_currency}' AS ToCurrency, {value} AS OriginalValue, {value} * ConversionRate AS ConvertedValue FROM config_conversion_rate WHERE FromCurrencyCode = '{from_currency}' AND ToCurrencyCode = '{to_currency}'"
+    def fetch_all_conversion_data(self):
+        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM config_conversion_rate"
         df = pd.read_sql(query, self.conn)
-        return df['ConvertedValue'][0]
+        return df
     
     def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):
         
