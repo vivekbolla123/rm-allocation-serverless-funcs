@@ -1771,10 +1771,10 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!checkPriceStrategy(record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY))) {
             errorsFound.add(lineNum + "Strategy Flag has value other than '1' or '2'");
         }
-        if (!isNumeric(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
+        if (!isPositive(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
             errorsFound.add(lineNum + "First Allocation is not a number");
         }
-        if (!(isNumeric(record.get(CSV_HEADER_CONNECTIONS_OTHERRBDALLOC))
+        if (!(isPositive(record.get(CSV_HEADER_CONNECTIONS_OTHERRBDALLOC))
                 && isPositive(record.get(CSV_HEADER_CONNECTIONS_OTHERRBDALLOC)))) {
             errorsFound.add(lineNum + "Other Allocation is not a positive number");
         }
