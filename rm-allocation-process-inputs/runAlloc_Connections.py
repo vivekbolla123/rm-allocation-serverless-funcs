@@ -431,6 +431,8 @@ class DynAllocConnections:
                     fare2 = lowFare
                 b2cdiscount = "NA"
                 b2cTotal = "NA"
+                strategyFare=0
+                self.fareStatus = ""
                 b2cdiscountedFare, b2cdiscount = self.getTotalPriceForConnections(
                         priceStrategy, discountValue, b2cSectorTotal)
                 self.outputSummaryRow_b2c.discountedFare=b2cdiscountedFare
@@ -441,36 +443,40 @@ class DynAllocConnections:
                 self.qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-                strfare=fare2
-                if self.qpcurrency!='INR':
-                    strfare=self.convert_currency('INR',self.qpcurrency,strfare)
-                _,rbddata = self.rmdatabasehelper.getValueWithOffset(
-            origin, destin, strfare, self.currParams.offset, B2C_CHANNEL, openResult, 'R')
-                if len(rbddata)>0:
-                    if self.qpcurrency!='INR':
-                        self.outputSummaryRow_b2c.strategyfare=self.convert_currency(self.qpcurrency,'INR',rbddata["Total"][self.currParams.offset])
-                    else:
-                      self.outputSummaryRow_b2c.strategyfare = rbddata["Total"][self.currParams.offset] 
+                strfare=fare2 
                 self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
                 self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
                 self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
                 self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
+                offset=self.currParams.offset
+                if self.qpcurrency!='INR':
+                    B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
+                    B2BBackstop = self.convert_currency('INR',self.qpcurrency,B2BBackstop)
+                if self.qpcurrency!='INR':
+                    strfare=self.convert_currency('INR',self.qpcurrency,strfare)
+                rbddata=self.determineRBDToOpen(
+                    strfare, origin, destin, "B2C", B2CBackstop,offset)
+                if len(rbddata)>0:
+                    if self.qpcurrency!='INR':
+                        self.outputSummaryRow_b2c.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata["Fare"][0]))
+                    else:
+                      self.outputSummaryRow_b2c.strategyfare = rbddata["Fare"][0]
+                if self.outputSummaryRow_b2c.strategyfare != "NA":
+                    strategyFare= float(self.outputSummaryRow_b2c.strategyfare)
                 if str(self.currParams.discountflag) == "1":
                     self.fareStatus = " - DiscountedFare"
                     b2cTotal=b2cdiscountedFare
                 elif isMarketFareAvailable:
                     self.fareStatus = " - MarketFare"
                     if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                        b2cTotal = max(fare1, strfare)
+                        b2cTotal = max(fare1, float(strategyFare))
                     else:
-                        b2cTotal = min(fare1, strfare)
+                        b2cTotal = min(fare1, float(strategyFare))
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
                 self.outputSummaryRow_b2b.currency=self.qpcurrency
-                if self.qpcurrency!='INR':
-                    B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
-                    B2BBackstop = self.convert_currency('INR',self.qpcurrency,B2BBackstop)
+                
                 if b2cTotal=="NA":
                     self.outputSummaryRow_b2c.Backstop = B2CBackstop
                     self.outputSummaryRow_b2b.Backstop = B2BBackstop
@@ -478,8 +484,7 @@ class DynAllocConnections:
                         'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 else:
                     openDataB2C = self.determineRBDToOpen(
-                    b2cTotal, origin, destin, "B2C", B2CBackstop)
-                    self
+                    b2cTotal, origin, destin, "B2C", B2CBackstop,0)
                 
                 if (b2b_rbd_sector1.shape[0] == 0 or b2b_rbd_sector2.shape[0] == 0):
                     # unable to get bookload aborting
@@ -532,6 +537,7 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2b.FlightNumber_Max=hiFilghtNum
                         b2bTotal="NA"
                         b2bdiscount="NA"
+                        strategyFare=0
                         b2bdiscountedFare, b2bdiscount = self.getTotalPriceForConnections(
                                 priceStrategy, discountValue, b2bSectorTotal)
                         fare1=b2bdiscountedFare
@@ -544,22 +550,26 @@ class DynAllocConnections:
                             strfare=self.convert_currency('INR',self.qpcurrency,strfare)
                         openResult = pd.DataFrame(
                         columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-                        _,rbddata = self.rmdatabasehelper.getValueWithOffset(
-                        origin, destin, strfare, self.currParams.offset, B2B_CHANNEL, openResult, 'R')
+                        if self.qpcurrency!='INR':
+                            strfare=self.convert_currency('INR',self.qpcurrency,strfare)
+                        rbddata=self.determineRBDToOpen(
+                            strfare, origin, destin, "B2B", B2BBackstop,offset)
                         if len(rbddata)>0:
                             if self.qpcurrency!='INR':
-                                self.outputSummaryRow_b2b.strategyfare=self.convert_currency(self.qpcurrency,'INR',rbddata["Total"][self.currParams.offset])
+                                self.outputSummaryRow_b2b.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata["Fare"][0]))
                             else:
-                                self.outputSummaryRow_b2b.strategyfare = rbddata["Total"][self.currParams.offset]   
+                                self.outputSummaryRow_b2b.strategyfare = rbddata["Fare"][0]   
+                        if self.outputSummaryRow_b2b.strategyfare != "NA":
+                            strategyFare= float(self.outputSummaryRow_b2b.strategyfare)
                         if str(self.currParams.discountflag) == "1":
                             self.fareStatus = " - DiscountedFare"
                             b2bTotal=b2bdiscountedFare
                         else:
                             self.fareStatus = " - MarketFare"
                             if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                                b2bTotal = max(fare1, strfare)
+                                b2bTotal = max(fare1, float(strategyFare))
                             else:
-                                b2bTotal = min(fare1, strfare)
+                                b2bTotal = min(fare1, float(strategyFare))
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
@@ -568,7 +578,7 @@ class DynAllocConnections:
                                 'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         else:
                             openDataB2B = self.determineRBDToOpen(
-                            b2bTotal, origin, destin, "B2B", B2BBackstop)
+                            b2bTotal, origin, destin, "B2B", B2BBackstop,0)
                         self.outputSummaryRow_b2b.Discount = b2bdiscount
 
             if (openDataB2C['statusInd'][0] != 1):
@@ -689,13 +699,12 @@ class DynAllocConnections:
         self.rmdatabasehelper.insert_run_fltDate_audit(
             self.runId, flightNo1+"/"+flightNo2, flightDate, auDataStr, "Ready", "Ready")
 
-    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop):
+    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset):
         anchorFare = finalprice
         if self.qpcurrency!='INR':
             anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
         openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        offset = 0
         print("Anchor Fare is " + str(anchorFare))
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
             origin, destin, anchorFare, offset, channel, openResult, 'R')
