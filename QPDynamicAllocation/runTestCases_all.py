@@ -28,6 +28,7 @@ def testCase1():
         "NAV_DB_NAME": None,
         "NAV_DB_DW_NAME": None,
         "NAV_DB_WB_NAME": None,
+        "NAV_DB_REF_NAME":None,
         "NAV_BASE_API_URL":None,
         "NAV_OCP_SUBSCRIPTION_KEY": None,
         "NAV_USERNAME": None,

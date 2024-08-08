@@ -47,14 +47,9 @@ class DynAllocConnections:
 
     def runDynamicAllocation(self):
         print("Starting Dynamic Allocation")
-        self.qpcurrency="INR"
         self.mktList = self.rmdatabasehelper.loadRunParams()
         startTime = self.timeutils.getCurrentDateTime()
         username = os.getlogin()
-        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-            self.conversion_data = self.navdatabasehelper.fetch_all_conversion_data()
-        if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-            self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
         self.rmdatabasehelper.insertRunStart(startTime, username)
 
         # The list of markets to run the allocation
@@ -78,6 +73,11 @@ class DynAllocConnections:
         print("Allocation Completed in " + str(runTime) + " seconds")
 
     def runDynamicAllocationSingleMarket(self, mtkIndex):
+        self.qpcurrency="INR"
+        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
+            self.conversion_data = self.navdatabasehelper.fetch_all_conversion_data()
+        if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
+            self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
         print("**********************************************")
         print("Starting Allocation for row : " + str(mtkIndex))
 
@@ -782,6 +782,7 @@ class DynAllocConnections:
         self.NAV_DB_NAME = inputData["NAV_DB_NAME"]
         self.NAV_DB_DW_NAME = inputData["NAV_DB_DW_NAME"]
         self.NAV_DB_WB_NAME = inputData["NAV_DB_WB_NAME"]
+        self.NAV_DB_REF_NAME = inputData["NAV_DB_REF_NAME"]
         self.NAV_BASE_API_URL = inputData["NAV_BASE_API_URL"]
         self.NAV_OCP_SUBSCRIPTION_KEY = inputData["NAV_OCP_SUBSCRIPTION_KEY"]
         self.NAV_USERNAME = inputData["NAV_USERNAME"]
@@ -810,7 +811,7 @@ class DynAllocConnections:
                                              self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
         self.timeutils = TimeUtils(self.inputSource)
         self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
-                                                   self.NAV_DB_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams)
+                                                   self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams)
         self.marketfaresservice = MarketFareService(
             self.rmdatabasehelper, self.navdatabasehelper, self.constantsUtils, self.timeutils)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,

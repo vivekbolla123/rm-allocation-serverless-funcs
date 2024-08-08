@@ -785,6 +785,7 @@ class DynAlloc:
 		self.NAV_DB_NAME = inputData["NAV_DB_NAME"]
 		self.NAV_DB_DW_NAME = inputData["NAV_DB_DW_NAME"]
 		self.NAV_DB_WB_NAME = inputData["NAV_DB_WB_NAME"]
+		self.NAV_DB_REF_NAME = inputData["NAV_DB_REF_NAME"]
 		self.NAV_BASE_API_URL = inputData["NAV_BASE_API_URL"]
 		self.NAV_OCP_SUBSCRIPTION_KEY = inputData["NAV_OCP_SUBSCRIPTION_KEY"]
 		self.NAV_USERNAME = inputData["NAV_USERNAME"]
@@ -811,7 +812,7 @@ class DynAlloc:
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
-		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams)
+		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams)
 		self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)

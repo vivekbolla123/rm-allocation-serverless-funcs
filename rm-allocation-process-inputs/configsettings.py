@@ -19,6 +19,7 @@ if env == 'prod':
     NAV_DB_NAME = "[REZ0KOD01]."
     NAV_DB_DW_NAME = "[REZ0KDW01]."
     NAV_DB_WB_NAME = "[REZ0KWB01]."
+    NAV_DB_REF_NAME = "[REF0KOD01]."
     NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds"
@@ -38,6 +39,7 @@ if env == 'uat':
     NAV_DB_NAME = "[TST0KOD01]."
     NAV_DB_DW_NAME = "[TST0KDW01]."
     NAV_DB_WB_NAME = "[TST0KWB01]."
+    NAV_DB_REF_NAME = "[TSTREF0KOD01]."
     NAV_DB_USER = "0KODSUSER"
     NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
     # RM_DB_APPUSER_USERNAME_READ = "rmappuser"
