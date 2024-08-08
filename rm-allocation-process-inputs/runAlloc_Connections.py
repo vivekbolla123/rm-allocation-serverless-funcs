@@ -703,9 +703,7 @@ class DynAllocConnections:
             self.runId, flightNo1+"/"+flightNo2, flightDate, auDataStr, "Ready", "Ready")
     def getStrategyFare(self, finalprice, origin, destin, channel, backstop,offset):
         anchorFare = finalprice
-        howDetermined=""
-        if self.qpcurrency!='INR':
-            anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
+        howDetermined=""    
         openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
