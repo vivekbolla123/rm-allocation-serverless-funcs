@@ -47,6 +47,7 @@ class DynAllocConnections:
 
     def runDynamicAllocation(self):
         print("Starting Dynamic Allocation")
+        self.qpcurrency="INR"
         self.mktList = self.rmdatabasehelper.loadRunParams()
         startTime = self.timeutils.getCurrentDateTime()
         username = os.getlogin()
@@ -453,14 +454,15 @@ class DynAllocConnections:
                     B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
                     B2BBackstop = self.convert_currency('INR',self.qpcurrency,B2BBackstop)
                 if self.qpcurrency!='INR':
-                    strfare=self.convert_currency('INR',self.qpcurrency,strfare)
-                rbddata=self.determineRBDToOpen(
+                    strfare=self.convert_currency('INR',self.qpcurrency,float(strfare))
+                rbddata=self.getStrategyFare(
                     strfare, origin, destin, "B2C", B2CBackstop,offset)
-                if len(rbddata)>0:
+                if rbddata!='NA':
+                    self.outputSummaryRow_b2c.conversionRate=0
                     if self.qpcurrency!='INR':
-                        self.outputSummaryRow_b2c.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata["Fare"][0]))
+                        self.outputSummaryRow_b2c.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata))
                     else:
-                      self.outputSummaryRow_b2c.strategyfare = rbddata["Fare"][0]
+                      self.outputSummaryRow_b2c.strategyfare = rbddata
                 if self.outputSummaryRow_b2c.strategyfare != "NA":
                     strategyFare= float(self.outputSummaryRow_b2c.strategyfare)
                 if str(self.currParams.discountflag) == "1":
@@ -552,13 +554,14 @@ class DynAllocConnections:
                         columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                         if self.qpcurrency!='INR':
                             strfare=self.convert_currency('INR',self.qpcurrency,strfare)
-                        rbddata=self.determineRBDToOpen(
+                        rbddata=self.getStrategyFare(
                             strfare, origin, destin, "B2B", B2BBackstop,offset)
-                        if len(rbddata)>0:
+                        if rbddata!="NA":
+                            self.outputSummaryRow_b2b.conversionRate=0
                             if self.qpcurrency!='INR':
-                                self.outputSummaryRow_b2b.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata["Fare"][0]))
+                                self.outputSummaryRow_b2b.strategyfare=self.convert_currency(self.qpcurrency,'INR',float(rbddata))
                             else:
-                                self.outputSummaryRow_b2b.strategyfare = rbddata["Fare"][0]   
+                                self.outputSummaryRow_b2b.strategyfare = rbddata   
                         if self.outputSummaryRow_b2b.strategyfare != "NA":
                             strategyFare= float(self.outputSummaryRow_b2b.strategyfare)
                         if str(self.currParams.discountflag) == "1":
@@ -698,7 +701,27 @@ class DynAllocConnections:
         auDataStr = json.dumps(auData)
         self.rmdatabasehelper.insert_run_fltDate_audit(
             self.runId, flightNo1+"/"+flightNo2, flightDate, auDataStr, "Ready", "Ready")
+    def getStrategyFare(self, finalprice, origin, destin, channel, backstop,offset):
+        anchorFare = finalprice
+        howDetermined=""
+        if self.qpcurrency!='INR':
+            anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
+        openResult = pd.DataFrame(
+            columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
+        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
+            origin, destin, anchorFare, offset, channel, openResult, 'R')
 
+        if (rbddata.shape[0] == 0):
+            openResult = self.determinerbd.extremeFaresSkipping(
+                origin, destin, anchorFare, offset, channel, backstop, openResult, 'R')
+        else:
+            openResult = self.determinerbd.getFares(
+                origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, 'R')
+            
+        strategyFare = openResult['Fare'][0]
+        print(f"strategy fare is {strategyFare}")
+        return strategyFare
+    
     def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset):
         anchorFare = finalprice
         if self.qpcurrency!='INR':
@@ -825,5 +848,9 @@ class DynAllocConnections:
         
         conversion_rate = conversion['ConversionRate'].values[0]
         converted_value = value * conversion_rate
+        if self.qpcurrency!='INR':
+            self.outputSummaryRow_b2b.conversionRate=conversion_rate
+            self.outputSummaryRow_b2c.conversionRate=conversion_rate
+            
         
         return converted_value
