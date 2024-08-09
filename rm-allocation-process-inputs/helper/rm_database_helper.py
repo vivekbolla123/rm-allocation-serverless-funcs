@@ -38,7 +38,7 @@ class RMDatabaseHelper:
             if self.currParams.route_type=="direct":
                 marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
             else:
-                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName FROM market_list_connections "
+                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Transit_time,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -290,6 +290,30 @@ class RMDatabaseHelper:
             self.logger.error(e)
 
         return mktFareRange
+    
+    def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,transitTime):
+        
+        currFltDate = currFltDateStr
+        origin = currParams.sector1[:3]
+        destination = currParams.sector2[3:]
+        
+        mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
+            from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
+            and channel = '{channel}' AND outbound_stop <= '{outBoundStop}' and transit_time <= '{transitTime}'
+            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
+        """
+        
+        mktLowestQuery = mktLowestQuery + f""" AND departure_date  = '{currFltDate}' """
+
+        if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
+            mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
+        try:
+            mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+
+        return mktFareRange
 
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate,starttime):
         # load the list of sectors
@@ -312,7 +336,14 @@ class RMDatabaseHelper:
             cur_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
             self.currentTime = cur_time
         return self.currentTime
-
+    def get_qp_currency(self,origin, destin):
+        query= "select currency from Fares where Org = '" + origin + "' and Dst = '" + destin + "'"
+        try:
+            rbddata = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e) 
+        return rbddata["currency"][0]
+    
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult,route):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
@@ -607,8 +638,8 @@ class RMDatabaseHelper:
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
-        sector1_RBDquery = f"select Total from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
-        sector2_RBDquery = f"select Total from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector1_RBDquery = f"select Total ,currency from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector2_RBDquery = f"select Total ,currency from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
         sector2_result = pd.read_sql(sector2_RBDquery, self.conn)
@@ -617,11 +648,15 @@ class RMDatabaseHelper:
             total = 0
             sector1_total=0
             sector2_total=0
+            currency1=""
+            currency2=""
         else:
             sector1_total = sector1_result["Total"][0]
             sector2_total = sector2_result["Total"][0]
+            currency1=sector1_result["currency"][0]
+            currency2=sector2_result["currency"][0]
             total = sector1_total + sector2_total
-        return total,sector1_total,sector2_total
+        return total,sector1_total,sector2_total,currency1,currency2
 
     def getSellingPrice(self, rbd, sector, channel,route):
 
@@ -630,23 +665,24 @@ class RMDatabaseHelper:
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
-        sector1_RBDquery = f"select Total from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
+        sector1_RBDquery = f"select Total,currency from Fares where sector = '{sector}' and RBD = '{rbd}' and route = '{route}' {condition}"
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
 
         if (sector1_result.shape[0] == 0):
 
             sector1_total=0
+            currency=""
 
         else:
             sector1_total = sector1_result["Total"][0]
-
-        return sector1_total
+            currency = sector1_result["currency"][0]
+        return sector1_total,currency
     def insertSummaryRow_connections(self,allocresults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocresults[-1]
             insertQuery = f""" INSERT INTO run_summary_connections 
-                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName)  
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate2, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime,DiscountedFare,Currency,conversionRate) 
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.RunId}', 
@@ -654,7 +690,8 @@ class RMDatabaseHelper:
                     '{latest_row.Sector2}', 
                     '{str(latest_row.FltNum1)}', 
                     '{str(latest_row.FltNum2)}', 
-                    '{latest_row.DepDate}', 
+                    '{latest_row.DepDate1}', 
+                    '{latest_row.DepDate2}', 
                     '{str(latest_row.BookedLoad)}',
                     '{str(latest_row.Bookedload1)}',
                     '{str(latest_row.SellingFare1)}',
@@ -671,7 +708,24 @@ class RMDatabaseHelper:
                     '{latest_row.allocationStatus}', 
                     '{str(latest_row.Backstop)}',
                     '{self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT)}',
-                    '{str(latest_row.analystName)}'
+                    '{str(latest_row.analystName)}',
+                    '{str(latest_row.variance1)}',
+                    '{str(latest_row.variance2)}',
+                    '{str(latest_row.strategyfare)}',
+                    '{str(latest_row.criteria)}',
+                    '{str(latest_row.fareOffset)}',
+                    '{str(latest_row.MktFare_Min)}',
+                    '{str(latest_row.AirlineCode_Min)}',
+                    '{str(latest_row.FlightNumber_Min)}',
+                    '{str(latest_row.MktFare_Max)}',
+                    '{str(latest_row.AirlineCode_Max)}',
+                    '{str(latest_row.FlightNumber_Max)}',
+                    '{str(latest_row.outBoundStop)}',
+                    '{str(latest_row.transitTime)}',
+                    '{str(latest_row.discountedFare)}',
+                    '{str(latest_row.currency)}',
+                    '{str(latest_row.conversionRate)}'
+                    
                 )"""
             self.wrconn.execute(insertQuery)
 
@@ -757,3 +811,22 @@ class RMDatabaseHelper:
         query = f"""select Origin,Destination,FlightNumber,DepartureDate,bookedPax,OrgCode from series_booked where FlightNumber='{flight_number}' and DepartureDate = '{departure_date}' and concat(Origin,Destination)='{sector}'"""
         df = pd.read_sql(query, self.conn)
         return df
+    
+    def fetch_all_conversion_data(self):
+        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM config_conversion_rate"
+        df = pd.read_sql(query, self.conn)
+        return df
+    
+    def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):
+        
+        query = f"SELECT * FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION SELECT * FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
+        
+        df = pd.read_sql(query, self.conn)
+        return df
+    
+    def get_second_flight_dep(self,flightno1,flightno2,org,destin,depDate):
+        query = f"""select Departuredate2 from connections_details where FlightNo1='{flightno1}' and FlightNo2 = '{flightno2}' and Origin1='{org}' and Destnination2='{destin}' and Departuredate1='{depDate}'"""
+        df = pd.read_sql(query, self.conn)
+        if len(df)==0:
+            return ""
+        return df['Departuredate2'][0]

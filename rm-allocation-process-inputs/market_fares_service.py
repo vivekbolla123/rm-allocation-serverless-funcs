@@ -5,8 +5,9 @@ import pandas as pd
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,constantsutils,timeutils):
+    def __init__(self,rm_database_helper,nav_database_helper,constantsutils,timeutils):
         self.rmdatabasehelper=rm_database_helper
+        self.navdatabasehelper=nav_database_helper
         self.constantsutils=constantsutils
         self.timeutils=timeutils
         
@@ -154,5 +155,47 @@ class MarketFareService:
     def prepareResponse(self, startTime, endTime, criteria, marketFareRange, summary):
         minMaxFare = self.getMarketFareRangeminomaxo(marketFareRange)
         return startTime, endTime, criteria, marketFareRange, minMaxFare, summary
+    
+    def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,transitTime):
+        
+        return self.rmdatabasehelper.getMarketFareRangeConnections(
+            channel, params,flightDate, outBoundStop,transitTime
+        )
+
+    
+    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime,criteria,inputSource,convert_currency):
+        
+        mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,transitTime)
+        isMarketFareAvailable = False
+        lowFare = 0
+        hiFare = 0
+        lowAirlineCode = "Market Fare not found"
+        hiAirlineCode = "Market Fare not found"
+        lowFilghtNum = "Market Fare not found"
+        hiFilghtNum = "Market Fare not found"
+        if len(mktFareRange)!=0:
+            isMarketFareAvailable = True
+            for index, row in mktFareRange.iterrows():
+                if row['currency'] != 'INR':
+                    converted_fare = convert_currency(row['currency'], 'INR', row['gross_fare'])
+                    mktFareRange.at[index, 'gross_fare'] = converted_fare
+                    mktFareRange.at[index, 'currency'] = 'INR'
+            mktFareRange=mktFareRange.sort_values(by='gross_fare', ascending=True)
+            mktfareRange_minomaxo = self.getMarketFareRangeminomaxo(mktFareRange)
+            lowFare = mktFareRange['gross_fare'][0]
+            hiFare = mktFareRange['gross_fare'].iloc[-1]
+            lowAirlineCode = mktFareRange['outbound_airline_code'][0]
+            hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
+            lowFilghtNum = mktFareRange['outbound_flight'][0]
+            hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
+            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
+                lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
+                hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
+                lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
+                hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
+                lowFare = mktfareRange_minomaxo['LowFare'][0]
+                hiFare = mktfareRange_minomaxo['HiFare'][0]
+        
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria
 
 

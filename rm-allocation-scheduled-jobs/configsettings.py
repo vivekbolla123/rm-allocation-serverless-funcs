@@ -41,7 +41,7 @@ if env == 'uat':
     ESB_DB_USERNAME = "DBSAAdmin"
     # ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     # ESB_DB_USERNAME = "appuser-rm"
-    SFTP_RBD_QUEUE_URL = "rm-allocation-queues_test-rm-allocation-rbds-ftp"
+    SFTP_RBD_QUEUE_URL = "test-rm-allocation-queues-rm-allocation-rbds-ftp"
     NAV_DB_HOST = "10.154.12.19:52900"
     NAV_DB_NAME = "[TST0KOD01]."
     NAV_DB_DW_NAME = "[TST0KDW01]."

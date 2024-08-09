@@ -18,6 +18,11 @@ class MarketListConnectiosnsRow:
         self.b2c_backstop = currParams.get("B2CBackstop",CONST_NA)
         self.b2b_factor = currParams.get("B2BFactor",CONST_NA)
         self.skipping_factor = currParams.get("SkippingFactor",CONST_NA)
+        self.transit_time = currParams.get("Transit_time",CONST_NA)
+        self.currency = currParams.get("Currency",CONST_NA)
+        self.fareAnchor = currParams.get("fareAnchor",CONST_NA)
+        self.offset = currParams.get("Offset",CONST_NA)
+        self.discountflag = currParams.get("DiscountFlag",CONST_NA)
         self.analyst_name = currParams.get("analystName", CONST_NA)
         
         self.run_id = currParams.get("runId",CONST_NA)

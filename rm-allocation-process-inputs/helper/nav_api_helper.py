@@ -88,5 +88,68 @@ class NavAPIHelper:
             self.logger.info('nest lid changed sucessfully to '+ str(lid))
         else:
             self.logger.info("Failed to update leg nest:"+ response.text)
-           
-        
+    
+    
+    def get_second_flight_dep(self,flightno1,flightno2,org,destin,depDate):
+        data = {
+            "origin": org,
+            "destination": destin,
+            "searchDestinationMacs": True,
+            "searchOriginMacs": True,
+            "beginDate": str(depDate),
+            "endDate": None,
+            "getAllDetails": True,
+            "taxesAndFees": "Taxes",
+            "passengers": {
+                "types": [
+                    {
+                        "type": "ADT",
+                        "count": 1
+                    }
+                ]
+            },
+            "codes": {
+                "currencyCode": "INR",
+                "promotionCode": ""
+            },
+            "numberOfFaresPerJourney": 4,
+            "filters": {
+                "compressionType": 1,
+                "groupByDate": False,
+                "carrierCode": "QP",
+                "identifier": str(flightno1),
+                "type": "ALL",
+                "maxConnections": 4,
+                "productClasses": [
+                    "EC",
+                    "AV",
+                    "SP"
+                ],
+                "sortOptions": [
+                    "NoSort"
+                ],
+                "fareTypes": [
+                    "R",
+                    "V",
+                    "S"
+                ]
+            }
+        }
+
+        trip_info_simple_url = f"{self.base_url}/nsk/v4/availability/search/simple"
+        response = self.session.post(trip_info_simple_url, json=data, verify=False)
+        data = response.json()
+        departure=""
+        for result in data["data"]["results"]:
+            for trip in result["trips"]:
+                for journey in trip["journeysAvailableByMarket"].values():
+                    for j in journey:
+                        for segment in j["segments"]:
+                            identifier = segment["identifier"]["identifier"]
+                            if identifier == str(flightno2):  # Check if identifier is '2312'
+                                # origin = segment["designator"]["origin"]
+                                # destination = segment["designator"]["destination"]
+                                departure = segment["designator"]["departure"]
+                                departure=datetime.fromisoformat(departure)
+                                departure=departure.date().isoformat()
+        return departure

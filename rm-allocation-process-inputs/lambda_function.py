@@ -73,6 +73,7 @@ def lambda_handler(event, context):
         "NAV_DB_NAME": configsettings.NAV_DB_NAME,
         "NAV_DB_DW_NAME": configsettings.NAV_DB_DW_NAME,
         "NAV_DB_WB_NAME": configsettings.NAV_DB_WB_NAME,
+        "NAV_DB_REF_NAME":configsettings.NAV_DB_REF_NAME,
         "API_KEY": configsettings.RM_GW_API_KEY,
         "API_URL": configsettings.NAV_API_URL,
         "NAV_BASE_API_URL": configsettings.NAV_BASE_URL,
@@ -112,44 +113,7 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {
-#     "PerStart": "07/02/2024",
-#     "PerEnd": "07/02/2024",
-#     "Origin": "BLR",
-#     "Destin": "COK",
-#     "FlightNumber": 1353,
-#     "DOW": 1111111,
-#     "strategyFlag": 0,
-#     "TimeWindowStart": "00:00",
-#     "TimeWindowEnd": "23:59",
-#     "CurveID": "C18946",
-#     "CarrExlusion": "**",
-#     "fareAnchor": "MIN",
-#     "fareOffset": "0",
-#     "FirstRBDAlloc": 5,
-#     "OtherRBDAlloc": 10,
-#     "B2BBackstop": 0,
-#     "B2CBackstop": 0,
-#     "B2BFactor": "0.5",
-#     "SkippingFactor": 0,
-#     "OwnFareFlag": "Y",
-#     "DaySpan": 0,
-#     "AutoTimeRangeFlag": 0,
-#     "analystName": "SRISHTI",
-#     "openingFares": 1,
-#     "OverBooking": "Y",
-#     "profileFares": "N",
-#     "rbdPushFlag": "0",
-#     "B2BTolerance": "0",
-#     "B2CTolerance": "1",
-#     "distressInventoryFlag": "1",
-#     "Flag": "1",
-#     "runId": "677f3d9c-3882-453d-bbf9-6021518712e3",
-#     "update_navitaire_method": "api",
-#     "runTime": 1719376742758,
-#     "route_type": "direct",
-#     "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
-# }
+# messageBody = {"Sector1": "DOHBOM", "Flight1": 71, "Sector2": "BOMCOK", "Flight2": 1518, "Outbound_stop": 1, "PerType": "D", "DOW": 1111111, "Price_Strategy": 1, "Discount_Value": 3683, "FirstRBDAlloc": 10, "OtherRBDAlloc": 10, "B2BBackstop": 0, "B2CBackstop": 4000, "B2BFactor": 0.5, "SkippingFactor": 10, "Transit_time": "3", "Currency": "INR", "fareAnchor": "MAXO", "Offset": "1", "DiscountFlag": "0", "analystName": "VIKRAM", "PerStart": "08/15/2024", "PerEnd": "08/15/2024", "Flag": "1", "runId": "71b8f7b8-b2ac-426b-aaf3-489ca25eaebf", "update_navitaire_method": "sftp", "runTime": "2024-08-08T15:28:28.313680", "route_type": "connections", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"}
 
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
