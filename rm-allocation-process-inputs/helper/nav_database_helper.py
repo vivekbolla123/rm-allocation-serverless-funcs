@@ -5,13 +5,14 @@ from ownlogger import OwnLogger
 from utilities.time_utils import TimeUtils
 
 class NavDatabaseHelper:
-    def __init__(self,navconn,conn,inputSource,nav_db_name,runId,debugMode,nav_db_wb_name,CurrParams):   
+    def __init__(self,navconn,conn,inputSource,nav_db_name,nav_db_ref_name,runId,debugMode,nav_db_wb_name,CurrParams):   
        self.NavitaireConnection = navconn
        self.conn = conn
        self.logger = OwnLogger(runId, inputSource)
        self.inputSource = inputSource
        self.NAV_DB_NAME = nav_db_name
        self.NAV_DB_WB_NAME = nav_db_wb_name
+       self.NAV_DB_REF_NAME = nav_db_ref_name
        self.debugMode = debugMode
        self.timeutils=TimeUtils(inputSource)
        self.currParams=CurrParams
@@ -189,3 +190,7 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
         """
         df = pd.read_sql(query, self.NavitaireConnection)
         return df
+    
+    def fetch_all_conversion_data(self):
+        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM {self.NAV_DB_REF_NAME}[Reference].CurrencyConversion"
+        return pd.read_sql(query, self.NavitaireConnection)

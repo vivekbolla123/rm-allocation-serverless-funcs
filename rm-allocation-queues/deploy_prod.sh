@@ -1,4 +1,5 @@
 #! /bin/bash
+set -e
 #Variable definition section
 Lmd_Func="rm-allocation-serverless-funcs-rm-allocation-s3-inputs-download"
 ECR_Repo="$Lmd_Func" #If ECR repo name and Lambda function name are both same
@@ -35,7 +36,7 @@ case $User_Input in
               mvn clean compile dependency:copy-dependencies -DincludeScope=runtime -U
               aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Image_URL
               export ENVN=prod
-              python setEnv.py
+              python3 setEnv.py
               aws lambda update-function-code --region $AWS_Region --function-name $Lmd_Func --image-uri $ECR_Image_URL
               echo ""
               echo ""

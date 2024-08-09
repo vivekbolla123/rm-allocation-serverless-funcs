@@ -24,6 +24,9 @@ public class MarketListValidator {
     public static boolean checkStrategyFlag(String value) {
         return value.equalsIgnoreCase(FLAG_0) || value.equalsIgnoreCase(FLAG_1);
     }
+    public static boolean checkFareAnchor(String value) {
+        return value.equalsIgnoreCase("MIN") || value.equalsIgnoreCase("MAX")||value.equalsIgnoreCase("MINO") || value.equalsIgnoreCase("MAXO");
+    }
     public static boolean checkPriceStrategy(String value) {
         return value.equalsIgnoreCase(FLAG_2) || value.equalsIgnoreCase(FLAG_1);
     }

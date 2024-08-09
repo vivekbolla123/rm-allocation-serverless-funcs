@@ -7,16 +7,16 @@ class Schema:
 
         # Establish a connection to the DataLake
         self.conn = create_engine(
-            "mysql+mysqldb://rmscriptuser:8BkNw9JEOHoxD6h@rm-prod-db.cd7glmg3mmed.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC")
+            "mysql+mysqldb://rm-user:04D4+aw])g4r@uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC")
         self.upload=UploadLogging("Fares",self.conn)
         self.upload.startDataLoading()
 
         # Load the Fare Ladder and Booking Curves
-        self.load_generic_table("Fares", "Fares.csv")
+        self.load_generic_table("Fares", "export.csv")
 
     def load_generic_table(self, tableName, dataFile):
         # This will load a csv file into a DB Table
-        rawdata = pd.read_csv("data/" + dataFile)
+        rawdata = pd.read_csv("QPDynamicAllocation/" + dataFile)
         expected_columns=self.loadColumnNames(tableName)
         mismatched_columns = list(set(rawdata.columns) - set(expected_columns))
         if not mismatched_columns:

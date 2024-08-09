@@ -1,4 +1,5 @@
 #! /bin/bash
+set -e
 #Variable definition section
 Lmd_Func="rm-allocation-serverless-funcs_rm-allocation-process-inputs"
 ECR_Repo="$Lmd_Func" #If ECR repo name and Lambda function name are both same
