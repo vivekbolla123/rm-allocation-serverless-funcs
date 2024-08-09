@@ -846,7 +846,7 @@ class DynAllocConnections:
             raise ValueError(f"No conversion rate found for {from_currency} to {to_currency}")
         
         conversion_rate = conversion['ConversionRate'].values[0]
-        converted_value = value * conversion_rate
+        converted_value = float(value) * conversion_rate
         if self.qpcurrency!='INR':
             self.outputSummaryRow_b2b.conversionRate=conversion_rate
             self.outputSummaryRow_b2c.conversionRate=conversion_rate
