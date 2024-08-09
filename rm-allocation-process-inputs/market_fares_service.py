@@ -180,6 +180,7 @@ class MarketFareService:
                     converted_fare = convert_currency(row['currency'], 'INR', row['gross_fare'])
                     mktFareRange.at[index, 'gross_fare'] = converted_fare
                     mktFareRange.at[index, 'currency'] = 'INR'
+            mktFareRange=mktFareRange.sort_values(by=' gross_fare', ascending=True)
             mktfareRange_minomaxo = self.getMarketFareRangeminomaxo(mktFareRange)
             lowFare = mktFareRange['gross_fare'][0]
             hiFare = mktFareRange['gross_fare'].iloc[-1]
