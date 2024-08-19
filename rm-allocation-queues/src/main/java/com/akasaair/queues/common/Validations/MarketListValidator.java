@@ -12,6 +12,19 @@ public class MarketListValidator {
         return value.length() == length;
     }
 
+    public static boolean isValidCarrExcl(String value) {
+        String[] carrierCodes = value.split(",");
+        boolean isValid = true;
+
+        for (String code : carrierCodes) {
+            if (code.trim().length() != 2) {
+                isValid = false;
+                break;
+            }
+        }
+        return isValid;
+    }
+
     public static boolean checkDOWDigits(String value) {
         for (char digit : value.toCharArray()) {
             if (!(digit == DIGIT_1 || digit == DIGIT_9)) {
