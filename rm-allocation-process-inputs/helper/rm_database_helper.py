@@ -263,8 +263,8 @@ class RMDatabaseHelper:
         else:
             carr_exclusion = currParams.carr_exclusion_b2c
     
-        carr_exclusion_str = str(tuple(carr_exclusion.split(',')))  
-        if len(tuple(carr_exclusion.split(','))) == 1:
+        carr_exclusion_str = str(tuple(carr_exclusion.split('|')))  
+        if len(tuple(carr_exclusion.split('|'))) == 1:
             carr_exclusion_str=carr_exclusion_str.replace(",", "")
         origin = currParams.origin
         destination = currParams.destin
