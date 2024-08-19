@@ -1700,7 +1700,7 @@ public class App implements RequestHandler<S3Event, Object> {
             listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
         }
         if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
-            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
+            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
             listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
