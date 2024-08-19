@@ -1322,28 +1322,29 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(9, marketListEntity.getStartTime());
             pstmt.setString(10, marketListEntity.getEndTime());
             pstmt.setString(11, marketListEntity.getCurveId());
-            pstmt.setString(12, marketListEntity.getCarrExclusion());
-            pstmt.setString(13, marketListEntity.getFareAnchor());
-            pstmt.setString(14, marketListEntity.getFareOffset());
-            pstmt.setInt(15, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
-            pstmt.setInt(16, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
-            pstmt.setInt(17, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
-            pstmt.setInt(18, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
-            pstmt.setString(19, marketListEntity.getB2bFactor());
-            pstmt.setString(20, marketListEntity.getSkippingFactor());
-            pstmt.setString(21, marketListEntity.getDaySpan());
-            pstmt.setString(22, marketListEntity.getOwnFareFlag());
-            pstmt.setString(23, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(24, marketListEntity.getAnalystName());
-            pstmt.setString(25, marketListEntity.getOpeningFares());
-            pstmt.setString(26, marketListEntity.getOverBooking());
-            pstmt.setString(27, marketListEntity.getRbdPushFlag());
-            pstmt.setString(28, marketListEntity.getProfileFares());
-            pstmt.setString(29, marketListEntity.getB2cTolerance());
-            pstmt.setString(30, marketListEntity.getB2bTolerance());
-            pstmt.setString(31, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(32, marketListEntity.getSeriesBlock());
-            pstmt.setString(33, marketListEntity.getUuid());
+            pstmt.setString(12, marketListEntity.getCarrExclusionB2B());
+            pstmt.setString(13, marketListEntity.getCarrExclusionB2C());
+            pstmt.setString(14, marketListEntity.getFareAnchor());
+            pstmt.setString(15, marketListEntity.getFareOffset());
+            pstmt.setInt(16, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
+            pstmt.setInt(17, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
+            pstmt.setInt(18, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
+            pstmt.setInt(19, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
+            pstmt.setString(20, marketListEntity.getB2bFactor());
+            pstmt.setString(21, marketListEntity.getSkippingFactor());
+            pstmt.setString(22, marketListEntity.getDaySpan());
+            pstmt.setString(23, marketListEntity.getOwnFareFlag());
+            pstmt.setString(24, marketListEntity.getAutoTimeRangeFlag());
+            pstmt.setString(25, marketListEntity.getAnalystName());
+            pstmt.setString(26, marketListEntity.getOpeningFares());
+            pstmt.setString(27, marketListEntity.getOverBooking());
+            pstmt.setString(28, marketListEntity.getRbdPushFlag());
+            pstmt.setString(29, marketListEntity.getProfileFares());
+            pstmt.setString(30, marketListEntity.getB2cTolerance());
+            pstmt.setString(31, marketListEntity.getB2bTolerance());
+            pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(33, marketListEntity.getSeriesBlock());
+            pstmt.setString(34, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1508,7 +1509,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .startTime(record.get(CSV_HEADER_START_TIME))
                 .endTime(record.get(CSV_HEADER_END_TIME))
                 .curveId(record.get(CSV_HEADER_CURVE_ID))
-                .carrExclusion(record.get(CSV_HEADER_CARR_EXCLUSION))
+                .carrExclusionB2B(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))
+                .carrExclusionB2C(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))
                 .fareAnchor(record.get(CSV_HEADER_FARE_ANCHOR))
                 .fareOffset(record.get(CSV_HEADER_FARE_OFFSET))
                 .firstAllocation(record.get(CSV_HEADER_FIRST_ALLOCATION))
@@ -1685,8 +1687,11 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
             listOfErrors.add(lineNum + "Curve Id is not valid");
         }
-        if (!isLengthEqualTo(record.get(CSV_HEADER_CARR_EXCLUSION), 2)) {
-            listOfErrors.add(lineNum + "Carrier Exclusion is not 2 digits");
+        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
+            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
+        }
+        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
+            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
             listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
