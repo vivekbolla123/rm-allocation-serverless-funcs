@@ -40,7 +40,7 @@ public class MarketListValidator {
     }
 
     public static boolean checkAutoTimeFlag(String value) {
-        return value.equalsIgnoreCase(FLAG_0) || value.equalsIgnoreCase(FLAG_1)||value.equalsIgnoreCase(DAY_SPAN_PREVIOUS);
+        return value.equalsIgnoreCase(OWN_FARE_FLAG_YES) || value.equalsIgnoreCase(OWN_FARE_FLAG_NO);
     }
 
     public static boolean isValidTime(String time) {

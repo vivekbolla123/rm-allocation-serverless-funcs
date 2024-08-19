@@ -1500,18 +1500,23 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bFactor(record.get(CSV_HEADER_B2B_FACTOR))
                 .skippingFactor(record.get(CSV_HEADER_SKIPPING_FACTOR))
                 .daySpan(record.get(CSV_HEADER_DAY_SPAN))
-                .ownFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))
-                .openingFares(record.get(CSV_HEADER_OPENING_FARES))
-                .autoTimeRangeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))
-                .overBooking(record.get(CSV_HEADER_OVER_BOOKING))
-                .rbdPushFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))
-                .profileFares(record.get(CSV_HEADER_PROFILE_FARES))
+                .ownFareFlag(convertYNToBoolean(record.get(CSV_HEADER_OWN_FARE_FLAG)))
+                .openingFares(convertYNToBoolean(record.get(CSV_HEADER_OPENING_FARES)))
+                .autoTimeRangeFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG)))
+                .overBooking(convertYNToBoolean(record.get(CSV_HEADER_OVER_BOOKING)))
+                .rbdPushFlag(convertYNToBoolean(record.get(CSV_HEADER_RBD_PUSH_FLAG)))
+                .profileFares(convertYNToBoolean(record.get(CSV_HEADER_PROFILE_FARES)))
                 .b2bTolerance(record.get(CSV_HEADER_B2B_TOLERANCE))
                 .b2cTolerance(record.get(CSV_HEADER_B2C_TOLERANCE))
-                .distressInventoryFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))
-                .seriesBlock(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))
+                .distressInventoryFlag(convertYNToBoolean(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG)))
+                .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
                 .analystName(analystName)
                 .build());
+    }
+
+
+    private static String convertYNToBoolean(String value) {
+        return "Y".equalsIgnoreCase(value) ? "1" : "0";
     }
 
     public List<Object> searchDistinctResults(String columnName, String tableName) {
@@ -1677,7 +1682,7 @@ public class App implements RequestHandler<S3Event, Object> {
             listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
         }
         if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
-            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than '1' or '0'");
+            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
         }
         if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
@@ -1716,8 +1721,8 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
             listOfErrors.add(lineNum + "Skipping Factor is not a number");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_OPENING_FARES))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
+            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
@@ -1725,11 +1730,11 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
             listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
-            listOfErrors.add(lineNum + "RBD Push has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
+            listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
-            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
+            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
             listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
