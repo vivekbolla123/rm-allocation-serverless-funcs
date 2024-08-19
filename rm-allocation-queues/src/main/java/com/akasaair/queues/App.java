@@ -659,9 +659,14 @@ public class App implements RequestHandler<S3Event, Object> {
         List<String> headers = csvData.get(0);
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
-
+        DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (List<String> singleCsvData : csvData) {
-            String departureDate = singleCsvData.get(0);
+            String inputDate  = singleCsvData.get(0);
+
+            LocalDate date = LocalDate.parse(inputDate, inputFormatter);
+            String departureDate = date.format(outputFormatter);
+
 
             for (int i = 1; i < singleCsvData.size(); i++) {
                 Map<String, String> map = new HashMap<>();
