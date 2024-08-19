@@ -340,7 +340,7 @@ public class App implements RequestHandler<S3Event, Object> {
             List<List<String>> csvData = getDataFromCSVFile(file);
             csvData = splitRowsByDateRange(csvData,listOfErrors);
             numOfRows.set(csvData.size()-1);
-            for (int i = 1; i < csvData.size(); i++) {
+            for (int i = 0; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i, role, userName, listOfCurves, listOfStrategies, listOfCriteria);
                 createMarketListEntity(csvData.get(i), marketListEntityList, uuidForEntries, analystName);
