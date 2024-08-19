@@ -501,11 +501,10 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-
-            if (validate != null && !validate.isValid(data, val)) {
+            List<String> errorsList = new ArrayList<>();
+            if (validate != null && !validate.isValid(data, val,errorsList)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                List<String> errorsList = new ArrayList<>();
                 errorsList.add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(errorsList, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
@@ -1739,6 +1738,13 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
             listOfErrors.add(lineNum + "Skipping Factor is not a number");
         }
+        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE)))) {
+            listOfErrors.add(lineNum + "B2B Tolerance is not a number");
+        }
+        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE)))) {
+            listOfErrors.add(lineNum + "B2C Tolerance is not a number");
+        }
+
         if (!checkStrategyFlag(record.get(CSV_HEADER_OPENING_FARES))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than '1' or '0'");
         }
