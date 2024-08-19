@@ -13,7 +13,7 @@ public class MarketListValidator {
     }
 
     public static boolean isValidCarrExcl(String value) {
-        String[] carrierCodes = value.split("|");
+        String[] carrierCodes = value.split("/");
         boolean isValid = true;
 
         for (String code : carrierCodes) {
