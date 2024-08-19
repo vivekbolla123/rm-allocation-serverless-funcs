@@ -9,7 +9,7 @@ public class QueryConstants {
 
     public static String SELECT_MARKET_LIST(String tableName) {
         return "SELECT UUID FROM " + tableName + " where " +
-                " Origin = ? and Destin = ? and analystName = ? ";
+                " Origin = ? and Destin = ? and analystName = ? and PerStart = ? and FlightNumber = ? ";
     }
 
     public static String INSERT_INTO_MARKET_LIST_CONNECTIONS(String tableName) {

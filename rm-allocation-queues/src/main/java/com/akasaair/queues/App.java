@@ -372,12 +372,13 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData,List<String> listOfErrors)  {
         DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        List<List<String>> intermediateResult = new ArrayList<>();
         List<List<String>> result = new ArrayList<>();
         Set<String> uniqueKeys = new HashSet<>();
 
         // Add the header row to the result without processing
         if (!csvData.isEmpty()) {
-            result.add(new ArrayList<>(csvData.get(0)));
+            intermediateResult.add(new ArrayList<>(csvData.get(0)));
         }
 
         // Process the rest of the rows, starting from index 1
@@ -390,7 +391,7 @@ public class App implements RequestHandler<S3Event, Object> {
             if (startDate.equals(endDate)) {
                 int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
                 if (dowPattern.charAt(dayOfWeek) == '1') {
-                    addRowWithDuplicateCheck(result, uniqueKeys, row, listOfErrors, rowIndex);
+                    addRowWithDuplicateCheck(intermediateResult, uniqueKeys, row, listOfErrors, rowIndex);
                 }
                 // If DOW doesn't match, the record is implicitly removed by not adding it to the result
             } else {
@@ -404,12 +405,18 @@ public class App implements RequestHandler<S3Event, Object> {
                         List<String> newRow = new ArrayList<>(row);
                         newRow.set(3, currentDate.format(DATE_FORMATTER));
                         newRow.set(4, currentDate.format(DATE_FORMATTER));
-                        addRowWithDuplicateCheck(result, uniqueKeys, newRow, listOfErrors, rowIndex);
+                        addRowWithDuplicateCheck(intermediateResult, uniqueKeys, newRow, listOfErrors, rowIndex);
                     }
                 }
             }
         }
-
+        for (int i = 1; i < intermediateResult.size(); i++) {
+            List<String> row = intermediateResult.get(i);
+            LocalDate date = LocalDate.parse(row.get(3), DATE_FORMATTER);
+            String adjustedDowPattern = adjustDowPattern(date, row.get(5));
+            row.set(5, adjustedDowPattern);
+            result.add(row);
+        }
         return result;
     }
 
@@ -419,6 +426,14 @@ public class App implements RequestHandler<S3Event, Object> {
             listOfErrors.add("Duplicate record found at Line"+rowIndex+": " + key);
         }
         result.add(row);
+    }
+
+    private static String adjustDowPattern(LocalDate date, String dowPattern) {
+        // Create a new DOW pattern with only the relevant day set to '1'
+        StringBuilder adjustedPattern = new StringBuilder("9999999");
+        int dayOfWeek = date.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
+        adjustedPattern.setCharAt(dayOfWeek, '1');
+        return adjustedPattern.toString();
     }
 
 
@@ -1391,6 +1406,9 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(1, marketListEntity.getOrigin());
             pstmt.setString(2, marketListEntity.getDestination());
             pstmt.setString(3, marketListEntity.getAnalystName());
+            pstmt.setString(4, marketListEntity.getStartDate());
+            pstmt.setString(5, marketListEntity.getFlightNo());
+
             try (ResultSet resultSet = pstmt.executeQuery()) {
                 while (resultSet.next()) {
                     Map<String, Object> row = new HashMap<>();
