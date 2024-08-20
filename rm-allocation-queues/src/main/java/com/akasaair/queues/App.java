@@ -1751,11 +1751,11 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
          }
-        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE)))) {
-            listOfErrors.add(lineNum + "B2B Tolerance is not a number");
+        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
+            listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
         }
-        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE)))) {
-            listOfErrors.add(lineNum + "B2C Tolerance is not a number");
+        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
+            listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
