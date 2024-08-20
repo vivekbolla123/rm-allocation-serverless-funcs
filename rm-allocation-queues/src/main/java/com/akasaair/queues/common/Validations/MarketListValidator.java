@@ -22,6 +22,9 @@ public class MarketListValidator {
                 break;
             }
         }
+        if (value.endsWith("/")) {
+            isValid = false;
+        }
         return isValid;
     }
 
