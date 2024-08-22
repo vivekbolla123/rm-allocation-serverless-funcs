@@ -9,7 +9,7 @@ public class QueryConstants {
 
     public static String SELECT_MARKET_LIST(String tableName) {
         return "SELECT UUID FROM " + tableName + " where " +
-                " Origin = ? and Destin = ? and analystName = ? ";
+                " Origin = ? and Destin = ? and analystName = ? and PerStart = ? and FlightNumber = ? ";
     }
 
     public static String INSERT_INTO_MARKET_LIST_CONNECTIONS(String tableName) {
@@ -29,11 +29,11 @@ public class QueryConstants {
     public static String INSERT_INTO_MARKET_LIST(String tableName) {
         return "INSERT INTO " + tableName +
                 " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, strategyFlag, TimeWindowStart, " +
-                "TimeWindowEnd, CurveID, CarrExlusion, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, " +
+                "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, " +
                 "B2BBackstop, B2CBackstop, B2BFactor, SkippingFactor, DaySpan, OwnFareFlag, AutoTimeRangeFlag, " +
                 "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, UUID) " +
                 "VALUES " +
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
     }
 
 

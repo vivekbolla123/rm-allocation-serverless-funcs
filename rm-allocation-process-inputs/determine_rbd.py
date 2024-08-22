@@ -46,7 +46,7 @@ class DetermineRBD:
         sector = origin + destin
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
 
-        if currParams.own_fare_flag == YES_FLAG:
+        if int(currParams.own_fare_flag) == 1:
             historicData = self.rmdatabasehelper.getFareHistoryData(ndocounter, sector, month, dow, channel, deptTime)
             if len(historicData) != 0:
                 historicOwnFare = historicData['price'][0]

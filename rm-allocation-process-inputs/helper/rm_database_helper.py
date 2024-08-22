@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Transit_time,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -258,7 +258,14 @@ class RMDatabaseHelper:
             elif currFltDate<updateDate:
                 startDateTime=f"{currFltDate} {startTime}"
                 enddateTime=f"{updateDate} {endtime}"
-
+        if channel==B2B_CHANNEL:
+            carr_exclusion = currParams.carr_exclusion_b2b
+        else:
+            carr_exclusion = currParams.carr_exclusion_b2c
+    
+        carr_exclusion_str = str(tuple(carr_exclusion.split('/')))  
+        if len(tuple(carr_exclusion.split('/'))) == 1:
+            carr_exclusion_str=carr_exclusion_str.replace(",", "")
         origin = currParams.origin
         destination = currParams.destin
         routedSector = self.getRoutedDestination(origin, destination)
@@ -269,7 +276,7 @@ class RMDatabaseHelper:
 
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight 
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' and outbound_airline_code <> '{currParams.carr_exclusion}' AND outbound_stop = 0
+            and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop = 0
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
         """
         if Day3Flag:
