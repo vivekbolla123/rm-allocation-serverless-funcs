@@ -353,11 +353,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 System.out.println(FILE_UPLOAD_ERROR_MESSAGE);
                 throw new DataMismatchedException(listOfErrors);
             }
-            if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                deleteValues(Collections.singleton(ZERO), tableName, ZERO);
-            } else {
-                deleteRecords(marketListEntityList, tableName);
-            }
+
+            deleteRecords(marketListEntityList, tableName);
+
             for (MarketListEntity marketEntity : marketListEntityList) {
                 insertIntoMarketList(marketEntity, tableName);
             }
