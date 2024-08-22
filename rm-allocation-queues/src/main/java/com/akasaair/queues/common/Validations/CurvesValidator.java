@@ -9,7 +9,7 @@ import static com.akasaair.queues.common.constants.Constants.*;
 public class CurvesValidator implements Validator {
 
     @Override
-    public boolean isValid(List<Map<String, String>> data, String val) {
+    public boolean isValid(List<Map<String, String>> data, String val,List<String> errors) {
         try {
             HashSet<Integer> ndo = new HashSet<>();
             for (Map<String, String> singleData : data) {
