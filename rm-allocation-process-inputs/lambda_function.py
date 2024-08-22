@@ -21,6 +21,8 @@ WAIT_TIME = 30  # in seconds
 
 LOGS_ON = False
 
+run_log=[]
+
 # rds settings
 # DB_CONN_STRING = "mysql+mysqldb://root:root@localhost/QP_DW_RMALLOC"
 DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
@@ -56,6 +58,16 @@ except Exception as e:
     sys.exit()
 
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+
+def time_log(start_time, end_time, run_id):
+    log={
+        'start_time': start_time,
+        'end_time': end_time,
+        'run_id': run_id,
+        'label': "rm-allocation-process-inputs"
+    }
+    logger.log(log)
+    run_log.append(log)
 
 def lambda_handler(event, context):
     """

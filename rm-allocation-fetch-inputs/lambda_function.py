@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 warnings.filterwarnings('ignore')
 
+run_log=[]
+
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 
@@ -53,6 +55,16 @@ if cache_client.ping():
     logger.info("Connected to Redis")
 
 constantsutils = ConstantsUtils(conn)
+
+def time_log(start_time, end_time, run_id):
+    log={
+        'start_time': start_time,
+        'end_time': end_time,
+        'run_id': run_id,
+        'label': "rm-allocation-fetch-inputs"
+    }
+    logger.log(log)
+    run_log.append(log)
 
 def number_of_batches_required(total_records, adhoc_batch_size):
     if total_records < adhoc_batch_size:
@@ -238,6 +250,11 @@ def lambda_handler(event, context):
 
     end_time = datetime.now()
     
+    # for items in run_log:
+    #     wrconn.execute(log_query, (items["run_id"], items["start_time"], items["end_time"], "rm-allocation-fetch-inputs"))
+    #     log_query="INSERT INTO time_audit (run_id, start_time, end_time, label) VALUES (%s, %s, %s, %s)"
+
+    logger.log(run_log)
     if type != "Adhoc":
         update_run_end(end_time, run_id)
         
@@ -256,6 +273,7 @@ def custom_serializer(obj):
     raise TypeError(f'Type {type(obj)} not serializable')
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
+    irs_start_time= datetime.now()
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
 
@@ -273,30 +291,45 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
                     (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
     except Exception as e:
         logger.info(e)
+    finally:
+        irs_end_time=datetime.now()
+        time_log(irs_start_time, irs_end_time, run_id)
     logger.info("STARTED ALLOCATION RUN")
 
 def insert_file_upload_s3(run_id, createdAt):
+    ifu_start_time = datetime.now()
     insert_query = "INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"
     try:
         wrconn.execute(insert_query, (run_id, createdAt))
     except Exception as e:
         logger.info(e)
+    finally:
+        ifu_end_time=datetime.now()
+        time_log(ifu_start_time, ifu_end_time, run_id)
     logger.info("S3 File Audited")
 
 def update_run_end(end_time, run_id):
+    ure_start_time = datetime.now()
     update_query = "UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s"
     try:
         wrconn.execute(update_query, (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
     except Exception as e:
         logger.info(e)
+    finally:
+        ure_end_time = datetime.now()
+        time_log(ure_start_time, ure_end_time, run_id)
     logger.info("STOPPED ALLOCATION RUN")
 
 def update_run_with_batches(total_batches, run_id):
+    urb_start_time = datetime.now()
     update_query = "UPDATE allocation_run_audit SET total_batch_size = %s, batch_completed = %s, adhoc_run_status = %s WHERE run_id = %s"
     try:
         wrconn.execute(update_query, (total_batches, 0, "IN-QUEUE", run_id))
     except Exception as e:
         logger.info(e)
+    finally:
+        urb_end_time = datetime.now()
+        time_log(urb_start_time, urb_end_time, run_id)
 
 def allocation_run_batch_audit(run_id, batch_id):
     start_time = datetime.now()
@@ -305,7 +338,10 @@ def allocation_run_batch_audit(run_id, batch_id):
         wrconn.execute(update_query, (run_id, start_time.strftime("%Y-%m-%d %H:%M:%S"), batch_id))
     except Exception as e:
         logger.info(e)
-
+    finally:
+        end_time=datetime.now()
+        time_log(start_time, end_time, run_id)
+        
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
     
@@ -404,6 +440,6 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     return query
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# lambda_handler({
-#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_Test\"}"
-# },None)
+lambda_handler({
+  "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_KM\"}"
+},None)
