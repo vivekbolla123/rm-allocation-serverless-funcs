@@ -12,6 +12,22 @@ public class MarketListValidator {
         return value.length() == length;
     }
 
+    public static boolean isValidCarrExcl(String value) {
+        String[] carrierCodes = value.split("/");
+        boolean isValid = true;
+
+        for (String code : carrierCodes) {
+            if (code.trim().length() != 2) {
+                isValid = false;
+                break;
+            }
+        }
+        if (value.endsWith("/")) {
+            isValid = false;
+        }
+        return isValid;
+    }
+
     public static boolean checkDOWDigits(String value) {
         for (char digit : value.toCharArray()) {
             if (!(digit == DIGIT_1 || digit == DIGIT_9)) {
@@ -40,7 +56,7 @@ public class MarketListValidator {
     }
 
     public static boolean checkAutoTimeFlag(String value) {
-        return value.equalsIgnoreCase(FLAG_0) || value.equalsIgnoreCase(FLAG_1)||value.equalsIgnoreCase(DAY_SPAN_PREVIOUS);
+        return value.equalsIgnoreCase(OWN_FARE_FLAG_YES) || value.equalsIgnoreCase(OWN_FARE_FLAG_NO);
     }
 
     public static boolean isValidTime(String time) {

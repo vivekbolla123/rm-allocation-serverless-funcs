@@ -340,7 +340,7 @@ public class App implements RequestHandler<S3Event, Object> {
             List<List<String>> csvData = getDataFromCSVFile(file);
             csvData = splitRowsByDateRange(csvData,listOfErrors);
             numOfRows.set(csvData.size()-1);
-            for (int i = 1; i < csvData.size(); i++) {
+            for (int i = 0; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i, role, userName, listOfCurves, listOfStrategies, listOfCriteria);
                 createMarketListEntity(csvData.get(i), marketListEntityList, uuidForEntries, analystName);
@@ -372,12 +372,13 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData,List<String> listOfErrors)  {
         DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        List<List<String>> intermediateResult = new ArrayList<>();
         List<List<String>> result = new ArrayList<>();
         Set<String> uniqueKeys = new HashSet<>();
 
         // Add the header row to the result without processing
         if (!csvData.isEmpty()) {
-            result.add(new ArrayList<>(csvData.get(0)));
+            intermediateResult.add(new ArrayList<>(csvData.get(0)));
         }
 
         // Process the rest of the rows, starting from index 1
@@ -390,7 +391,7 @@ public class App implements RequestHandler<S3Event, Object> {
             if (startDate.equals(endDate)) {
                 int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
                 if (dowPattern.charAt(dayOfWeek) == '1') {
-                    addRowWithDuplicateCheck(result, uniqueKeys, row, listOfErrors, rowIndex);
+                    addRowWithDuplicateCheck(intermediateResult, uniqueKeys, row, listOfErrors, rowIndex);
                 }
                 // If DOW doesn't match, the record is implicitly removed by not adding it to the result
             } else {
@@ -404,12 +405,18 @@ public class App implements RequestHandler<S3Event, Object> {
                         List<String> newRow = new ArrayList<>(row);
                         newRow.set(3, currentDate.format(DATE_FORMATTER));
                         newRow.set(4, currentDate.format(DATE_FORMATTER));
-                        addRowWithDuplicateCheck(result, uniqueKeys, newRow, listOfErrors, rowIndex);
+                        addRowWithDuplicateCheck(intermediateResult, uniqueKeys, newRow, listOfErrors, rowIndex);
                     }
                 }
             }
         }
-
+        for (int i = 1; i < intermediateResult.size(); i++) {
+            List<String> row = intermediateResult.get(i);
+            LocalDate date = LocalDate.parse(row.get(3), DATE_FORMATTER);
+            String adjustedDowPattern = adjustDowPattern(date, row.get(5));
+            row.set(5, adjustedDowPattern);
+            result.add(row);
+        }
         return result;
     }
 
@@ -419,6 +426,14 @@ public class App implements RequestHandler<S3Event, Object> {
             listOfErrors.add("Duplicate record found at Line"+rowIndex+": " + key);
         }
         result.add(row);
+    }
+
+    private static String adjustDowPattern(LocalDate date, String dowPattern) {
+        // Create a new DOW pattern with only the relevant day set to '1'
+        StringBuilder adjustedPattern = new StringBuilder("9999999");
+        int dayOfWeek = date.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
+        adjustedPattern.setCharAt(dayOfWeek, '1');
+        return adjustedPattern.toString();
     }
 
 
@@ -486,11 +501,10 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-
-            if (validate != null && !validate.isValid(data, val)) {
+            List<String> errorsList = new ArrayList<>();
+            if (validate != null && !validate.isValid(data, val,errorsList)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                List<String> errorsList = new ArrayList<>();
                 errorsList.add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(errorsList, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
@@ -659,9 +673,14 @@ public class App implements RequestHandler<S3Event, Object> {
         List<String> headers = csvData.get(0);
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
-
+        DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
+        DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (List<String> singleCsvData : csvData) {
-            String departureDate = singleCsvData.get(0);
+            String inputDate  = singleCsvData.get(0);
+
+            LocalDate date = LocalDate.parse(inputDate, inputFormatter);
+            String departureDate = date.format(outputFormatter);
+
 
             for (int i = 1; i < singleCsvData.size(); i++) {
                 Map<String, String> map = new HashMap<>();
@@ -1307,28 +1326,29 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(9, marketListEntity.getStartTime());
             pstmt.setString(10, marketListEntity.getEndTime());
             pstmt.setString(11, marketListEntity.getCurveId());
-            pstmt.setString(12, marketListEntity.getCarrExclusion());
-            pstmt.setString(13, marketListEntity.getFareAnchor());
-            pstmt.setString(14, marketListEntity.getFareOffset());
-            pstmt.setInt(15, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
-            pstmt.setInt(16, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
-            pstmt.setInt(17, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
-            pstmt.setInt(18, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
-            pstmt.setString(19, marketListEntity.getB2bFactor());
-            pstmt.setString(20, marketListEntity.getSkippingFactor());
-            pstmt.setString(21, marketListEntity.getDaySpan());
-            pstmt.setString(22, marketListEntity.getOwnFareFlag());
-            pstmt.setString(23, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(24, marketListEntity.getAnalystName());
-            pstmt.setString(25, marketListEntity.getOpeningFares());
-            pstmt.setString(26, marketListEntity.getOverBooking());
-            pstmt.setString(27, marketListEntity.getRbdPushFlag());
-            pstmt.setString(28, marketListEntity.getProfileFares());
-            pstmt.setString(29, marketListEntity.getB2cTolerance());
-            pstmt.setString(30, marketListEntity.getB2bTolerance());
-            pstmt.setString(31, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(32, marketListEntity.getSeriesBlock());
-            pstmt.setString(33, marketListEntity.getUuid());
+            pstmt.setString(12, marketListEntity.getCarrExclusionB2B());
+            pstmt.setString(13, marketListEntity.getCarrExclusionB2C());
+            pstmt.setString(14, marketListEntity.getFareAnchor());
+            pstmt.setString(15, marketListEntity.getFareOffset());
+            pstmt.setInt(16, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
+            pstmt.setInt(17, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
+            pstmt.setInt(18, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
+            pstmt.setInt(19, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
+            pstmt.setString(20, marketListEntity.getB2bFactor());
+            pstmt.setString(21, marketListEntity.getSkippingFactor());
+            pstmt.setString(22, marketListEntity.getDaySpan());
+            pstmt.setString(23, marketListEntity.getOwnFareFlag());
+            pstmt.setString(24, marketListEntity.getAutoTimeRangeFlag());
+            pstmt.setString(25, marketListEntity.getAnalystName());
+            pstmt.setString(26, marketListEntity.getOpeningFares());
+            pstmt.setString(27, marketListEntity.getOverBooking());
+            pstmt.setString(28, marketListEntity.getRbdPushFlag());
+            pstmt.setString(29, marketListEntity.getProfileFares());
+            pstmt.setString(30, marketListEntity.getB2cTolerance());
+            pstmt.setString(31, marketListEntity.getB2bTolerance());
+            pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(33, marketListEntity.getSeriesBlock());
+            pstmt.setString(34, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1391,6 +1411,9 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(1, marketListEntity.getOrigin());
             pstmt.setString(2, marketListEntity.getDestination());
             pstmt.setString(3, marketListEntity.getAnalystName());
+            pstmt.setString(4, marketListEntity.getStartDate());
+            pstmt.setString(5, marketListEntity.getFlightNo());
+
             try (ResultSet resultSet = pstmt.executeQuery()) {
                 while (resultSet.next()) {
                     Map<String, Object> row = new HashMap<>();
@@ -1490,7 +1513,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .startTime(record.get(CSV_HEADER_START_TIME))
                 .endTime(record.get(CSV_HEADER_END_TIME))
                 .curveId(record.get(CSV_HEADER_CURVE_ID))
-                .carrExclusion(record.get(CSV_HEADER_CARR_EXCLUSION))
+                .carrExclusionB2B(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))
+                .carrExclusionB2C(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))
                 .fareAnchor(record.get(CSV_HEADER_FARE_ANCHOR))
                 .fareOffset(record.get(CSV_HEADER_FARE_OFFSET))
                 .firstAllocation(record.get(CSV_HEADER_FIRST_ALLOCATION))
@@ -1500,18 +1524,23 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bFactor(record.get(CSV_HEADER_B2B_FACTOR))
                 .skippingFactor(record.get(CSV_HEADER_SKIPPING_FACTOR))
                 .daySpan(record.get(CSV_HEADER_DAY_SPAN))
-                .ownFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))
-                .openingFares(record.get(CSV_HEADER_OPENING_FARES))
-                .autoTimeRangeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))
-                .overBooking(record.get(CSV_HEADER_OVER_BOOKING))
-                .rbdPushFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))
-                .profileFares(record.get(CSV_HEADER_PROFILE_FARES))
+                .ownFareFlag(convertYNToBoolean(record.get(CSV_HEADER_OWN_FARE_FLAG)))
+                .openingFares(convertYNToBoolean(record.get(CSV_HEADER_OPENING_FARES)))
+                .autoTimeRangeFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG)))
+                .overBooking(convertYNToBoolean(record.get(CSV_HEADER_OVER_BOOKING)))
+                .rbdPushFlag(convertYNToBoolean(record.get(CSV_HEADER_RBD_PUSH_FLAG)))
+                .profileFares(convertYNToBoolean(record.get(CSV_HEADER_PROFILE_FARES)))
                 .b2bTolerance(record.get(CSV_HEADER_B2B_TOLERANCE))
                 .b2cTolerance(record.get(CSV_HEADER_B2C_TOLERANCE))
-                .distressInventoryFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))
-                .seriesBlock(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))
+                .distressInventoryFlag(convertYNToBoolean(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG)))
+                .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
                 .analystName(analystName)
                 .build());
+    }
+
+
+    private static String convertYNToBoolean(String value) {
+        return "Y".equalsIgnoreCase(value) ? "1" : "0";
     }
 
     public List<Object> searchDistinctResults(String columnName, String tableName) {
@@ -1667,8 +1696,11 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
             listOfErrors.add(lineNum + "Curve Id is not valid");
         }
-        if (!isLengthEqualTo(record.get(CSV_HEADER_CARR_EXCLUSION), 2)) {
-            listOfErrors.add(lineNum + "Carrier Exclusion is not 2 digits");
+        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
+            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
+        }
+        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
+            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
             listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
@@ -1677,7 +1709,7 @@ public class App implements RequestHandler<S3Event, Object> {
             listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
         }
         if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
-            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than '1' or '0'");
+            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
         }
         if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
@@ -1716,8 +1748,14 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
             listOfErrors.add(lineNum + "Skipping Factor is not a number");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_OPENING_FARES))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
+            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+         }
+        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
+            listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
+        }
+        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
+            listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
             listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
@@ -1725,11 +1763,11 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
             listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
-            listOfErrors.add(lineNum + "RBD Push has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
+            listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
         }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
-            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than '1' or '0'");
+        if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
+            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
         }
         if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
             listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");

@@ -245,7 +245,7 @@ class DynAlloc:
 		dateFormatted = datetime.strptime(str(currFltDate), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
 		if ((str(currFlt) == str(self.currParams.flight_number)) or (self.currParams.flight_number == '*')) and (str(self.currParams.dow)[dow:(dow+1)] == "1"):
 			orgBookedLoad = currBookedLoad
-			if self.currParams.seriesBlock == YES_FLAG:
+			if int(self.currParams.seriesBlock) == 1:
 				currBookedLoad = self.getBookloadSeries(dateFormatted,currBookedLoad)
 			self.logger.info("Actual Booked Load for " + str(self.currParams.flight_number) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
 			self.currentTime = self.rmdatabasehelper.getCurrentTime(self.inputSource.currentTime, self.currParams, currFltDate, self.starttime)
@@ -427,7 +427,7 @@ class DynAlloc:
 			self.logger.info("Anchor fare b2c is: " + str(openDataB2C["anchorFare"][0]))
 			self.logger.info("Anchor fare b2b is: " + str(openDataB2B["anchorFare"][0]))
 
-			if self.currParams.profileFares == NO_FLAG:
+			if int(self.currParams.profileFares) == 0:
 				self.outputSummaryRow_b2b.profileFare = CONST_NA
 				self.outputSummaryRow_b2c.profileFare = CONST_NA
     
@@ -668,7 +668,7 @@ class DynAlloc:
 		return totalCapacity, b2boverbookingflag
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight,overBookingCount):
-		return self.currParams.over_booking == YES_FLAG and nextFlight and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
+		return int(self.currParams.over_booking) == 1 and nextFlight and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
 
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")

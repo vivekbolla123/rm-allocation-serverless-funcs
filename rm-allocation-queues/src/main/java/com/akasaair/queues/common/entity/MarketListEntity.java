@@ -42,8 +42,10 @@ public class MarketListEntity {
     public String endTime;
     @Column(name = "CurveID")
     public String curveId;
-    @Column(name = "CarrExlusion")
-    public String carrExclusion;
+    @Column(name = "CarrExlusionB2C")
+    public String carrExclusionB2C;
+    @Column(name = "CarrExlusionB2B")
+    public String carrExclusionB2B;
     @Column(name = "fareAnchor")
     public String fareAnchor;
     @Column(name = "fareOffset")
