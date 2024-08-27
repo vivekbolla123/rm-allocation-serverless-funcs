@@ -38,7 +38,7 @@ class RMDatabaseHelper:
             if self.currParams.route_type=="direct":
                 marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock FROM market_list "
             else:
-                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Transit_time,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
+                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -298,7 +298,7 @@ class RMDatabaseHelper:
 
         return mktFareRange
     
-    def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,transitTime):
+    def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,outboundDuration):
         
         currFltDate = currFltDateStr
         origin = currParams.sector1[:3]
@@ -306,7 +306,7 @@ class RMDatabaseHelper:
         
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' AND outbound_stop <= '{outBoundStop}' and transit_time <= '{transitTime}'
+            and channel = '{channel}' AND outbound_stop <= '{outBoundStop}' and outbound_duration <= '{outboundDuration}'
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
         """
         
