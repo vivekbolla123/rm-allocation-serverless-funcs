@@ -689,7 +689,7 @@ class RMDatabaseHelper:
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocresults[-1]
             insertQuery = f""" INSERT INTO run_summary_connections 
-                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate2, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,transitTime,DiscountedFare,Currency,conversionRate) 
+                (Id, RunId ,Sector1, Sector2, FltNum1, FltNum2, DepDate1,DepDate2, BookedLoad,BookedLoad1,SellingFare1,SellingFare2,BookedLoad2,OpenRBD1,OpenRBD2,Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined,allocationStatus, Backstop,CreatedAt,analystName , Variance1,Variance2,strategyFare,criteria,fareOffset,MktFare_Min,AirlineCode_Min,FlightNumber_Min,MktFare_Max,AirlineCode_Max,FlightNumber_Max,outBoundStop,outboundDuration,DiscountedFare,Currency,conversionRate) 
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.RunId}', 
@@ -728,7 +728,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.AirlineCode_Max)}',
                     '{str(latest_row.FlightNumber_Max)}',
                     '{str(latest_row.outBoundStop)}',
-                    '{str(latest_row.transitTime)}',
+                    '{str(latest_row.outboundDuration)}',
                     '{str(latest_row.discountedFare)}',
                     '{str(latest_row.currency)}',
                     '{str(latest_row.conversionRate)}'
