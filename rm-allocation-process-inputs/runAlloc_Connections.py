@@ -420,7 +420,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                 
                 lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
+                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                 self.outputSummaryRow_b2c.MktFare_Min=lowFare
                 self.outputSummaryRow_b2c.AirlineCode_Min=lowAirlineCode
                 self.outputSummaryRow_b2c.FlightNumber_Min=lowFilghtNum
@@ -530,7 +530,7 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
                         lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.transit_time, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
+                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                         self.outputSummaryRow_b2b.MktFare_Min=lowFare
                         self.outputSummaryRow_b2b.AirlineCode_Min=lowAirlineCode
                         self.outputSummaryRow_b2b.FlightNumber_Min=lowFilghtNum
@@ -619,7 +619,7 @@ class DynAllocConnections:
                 str(current_date2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
             self.outputSummaryRow_b2c.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2c.outBoundStop = self.currParams.outboundstop
-            self.outputSummaryRow_b2c.transitTime = self.currParams.transit_time
+            self.outputSummaryRow_b2c.outboundDuration = self.currParams.outbound_duration
             self.outputSummaryRow_b2c.fareOffset = self.currParams.offset
             self.outputSummaryRow_b2c.Id = b2cRunId
             self.outputSummaryRow_b2c.RunId = self.runId
@@ -645,7 +645,7 @@ class DynAllocConnections:
             
             self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2b.outBoundStop = self.currParams.outboundstop
-            self.outputSummaryRow_b2b.transitTime = self.currParams.transit_time
+            self.outputSummaryRow_b2b.outboundDuration = self.currParams.outbound_duration
             self.outputSummaryRow_b2b.fareOffset = self.currParams.offset
             self.outputSummaryRow_b2b.Id = b2bRunId
             self.outputSummaryRow_b2b.RunId = self.runId

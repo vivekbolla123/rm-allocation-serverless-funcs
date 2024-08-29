@@ -156,16 +156,16 @@ class MarketFareService:
         minMaxFare = self.getMarketFareRangeminomaxo(marketFareRange)
         return startTime, endTime, criteria, marketFareRange, minMaxFare, summary
     
-    def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,transitTime):
+    def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,outboundDuration):
         
         return self.rmdatabasehelper.getMarketFareRangeConnections(
-            channel, params,flightDate, outBoundStop,transitTime
+            channel, params,flightDate, outBoundStop,outboundDuration
         )
 
     
-    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,transitTime,criteria,inputSource,convert_currency):
+    def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,outboundDuration,criteria,inputSource,convert_currency):
         
-        mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,transitTime)
+        mktFareRange = self.fetchMarketFareRangeConnections(channel,flightDate,params, outBoundStop,outboundDuration)
         isMarketFareAvailable = False
         lowFare = 0
         hiFare = 0
