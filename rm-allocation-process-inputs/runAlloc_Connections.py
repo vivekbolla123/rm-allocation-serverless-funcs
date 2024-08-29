@@ -503,7 +503,7 @@ class DynAllocConnections:
                             openDataB2B['FareResult'] = "QP Fares Not Available"
                     if b2b_rbd_sector2.shape[0] != 0:
                         self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2["ClassOfService"].values[0]
-                        SellingFare2,currency2 = self.rmdatabasehelper.getFinalPrice(
+                        SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
                             b2b_rbd_sector2["ClassOfService"].values[0], sector2, "B2B", "L")
                         if currency2!='INR':
                             SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
