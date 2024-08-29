@@ -22,7 +22,7 @@ class OutputSummaryConnections:
         self.Discount= CONST_NA
         self.discountedFare=CONST_NA
         self.outBoundStop=CONST_NA
-        self.transitTime=CONST_NA
+        self.outboundDuration=CONST_NA
         self.strategyfare=CONST_NA
         self.currency=CONST_NA
         self.conversionRate=CONST_NA

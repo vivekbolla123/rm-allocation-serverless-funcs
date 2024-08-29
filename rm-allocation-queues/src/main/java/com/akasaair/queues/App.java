@@ -829,7 +829,7 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(17, marketListEntity.getAnalystName());
             pstmt.setString(18, marketListEntity.getUuid());
             pstmt.setString(19, marketListEntity.getOutboundStop());
-            pstmt.setString(20, marketListEntity.getTransitTime());
+            pstmt.setString(20, marketListEntity.getOutboundDuration());
             pstmt.setString(21, marketListEntity.getCurrency());
             pstmt.setString(22, marketListEntity.getFareAnchor());
             pstmt.setString(23, marketListEntity.getOffset());
@@ -892,7 +892,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bFactor(record.get(CSV_HEADER_CONNECTIONS_B2BFACTOR))
                 .skippingFactor(record.get(CSV_HEADER_CONNECTIONS_SKIPPINGFACTOR))
                 .outboundStop(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDSTOP))
-                .transitTime(record.get(CSV_HEADER_CONNECTIONS_TRANSITTIME))
+                .outboundDuration(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION))
                 .currency(record.get(CSV_HEADER_CONNECTIONS_CURRENCY))
                 .fareAnchor(record.get(CSV_HEADER_CONNECTIONS_FAREANCHOR))
                 .offset(record.get(CSV_HEADER_CONNECTIONS_OFFSET))
@@ -1895,8 +1895,8 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!(isNumeric(record.get(CSV_HEADER_CONNECTIONS_SKIPPINGFACTOR)))) {
             errorsFound.add(lineNum + "Skipping Factor is not a number");
         }
-        if (!(isDouble(record.get(CSV_HEADER_CONNECTIONS_TRANSITTIME)))) {
-            errorsFound.add(lineNum + "Transit Time is not a number");
+        if (!(isDouble(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION)))) {
+            errorsFound.add(lineNum + "Outbound Duration is not a number");
         }
         if (!(isLengthEqualTo(record.get(CSV_HEADER_CONNECTIONS_CURRENCY), 3))) {
             errorsFound.add(lineNum + "Currency is not equal to 3 characters");

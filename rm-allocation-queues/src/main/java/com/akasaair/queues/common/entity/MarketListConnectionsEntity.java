@@ -54,8 +54,8 @@ public class MarketListConnectionsEntity {
     private String skippingFactor;
     @Column(name = "Outbound_stop")
     private String outboundStop;
-    @Column(name = "Transit_time")
-    private String transitTime;
+    @Column(name = "Outbound_duration")
+    private String outboundDuration;
     @Column(name = "Currency")
     private String currency;
     @Column(name = "fareAnchor")
