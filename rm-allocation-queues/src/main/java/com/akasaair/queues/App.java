@@ -1824,6 +1824,14 @@ public class App implements RequestHandler<S3Event, Object> {
                 user1 = getSectors(sector1, SECTOR_MAP_USER4_COLUMN_NAME);
                 user2 = getSectors(sector2, SECTOR_MAP_USER4_COLUMN_NAME);
 
+            }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
+                if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
+                    user1 = getSectors(sector1, SECTOR_MAP_USER3_COLUMN_NAME);
+                    user2 = getSectors(sector2, SECTOR_MAP_USER3_COLUMN_NAME);
+                } else {
+                    user1 = getSectors(sector1, SECTOR_MAP_USER4_COLUMN_NAME);
+                    user2 = getSectors(sector2, SECTOR_MAP_USER4_COLUMN_NAME);
+                }
             }
             if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
                 user = userName.split(SPACE)[0].toUpperCase();
