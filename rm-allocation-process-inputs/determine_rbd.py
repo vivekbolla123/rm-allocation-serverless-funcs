@@ -123,7 +123,7 @@ class DetermineRBD:
                 faresList.append(float(lastSoldFare))
             if historicOwnFare != CONST_NA:
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and currParams.profileFares == YES_FLAG:
+            if profileFare != CONST_NA and currParams.profileFares == 1:
                 faresList.append(float(profileFare))
 
             # Check if any values exist
