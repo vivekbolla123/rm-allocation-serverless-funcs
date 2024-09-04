@@ -1,4 +1,4 @@
-﻿Sector1,Flight1,Sector2,Flight2,Pertype,PerStart,PerEnd,DOW,Outbound_stop,Transit_time,Price_Strategy,DiscountFlag,Discount_value,fareAnchor,Offset,FirstRBDAlloc,OtherRBDAlloc,SkippingFactor,Currency,B2BBackstop,B2CBackstop,B2BFactor,analystName
+﻿Sector1,Flight1,Sector2,Flight2,Pertype,PerStart,PerEnd,DOW,Outbound_stop,Outbound_duration,Price_Strategy,DiscountFlag,Discount_value,fareAnchor,Offset,FirstRBDAlloc,OtherRBDAlloc,SkippingFactor,Currency,B2BBackstop,B2CBackstop,B2BFactor,analystName
 BLRAMD,1331,AMDDEL,1606,D,08/01/2023,08/01/2023,1111111,0,1.5,2,1,10,MIN,0,5,10,5,INR,0,4000,1,Test
 BLRAMD,1331,AMDDEL,1606,D,08/02/2023,08/02/2023,1111111,0,2,2,1,0,MIN,-1,6,11,5,INR,0,21500,1,Test
 BLRAMD,1331,AMDDEL,1606,D,08/03/2023,08/03/2023,1111111,0,3,2,0,0,MINO,2,10,5,5,INR,0,3000,0.5,Test
