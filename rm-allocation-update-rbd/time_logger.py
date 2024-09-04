@@ -15,7 +15,7 @@ class TimeLogger:
         self.latest_start_time = datetime.now()
 
     def end(self, func_name):
-        end_time = datetime.now() + timedelta(seconds=5)
+        end_time = datetime.now()
         total_time = end_time - self.latest_start_time
         self.run_log.append({
             'start_time': self.latest_start_time.strftime('%Y-%m-%d %H:%M:%S.%f'),

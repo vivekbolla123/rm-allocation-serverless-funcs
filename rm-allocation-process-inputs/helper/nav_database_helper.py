@@ -10,7 +10,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 class NavDatabaseHelper:
-    def __init__(self,navconn,conn,inputSource,nav_db_name,nav_db_ref_name,runId,debugMode,nav_db_wb_name,CurrParams):   
+    def __init__(self,navconn,conn,inputSource,nav_db_name,nav_db_ref_name,runId,debugMode,nav_db_wb_name,CurrParams, log_time):   
        self.NavitaireConnection = navconn
        self.conn = conn
        self.runId = runId
@@ -22,7 +22,7 @@ class NavDatabaseHelper:
        self.debugMode = debugMode
        self.timeutils=TimeUtils(inputSource)
        self.currParams=CurrParams
-       self.log_time = TimeLogger(self.conn)
+       self.log_time = log_time
         
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
         self.log_time.start()

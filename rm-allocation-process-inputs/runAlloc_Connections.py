@@ -775,6 +775,8 @@ class DynAllocConnections:
 
     def _initialize_params(self, inputData, currParams):
         self.currParams = MarketListConnectiosnsRow(currParams)
+        self.log_time = self.currParams.time_logger
+        self.log_time.update_run_id(self.currParams.run_id)
         self.inputSource = InputSource(inputData)
         self.debugMode = inputData["debugMode"]
         self.NavitaireUpdateMethod = self.currParams.navitaire_update_method

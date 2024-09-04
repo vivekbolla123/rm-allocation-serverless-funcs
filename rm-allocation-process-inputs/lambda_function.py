@@ -95,6 +95,7 @@ def lambda_handler(event, context):
 #        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
         data["NavitaireConnection"] = NavitaireConnection
+        data["timelogger"] = log_time
         data["dbconn"] = rdconn
         data["wrconn"] = wrconn
         data["sqs"] = sqs
@@ -116,7 +117,7 @@ def lambda_handler(event, context):
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"Sector1": "DOHBOM", "Flight1": 71, "Sector2": "BOMCOK", "Flight2": 1518, "Outbound_stop": 1, "PerType": "D", "DOW": 1111111, "Price_Strategy": 1, "Discount_Value": 3683, "FirstRBDAlloc": 10, "OtherRBDAlloc": 10, "B2BBackstop": 0, "B2CBackstop": 4000, "B2BFactor": 0.5, "SkippingFactor": 10, "Outbound_duration": "3", "Currency": "INR", "fareAnchor": "MAXO", "Offset": "1", "DiscountFlag": "0", "analystName": "VIKRAM", "PerStart": "08/15/2024", "PerEnd": "08/15/2024", "Flag": "1", "runId": "71b8f7b8-b2ac-426b-aaf3-489ca25eaebf", "update_navitaire_method": "sftp", "runTime": "2024-08-08T15:28:28.313680", "route_type": "connections", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"}
+# messageBody = {"PerStart": "12/19/2024", "PerEnd": "12/19/2024", "Origin": "KWI", "Destin": "BOM", "FlightNumber": 572, "DOW": 9999199, "strategyFlag": 1, "TimeWindowStart": "0:01", "TimeWindowEnd": "23:59", "CurveID": "IGULF70_1", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "fareAnchor": "STG1MIN", "fareOffset": "", "FirstRBDAlloc": 7, "OtherRBDAlloc": 5, "B2BBackstop": 23, "B2CBackstop": 23, "B2BFactor": "0", "SkippingFactor": 0, "OwnFareFlag": "0", "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "TANAY", "openingFares": 0, "OverBooking": "0", "profileFares": "0", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "Flag": "1", "runId": "254be916-8985-483b-afaa-832eaa823099", "update_navitaire_method": "api", "runTime": "2024-09-04T06:20:07.329945", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"}
 
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
