@@ -10,6 +10,7 @@ from redis import Redis
 import Constants
 from runAlloc import DynAlloc
 from runAlloc_Connections import DynAllocConnections
+from time_logger import TimeLogger
 
 warnings.filterwarnings('ignore')
 
@@ -20,8 +21,6 @@ s3 = boto3.client('s3')
 WAIT_TIME = 30  # in seconds
 
 LOGS_ON = False
-
-run_log=[]
 
 # rds settings
 # DB_CONN_STRING = "mysql+mysqldb://root:root@localhost/QP_DW_RMALLOC"
@@ -57,17 +56,8 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
+log_time = TimeLogger(wrconn)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
-
-def time_log(start_time, end_time, run_id):
-    log={
-        'start_time': start_time,
-        'end_time': end_time,
-        'run_id': run_id,
-        'label': "rm-allocation-process-inputs"
-    }
-    logger.log(log)
-    run_log.append(log)
 
 def lambda_handler(event, context):
     """
@@ -118,15 +108,16 @@ def lambda_handler(event, context):
             DynAllocConnections(input_data, data)
         if route_type == 'direct':
             DynAlloc(input_data, data)
-
+    
+    log_time.send_time_log_db()
     return {
         'statusCode': 200,
         'body': 'success'
     }
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"Sector1": "DOHBOM", "Flight1": 71, "Sector2": "BOMCOK", "Flight2": 1518, "Outbound_stop": 1, "PerType": "D", "DOW": 1111111, "Price_Strategy": 1, "Discount_Value": 3683, "FirstRBDAlloc": 10, "OtherRBDAlloc": 10, "B2BBackstop": 0, "B2CBackstop": 4000, "B2BFactor": 0.5, "SkippingFactor": 10, "Transit_time": "3", "Currency": "INR", "fareAnchor": "MAXO", "Offset": "1", "DiscountFlag": "0", "analystName": "VIKRAM", "PerStart": "08/15/2024", "PerEnd": "08/15/2024", "Flag": "1", "runId": "71b8f7b8-b2ac-426b-aaf3-489ca25eaebf", "update_navitaire_method": "sftp", "runTime": "2024-08-08T15:28:28.313680", "route_type": "connections", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"}
+messageBody = {"Sector1": "DOHBOM", "Flight1": 71, "Sector2": "BOMCOK", "Flight2": 1518, "Outbound_stop": 1, "PerType": "D", "DOW": 1111111, "Price_Strategy": 1, "Discount_Value": 3683, "FirstRBDAlloc": 10, "OtherRBDAlloc": 10, "B2BBackstop": 0, "B2CBackstop": 4000, "B2BFactor": 0.5, "SkippingFactor": 10, "Transit_time": "3", "Currency": "INR", "fareAnchor": "MAXO", "Offset": "1", "DiscountFlag": "0", "analystName": "VIKRAM", "PerStart": "08/15/2024", "PerEnd": "08/15/2024", "Flag": "1", "runId": "a2a9dbb6-4791-4307-8a2f-d900e84f0a6b", "update_navitaire_method": "sftp", "runTime": "2024-08-08T15:28:28.313680", "route_type": "connections", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"}
 
 
-# event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
-# lambda_handler(event,None)
+event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
+lambda_handler(event,None)
