@@ -95,7 +95,7 @@ class RBDAllocations:
         if int(currParams.rbdPushFlag) == 1:
             if profileFare == CONST_NA or profileFare == 0:
                 status = 'Normal AU allocation-profileFare NA'
-                if currParams.profileFares == 'N':
+                if int(currParams.profileFares) == 0:
                     status = 'Normal AU allocation-profileFare skipped'
                 openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice)
             elif len(profileExtract) == 0 and profileFare != CONST_NA:
