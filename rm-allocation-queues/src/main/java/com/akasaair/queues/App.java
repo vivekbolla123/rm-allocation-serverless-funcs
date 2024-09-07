@@ -45,6 +45,7 @@ import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 public class App implements RequestHandler<S3Event, Object> {
     final Connection connection = new JdbcConnection().connection();
     final Connection connection2 = new JdbcConnection().connection();
+    List<String> listOfErrors = new ArrayList<>();
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
@@ -75,7 +76,6 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private void uploadFile(String key, String bucketName) {
-        List<String> listOfErrors = new ArrayList<>();
         final String finalKey = key;
         int lengthOfKey = finalKey.length();
         String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length()+7, lengthOfKey - 4);
@@ -105,6 +105,7 @@ public class App implements RequestHandler<S3Event, Object> {
         } catch (SQLException e) {
             error_occurred=1;
             listOfErrors.add(e.getMessage());
+            addErrorsToTable(listOfErrors,obj_id);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -122,17 +123,20 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         catch (Exception e) {
             error_occurred=1;
-            listOfErrors.add(e.getMessage());
+            if(listOfErrors.isEmpty()){
+                listOfErrors.add(e.getMessage());
+                addErrorsToTable(listOfErrors,obj_id);
+            }
             System.out.println(e);
             e.printStackTrace();
         }
+        listOfErrors.clear();
         if (error_occurred == 0) {
             status = UPLOAD_QUEUE_STATUS_DONE;
         } else {
             status = UPLOAD_QUEUE_STATUS_FAILED;
         }
         int rNum = (int) numOfRows.get();
-        addErrorsToTable(listOfErrors,obj_id);
         LocalDateTime endTime = LocalDateTime.now();
         Duration duration = Duration.between(startTime, endTime);
         long seconds = duration.getSeconds();
@@ -313,7 +317,6 @@ public class App implements RequestHandler<S3Event, Object> {
 
 
     public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
-        List<String> listOfErrors = new ArrayList<>();
         List<MarketListEntity> marketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
@@ -452,12 +455,11 @@ public class App implements RequestHandler<S3Event, Object> {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(STRATEGY_TABLE_NAME);
             List<List<String>> csvData = getDataFromCSVFile(file);
-            List<String> listOfErrors2 = new ArrayList<>();
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors2);
+                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors);
             } catch (Exception e) {
-                addErrorsToTable(listOfErrors2, obj_id);
+                addErrorsToTable(listOfErrors, obj_id);
                 throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
@@ -496,12 +498,11 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-            List<String> errorsList = new ArrayList<>();
-            if (validate != null && !validate.isValid(data, val,errorsList)) {
+            if (validate != null && !validate.isValid(data, val,listOfErrors)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                errorsList.add(INVALID_DATA_ERROR_MESSAGE);
-                addErrorsToTable(errorsList, obj_id);
+                listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
+                addErrorsToTable(listOfErrors, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
             }
             try {
