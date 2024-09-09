@@ -615,7 +615,7 @@ class RMDatabaseHelper:
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()	
 
         query=f'''
-            select BookingsCount,STD,BookingToday from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
+            select BookingsCount,STD,BookingToday,BookingsInHour from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
         conn=self.conn
         farePrice = pd.read_sql(query, conn)

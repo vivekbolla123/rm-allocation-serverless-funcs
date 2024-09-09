@@ -589,6 +589,7 @@ class DynAlloc:
 
 		lastBookloadTillMidnight = 0
 		bookingToday = 0
+		bookingLastHour = 0
 		if bookings.shape[0] != 0:
 			lastBookloadTillMidnight = bookings["BookingsCount"][0]
 			bookingToday = bookings["BookingToday"][0]
