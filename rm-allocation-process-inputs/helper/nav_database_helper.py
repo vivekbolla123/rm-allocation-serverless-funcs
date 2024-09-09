@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime,timedelta
 import pandas as pd
 from Constants import *
 from ownlogger import OwnLogger
@@ -70,13 +70,16 @@ class NavDatabaseHelper:
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()	
         
         currDate = self.timeutils.getCurrentDate()
+        currDateTime = self.timeutils.getCurrentDateTime() - timedelta(hours=1)
+        currDateTimeStr = currDateTime.strftime("%Y-%m-%d %H:%M:%S")
         query = f"""
                 EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastBookingsCount]
                     @DepartureDate = N'{currFltDate}',
                     @FlightNumber = N'{currParams.flight_number}',
                     @DepartureStation = N'{currParams.origin}',
                     @ArrivalStation = N'{currParams.destin}',
-                    @ComparisonDate = N'{currDate}'
+                    @ComparisonDate = N'{currDate}',
+                    @ComparisonDateTime = N'{currDateTimeStr}
         """
         farePrice = pd.read_sql(query, self.NavitaireConnection)
 
