@@ -45,6 +45,7 @@ import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 public class App implements RequestHandler<S3Event, Object> {
     final Connection connection = new JdbcConnection().connection();
     final Connection connection2 = new JdbcConnection().connection();
+    List<String> listOfErrors = new ArrayList<>();
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
@@ -102,6 +103,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
         } catch (SQLException e) {
+            error_occurred=1;
+            listOfErrors.add(e.getMessage());
+            addErrorsToTable(listOfErrors,obj_id);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -114,16 +118,25 @@ public class App implements RequestHandler<S3Event, Object> {
 
         // Now you can use tableName in your subsequent logic
         System.out.println("The table name is -> " + table);
-
-        insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
-
+        try {
+            insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
+        }
+        catch (Exception e) {
+            error_occurred=1;
+            if(listOfErrors.isEmpty()){
+                listOfErrors.add(e.getMessage());
+                addErrorsToTable(listOfErrors,obj_id);
+            }
+            System.out.println(e);
+            e.printStackTrace();
+        }
+        listOfErrors.clear();
         if (error_occurred == 0) {
             status = UPLOAD_QUEUE_STATUS_DONE;
         } else {
             status = UPLOAD_QUEUE_STATUS_FAILED;
         }
         int rNum = (int) numOfRows.get();
-
         LocalDateTime endTime = LocalDateTime.now();
         Duration duration = Duration.between(startTime, endTime);
         long seconds = duration.getSeconds();
@@ -159,48 +172,44 @@ public class App implements RequestHandler<S3Event, Object> {
 
     }
 
-    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) {
-        switch (tableName) {
-            case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME, MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
-                String route;
-                if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
-                    route = DOMESTIC;
-                    tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE + adhocUsername;
-                } else if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    if (routeString.equals(INTERNATIONAL)) {
+    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) throws Exception {
+        try {
+            switch (tableName) {
+                case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME, MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
+                    String route;
+                    if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
+                        route = DOMESTIC;
+                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE + adhocUsername;
+                    } else if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                        if (routeString.equals(INTERNATIONAL)) {
+                            route = INTERNATIONAL;
+                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE + adhocUsername;
+                        } else {
+                            route = DOMESTIC;
+                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
+                        }
+                    } else if (tableName.equals(MARKET_LIST_INTERNATIONAL_TABLE_NAME)) {
                         route = INTERNATIONAL;
-                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE + adhocUsername;
                     } else {
                         route = DOMESTIC;
-                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
                     }
-                } else if (tableName.equals(MARKET_LIST_INTERNATIONAL_TABLE_NAME)) {
-                    route = INTERNATIONAL;
-                } else {
-                    route = DOMESTIC;
-                }
-                System.out.println("Route is ->" + route);
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
-                }
-                String finalRoute = route;
-                String finalTableName = tableName;
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                    System.out.println("Route is ->" + route);
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
 
-                            try {
-                                // Use tableName in your method call
+                    String finalRoute = route;
+                    String finalTableName = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     if (finalTableName.equalsIgnoreCase(MARKET_LIST_CONNECTIONS_TABLE_NAME)) {
                                         uploadMarketListConnectionsFile(reader, table, userName, role_obj, obj_id);
@@ -209,118 +218,105 @@ public class App implements RequestHandler<S3Event, Object> {
                                     } else {
                                         uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute, obj_id, numOfRows);
                                     }
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .exceptionally(ex -> {
-                            // Handle exceptions from the CompletableFuture pipeline
-                            System.out.println("Error during file processing: " + ex.getMessage());
-                            return null;
-                        })
-                        .join();
-            }
-            case STRATEGY_TABLE_NAME -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .exceptionally(ex -> {
+                                System.out.println("Error during file processing: " + ex.getMessage());
+                                throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                case STRATEGY_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadStrategyGridFile(reader, userName, obj_id);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing strategy file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .join();
-            }
-            case DATE_EVENT_TABLE_NAME -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                case DATE_EVENT_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadDateEventFile(reader, userName);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing date event file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .join();
-            }
-            default -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                default -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadFile(reader, table, userName, obj_id);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .exceptionally(ex -> {
-                            // Handle exceptions from the CompletableFuture pipeline
-                            System.out.println("Error during file processing: " + ex.getMessage());
-                            return null;
-                        })
-                        .join();
+                            })
+                            .exceptionally(ex -> {
+                                System.out.println("Error during file processing: " + ex.getMessage());
+                                throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                            })
+                            .join();
+                }
             }
+        } catch (Exception e) {
+            System.out.println("Error in insertAndValidatedBasedOnTableName: " + e.getMessage());
+            e.printStackTrace();
+            throw e; // Rethrow to propagate up the call stack
         }
     }
 
+
     public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
-        List<String> listOfErrors = new ArrayList<>();
         List<MarketListEntity> marketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
@@ -453,18 +449,18 @@ public class App implements RequestHandler<S3Event, Object> {
 
     }
 
-    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) {
+    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws  Exception{
         String uuid = generateUUID();
         try {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(STRATEGY_TABLE_NAME);
             List<List<String>> csvData = getDataFromCSVFile(file);
-            List<String> listOfErrors2 = new ArrayList<>();
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors2);
+                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors);
             } catch (Exception e) {
-                addErrorsToTable(listOfErrors2, obj_id);
+                addErrorsToTable(listOfErrors, obj_id);
+                throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
             deleteValuesStrategyTable(strategy, STRATEGY_TABLE_NAME, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
@@ -472,14 +468,14 @@ public class App implements RequestHandler<S3Event, Object> {
             insertStatement(strategyMap.values().stream().toList(), headers, STRATEGY_TABLE_NAME);
             s3FileStorageDao.storeFile(createCSV(STRATEGY_TABLE_NAME), STRATEGY_TABLE_NAME, uuid);
             updateAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), uuid);
-        } catch (DataMismatchedException | IOException | ExecutionException | InterruptedException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            throw e;
         } finally {
             updateInputStatus(STRATEGY_TABLE_NAME);
         }
     }
 
-    public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws DataMismatchedException {
+    public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws Exception {
         String uuid = generateUUID();
 
         try {
@@ -502,15 +498,19 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-            List<String> errorsList = new ArrayList<>();
-            if (validate != null && !validate.isValid(data, val,errorsList)) {
+            if (validate != null && !validate.isValid(data, val,listOfErrors)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                errorsList.add(INVALID_DATA_ERROR_MESSAGE);
-                addErrorsToTable(errorsList, obj_id);
+                listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
+                addErrorsToTable(listOfErrors, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
             }
-            insertStatement(data, headers, tempTableName);
+            try {
+                insertStatement(data, headers, tempTableName);
+            }
+            catch (Exception e) {
+                throw e;
+            }
             insertInputStatusTable(tableName);
 
             String columnName;
@@ -543,7 +543,7 @@ public class App implements RequestHandler<S3Event, Object> {
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
             deleteTable(tempTableName);
-        } catch (IOException | ExecutionException | InterruptedException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
             updateInputStatus(tableName);
@@ -901,7 +901,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void uploadDateEventFile(Reader file, String userName) {
+    public void uploadDateEventFile(Reader file, String userName) throws RuntimeException {
         String uuid = generateUUID();
         try {
             String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
@@ -939,7 +939,10 @@ public class App implements RequestHandler<S3Event, Object> {
             deleteTable(ProfileFareStationUpsellTempTableName);
             deleteTable(dateEventTempTableName);
             error_occurred = 0;
-        } finally {
+        } catch (Exception e){
+            throw new RuntimeException(e);
+        }
+        finally {
             updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
@@ -1018,7 +1021,7 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName) {
+    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName) throws Exception{
         StringBuilder columnNames = new StringBuilder();
         StringBuilder placeholders = new StringBuilder();
         for (String header : columnHeaders) {
@@ -1055,10 +1058,12 @@ public class App implements RequestHandler<S3Event, Object> {
                 connection2.rollback();
                 System.out.println("Failed to execute batch insert, transaction rolled back.");
                 e.printStackTrace();
+                throw e;
             }
         } catch (SQLException e) {
             System.out.println("Database connection or transaction error:");
             e.printStackTrace();
+            throw e;
         }
     }
 

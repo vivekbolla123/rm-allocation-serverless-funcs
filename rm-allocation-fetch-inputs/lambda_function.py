@@ -190,7 +190,7 @@ def lambda_handler(event, context):
 
     start_time = datetime.now()
     run_id = str(uuid4())
-
+    update_or_insert_run(market_list_table,run_id,start_interval,end_interval)
     insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
     cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
@@ -274,6 +274,36 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
     except Exception as e:
         logger.info(e)
     logger.info("STARTED ALLOCATION RUN")
+    
+def update_or_insert_run(runName, run_id, start_ndo, end_ndo):
+    try:
+        select_query = f"""
+        SELECT * FROM latest_run_audit 
+        WHERE runName = '{runName}' AND start_ndo = '{start_ndo}' AND end_ndo = '{end_ndo}'
+        """
+        existing_rows = read_sql(select_query, conn)
+
+        if not existing_rows.empty:
+            # Update existing row
+            update_query = f"""
+            UPDATE latest_run_audit 
+            SET run_id = '{run_id}', time = NOW()
+            WHERE runName = '{runName}' AND start_ndo = '{start_ndo}' AND end_ndo = '{end_ndo}'
+            """
+            conn.execute(update_query)
+            logger.info(f"Updated existing row for runName: {runName}")
+        else:
+            # Insert new row
+            insert_query = f"""
+            INSERT INTO latest_run_audit 
+            (runName, run_id, start_ndo, end_ndo, time) 
+            VALUES ('{runName}', '{run_id}','{start_ndo}', '{end_ndo}', NOW())
+            """
+            conn.execute(insert_query)
+            logger.info(f"Inserted new row for runName: {runName}")
+
+    except Exception as e:
+        logger.error(f"An error occurred: {str(e)}")
 
 def insert_file_upload_s3(run_id, createdAt):
     insert_query = "INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"

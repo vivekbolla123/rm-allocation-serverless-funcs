@@ -95,7 +95,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -127,6 +127,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.StrategyReference)}',
                     '{str(latest_row.analystName)}',
                     '{str(latest_row.bookedPlf)}',
+                    '{str(latest_row.actualbookedPlf)}',
                     '{str(latest_row.startTime)}',
                     '{str(latest_row.endTime)}',
                     '{str(latest_row.allocationStatus)}',
