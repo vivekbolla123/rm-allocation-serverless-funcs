@@ -10,7 +10,8 @@ ALTER PROCEDURE [dbo].[SP_LastBookingsCount]
     @FlightNumber NVARCHAR(255),
     @DepartureStation NVARCHAR(255),
     @ArrivalStation NVARCHAR(255),
-    @ComparisonDate DATE
+    @ComparisonDate DATE,
+    @ComparisonDateTime DATETIME
 AS
 BEGIN
     WITH CommonCTE AS (
@@ -28,6 +29,9 @@ BEGIN
         AND IL.ArrivalStation = @ArrivalStation
 )
 SELECT 
+    (SELECT COUNT(DISTINCT PassengerID) 
+     FROM CommonCTE 
+     WHERE BookingDateTime >= @ComparisonDateTime) AS BookingsInHour,
     (SELECT COUNT(DISTINCT PassengerID) 
      FROM CommonCTE 
      WHERE BookingDateTime <= @ComparisonDate) AS BookingsCount,
