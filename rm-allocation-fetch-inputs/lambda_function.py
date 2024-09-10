@@ -163,7 +163,7 @@ def lambda_handler(event, context):
 
     # start program
     if type == "Adhoc":
-        cache_client.set(unique_key_value, 0, 10)
+        cache_client.set(unique_key_value, 0, 18000)
         available_slot = deduct_available_slot()
         if not available_slot:
             logger.info("No slots available to run Adhoc API!")
