@@ -319,11 +319,10 @@ def update_run_with_batches(total_batches, run_id):
         log_time.end("update_run_with_batches")
 
 def allocation_run_batch_audit(run_id, batch_id):
-    start_time=datetime.now()
     log_time.start()
-    update_query = "INSERT INTO allocation_run_batch_audit (runId, start_time, batch_id) VALUES (%s, %s, %s)"
+    update_query = "INSERT INTO allocation_run_batch_audit (runId, batch_id) VALUES ( %s, %s)"
     try:
-        wrconn.execute(update_query, (run_id, start_time.strftime("%Y-%m-%d %H:%M:%S"), batch_id))
+        wrconn.execute(update_query, (run_id, batch_id))
     except Exception as e:
         logger.info(e)
     finally:

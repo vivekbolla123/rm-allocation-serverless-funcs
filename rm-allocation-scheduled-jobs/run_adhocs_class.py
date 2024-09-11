@@ -2,7 +2,7 @@ import sys
 import json
 import warnings
 from sqlalchemy import text
-import datetime
+from datetime import datetime
 import croniter
 from pyawscron import AWSCron
 import pandas as pd
@@ -68,9 +68,9 @@ class SchedulerHandler:
         if approximate_number_of_messages+approximate_number_of_messages_not_visible==0:
             print("Scheduler Names:", dic)
             # Get current UTC time
-            current_time_utc = datetime.datetime.utcnow()
+            current_time_utc = datetime.now()
             print("Current time: ",current_time_utc)
-            time_obj = datetime.datetime.strptime(dic_keys[0], '%Y-%m-%d %H:%M:%S')
+            time_obj = datetime.strptime(dic_keys[0], '%Y-%m-%d %H:%M:%S')
             time_diff =  time_obj - current_time_utc
             total_minutes = time_diff.total_seconds() // 60
             print("Time difference for", dic_keys[0], ":", total_minutes, "minutes")
@@ -86,7 +86,7 @@ class SchedulerHandler:
         try:
             cron_expression = self.convert_quartz_to_cron(cron_expression)
             cron = croniter.croniter(cron_expression)
-            next_run_time = cron.get_next(datetime.datetime)
+            next_run_time = cron.get_next(datetime)
             return next_run_time  #.strftime("%H:%M:%S")
         except Exception as e:
             print("Error:", e)
@@ -96,7 +96,7 @@ class SchedulerHandler:
         try:
 
             aws_cron = AWSCron(quartz_expression)
-            current_time = datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)
+            current_time = datetime.now()
             next_occurrence = aws_cron.occurrence(current_time).next()
             return next_occurrence.strftime('%Y-%m-%d %H:%M:%S')
         except Exception as e:
@@ -128,7 +128,7 @@ class SchedulerHandler:
             print(e)
 
     def update_run_end(self,run_id):
-        end_time = datetime.datetime.now()
+        end_time = datetime.now()
         update_query = " UPDATE allocation_run_audit SET batch_completed = batch_completed+1, end_time = %s where run_id = %s"
         try:
             self.wrconn.execute(update_query,
@@ -136,11 +136,11 @@ class SchedulerHandler:
         except Exception as e:
             print(e)
 
-    def update_allocation_run_batch_audit(self,batch_id):
-        end_time =datetime.datetime.now()
-        update_query = "UPDATE allocation_run_batch_audit SET end_time=%s WHERE batch_id = %s"
+    def update_allocation_run_batch_audit(self, start_time, batch_id):
+        end_time =datetime.now()
+        update_query = "UPDATE allocation_run_batch_audit SET start_time=%s end_time=%s WHERE batch_id = %s"
         try:
-            self.wrconn.execute(update_query,(end_time.strftime('%Y-%m-%d %H:%M:%S'),batch_id))
+            self.wrconn.execute(update_query,(start_time.strftime('%Y-%m-%d %H:%M:%S'), end_time.strftime('%Y-%m-%d %H:%M:%S'),batch_id))
             print("Inserted")
         except Exception as e:
             print(e)
@@ -207,7 +207,7 @@ class SchedulerHandler:
         if(next_run_time>=self.threshold_time):
 
             smallest_batch_id = self.get_shortest_run()
-
+            start_time =datetime.now()
             required_batch_id=self.get_required_batch(smallest_batch_id)
             print("Processing batch: ",required_batch_id)
             temp_list_of_values = self.cache_client.get(required_batch_id)
@@ -220,7 +220,7 @@ class SchedulerHandler:
                 QueueUrl=queue_name,
                 MessageBody=json.dumps(record))
 
-            self.update_allocation_run_batch_audit(required_batch_id)
+            self.update_allocation_run_batch_audit(start_time, required_batch_id)
             self.cache_client.delete(required_batch_id)
             if smallest_batch_id[2] == smallest_batch_id[1]+1:
                 self.update_run_end(smallest_batch_id[0])
