@@ -70,11 +70,28 @@ class NoShowProbs:
         column_order = ['Sector', 'Month', 'cluster', 'N', 'P0', 'P1']
         df = df[column_order]
 
-        df = df.melt(id_vars=['Sector', 'Month', 'cluster',
-                     'N'], var_name='OBCount', value_name='Prob')
+        df = df.melt(id_vars=['Sector', 'Month', 'cluster', 'N'], var_name='OBCount', value_name='Prob')
         df['OBCount'] = df['OBCount'].str.extract('(\d+)').astype(int) + 1
 
-        df = df[df['OBCount'] <= 2]
+        condition_failures = df[
+            (df['N'] < 1) | 
+            (~df['OBCount'].isin([1, 2])) | 
+            (df['Prob'] < 0) | 
+            (df['Prob'] > 1)
+        ]
+
+        if not condition_failures.empty:
+            self.logger.info(f"Found {len(condition_failures)} rows that fail conditions:")
+            for _, row in condition_failures.iterrows():
+                self.logger.info(f"Row: {row.to_dict()}")
+
+        df = df[
+            (df['N'] >= 1) & 
+            (df['OBCount'].isin([1, 2])) & 
+            (df['Prob'] >= 0) & 
+            (df['Prob'] <= 1)
+        ]
+
         df = df.sort_values(by=['Sector', 'Month', 'cluster'])
         return df
 
