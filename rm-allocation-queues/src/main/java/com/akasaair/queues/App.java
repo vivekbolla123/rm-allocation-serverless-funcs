@@ -362,6 +362,8 @@ public class App implements RequestHandler<S3Event, Object> {
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
         } catch (IOException | ExecutionException | InterruptedException e) {
             throw new RuntimeException(e);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         } finally {
             updateInputStatus(tableName);
         }
