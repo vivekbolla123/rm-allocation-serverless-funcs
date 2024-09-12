@@ -1602,191 +1602,195 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    private String validationForMarketListFile(List<String> record, List<String> permissions, String route, List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves, List<Object> listOfStrategies, List<Object> listOfCriteria) {
-        JSONArray roles = new JSONArray();
-        if (role instanceof String roleStr) {
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roles.add(roleStr);
-        } else {
-            System.err.println("The 'role' object is not a string.");
-        }
-
-        String routeSymbol = "";
-        String user = "";
-        String sector = record.get(CSV_HEADER_ORIGIN) + record.get(CSV_HEADER_DESTINATION);
-        if (route.equalsIgnoreCase(INTERNATIONAL)) {
-            routeSymbol = INTERNATIONAL_SYMBOL;
-        } else if (route.equalsIgnoreCase(DOMESTIC)) {
-            routeSymbol = DOMESTIC_SYMBOL;
-        }
-
-        List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN), record.get(CSV_HEADER_DESTINATION), routeSymbol);
-        String lineNum = "Line " + rowCount + ": ";
-        if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
-            listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
-        }
-        if (!isLengthEqualTo(record.get(CSV_HEADER_DESTINATION), 3)) {
-            listOfErrors.add(lineNum + "Destination Station is not equal to 3 characters");
-        }
-        if (routeJourney.isEmpty()) {
-            listOfErrors.add(lineNum + "Origin Destination is not " + route + " Route");
-        }
-        if (!isNumeric(record.get(CSV_HEADER_FLIGHT_NO))) {
-            listOfErrors.add(lineNum + "Flight Number is not a Number");
-        }
+    private String validationForMarketListFile(List<String> record, List<String> permissions, String route, List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves, List<Object> listOfStrategies, List<Object> listOfCriteria) throws Exception {
         try {
-            String startDate = record.get(CSV_HEADER_START_DATE);
-            String endDate = record.get(CSV_HEADER_END_DATE);
-
-            LocalDate daysFromToday = LocalDate.now().plusDays(DAYS_TO_ENTER_INTO_MARKET_LIST);
-
-            LocalDate formattedStartDate = LocalDate.parse(startDate, DATE_OUTPUT_FORMATTER);
-            LocalDate formattedEndDate = LocalDate.parse(endDate, DATE_OUTPUT_FORMATTER);
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
-                user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-            } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
-                user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
-
-            }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
-                if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
-                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-                } else {
-                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
-                }
-
+            JSONArray roles = new JSONArray();
+            if (role instanceof String roleStr) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                roles.add(roleStr);
+            } else {
+                System.err.println("The 'role' object is not a string.");
             }
-            if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
-                if (!userName.split(SPACE)[0].toUpperCase().equals(user)) {
-                    listOfErrors.add(lineNum + "you don't have access for sector " + sector);
+
+            String routeSymbol = "";
+            String user = "";
+            String sector = record.get(CSV_HEADER_ORIGIN) + record.get(CSV_HEADER_DESTINATION);
+            if (route.equalsIgnoreCase(INTERNATIONAL)) {
+                routeSymbol = INTERNATIONAL_SYMBOL;
+            } else if (route.equalsIgnoreCase(DOMESTIC)) {
+                routeSymbol = DOMESTIC_SYMBOL;
+            }
+
+            List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN), record.get(CSV_HEADER_DESTINATION), routeSymbol);
+            String lineNum = "Line " + rowCount + ": ";
+            if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
+                listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
+            }
+            if (!isLengthEqualTo(record.get(CSV_HEADER_DESTINATION), 3)) {
+                listOfErrors.add(lineNum + "Destination Station is not equal to 3 characters");
+            }
+            if (routeJourney.isEmpty()) {
+                listOfErrors.add(lineNum + "Origin Destination is not " + route + " Route");
+            }
+            if (!isNumeric(record.get(CSV_HEADER_FLIGHT_NO))) {
+                listOfErrors.add(lineNum + "Flight Number is not a Number");
+            }
+            try {
+                String startDate = record.get(CSV_HEADER_START_DATE);
+                String endDate = record.get(CSV_HEADER_END_DATE);
+
+                LocalDate daysFromToday = LocalDate.now().plusDays(DAYS_TO_ENTER_INTO_MARKET_LIST);
+
+                LocalDate formattedStartDate = LocalDate.parse(startDate, DATE_OUTPUT_FORMATTER);
+                LocalDate formattedEndDate = LocalDate.parse(endDate, DATE_OUTPUT_FORMATTER);
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
+                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
+                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+
+                }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
+                    if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
+                        user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                    } else {
+                        user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                    }
+
+                }
+                if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
+                    if (!userName.split(SPACE)[0].toUpperCase().equals(user)) {
+                        listOfErrors.add(lineNum + "you don't have access for sector " + sector);
+                    }
+                } else {
+                    if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
+                        user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                    } else {
+                        user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                    }
+                }
+                if (formattedEndDate.isBefore(formattedStartDate)) {
+                    listOfErrors.add(lineNum + "End date must be greater than or equal to start date");
+                }
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
+                    if (daysFromToday.isBefore(formattedEndDate)) {
+                        listOfErrors.add(lineNum + "End date is above 30 days");
+                    }
+                    if (formattedStartDate.isAfter(daysFromToday)) {
+                        listOfErrors.add(lineNum + "End date is above 30 days");
+                    }
+                }
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
+                    if (formattedStartDate.isBefore(daysFromToday)) {
+                        listOfErrors.add(lineNum + "Start date is below 30 days");
+                    }
+                    if (daysFromToday.isAfter(formattedEndDate)) {
+                        listOfErrors.add(lineNum + "End date is below 30 days");
+                    }
+                }
+            } catch (Exception e) {
+                listOfErrors.add(lineNum + "Date is an invalid format");
+            }
+            if (!(isValidDate(record.get(CSV_HEADER_END_DATE)))) {
+                listOfErrors.add(lineNum + "End date is not a valid date");
+            }
+            if (!(isLengthEqualTo(record.get(CSV_HEADER_DAY_OF_WEEK), 7)
+                    && isNumeric(record.get(CSV_HEADER_DAY_OF_WEEK))
+                    && checkDOWDigits(record.get(CSV_HEADER_DAY_OF_WEEK)))) {
+                listOfErrors.add(lineNum + "DOW is not 7 digits or has value other than '1' or '9'");
+            }
+            if (!checkStrategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))) {
+                listOfErrors.add(lineNum + "Strategy Flag has value other than '1' or '0'");
+            }
+            if (!(isValidTime(record.get(CSV_HEADER_START_TIME)))) {
+                listOfErrors.add(lineNum + "Start Time is not invalid time format");
+            }
+            if (!(isValidTime(record.get(CSV_HEADER_END_TIME)))) {
+                listOfErrors.add(lineNum + "End Time is not 4 digits or has an invalid input");
+            }
+            if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
+                listOfErrors.add(lineNum + "Curve Id is not valid");
+            }
+            if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
+                listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
+            }
+            if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
+                listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
+                listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
+            }
+            if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
+                listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
+                listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
+            }
+            if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
+                if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
+                    listOfErrors.add(lineNum + "Strategy has an invalid value");
+                }
+                if (!record.get(CSV_HEADER_FARE_OFFSET).trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset should be empty");
                 }
             } else {
-                if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
-                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-                } else {
-                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                if (!listOfCriteria.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
+                    listOfErrors.add(lineNum + "Fare Anchor has an invalid value");
+                }
+                if (!isNumeric(record.get(CSV_HEADER_FARE_OFFSET))) {
+                    listOfErrors.add(lineNum + "Fare Offset is not a number");
                 }
             }
-            if (formattedEndDate.isBefore(formattedStartDate)) {
-                listOfErrors.add(lineNum + "End date must be greater than or equal to start date");
+
+            if (!isNumeric(record.get(CSV_HEADER_FIRST_ALLOCATION))) {
+                listOfErrors.add(lineNum + "First Allocation is not a number");
             }
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
-                if (daysFromToday.isBefore(formattedEndDate)) {
-                    listOfErrors.add(lineNum + "End date is above 30 days");
-                }
-                if (formattedStartDate.isAfter(daysFromToday)) {
-                    listOfErrors.add(lineNum + "End date is above 30 days");
-                }
+            if (!(isNumeric(record.get(CSV_HEADER_OTHER_ALLOCATION))
+                    && isPositive(record.get(CSV_HEADER_OTHER_ALLOCATION)))) {
+                listOfErrors.add(lineNum + "Other Allocation is not a positive number");
             }
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
-                if (formattedStartDate.isBefore(daysFromToday)) {
-                    listOfErrors.add(lineNum + "Start date is below 30 days");
-                }
-                if (daysFromToday.isAfter(formattedEndDate)) {
-                    listOfErrors.add(lineNum + "End date is below 30 days");
-                }
+            if (!(isNumeric(record.get(CSV_HEADER_B2B_BACKSTOP))
+                    && isPositive(record.get(CSV_HEADER_B2B_BACKSTOP)))) {
+                listOfErrors.add(lineNum + "B2B Backstop is not a positive number");
             }
+            if (!(isNumeric(record.get(CSV_HEADER_B2C_BACKSTOP))
+                    && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
+                listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
+            }
+            if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
+                listOfErrors.add(lineNum + "B2B Factor is not a valid float");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
+                listOfErrors.add(lineNum + "Skipping Factor is not a number");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
+                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+             }
+            if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
+                listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
+                listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
+                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
+                listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
+                listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
+                listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
+                listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
+            }
+
+            return user;
         } catch (Exception e) {
-            listOfErrors.add(lineNum + "Date is an invalid format");
+            throw new Exception(e);
         }
-        if (!(isValidDate(record.get(CSV_HEADER_END_DATE)))) {
-            listOfErrors.add(lineNum + "End date is not a valid date");
-        }
-        if (!(isLengthEqualTo(record.get(CSV_HEADER_DAY_OF_WEEK), 7)
-                && isNumeric(record.get(CSV_HEADER_DAY_OF_WEEK))
-                && checkDOWDigits(record.get(CSV_HEADER_DAY_OF_WEEK)))) {
-            listOfErrors.add(lineNum + "DOW is not 7 digits or has value other than '1' or '9'");
-        }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))) {
-            listOfErrors.add(lineNum + "Strategy Flag has value other than '1' or '0'");
-        }
-        if (!(isValidTime(record.get(CSV_HEADER_START_TIME)))) {
-            listOfErrors.add(lineNum + "Start Time is not invalid time format");
-        }
-        if (!(isValidTime(record.get(CSV_HEADER_END_TIME)))) {
-            listOfErrors.add(lineNum + "End Time is not 4 digits or has an invalid input");
-        }
-        if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
-            listOfErrors.add(lineNum + "Curve Id is not valid");
-        }
-        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
-            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
-        }
-        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
-            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
-            listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
-        }
-        if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
-            listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
-            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
-        }
-        if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
-            if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                listOfErrors.add(lineNum + "Strategy has an invalid value");
-            }
-            if (!record.get(CSV_HEADER_FARE_OFFSET).trim().isEmpty()) {
-                listOfErrors.add(lineNum + "Fare Offset should be empty");
-            }
-        } else {
-            if (!listOfCriteria.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                listOfErrors.add(lineNum + "Fare Anchor has an invalid value");
-            }
-            if (!isNumeric(record.get(CSV_HEADER_FARE_OFFSET))) {
-                listOfErrors.add(lineNum + "Fare Offset is not a number");
-            }
-        }
-
-        if (!isNumeric(record.get(CSV_HEADER_FIRST_ALLOCATION))) {
-            listOfErrors.add(lineNum + "First Allocation is not a number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_OTHER_ALLOCATION))
-                && isPositive(record.get(CSV_HEADER_OTHER_ALLOCATION)))) {
-            listOfErrors.add(lineNum + "Other Allocation is not a positive number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2B_BACKSTOP))
-                && isPositive(record.get(CSV_HEADER_B2B_BACKSTOP)))) {
-            listOfErrors.add(lineNum + "B2B Backstop is not a positive number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2C_BACKSTOP))
-                && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
-            listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
-        }
-        if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
-            listOfErrors.add(lineNum + "B2B Factor is not a valid float");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
-            listOfErrors.add(lineNum + "Skipping Factor is not a number");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
-         }
-        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
-            listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
-            listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
-            listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
-            listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
-            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
-            listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
-        }
-
-        return user;
     }
 
     private String validationForMarketListConnectionsFile(List<String> record, int rowCount, List<String> permissions, Object role, String userName, List<String> errorsFound) {
