@@ -24,7 +24,9 @@ class DetermineRBD:
         profileFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
-
+        if pd.notnull(backstop):
+            if int(anchorFare)<int(backstop):
+                anchorFare=backstop
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
