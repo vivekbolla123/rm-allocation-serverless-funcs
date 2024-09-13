@@ -155,9 +155,9 @@ def lambda_handler(event, context):
 #     "modules": {"historicFares": 1}
 # }
 
-# messageBody = {
-#   "body": "{\"modules\":{\"gen_qc_fares_table\": 1}}"
-# }
+messageBody = {
+  "body": "{\"modules\":{\"gen_qc_fares_table\": 1}}"
+}
 
-# event = {'Records':[{'body':json.dumps(messageBody)}]}
-# lambda_handler(messageBody,None)
+event = {'Records':[{'body':json.dumps(messageBody)}]}
+lambda_handler(messageBody,None)
