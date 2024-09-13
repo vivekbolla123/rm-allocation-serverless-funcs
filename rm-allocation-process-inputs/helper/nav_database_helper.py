@@ -79,7 +79,7 @@ class NavDatabaseHelper:
                     @DepartureStation = N'{currParams.origin}',
                     @ArrivalStation = N'{currParams.destin}',
                     @ComparisonDate = N'{currDate}',
-                    @ComparisonDateTime = N'{currDateTimeStr}
+                    @ComparisonDateTime = N'{currDateTimeStr}'
         """
         farePrice = pd.read_sql(query, self.NavitaireConnection)
 
