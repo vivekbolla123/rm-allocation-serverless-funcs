@@ -138,7 +138,7 @@ class SchedulerHandler:
 
     def update_allocation_run_batch_audit(self, start_time, batch_id):
         end_time =datetime.now()
-        update_query = "UPDATE allocation_run_batch_audit SET start_time=%s end_time=%s WHERE batch_id = %s"
+        update_query = "UPDATE allocation_run_batch_audit SET start_time=%s , end_time=%s WHERE batch_id = %s"
         try:
             self.wrconn.execute(update_query,(start_time.strftime('%Y-%m-%d %H:%M:%S'), end_time.strftime('%Y-%m-%d %H:%M:%S'),batch_id))
             print("Inserted")
