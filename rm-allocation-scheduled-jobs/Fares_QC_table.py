@@ -14,6 +14,7 @@ class QCProcess:
     def create_historical_fare_table(self):
         # SQL to create the stored procedure
         create_procedure_sql = """
+        DROP PROCEDURE IF EXISTS create_historical_fare_table;
         CREATE PROCEDURE create_historical_fare_table()
         BEGIN
             DECLARE done INT DEFAULT FALSE;
@@ -114,6 +115,7 @@ class QCProcess:
     
     def create_profile_fare_table(self):
         create_procedure_sql = """
+        DROP PROCEDURE IF EXISTS create_profile_fare_table;
         CREATE PROCEDURE create_profile_fare_table()
         BEGIN
             DECLARE done INT DEFAULT FALSE;
