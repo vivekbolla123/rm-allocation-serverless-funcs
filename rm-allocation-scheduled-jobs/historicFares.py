@@ -59,6 +59,7 @@ class HistoricFaresModule:
         print("Historic fares completed for:" + self.dsectors)
 
         for index, value in self.Historic_Config.iterrows():
+            
             query = f'''
             	INSERT INTO QP_DW_RMALLOC.config_ownFares (sector, startTime, endTime, Month, DOW, channel, `0`,`1`,`2`,`3`,`4`,`5`,`6`,`7`)
                 VALUES ('{value['Sector']}', '{value['startTime']}', '{value['endTime']}', '{value['Month']}', '{value['DOW']}', '{value['Channel']}', 
@@ -79,100 +80,6 @@ class HistoricFaresModule:
                 `7` = VALUES(`7`);
             '''
             self.rm_rd_conn.execute(query)
-
-    def create_historical_fare_table(self):
-        # SQL to create the stored procedure
-        create_procedure_sql = """
-        CREATE PROCEDURE create_historical_fare_table()
-        BEGIN
-            DECLARE done INT DEFAULT FALSE;
-            DECLARE sector_name VARCHAR(255);
-            DECLARE sector_list TEXT DEFAULT '';
-            DECLARE create_table_sql TEXT DEFAULT '';
-            DECLARE sector_cursor CURSOR FOR SELECT DISTINCT sector FROM QP_DW_RMALLOC.config_ownFares;
-            DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
-
-            SET SESSION group_concat_max_len = 1000000;
-
-            OPEN sector_cursor;
-            read_loop: LOOP
-                FETCH sector_cursor INTO sector_name;
-                IF done THEN
-                    LEAVE read_loop;
-                END IF;
-                SET sector_list = CONCAT(sector_list, 
-                    IF(sector_list = '', '', ', '),
-                    'MAX(CASE WHEN sector = "', sector_name, '" THEN fare END) AS `', sector_name, '`');
-                SET create_table_sql = CONCAT(create_table_sql,
-                    IF(create_table_sql = '', '', ', '),
-                    '`', sector_name, '` INT');
-            END LOOP;
-            CLOSE sector_cursor;
-
-            SET @create_table = CONCAT('
-            CREATE TABLE IF NOT EXISTS min_max_historical (
-                Sector VARCHAR(10) PRIMARY KEY,
-                ', create_table_sql, '
-            )');
-            
-            PREPARE stmt FROM @create_table;
-            EXECUTE stmt;
-            DEALLOCATE PREPARE stmt;
-
-            SET @sql = CONCAT('
-            INSERT INTO min_max_historical
-            SELECT 
-                month_type AS Sector,
-                ', sector_list, '
-            FROM (
-                SELECT 
-                    sector,
-                    CONCAT(SUBSTRING(Month, 1, 3), "_min") AS month_type,
-                    ROUND(MIN(LEAST(`0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`)) * 0.9) AS fare
-                FROM QP_DW_RMALLOC.config_ownFares
-                GROUP BY sector, Month
-                UNION ALL
-                SELECT 
-                    sector,
-                    CONCAT(SUBSTRING(Month, 1, 3), "_max") AS month_type,
-                    ROUND(MAX(GREATEST(`0`, `1`, `2`, `3`, `4`, `5`, `6`, `7`)) * 1.1) AS fare
-                FROM QP_DW_RMALLOC.config_ownFares
-                GROUP BY sector, Month
-            ) AS unpivoted_data
-            GROUP BY month_type
-            ORDER BY 
-                CASE 
-                    WHEN SUBSTRING(month_type, 1, 3) = "Jan" THEN 1
-                    WHEN SUBSTRING(month_type, 1, 3) = "Feb" THEN 2
-                    WHEN SUBSTRING(month_type, 1, 3) = "Mar" THEN 3
-                    WHEN SUBSTRING(month_type, 1, 3) = "Apr" THEN 4
-                    WHEN SUBSTRING(month_type, 1, 3) = "May" THEN 5
-                    WHEN SUBSTRING(month_type, 1, 3) = "Jun" THEN 6
-                    WHEN SUBSTRING(month_type, 1, 3) = "Jul" THEN 7
-                    WHEN SUBSTRING(month_type, 1, 3) = "Aug" THEN 8
-                    WHEN SUBSTRING(month_type, 1, 3) = "Sep" THEN 9
-                    WHEN SUBSTRING(month_type, 1, 3) = "Oct" THEN 10
-                    WHEN SUBSTRING(month_type, 1, 3) = "Nov" THEN 11
-                    WHEN SUBSTRING(month_type, 1, 3) = "Dec" THEN 12
-                END,
-                month_type
-            ON DUPLICATE KEY UPDATE
-            ', (SELECT GROUP_CONCAT(
-                CONCAT('`', sector, '` = VALUES(`', sector, '`)')
-                SEPARATOR ', '
-            ) FROM (SELECT DISTINCT sector FROM QP_DW_RMALLOC.config_ownFares) AS sectors));
-
-            PREPARE stmt FROM @sql;
-            EXECUTE stmt;
-            DEALLOCATE PREPARE stmt;
-        END
-        """
-
-        # Execute the CREATE PROCEDURE statement
-        self.rm_rd_conn.execute(text(create_procedure_sql))
-
-        # Call the stored procedure
-        self.rm_rd_conn.execute(text("CALL create_historical_fare_table()"))
 
     def check_fare_ranges(self):
         # Get distinct sector and month combinations

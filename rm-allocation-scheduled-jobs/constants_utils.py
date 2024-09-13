@@ -1,10 +1,10 @@
 import pandas as pd
-
+import logging
 
 class ConstantsUtils:
     def __init__(self, rd_conn):
         self.rd_conn = rd_conn
-
+        self.logger = logging.getLogger()
         # Initialize all possible parameters with default values or None
         self.THRESHOLD_TIME = 12
         # Generate constants from database values

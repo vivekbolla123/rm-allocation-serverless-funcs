@@ -51,6 +51,7 @@ if env == 'uat':
     S3_BUCKET_NAME = 'uat-qp-applications'
     S3_RM_BUCKET_NAME = "uat-rm-systems"
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+    # RM_CACHE_ENDPOINT = "172.24.72.8"
     FETCH_INPUTS_API_URL = "https://uat-intsvc.qp.akasaair.com/rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     CALCULATE_COMPONENTS_QUEUE_URL = 'rm-allocation-queues_test-rm-allocation-scheduled-jobs'
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
