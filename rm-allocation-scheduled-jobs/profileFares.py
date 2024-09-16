@@ -107,41 +107,6 @@ class ProfileFaresModule:
 
         self.logger.info("Profile fares completed for:" + self.dsectors)
 
-    def check_profile_fare_ranges(self):
-        # Get distinct sector and month combinations
-        sector_month_df = pd.read_sql("SELECT DISTINCT sector, Month FROM QP_DW_RMALLOC.config_profile_fares", self.rm_rd_conn)
-        
-        out_of_range_fares = []
-        
-        for _, row in sector_month_df.iterrows():
-            sector = row['sector']
-            month = row['Month']
-            
-            # Check each column (Q0 to Q20) for the current sector and month
-            for col in range(21):
-                query = f"""
-                SELECT 
-                    '{sector}' AS sector,
-                    '{month}' AS month,
-                    'Q{col}' AS column_name,
-                    `Q{col}` AS fare,
-                    msm1.`{sector}` AS min_fare,
-                    msm2.`{sector}` AS max_fare
-                FROM QP_DW_RMALLOC.config_profile_fares cf
-                JOIN QP_DW_RMALLOC.min_max_profile msm1 ON msm1.Sector = CONCAT(SUBSTRING('{month}', 1, 3), "_min")
-                JOIN QP_DW_RMALLOC.min_max_profile msm2 ON msm2.Sector = CONCAT(SUBSTRING('{month}', 1, 3), "_max")
-                WHERE cf.sector = '{sector}' AND cf.Month = '{month}'
-                """
-                
-                df = pd.read_sql(query, self.rm_rd_conn)
-                out_of_range = df[(df['fare'].notnull()) & ((df['fare'] < df['min_fare']) | (df['fare'] > df['max_fare']))]
-                out_of_range_fares.append(out_of_range)
-        
-        # Combine all out of range fares
-        result = pd.concat(out_of_range_fares, ignore_index=True)
-        self.logger.info(result)
-        return result
-
     def query_writer_pax(self, sector):
 
         sql_query = f"""

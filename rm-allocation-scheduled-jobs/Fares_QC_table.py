@@ -105,13 +105,7 @@ class QCProcess:
         END
         """
         with self.rm_rd_conn.connect() as connection:
-            
-            # Execute the CREATE PROCEDURE statement
-            connection.execute(create_procedure_sql)
-
-            # Call the stored procedure
-            connection.execution_options(autocommit=True).execute(text("CALL create_historical_fare_table();"))
-            # connection.execute("CALL create_historical_fare_table()")        
+            connection.execution_options(autocommit=True).execute(text("CALL create_historical_fare_table();"))       
     
     def create_profile_fare_table(self):
         create_procedure_sql = """
@@ -207,10 +201,4 @@ class QCProcess:
         """
 
         with self.rm_rd_conn.connect() as connection:
-            
-            # Execute the CREATE PROCEDURE statement
-            connection.execute(create_procedure_sql)
-
-            # Call the stored procedure
             connection.execution_options(autocommit=True).execute(text("CALL create_profile_fare_table();"))
-            # connection.execute("CALL create_profile_fare_table()")    
