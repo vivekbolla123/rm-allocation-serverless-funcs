@@ -45,6 +45,7 @@ import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 public class App implements RequestHandler<S3Event, Object> {
     final Connection connection = new JdbcConnection().connection();
     final Connection connection2 = new JdbcConnection().connection();
+    List<String> listOfErrors = new ArrayList<>();
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
@@ -102,6 +103,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
         } catch (SQLException e) {
+            error_occurred=1;
+            listOfErrors.add(e.getMessage());
+            addErrorsToTable(listOfErrors,obj_id);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -114,16 +118,25 @@ public class App implements RequestHandler<S3Event, Object> {
 
         // Now you can use tableName in your subsequent logic
         System.out.println("The table name is -> " + table);
-
-        insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
-
+        try {
+            insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
+        }
+        catch (Exception e) {
+            error_occurred=1;
+            if(listOfErrors.isEmpty()){
+                listOfErrors.add(e.getMessage());
+                addErrorsToTable(listOfErrors,obj_id);
+            }
+            System.out.println(e);
+            e.printStackTrace();
+        }
+        listOfErrors.clear();
         if (error_occurred == 0) {
             status = UPLOAD_QUEUE_STATUS_DONE;
         } else {
             status = UPLOAD_QUEUE_STATUS_FAILED;
         }
         int rNum = (int) numOfRows.get();
-
         LocalDateTime endTime = LocalDateTime.now();
         Duration duration = Duration.between(startTime, endTime);
         long seconds = duration.getSeconds();
@@ -159,48 +172,44 @@ public class App implements RequestHandler<S3Event, Object> {
 
     }
 
-    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) {
-        switch (tableName) {
-            case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME, MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
-                String route;
-                if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
-                    route = DOMESTIC;
-                    tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE + adhocUsername;
-                } else if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    if (routeString.equals(INTERNATIONAL)) {
+    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) throws Exception {
+        try {
+            switch (tableName) {
+                case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME, MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
+                    String route;
+                    if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
+                        route = DOMESTIC;
+                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE + adhocUsername;
+                    } else if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                        if (routeString.equals(INTERNATIONAL)) {
+                            route = INTERNATIONAL;
+                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE + adhocUsername;
+                        } else {
+                            route = DOMESTIC;
+                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
+                        }
+                    } else if (tableName.equals(MARKET_LIST_INTERNATIONAL_TABLE_NAME)) {
                         route = INTERNATIONAL;
-                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE + adhocUsername;
                     } else {
                         route = DOMESTIC;
-                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
                     }
-                } else if (tableName.equals(MARKET_LIST_INTERNATIONAL_TABLE_NAME)) {
-                    route = INTERNATIONAL;
-                } else {
-                    route = DOMESTIC;
-                }
-                System.out.println("Route is ->" + route);
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
-                }
-                String finalRoute = route;
-                String finalTableName = tableName;
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                    System.out.println("Route is ->" + route);
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
 
-                            try {
-                                // Use tableName in your method call
+                    String finalRoute = route;
+                    String finalTableName = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     if (finalTableName.equalsIgnoreCase(MARKET_LIST_CONNECTIONS_TABLE_NAME)) {
                                         uploadMarketListConnectionsFile(reader, table, userName, role_obj, obj_id);
@@ -209,118 +218,105 @@ public class App implements RequestHandler<S3Event, Object> {
                                     } else {
                                         uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute, obj_id, numOfRows);
                                     }
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .exceptionally(ex -> {
-                            // Handle exceptions from the CompletableFuture pipeline
-                            System.out.println("Error during file processing: " + ex.getMessage());
-                            return null;
-                        })
-                        .join();
-            }
-            case STRATEGY_TABLE_NAME -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .exceptionally(ex -> {
+                                System.out.println("Error during file processing: " + ex.getMessage());
+                                throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                case STRATEGY_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadStrategyGridFile(reader, userName, obj_id);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing strategy file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .join();
-            }
-            case DATE_EVENT_TABLE_NAME -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                case DATE_EVENT_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadDateEventFile(reader, userName);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing date event file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .join();
-            }
-            default -> {
-                try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                    pstmt.setString(1, status);
-                    pstmt.setObject(2, LocalDateTime.now());
-                    pstmt.setString(3, obj_id);
-                    pstmt.executeUpdate();
-                } catch (SQLException e) {
-                    System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
-                    e.printStackTrace();
+                            })
+                            .join();
                 }
-                s3Client.getObject(GetObjectRequest.builder()
-                                        .bucket(bucketName)
-                                        .key(key)
-                                        .build(),
-                                AsyncResponseTransformer.toBytes())
-                        .thenAccept(response -> {
-                            String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                            long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                            numOfRows.set(rowCount);
-                            try {
-                                // Use tableName in your method call
+                default -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadFile(reader, table, userName, obj_id);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
                                 }
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        })
-                        .exceptionally(ex -> {
-                            // Handle exceptions from the CompletableFuture pipeline
-                            System.out.println("Error during file processing: " + ex.getMessage());
-                            return null;
-                        })
-                        .join();
+                            })
+                            .exceptionally(ex -> {
+                                System.out.println("Error during file processing: " + ex.getMessage());
+                                throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                            })
+                            .join();
+                }
             }
+        } catch (Exception e) {
+            System.out.println("Error in insertAndValidatedBasedOnTableName: " + e.getMessage());
+            e.printStackTrace();
+            throw e; // Rethrow to propagate up the call stack
         }
     }
 
+
     public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
-        List<String> listOfErrors = new ArrayList<>();
         List<MarketListEntity> marketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
@@ -365,6 +361,8 @@ public class App implements RequestHandler<S3Event, Object> {
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
         } catch (IOException | ExecutionException | InterruptedException e) {
+            throw new RuntimeException(e);
+        } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
             updateInputStatus(tableName);
@@ -453,18 +451,18 @@ public class App implements RequestHandler<S3Event, Object> {
 
     }
 
-    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) {
+    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws  Exception{
         String uuid = generateUUID();
         try {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(STRATEGY_TABLE_NAME);
             List<List<String>> csvData = getDataFromCSVFile(file);
-            List<String> listOfErrors2 = new ArrayList<>();
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors2);
+                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors);
             } catch (Exception e) {
-                addErrorsToTable(listOfErrors2, obj_id);
+                addErrorsToTable(listOfErrors, obj_id);
+                throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
             deleteValuesStrategyTable(strategy, STRATEGY_TABLE_NAME, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
@@ -472,14 +470,14 @@ public class App implements RequestHandler<S3Event, Object> {
             insertStatement(strategyMap.values().stream().toList(), headers, STRATEGY_TABLE_NAME);
             s3FileStorageDao.storeFile(createCSV(STRATEGY_TABLE_NAME), STRATEGY_TABLE_NAME, uuid);
             updateAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), uuid);
-        } catch (DataMismatchedException | IOException | ExecutionException | InterruptedException e) {
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            throw e;
         } finally {
             updateInputStatus(STRATEGY_TABLE_NAME);
         }
     }
 
-    public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws DataMismatchedException {
+    public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws Exception {
         String uuid = generateUUID();
 
         try {
@@ -502,15 +500,19 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-            List<String> errorsList = new ArrayList<>();
-            if (validate != null && !validate.isValid(data, val,errorsList)) {
+            if (validate != null && !validate.isValid(data, val,listOfErrors)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                errorsList.add(INVALID_DATA_ERROR_MESSAGE);
-                addErrorsToTable(errorsList, obj_id);
+                listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
+                addErrorsToTable(listOfErrors, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
             }
-            insertStatement(data, headers, tempTableName);
+            try {
+                insertStatement(data, headers, tempTableName);
+            }
+            catch (Exception e) {
+                throw e;
+            }
             insertInputStatusTable(tableName);
 
             String columnName;
@@ -543,7 +545,7 @@ public class App implements RequestHandler<S3Event, Object> {
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
             deleteTable(tempTableName);
-        } catch (IOException | ExecutionException | InterruptedException e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
             updateInputStatus(tableName);
@@ -901,7 +903,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void uploadDateEventFile(Reader file, String userName) {
+    public void uploadDateEventFile(Reader file, String userName) throws RuntimeException {
         String uuid = generateUUID();
         try {
             String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
@@ -939,7 +941,10 @@ public class App implements RequestHandler<S3Event, Object> {
             deleteTable(ProfileFareStationUpsellTempTableName);
             deleteTable(dateEventTempTableName);
             error_occurred = 0;
-        } finally {
+        } catch (Exception e){
+            throw new RuntimeException(e);
+        }
+        finally {
             updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
@@ -1018,7 +1023,7 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName) {
+    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName) throws Exception{
         StringBuilder columnNames = new StringBuilder();
         StringBuilder placeholders = new StringBuilder();
         for (String header : columnHeaders) {
@@ -1055,10 +1060,12 @@ public class App implements RequestHandler<S3Event, Object> {
                 connection2.rollback();
                 System.out.println("Failed to execute batch insert, transaction rolled back.");
                 e.printStackTrace();
+                throw e;
             }
         } catch (SQLException e) {
             System.out.println("Database connection or transaction error:");
             e.printStackTrace();
+            throw e;
         }
     }
 
@@ -1597,191 +1604,195 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    private String validationForMarketListFile(List<String> record, List<String> permissions, String route, List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves, List<Object> listOfStrategies, List<Object> listOfCriteria) {
-        JSONArray roles = new JSONArray();
-        if (role instanceof String roleStr) {
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roles.add(roleStr);
-        } else {
-            System.err.println("The 'role' object is not a string.");
-        }
-
-        String routeSymbol = "";
-        String user = "";
-        String sector = record.get(CSV_HEADER_ORIGIN) + record.get(CSV_HEADER_DESTINATION);
-        if (route.equalsIgnoreCase(INTERNATIONAL)) {
-            routeSymbol = INTERNATIONAL_SYMBOL;
-        } else if (route.equalsIgnoreCase(DOMESTIC)) {
-            routeSymbol = DOMESTIC_SYMBOL;
-        }
-
-        List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN), record.get(CSV_HEADER_DESTINATION), routeSymbol);
-        String lineNum = "Line " + rowCount + ": ";
-        if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
-            listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
-        }
-        if (!isLengthEqualTo(record.get(CSV_HEADER_DESTINATION), 3)) {
-            listOfErrors.add(lineNum + "Destination Station is not equal to 3 characters");
-        }
-        if (routeJourney.isEmpty()) {
-            listOfErrors.add(lineNum + "Origin Destination is not " + route + " Route");
-        }
-        if (!isNumeric(record.get(CSV_HEADER_FLIGHT_NO))) {
-            listOfErrors.add(lineNum + "Flight Number is not a Number");
-        }
+    private String validationForMarketListFile(List<String> record, List<String> permissions, String route, List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves, List<Object> listOfStrategies, List<Object> listOfCriteria) throws Exception {
         try {
-            String startDate = record.get(CSV_HEADER_START_DATE);
-            String endDate = record.get(CSV_HEADER_END_DATE);
-
-            LocalDate daysFromToday = LocalDate.now().plusDays(DAYS_TO_ENTER_INTO_MARKET_LIST);
-
-            LocalDate formattedStartDate = LocalDate.parse(startDate, DATE_OUTPUT_FORMATTER);
-            LocalDate formattedEndDate = LocalDate.parse(endDate, DATE_OUTPUT_FORMATTER);
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
-                user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-            } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
-                user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
-
-            }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
-                if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
-                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-                } else {
-                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
-                }
-
+            JSONArray roles = new JSONArray();
+            if (role instanceof String roleStr) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                roles.add(roleStr);
+            } else {
+                System.err.println("The 'role' object is not a string.");
             }
-            if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
-                if (!userName.split(SPACE)[0].toUpperCase().equals(user)) {
-                    listOfErrors.add(lineNum + "you don't have access for sector " + sector);
+
+            String routeSymbol = "";
+            String user = "";
+            String sector = record.get(CSV_HEADER_ORIGIN) + record.get(CSV_HEADER_DESTINATION);
+            if (route.equalsIgnoreCase(INTERNATIONAL)) {
+                routeSymbol = INTERNATIONAL_SYMBOL;
+            } else if (route.equalsIgnoreCase(DOMESTIC)) {
+                routeSymbol = DOMESTIC_SYMBOL;
+            }
+
+            List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN), record.get(CSV_HEADER_DESTINATION), routeSymbol);
+            String lineNum = "Line " + rowCount + ": ";
+            if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
+                listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
+            }
+            if (!isLengthEqualTo(record.get(CSV_HEADER_DESTINATION), 3)) {
+                listOfErrors.add(lineNum + "Destination Station is not equal to 3 characters");
+            }
+            if (routeJourney.isEmpty()) {
+                listOfErrors.add(lineNum + "Origin Destination is not " + route + " Route");
+            }
+            if (!isNumeric(record.get(CSV_HEADER_FLIGHT_NO))) {
+                listOfErrors.add(lineNum + "Flight Number is not a Number");
+            }
+            try {
+                String startDate = record.get(CSV_HEADER_START_DATE);
+                String endDate = record.get(CSV_HEADER_END_DATE);
+
+                LocalDate daysFromToday = LocalDate.now().plusDays(DAYS_TO_ENTER_INTO_MARKET_LIST);
+
+                LocalDate formattedStartDate = LocalDate.parse(startDate, DATE_OUTPUT_FORMATTER);
+                LocalDate formattedEndDate = LocalDate.parse(endDate, DATE_OUTPUT_FORMATTER);
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
+                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
+                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+
+                }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
+                    if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
+                        user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                    } else {
+                        user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                    }
+
+                }
+                if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
+                    if (!userName.split(SPACE)[0].toUpperCase().equals(user)) {
+                        listOfErrors.add(lineNum + "you don't have access for sector " + sector);
+                    }
+                } else {
+                    if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
+                        user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
+                    } else {
+                        user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                    }
+                }
+                if (formattedEndDate.isBefore(formattedStartDate)) {
+                    listOfErrors.add(lineNum + "End date must be greater than or equal to start date");
+                }
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
+                    if (daysFromToday.isBefore(formattedEndDate)) {
+                        listOfErrors.add(lineNum + "End date is above 30 days");
+                    }
+                    if (formattedStartDate.isAfter(daysFromToday)) {
+                        listOfErrors.add(lineNum + "End date is above 30 days");
+                    }
+                }
+                if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
+                    if (formattedStartDate.isBefore(daysFromToday)) {
+                        listOfErrors.add(lineNum + "Start date is below 30 days");
+                    }
+                    if (daysFromToday.isAfter(formattedEndDate)) {
+                        listOfErrors.add(lineNum + "End date is below 30 days");
+                    }
+                }
+            } catch (Exception e) {
+                listOfErrors.add(lineNum + "Date is an invalid format");
+            }
+            if (!(isValidDate(record.get(CSV_HEADER_END_DATE)))) {
+                listOfErrors.add(lineNum + "End date is not a valid date");
+            }
+            if (!(isLengthEqualTo(record.get(CSV_HEADER_DAY_OF_WEEK), 7)
+                    && isNumeric(record.get(CSV_HEADER_DAY_OF_WEEK))
+                    && checkDOWDigits(record.get(CSV_HEADER_DAY_OF_WEEK)))) {
+                listOfErrors.add(lineNum + "DOW is not 7 digits or has value other than '1' or '9'");
+            }
+            if (!checkStrategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))) {
+                listOfErrors.add(lineNum + "Strategy Flag has value other than '1' or '0'");
+            }
+            if (!(isValidTime(record.get(CSV_HEADER_START_TIME)))) {
+                listOfErrors.add(lineNum + "Start Time is not invalid time format");
+            }
+            if (!(isValidTime(record.get(CSV_HEADER_END_TIME)))) {
+                listOfErrors.add(lineNum + "End Time is not 4 digits or has an invalid input");
+            }
+            if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
+                listOfErrors.add(lineNum + "Curve Id is not valid");
+            }
+            if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
+                listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
+            }
+            if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
+                listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
+                listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
+            }
+            if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
+                listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
+                listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
+            }
+            if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
+                if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
+                    listOfErrors.add(lineNum + "Strategy has an invalid value");
+                }
+                if (!record.get(CSV_HEADER_FARE_OFFSET).trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset should be empty");
                 }
             } else {
-                if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
-                    user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
-                } else {
-                    user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                if (!listOfCriteria.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
+                    listOfErrors.add(lineNum + "Fare Anchor has an invalid value");
+                }
+                if (!isNumeric(record.get(CSV_HEADER_FARE_OFFSET))) {
+                    listOfErrors.add(lineNum + "Fare Offset is not a number");
                 }
             }
-            if (formattedEndDate.isBefore(formattedStartDate)) {
-                listOfErrors.add(lineNum + "End date must be greater than or equal to start date");
+
+            if (!isNumeric(record.get(CSV_HEADER_FIRST_ALLOCATION))) {
+                listOfErrors.add(lineNum + "First Allocation is not a number");
             }
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
-                if (daysFromToday.isBefore(formattedEndDate)) {
-                    listOfErrors.add(lineNum + "End date is above 30 days");
-                }
-                if (formattedStartDate.isAfter(daysFromToday)) {
-                    listOfErrors.add(lineNum + "End date is above 30 days");
-                }
+            if (!(isNumeric(record.get(CSV_HEADER_OTHER_ALLOCATION))
+                    && isPositive(record.get(CSV_HEADER_OTHER_ALLOCATION)))) {
+                listOfErrors.add(lineNum + "Other Allocation is not a positive number");
             }
-            if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
-                if (formattedStartDate.isBefore(daysFromToday)) {
-                    listOfErrors.add(lineNum + "Start date is below 30 days");
-                }
-                if (daysFromToday.isAfter(formattedEndDate)) {
-                    listOfErrors.add(lineNum + "End date is below 30 days");
-                }
+            if (!(isNumeric(record.get(CSV_HEADER_B2B_BACKSTOP))
+                    && isPositive(record.get(CSV_HEADER_B2B_BACKSTOP)))) {
+                listOfErrors.add(lineNum + "B2B Backstop is not a positive number");
             }
+            if (!(isNumeric(record.get(CSV_HEADER_B2C_BACKSTOP))
+                    && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
+                listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
+            }
+            if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
+                listOfErrors.add(lineNum + "B2B Factor is not a valid float");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
+                listOfErrors.add(lineNum + "Skipping Factor is not a number");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
+                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+             }
+            if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
+                listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
+                listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
+                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
+                listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
+                listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
+                listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
+                listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
+            }
+
+            return user;
         } catch (Exception e) {
-            listOfErrors.add(lineNum + "Date is an invalid format");
+            throw new Exception(e);
         }
-        if (!(isValidDate(record.get(CSV_HEADER_END_DATE)))) {
-            listOfErrors.add(lineNum + "End date is not a valid date");
-        }
-        if (!(isLengthEqualTo(record.get(CSV_HEADER_DAY_OF_WEEK), 7)
-                && isNumeric(record.get(CSV_HEADER_DAY_OF_WEEK))
-                && checkDOWDigits(record.get(CSV_HEADER_DAY_OF_WEEK)))) {
-            listOfErrors.add(lineNum + "DOW is not 7 digits or has value other than '1' or '9'");
-        }
-        if (!checkStrategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))) {
-            listOfErrors.add(lineNum + "Strategy Flag has value other than '1' or '0'");
-        }
-        if (!(isValidTime(record.get(CSV_HEADER_START_TIME)))) {
-            listOfErrors.add(lineNum + "Start Time is not invalid time format");
-        }
-        if (!(isValidTime(record.get(CSV_HEADER_END_TIME)))) {
-            listOfErrors.add(lineNum + "End Time is not 4 digits or has an invalid input");
-        }
-        if (!listOfCurves.contains(record.get(CSV_HEADER_CURVE_ID))) {
-            listOfErrors.add(lineNum + "Curve Id is not valid");
-        }
-        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))) {
-            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2C is not 2 digits");
-        }
-        if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
-            listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
-            listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
-        }
-        if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
-            listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
-            listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
-        }
-        if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
-            if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                listOfErrors.add(lineNum + "Strategy has an invalid value");
-            }
-            if (!record.get(CSV_HEADER_FARE_OFFSET).trim().isEmpty()) {
-                listOfErrors.add(lineNum + "Fare Offset should be empty");
-            }
-        } else {
-            if (!listOfCriteria.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                listOfErrors.add(lineNum + "Fare Anchor has an invalid value");
-            }
-            if (!isNumeric(record.get(CSV_HEADER_FARE_OFFSET))) {
-                listOfErrors.add(lineNum + "Fare Offset is not a number");
-            }
-        }
-
-        if (!isNumeric(record.get(CSV_HEADER_FIRST_ALLOCATION))) {
-            listOfErrors.add(lineNum + "First Allocation is not a number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_OTHER_ALLOCATION))
-                && isPositive(record.get(CSV_HEADER_OTHER_ALLOCATION)))) {
-            listOfErrors.add(lineNum + "Other Allocation is not a positive number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2B_BACKSTOP))
-                && isPositive(record.get(CSV_HEADER_B2B_BACKSTOP)))) {
-            listOfErrors.add(lineNum + "B2B Backstop is not a positive number");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2C_BACKSTOP))
-                && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
-            listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
-        }
-        if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
-            listOfErrors.add(lineNum + "B2B Factor is not a valid float");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_SKIPPING_FACTOR)))) {
-            listOfErrors.add(lineNum + "Skipping Factor is not a number");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
-         }
-        if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
-            listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
-        }
-        if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
-            listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
-            listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
-            listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
-            listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
-        }
-        if (!checkAutoTimeFlag(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG))) {
-            listOfErrors.add(lineNum + "DistressInventoryFlag has value other than 'Y' or 'N'");
-        }
-        if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
-            listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
-        }
-
-        return user;
     }
 
     private String validationForMarketListConnectionsFile(List<String> record, int rowCount, List<String> permissions, Object role, String userName, List<String> errorsFound) {

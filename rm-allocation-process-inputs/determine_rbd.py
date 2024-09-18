@@ -24,7 +24,6 @@ class DetermineRBD:
         profileFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
-
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
@@ -264,7 +263,6 @@ class DetermineRBD:
             defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
             
         if rbddata['RBD'][0] == self.constantsutils.LOWEST_B2B_RBD_VALUE or rbddata['RBD'][0] == self.constantsutils.LOWEST_B2C_RBD_VALUE:
-            defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route)
             if len(defFareData) == 0:
                 extremeFareFlag = True
                 RBDtoOpen = rbddata['RBD'][0]

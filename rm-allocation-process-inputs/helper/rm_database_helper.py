@@ -95,7 +95,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -127,6 +127,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.StrategyReference)}',
                     '{str(latest_row.analystName)}',
                     '{str(latest_row.bookedPlf)}',
+                    '{str(latest_row.actualbookedPlf)}',
                     '{str(latest_row.startTime)}',
                     '{str(latest_row.endTime)}',
                     '{str(latest_row.allocationStatus)}',
@@ -136,6 +137,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.lastSellingFare)}',
                     '{str(latest_row.upsell)}',
                     '{str(latest_row.bookingToday)}',
+                    '{str(latest_row.bookingLastHour)}',
                     '{str(latest_row.currentTgtLoad)}',
                     '{str(latest_row.currentLoadFactor)}',
                     '{str(latest_row.historicOwnFare)}',
@@ -613,7 +615,7 @@ class RMDatabaseHelper:
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()	
 
         query=f'''
-            select BookingsCount,STD,BookingToday from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
+            select BookingsCount,STD,BookingToday,BookingsInHour from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
         conn=self.conn
         farePrice = pd.read_sql(query, conn)
