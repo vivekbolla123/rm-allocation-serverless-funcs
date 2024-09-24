@@ -288,12 +288,39 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract,brd_counter,currRec,groupQuotationFlag):
+    def group_quote_alloc(self, profilefarextract,brd_counter,currRec,groupQuotationFlag,adjustedCapacity):
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
         profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
         # Loop Through
-        pass
+        for grpctr in range(profilefarextract.shape[0]):
+            RBDLabel = profilefarextract['RBD'][grpctr]
+            price = profilefarextract['Total'][grpctr]
+            currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+            if openbuketFlag:
+                # Allocation
+                if (b2bStatus == 0) or (b2bStatus == 2):
+                    if dPLF < 0 and (PLF < self.constantsutils.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPrice)):
+                        value=int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter]))
+                        if currRec.get_class_attribute(brd_counter-grpctr,'class_au') is not None:
+                            if value<currRec.get_class_attribute(brd_counter-grpctr,'class_au'):
+                                value=currRec.get_class_attribute(brd_counter-grpctr,'class_au')
+                        currRec.set_class_attribute(brd_counter, 'class_au', value)
+                    else:
+                        currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                        isUpsellFlag = True
+                    counter = counter + 1
+                else:
+                    # No B2B Allocaion - Leave it to B2C Fare
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+            else:
+                if b2bStatus == 3:
+                    currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                else:
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+            brd_counter = brd_counter+1
+
+        return isUpsellFlag, brd_counter
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
 

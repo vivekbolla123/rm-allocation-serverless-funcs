@@ -417,7 +417,7 @@ class DynAlloc:
 							
 
 				self.s_rbd_allocation(plf, currRec, brd_counter)
-				self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.groupQuotationFlag)
+				self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.groupQuotationFlag,adjustedCapacity)
 				self.AUFileData.append(currRec)
 
 				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_API):
