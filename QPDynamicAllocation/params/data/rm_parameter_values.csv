@@ -19,4 +19,5 @@ RDB_SIZE,84
 S_CLASS_PLF_THRESHOLD,75
 AU_COLUMN_LENGTH,90
 AU_COLUMN_LENGTH_CONNECTIONS,84
-END_OF_DAY_LF_FACTOR = 0.95
+END_OF_DAY_LF_FACTOR,0.95
+GROUP_QUOTATION,"{ ""Q2"": ""GJ"", ""Q4"": ""GI"", ""Q6"": ""GH"", ""Q8"": ""GG"", ""Q10"": ""GF"", ""Q12"": ""GE"", ""Q14"": ""GD"", ""Q16"": ""GC"", ""Q18"": ""GB"", ""Q20"": ""GA"" }"

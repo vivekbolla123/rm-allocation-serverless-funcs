@@ -1,3 +1,4 @@
+import ast
 from Constants import *
 
 
@@ -286,6 +287,13 @@ class RBDAllocations:
             brd_counter = brd_counter+1
 
         return isUpsellFlag, brd_counter
+    
+    def group_quote_alloc(self, profilefarextract,brd_counter,currRec,groupQuotationFlag):
+        rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
+        profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
+        profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
+        # Loop Through
+        pass
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
 

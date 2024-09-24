@@ -379,6 +379,7 @@ class DynAlloc:
 					currRec.b2brunid = self.outputSummaryRow_b2b.Id
 
 				profileExtract = self.rmdatabasehelper.profileFaresExtract(self.currParams.origin, self.currParams.destin, month, dow, deptTime)
+				profileExtractMap = profileExtract
 				profileExtract = profileExtract.transpose()
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
@@ -416,7 +417,7 @@ class DynAlloc:
 							
 
 				self.s_rbd_allocation(plf, currRec, brd_counter)
-
+				self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.groupQuotationFlag)
 				self.AUFileData.append(currRec)
 
 				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_API):
