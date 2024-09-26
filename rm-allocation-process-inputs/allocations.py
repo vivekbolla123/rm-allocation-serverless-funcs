@@ -291,35 +291,6 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    # def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity,upsell):
-    #     rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
-    #     profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
-    #     profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
-
-    #     # Calculate base allocation unit
-    #     base_unit = math.ceil(adjustedCapacity / 10)
-
-    #     # Loop Through
-    #     for grpctr in range(profilefarextract.shape[0]):
-    #         RBDLabel = profilefarextract['RBD'][grpctr]
-    #         price = profilefarextract['Total'][grpctr]
-    #         currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            
-    #         # Calculate allocation for this RBD
-    #         allocation = min((grpctr + 1) * base_unit, adjustedCapacity)
-            
-    #         # Set allocation
-    #         currRec.set_class_attribute(brd_counter, 'class_au', allocation)
-            
-    #         # Break if we've allocated all capacity
-    #         if allocation == adjustedCapacity:
-    #             break
-            
-    #         brd_counter = brd_counter + 1
-
-    #     return False, brd_counter
-
-
     def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell):
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         if int(autoGroup) == 1 and (not profilefarextract.empty):
