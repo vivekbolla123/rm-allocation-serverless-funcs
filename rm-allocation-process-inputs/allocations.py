@@ -1,4 +1,7 @@
 import ast
+import math
+
+import numpy as np
 from Constants import *
 
 
@@ -288,39 +291,86 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract,brd_counter,currRec,groupQuotationFlag,adjustedCapacity):
+    # def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity,upsell):
+    #     rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
+    #     profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
+    #     profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
+
+    #     # Calculate base allocation unit
+    #     base_unit = math.ceil(adjustedCapacity / 10)
+
+    #     # Loop Through
+    #     for grpctr in range(profilefarextract.shape[0]):
+    #         RBDLabel = profilefarextract['RBD'][grpctr]
+    #         price = profilefarextract['Total'][grpctr]
+    #         currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+            
+    #         # Calculate allocation for this RBD
+    #         allocation = min((grpctr + 1) * base_unit, adjustedCapacity)
+            
+    #         # Set allocation
+    #         currRec.set_class_attribute(brd_counter, 'class_au', allocation)
+            
+    #         # Break if we've allocated all capacity
+    #         if allocation == adjustedCapacity:
+    #             break
+            
+    #         brd_counter = brd_counter + 1
+
+    #     return False, brd_counter
+
+
+    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell):
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
         profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
-        # Loop Through
+        
+        # Calculate upsell fares
+        profilefarextract['Upsell_Total'] = profilefarextract['Total'] * (1 + int(upsell) / 100)
+        
+        # Calculate base allocation unit
+        base_unit = max(1, math.ceil(adjustedCapacity / 10))  # Ensure base_unit is at least 1
+        
+        allocated_capacity = 0
+        previous_allocation = 0
+        
         for grpctr in range(profilefarextract.shape[0]):
-            RBDLabel = profilefarextract['RBD'][grpctr]
-            price = profilefarextract['Total'][grpctr]
+            RBDLabel = profilefarextract['RBD'].iloc[grpctr]
+            original_price = profilefarextract['Total'].iloc[grpctr]
+            upsell_price = profilefarextract['Upsell_Total'].iloc[grpctr]
+            
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            if openbuketFlag:
-                # Allocation
-                if (b2bStatus == 0) or (b2bStatus == 2):
-                    if dPLF < 0 and (PLF < self.constantsutils.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPrice)):
-                        value=int(self.mathutils.generateRoundNumber(b2cAllocationsUnits[counter]))
-                        if currRec.get_class_attribute(brd_counter-grpctr,'class_au') is not None:
-                            if value<currRec.get_class_attribute(brd_counter-grpctr,'class_au'):
-                                value=currRec.get_class_attribute(brd_counter-grpctr,'class_au')
-                        currRec.set_class_attribute(brd_counter, 'class_au', value)
-                    else:
-                        currRec.set_class_attribute(brd_counter, 'class_au', 0)
-                        isUpsellFlag = True
-                    counter = counter + 1
-                else:
-                    # No B2B Allocaion - Leave it to B2C Fare
-                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
-            else:
-                if b2bStatus == 3:
-                    currRec.set_class_attribute(brd_counter, 'class_au', -1)
-                else:
-                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
-            brd_counter = brd_counter+1
+            currRec.set_class_attribute(brd_counter, 'fare', original_price)
+            
+            current_allocation = min((grpctr + 1) * base_unit, adjustedCapacity)
+            allocation = current_allocation - previous_allocation
+            
+            if upsell != 0:
+                # Find the nearest original fare that's greater than or equal to the upsell fare
+                higher_fares = profilefarextract[profilefarextract['Total'] >= upsell_price]
+                if higher_fares.empty or higher_fares.index[0] != grpctr:
+                    allocation = 0
+            
+            currRec.set_class_attribute(brd_counter, 'class_au', allocation)
+            
+            allocated_capacity += allocation
+            previous_allocation = current_allocation
+            
+            if allocated_capacity >= adjustedCapacity:
+                break
+            
+            brd_counter += 1
+        
+        # Allocate any remaining capacity to the last fare class
+        if allocated_capacity < adjustedCapacity:
+            last_allocation = currRec.get_class_attribute(brd_counter - 1, 'class_au')
+            currRec.set_class_attribute(brd_counter - 1, 'class_au', last_allocation + (adjustedCapacity - allocated_capacity))
+        
+        return False, brd_counter
 
-        return isUpsellFlag, brd_counter
+
+
+
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
 

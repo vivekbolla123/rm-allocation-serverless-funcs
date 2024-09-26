@@ -36,7 +36,7 @@ class MarketListRow:
         self.b2b_tolerance = currParams.get("B2BTolerance", CONST_NA)
         self.distressInventoryFlag = currParams.get("distressInventoryFlag", CONST_NA)
         self.seriesBlock = currParams.get("seriesBlock", CONST_NA)
-        self.groupQuotationFlag = currParams.get("groupQuotationFlag", CONST_NA)
+        self.autoGroup = currParams.get("autoGroup", CONST_NA)
         
         self.run_id = currParams.get("runId", CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method", CONST_NA)
