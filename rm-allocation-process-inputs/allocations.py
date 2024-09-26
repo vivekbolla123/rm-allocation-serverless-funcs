@@ -322,51 +322,60 @@ class RBDAllocations:
 
     def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell):
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
-        profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
-        profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
+        if int(autoGroup) == 1 and (not profilefarextract.empty):
+            profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
+            profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
+
+            # Calculate base allocation unit
+            base_unit = math.ceil(adjustedCapacity / 10)
         
-        # Calculate upsell fares
-        profilefarextract['Upsell_Total'] = profilefarextract['Total'] * (1 + int(upsell) / 100)
-        
-        # Calculate base allocation unit
-        base_unit = max(1, math.ceil(adjustedCapacity / 10))  # Ensure base_unit is at least 1
-        
-        allocated_capacity = 0
-        previous_allocation = 0
-        
-        for grpctr in range(profilefarextract.shape[0]):
-            RBDLabel = profilefarextract['RBD'].iloc[grpctr]
-            original_price = profilefarextract['Total'].iloc[grpctr]
-            upsell_price = profilefarextract['Upsell_Total'].iloc[grpctr]
-            
-            currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            currRec.set_class_attribute(brd_counter, 'fare', original_price)
-            
-            current_allocation = min((grpctr + 1) * base_unit, adjustedCapacity)
-            allocation = current_allocation - previous_allocation
-            
-            if upsell != 0:
-                # Find the nearest original fare that's greater than or equal to the upsell fare
-                higher_fares = profilefarextract[profilefarextract['Total'] >= upsell_price]
-                if higher_fares.empty or higher_fares.index[0] != grpctr:
-                    allocation = 0
-            
-            currRec.set_class_attribute(brd_counter, 'class_au', allocation)
-            
-            allocated_capacity += allocation
-            previous_allocation = current_allocation
-            
-            if allocated_capacity >= adjustedCapacity:
-                break
-            
-            brd_counter += 1
-        
-        # Allocate any remaining capacity to the last fare class
-        if allocated_capacity < adjustedCapacity:
-            last_allocation = currRec.get_class_attribute(brd_counter - 1, 'class_au')
-            currRec.set_class_attribute(brd_counter - 1, 'class_au', last_allocation + (adjustedCapacity - allocated_capacity))
-        
-        return False, brd_counter
+            # Calculate upsell fares
+            profilefarextract['Upsell'] = profilefarextract['Total'] * (1 + int(upsell) / 100)
+
+            # Sort the dataframe by original fares
+            profilefarextract = profilefarextract.sort_values(by='Total').reset_index(drop=True)
+
+            # Initialize allocation dictionary
+            allocation_dict = {RBD: 0 for RBD in profilefarextract['RBD']}
+
+            # Initialize allocation counter
+            allocation_counter = 0
+
+            # Loop through upsell fares and allocate based on nearest original fare
+            for upsell_price in profilefarextract['Upsell']:
+                # Find the nearest original fare that hasn't been fully allocated
+                nearest_index = (profilefarextract['Total'] - upsell_price).abs().idxmin()
+                nearest_price = profilefarextract['Total'][nearest_index]
+                RBDLabel = profilefarextract['RBD'][nearest_index]
+
+                # Check if this RBD has already been allocated
+                if allocation_dict[RBDLabel] == 0:
+                    # Calculate allocation for this RBD
+                    allocation = min((allocation_counter + 1) * base_unit, adjustedCapacity)
+
+                    # Set allocation
+                    allocation_dict[RBDLabel] = allocation
+
+                    # Increment allocation counter
+                    allocation_counter += 1
+
+                    # Break if we've allocated all capacity
+                    if allocation == adjustedCapacity:
+                        break
+
+            # Apply allocations to the current record
+            for RBDLabel, allocation in allocation_dict.items():
+                currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+                currRec.set_class_attribute(brd_counter, 'class_au', allocation)
+                brd_counter += 1
+        elif int(autoGroup) == 0 or profilefarextract.empty:
+            # Allocate all RBDs with -1
+            for RBDLabel in rbd_map.values():
+                currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                brd_counter += 1
+
+        return  brd_counter
 
 
 

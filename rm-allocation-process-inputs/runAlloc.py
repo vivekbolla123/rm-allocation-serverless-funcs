@@ -416,8 +416,8 @@ class DynAlloc:
 				self.pl_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 							
 
-				self.s_rbd_allocation(plf, currRec, brd_counter)
-				self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
+				brd_counter = self.s_rbd_allocation(plf, currRec, brd_counter)
+				self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
 				self.AUFileData.append(currRec)
 
 				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_API):
@@ -499,6 +499,7 @@ class DynAlloc:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
+		return brd_counter+5
 
 	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter + 2, 'class_au', -1)
