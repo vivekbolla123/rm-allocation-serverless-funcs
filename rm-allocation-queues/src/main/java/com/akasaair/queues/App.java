@@ -1356,7 +1356,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(31, marketListEntity.getB2bTolerance());
             pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
             pstmt.setString(33, marketListEntity.getSeriesBlock());
-            pstmt.setString(34, marketListEntity.getUuid());
+            pstmt.setString(34, marketListEntity.getAutoGroup());
+            pstmt.setString(35, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1542,6 +1543,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2cTolerance(record.get(CSV_HEADER_B2C_TOLERANCE))
                 .distressInventoryFlag(convertYNToBoolean(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG)))
                 .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
+                .autoGroup(convertYNToBoolean(record.get(CSV_HEADER_AUTO_GROUP)))
                 .analystName(analystName)
                 .build());
     }
@@ -1778,6 +1780,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
                 listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_AUTO_GROUP))) {
+                listOfErrors.add(lineNum + "auto group has value other than 'Y' or 'N'");
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
                 listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");

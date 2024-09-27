@@ -313,8 +313,13 @@ class RBDAllocations:
             allocation_counter = 0
 
             # Loop through upsell fares and allocate based on nearest original fare
-            for upsell_price in profilefarextract['Upsell']:
+            for current_index, row in profilefarextract.iterrows():
+                upsell_price = row['Upsell']
+                profilefarextract = profilefarextract[(profilefarextract['RBD'].map(lambda x: allocation_dict[x] == 0)) &
+                (profilefarextract.index >= current_index)]
                 # Find the nearest original fare that hasn't been fully allocated
+                if profilefarextract.empty:
+                    break
                 nearest_index = (profilefarextract['Total'] - upsell_price).abs().idxmin()
                 nearest_price = profilefarextract['Total'][nearest_index]
                 RBDLabel = profilefarextract['RBD'][nearest_index]
