@@ -11,11 +11,13 @@ class OutputSummary:
         self.analystName = CONST_NA
         self.TgtLoad = CONST_NA
         self.bookedPlf = CONST_NA
+        self.actualbookedPlf = CONST_NA
         self.Variance = CONST_NA
         self.endOfDayTgtLoad = CONST_NA
         self.currentLoadFactor = CONST_NA
         self.currentTgtLoad = CONST_NA
         self.bookingToday = CONST_NA
+        self.bookingLastHour = CONST_NA
         self.historicOwnFare = CONST_NA
         self.strategyFare = CONST_NA
         self.lastSellingFare = CONST_NA
