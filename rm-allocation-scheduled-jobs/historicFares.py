@@ -5,15 +5,13 @@ import json
 import configsettings
 import pandas as pd
 from outliers import Outliers
-import logging
-from sqlalchemy import text
 
 class HistoricFaresModule:
 
-    def __init__(self, params, overrides, context):
+    def __init__(self, logger, params, overrides, context):
         """Initialize all Variables, only input is the Engine Key Profile"""
         self.context = context
-        self.logger = logging.getLogger()
+        self.logger = logger
         self.rm_rd_conn = params['wrconn']
         self.rm_rd_esb_conn = params['rdEsbConn']
         self.sqs = params['sqs']
@@ -59,7 +57,6 @@ class HistoricFaresModule:
         print("Historic fares completed for:" + self.dsectors)
 
         for index, value in self.Historic_Config.iterrows():
-            
             query = f'''
             	INSERT INTO QP_DW_RMALLOC.config_ownFares (sector, startTime, endTime, Month, DOW, channel, `0`,`1`,`2`,`3`,`4`,`5`,`6`,`7`)
                 VALUES ('{value['Sector']}', '{value['startTime']}', '{value['endTime']}', '{value['Month']}', '{value['DOW']}', '{value['Channel']}', 

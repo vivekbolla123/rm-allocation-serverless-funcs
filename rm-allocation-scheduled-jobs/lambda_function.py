@@ -25,9 +25,6 @@ from faresUpdate import Fares
 from historicFares import HistoricFaresModule
 from profileFares import ProfileFaresModule
 from noShowProb import NoShowProbs
-from Fares_QC_table import QCProcess
-from Fares_QC_Check import QCCheck
-
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -77,9 +74,7 @@ module_map = {
     "historicFares": HistoricFaresModule,
     "profileFares": ProfileFaresModule,
     "noShowProb" : NoShowProbs,
-    "run_adhocs_queue":SchedulerHandler,
-    "gen_qc_fares_table": QCProcess,
-    "qc_fares_check": QCCheck
+    "run_adhocs_queue":SchedulerHandler
 }
 
 
@@ -158,7 +153,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"qc_fares_check\": 1}}"
+#   "body": "{\"modules\":{\"fares\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

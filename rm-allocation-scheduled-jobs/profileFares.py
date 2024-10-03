@@ -5,17 +5,15 @@ from outliers import Outliers
 import json
 import pandas as pd
 import numpy as np
-import logging
-from sqlalchemy import text
 from boto3 import client
 
 
 class ProfileFaresModule:
 
-    def __init__(self, params, overrides, context):
+    def __init__(self, logger, params, overrides, context):
         """Initialize all Variables, only input is the Engine Key Profile"""
         self.context = context
-        self.logger = logging.getLogger()
+        self.logger = logger
         self.rm_rd_conn = params['wrconn']
         self.rm_rd_esb_conn = params['rdEsbConn']
         self.sqs = params['sqs']
