@@ -24,6 +24,7 @@ class MarketListConnectiosnsRow:
         self.offset = currParams.get("Offset",CONST_NA)
         self.discountflag = currParams.get("DiscountFlag",CONST_NA)
         self.analyst_name = currParams.get("analystName", CONST_NA)
+        self.time_logger = currParams.get("timelogger", CONST_NA) 
         
         self.run_id = currParams.get("runId",CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method",CONST_NA)

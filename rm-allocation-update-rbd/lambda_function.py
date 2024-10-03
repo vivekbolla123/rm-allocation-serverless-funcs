@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 import requests
 import configsettings
 from redis import Redis
+from time_logger import TimeLogger
 
 warnings.filterwarnings('ignore')
 
@@ -179,12 +180,12 @@ def get_dcs_inventories(leg_keys):
     return inventory_dict
 
 
-def update_au_in_navitaire(inventory_dict, au_classes):
+def update_au_in_navitaire(inventory_dict, au_classes, run_id):
     """
         desc
     """
     allocation_result = {}
-
+    log_time.start()
     for leg_key, inventory_nests in inventory_dict.items():
         for inventory_nest in inventory_nests:
             nest_key = inventory_nest["nestKey"]
@@ -218,7 +219,7 @@ def update_au_in_navitaire(inventory_dict, au_classes):
                 arr = p.map(patch_nav_dcs_inventory_api, args)
                 for key, value in arr:
                     allocation_result[key] = value
-                    
+    log_time.end("update_au_in_navitaire")
     return allocation_result
 
 
@@ -232,7 +233,7 @@ try:
 except Exception as e:
     logger.error(e)
     sys.exit()
-
+log_time= TimeLogger(conn)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 session = requests.Session()
@@ -250,7 +251,6 @@ def lambda_handler(event, context):
         description
     """
     records = event['Records']
-
     for record in records:
         content = record['body']
         logger.info(type(content))
@@ -260,7 +260,7 @@ def lambda_handler(event, context):
         allocation_data = json.loads(content)
         # allocation_data = content
         logger.info(allocation_data)
-
+        run_id = allocation_data["runId"]
         au_classes = allocation_data['auClasses']
         start_date = allocation_data['startDate']
         end_date = allocation_data['endDate']
@@ -273,7 +273,7 @@ def lambda_handler(event, context):
 
         start_date_f = format_date(start_date)
         end_date_f = format_date(end_date)
-
+        log_time.update_run_id(run_id)
         countOfFailures = 0
         countOfTotal = 0
         inventory_dict = {}
@@ -291,20 +291,20 @@ def lambda_handler(event, context):
             countOfTotal = len(au_classes)
 
         # Now we have all the data needed to update the AUs. For fetched inventory classes, set the allotted units
-        allocation_result = update_au_in_navitaire(inventory_dict, au_classes)
+        allocation_result = update_au_in_navitaire(inventory_dict, au_classes, run_id)
 
         for _, v in allocation_result.items():
             if(v==-3):
                 countOfFailures+=1
             countOfTotal+=1
         
-        run_id = allocation_data["runId"]
         allocationEndTime = datetime.now()
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
                        content, json.dumps(allocation_result), run_id, allocation_data["b2cRunId"], 
                        allocation_data["b2bRunId"], countOfFailures, countOfTotal)
         updateRunAudit(run_id, start_date_f, identifier, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
+        log_time.send_time_log_db()
 
     return {
         'statusCode': 200,
@@ -343,6 +343,6 @@ def updateAllocationAudit(endTime, run_id):
     update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE run_id = %s"
     conn.execute(update_query, (endTime.strftime('%Y-%m-%d %H:%M:%S'), run_id))
 
-# messageBody = {'runId': '41f085d4-2108-4bf8-be6c-98afc92c5e02', 'type': 'L', 'flight': ' QP1127 BOMDEL', 'startDate': '08-01-2023', 'endDate': '08-01-2023', 'dayOfWeek': 'Daily', 'aircraftType': '', 'aircraftSuffix': '', 'lid': '', 'capacity': '', 'status': '', 'b2cRunId': 'e4bfe37b-440c-4ccf-95ea-b88112c6e84b', 'b2bRunId': '9460355b-799f-4a8b-97b9-ce661aacc580', 'rowId': '6d988a82-03b9-45f4-b994-6b503b9cc176', 'auClasses': {}}
+# messageBody = {'runId': '80ee0d91-3493-4907-be1d-6181742daee7', 'type': 'L', 'flight': ' QP1410 BOMDEL', 'startDate': '08-27-2024', 'endDate': '08-27-2024', 'dayOfWeek': 'Daily', 'aircraftType': '', 'aircraftSuffix': '', 'lid': '', 'capacity': '', 'status': '', 'b2cRunId': 'e4bfe37b-440c-4ccf-95ea-b88112c6e84b', 'b2bRunId': '9460355b-799f-4a8b-97b9-ce661aacc580', 'rowId': '6d988a82-03b9-45f4-b994-6b503b9cc176', 'auClasses': {}}
 # event = {'Records': [{'body': json.dumps(messageBody)}]}
 # lambda_handler(event, None)
