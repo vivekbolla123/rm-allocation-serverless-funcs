@@ -55,14 +55,14 @@ class DailyRolling:
             if self.should_delete_record(start_date, end_date, current_date):
                 self.logger.info(f"Deleting record with index: {index}")
                 df_market_list.drop(index, inplace=True)
-            elif self.should_update_record(start_date, end_date, current_date):
-                df_market_list, new_rows = self.update_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
-            else:
-                df_market_list, new_rows = self.split_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
+            # elif self.should_update_record(start_date, end_date, current_date):
+            #     df_market_list, new_rows = self.update_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
+            # else:
+            #     df_market_list, new_rows = self.split_record(df_market_list, df_sector_map, row, index, start_date, end_date, current_date, new_rows)
 
-        if new_rows:
-            df_market_list = df_market_list.append(new_rows, ignore_index=True)
-            self.logger.info(f"Appended new rows: {new_rows}")
+        # if new_rows:
+        #     df_market_list = df_market_list.append(new_rows, ignore_index=True)
+        #     self.logger.info(f"Appended new rows: {new_rows}")
 
         return df_market_list
 
