@@ -113,6 +113,7 @@ def lambda_handler(event, context):
     # keys
     start_interval_key = "start_interval"
     end_interval_key = "end_interval"
+    unique_key = "uniqueKey"
     queue_key = "queue"
     market_list_key = "market_list_table_name"
     update_navitaire_method_key = "update_navitaire_method"
@@ -138,7 +139,7 @@ def lambda_handler(event, context):
     type = "Adhoc"
     is_connections_required = "0"
     region = "Domestic"
-
+    unique_key_value = ""
     # overrides
     if route_type_key in data: 
         route_type = data[route_type_key]
@@ -162,9 +163,12 @@ def lambda_handler(event, context):
         is_connections_required = '1'
     if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]
+    if unique_key in data: 
+        unique_key_value = data[unique_key]
 
     # start program
     if type == "Adhoc":
+        cache_client.set(unique_key_value, 0, 18000)
         available_slot = deduct_available_slot()
         if not available_slot:
             logger.info("No slots available to run Adhoc API!")
