@@ -56,8 +56,9 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 if cache_client.ping():
     logger.info("Connected to Redis")
 
-log_time= TimeLogger(wrconn)
 constantsutils = ConstantsUtils(conn)
+
+log_time= TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD)
 
 def number_of_batches_required(total_records, adhoc_batch_size):
     if total_records < adhoc_batch_size:
