@@ -11,6 +11,7 @@ import Constants
 from runAlloc import DynAlloc
 from runAlloc_Connections import DynAllocConnections
 from time_logger import TimeLogger
+from constants_utils import ConstantsUtils
 
 warnings.filterwarnings('ignore')
 
@@ -56,7 +57,8 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
-log_time = TimeLogger(wrconn)
+constantsutils = ConstantsUtils(wrconn)
+log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 def lambda_handler(event, context):
