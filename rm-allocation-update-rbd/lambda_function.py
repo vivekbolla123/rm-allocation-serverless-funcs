@@ -11,6 +11,7 @@ import requests
 import configsettings
 from redis import Redis
 from time_logger import TimeLogger
+from constants_utils import ConstantsUtils
 
 warnings.filterwarnings('ignore')
 
@@ -233,7 +234,8 @@ try:
 except Exception as e:
     logger.error(e)
     sys.exit()
-log_time= TimeLogger(conn)
+constantsutils = ConstantsUtils(conn)
+log_time= TimeLogger(conn, constantsutils.CHECK_THRESHOLD)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 session = requests.Session()

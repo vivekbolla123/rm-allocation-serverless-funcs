@@ -4,8 +4,9 @@ from datetime import datetime, timedelta
 logger = logging.getLogger(__name__)
 
 class TimeLogger:
-    def __init__(self, wrconn, label="rm-allocation-process-inputs(nav-helper)"):
+    def __init__(self, wrconn, constutils, label="rm-allocation-process-inputs(nav-helper)"):
         self.wrconn = wrconn
+        self.constutils = constutils
         self.label = label
         self.run_log = []
         self.latest_start_time = None
@@ -33,7 +34,7 @@ class TimeLogger:
         try:
             with self.wrconn.begin() as transaction:
                 for item in self.run_log:
-                    if item["total_time"] >= 1:
+                    if item["total_time"] >= self.constutils:
                         transaction.execute(log_query, (
                             item["run_id"],
                             item["start_time"],
