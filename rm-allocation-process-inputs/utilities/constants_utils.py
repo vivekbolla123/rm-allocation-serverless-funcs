@@ -26,6 +26,7 @@ class ConstantsUtils:
         self.S_CLASS_PLF_THRESHOLD = S_CLASS_PLF_THRESHOLD
         self.END_OF_DAY_LF_FACTOR = END_OF_DAY_LF_FACTOR
         self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
+        self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -73,10 +74,12 @@ class ConstantsUtils:
             elif parameter_key == END_OF_DAY_LF_FACTOR_KEY:
                 self.END_OF_DAY_LF_FACTOR = float(parameter_value)
             elif parameter_key == AU_COLUMN_LENGTH_CONNECTIONS_KEY:
-                self.AU_COLUMN_LENGTH_CONNECTIONS == int(parameter_value)
+                self.AU_COLUMN_LENGTH_CONNECTIONS = int(parameter_value)
             elif parameter_key == OVERBOOKING_FARE_LF_KEY:
                 self.OVERBOOKING_FARE_LF = float(parameter_value)
             elif parameter_key == OVERBOOKING_FARE_PERCENT_VALUE_KEY:
                 self.OVERBOOKING_FARE_PERCENT_VALUE = float(parameter_value)
             elif parameter_key == OVERBOOKING_FARE_ABSOLUTE_VALUE_KEY:
-                self.OVERBOOKING_FARE_ABSOLUTE_VALUE == float(parameter_value) 
+                self.OVERBOOKING_FARE_ABSOLUTE_VALUE = float(parameter_value) 
+            elif parameter_key == MARKET_FARES_THRESHOLD_KEY:
+                self.MARKET_FARES_THRESHOLD = parameter_value

@@ -247,7 +247,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return rangeList
 
-    def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag):
+    def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag,hrs):
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
         updateDate=currFltDate+timedelta(days=int(DaySpan))
         if Day3Flag == False:
@@ -291,7 +291,7 @@ class RMDatabaseHelper:
             AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)  """
 
         if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
-            mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+            mktLowestQuery = mktLowestQuery + f" AND created_at > NOW() - INTERVAL {hrs} HOUR "
         mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
         try:
             mktFareRange = pd.read_sql(mktLowestQuery, self.conn)

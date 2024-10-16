@@ -1,3 +1,4 @@
+import json
 from Constants import *
 import numpy as np
 import pandas as pd
@@ -104,11 +105,22 @@ class MarketFareService:
         return self.prepareResponse(startTime, endTime, criteria, mktFareRange, summary)
     
     def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
-        
+        ndo=self.timeutils.calculate_ndo(flightDate)
+        hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
         return self.rmdatabasehelper.getMarketFareRange(
-            channel, params,flightDate, daySpan, start_time, end_time, includeWeekend
+            channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
         )
 
+    def get_value_for_ndo(self,json_string, ndo):
+        
+        ranges = json.loads(json_string)
+        
+        
+        for range_dict in ranges:
+            if int(range_dict['startNdo']) <= ndo <= int(range_dict['endNdo']):
+                return range_dict['value']
+        
+        return None 
     
     def getMarketFareRangeminomaxo(self, mktFareRange):
         data = pd.DataFrame(mktFareRange)
