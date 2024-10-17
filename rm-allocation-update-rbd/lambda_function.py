@@ -235,7 +235,7 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 constantsutils = ConstantsUtils(conn)
-log_time= TimeLogger(conn, constantsutils.CHECK_THRESHOLD)
+log_time= TimeLogger(conn, constantsutils.CHECK_THRESHOLD_UPDATE_RBD)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 session = requests.Session()
