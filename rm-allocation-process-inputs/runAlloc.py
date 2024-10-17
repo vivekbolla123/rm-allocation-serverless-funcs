@@ -497,9 +497,11 @@ class DynAlloc:
 		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W8')
 		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
-			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
+		if self.thresholdflag:
+			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
+		else:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
 			
 
