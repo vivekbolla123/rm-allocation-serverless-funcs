@@ -2,6 +2,8 @@ from datetime import date, datetime,timedelta
 
 import pytz
 
+from Constants import DATE_FORMAT
+
 class TimeUtils:
     def __init__(self,inputsource) :
         self.inputSource=inputsource
@@ -37,3 +39,14 @@ class TimeUtils:
         time_obj = datetime.strptime(time_str, '%H:%M')
         new_time = (time_obj + timedelta(hours=hours)).time()
         return str(new_time)[:5]
+    
+    def calculate_ndo(self,departure_date):
+        if self.inputSource.currDate != None:
+            today = self.inputSource.currDate
+        else:
+            today = date.today()
+        departure = datetime.strptime(departure_date, DATE_FORMAT).date()
+        
+        ndo = (departure - today).days
+        
+        return max(ndo, 0)

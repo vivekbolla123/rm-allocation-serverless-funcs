@@ -51,7 +51,8 @@ def testCase1():
         "s3":None,
         "runTime":None,
         "cache_client":None,
-        "route_type":"direct"
+        "route_type":"direct",
+        "timelogger":None
     }
     outputData = {}
 
