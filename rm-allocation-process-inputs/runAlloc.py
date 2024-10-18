@@ -418,6 +418,8 @@ class DynAlloc:
 
 				brd_counter = self.s_rbd_allocation(plf, currRec, brd_counter)
 				self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
+				self.s_w8_rbd_allocation(plf, currRec, brd_counter)
+
 				self.AUFileData.append(currRec)
 
 				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_API):
@@ -493,13 +495,21 @@ class DynAlloc:
 				self.redishelper.updateRunAudit()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def s_rbd_allocation(self, plf, currRec, brd_counter):
+	def s_w8_rbd_allocation(self, plf, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'S')
+		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W8')
 		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
-		return brd_counter+5
+		
+		if self.thresholdflag:
+			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
+
+		return brd_counter+6
+			
 
 	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter + 2, 'class_au', -1)
@@ -820,14 +830,16 @@ class DynAlloc:
 			self.runId = self.currParams.run_id
 		else:
 			self.runId = self.utils.getUniqueId()
-
+		self.log_time = self.currParams.time_logger
+		if self.log_time is not None:
+			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
 		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
-		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams)
+		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
 		self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)

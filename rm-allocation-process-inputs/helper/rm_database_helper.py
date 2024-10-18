@@ -206,7 +206,7 @@ class RMDatabaseHelper:
     def getPlfThreshhold(self, ndocounter, flightNumber):
         pflThresholdQuery = "SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
         pflThresholdQuery = pflThresholdQuery+ " SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
-        pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
+        pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
         except Exception as e:
@@ -247,7 +247,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return rangeList
 
-    def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag):
+    def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag,hrs):
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
         updateDate=currFltDate+timedelta(days=int(DaySpan))
         if Day3Flag == False:
@@ -291,7 +291,7 @@ class RMDatabaseHelper:
             AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)  """
 
         if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
-            mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
+            mktLowestQuery = mktLowestQuery + f" AND created_at > NOW() - INTERVAL {hrs} HOUR "
         mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
         try:
             mktFareRange = pd.read_sql(mktLowestQuery, self.conn)

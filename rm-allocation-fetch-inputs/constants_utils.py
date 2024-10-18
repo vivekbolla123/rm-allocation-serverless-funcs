@@ -7,6 +7,7 @@ class ConstantsUtils:
 
         # Initialize all possible parameters with default values or None
         self.ADHOC_BATCH_SIZE = 4000
+        self.CHECK_THRESHOLD = 5
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -19,6 +20,8 @@ class ConstantsUtils:
 
             if parameter_key == "ADHOC_BATCH_SIZE":
                 self.ADHOC_BATCH_SIZE = int(parameter_value)
+            if parameter_key == "CHECK_THRESHOLD":
+                self.CHECK_THRESHOLD = int(parameter_value)
 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

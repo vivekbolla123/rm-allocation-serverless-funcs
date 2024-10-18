@@ -775,6 +775,9 @@ class DynAllocConnections:
 
     def _initialize_params(self, inputData, currParams):
         self.currParams = MarketListConnectiosnsRow(currParams)
+        self.log_time = self.currParams.time_logger
+        if self.log_time is not None:
+            self.log_time.update_run_id(self.currParams.run_id)
         self.inputSource = InputSource(inputData)
         self.debugMode = inputData["debugMode"]
         self.NavitaireUpdateMethod = self.currParams.navitaire_update_method
@@ -811,7 +814,7 @@ class DynAllocConnections:
                                              self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
         self.timeutils = TimeUtils(self.inputSource)
         self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
-                                                   self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams)
+                                                   self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
         self.marketfaresservice = MarketFareService(
             self.rmdatabasehelper, self.navdatabasehelper, self.constantsUtils, self.timeutils)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,

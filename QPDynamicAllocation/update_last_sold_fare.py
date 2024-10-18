@@ -135,7 +135,7 @@ class LastSoldFare:
                 ) X
               ) Y
               WHERE
-                (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R') OR FareBasis='')
+                (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R') OR FareBasis='') AND SUBSTRING(FareBasis, 3, 1) != 'C'
         """
         df = pd.read_sql(query, self.NavitaireConnection)
         return df
