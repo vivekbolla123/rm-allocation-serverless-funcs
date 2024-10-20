@@ -416,9 +416,9 @@ class DynAlloc:
 				self.pl_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 							
 
-				brd_counter = self.s_rbd_allocation(plf, currRec, brd_counter)
+				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
 				self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
-				self.s_w8_rbd_allocation(plf, currRec, brd_counter)
+				
 
 				self.AUFileData.append(currRec)
 

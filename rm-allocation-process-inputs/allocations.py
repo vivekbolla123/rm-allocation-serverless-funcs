@@ -315,8 +315,8 @@ class RBDAllocations:
             # Loop through upsell fares and allocate based on nearest original fare
             for current_index, row in profilefarextract.iterrows():
                 upsell_price = row['Upsell']
-                profilefarextract = profilefarextract[(profilefarextract['RBD'].map(lambda x: allocation_dict[x] == 0)) &
-                (profilefarextract.index >= current_index)]
+                # profilefarextract = profilefarextract[(profilefarextract['RBD'].map(lambda x: allocation_dict[x] == 0)) &
+                # (profilefarextract.index >= current_index)]
                 # Find the nearest original fare that hasn't been fully allocated
                 if profilefarextract.empty:
                     break
@@ -324,23 +324,27 @@ class RBDAllocations:
                 nearest_price = profilefarextract['Total'][nearest_index]
                 RBDLabel = profilefarextract['RBD'][nearest_index]
 
-                # Check if this RBD has already been allocated
-                if allocation_dict[RBDLabel] == 0:
-                    # Calculate allocation for this RBD
-                    allocation = min((allocation_counter + 1) * base_unit, adjustedCapacity)
+                # Calculate allocation for this RBD
+                allocation = min((allocation_counter + 1) * base_unit, adjustedCapacity)
 
-                    # Set allocation
-                    allocation_dict[RBDLabel] = allocation
+                # Set allocation
+                allocation_dict[RBDLabel] = allocation
 
-                    # Increment allocation counter
-                    allocation_counter += 1
+                # Increment allocation counter
+                allocation_counter += 1
 
-                    # Break if we've allocated all capacity
-                    if allocation == adjustedCapacity:
-                        break
-
+                # Break if we've allocated all capacity
+                if allocation == adjustedCapacity:
+                    break
+            last_non_zero_allocation = 0
             # Apply allocations to the current record
             for RBDLabel, allocation in allocation_dict.items():
+                if allocation == 0:
+                    # If it is, use the last non-zero allocation
+                    allocation = last_non_zero_allocation
+                else:
+                    # If it's not, update the last non-zero allocation
+                    last_non_zero_allocation = allocation
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
                 currRec.set_class_attribute(brd_counter, 'class_au', allocation)
                 brd_counter += 1
@@ -352,9 +356,6 @@ class RBDAllocations:
                 brd_counter += 1
 
         return  brd_counter
-
-
-
 
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
