@@ -5,7 +5,7 @@ class ConstantsUtils:
     def __init__(self, rd_conn):
         self.rd_conn = rd_conn
 
-        self.CHECK_THRESHOLD = 5
+        self.CHECK_THRESHOLD_UPDATE_RBD = 20
         self.generateConstantValues()
 
     def generateConstantValues(self):
@@ -15,8 +15,8 @@ class ConstantsUtils:
             parameter_key = val['parameterKey']
             parameter_value = val['parameterValue']
 
-            if parameter_key == "CHECK_THRESHOLD":
-                self.CHECK_THRESHOLD = int(parameter_value)
+            if parameter_key == "CHECK_THRESHOLD_UPDATE_RBD":
+                self.CHECK_THRESHOLD_UPDATE_RBD = int(parameter_value)
 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

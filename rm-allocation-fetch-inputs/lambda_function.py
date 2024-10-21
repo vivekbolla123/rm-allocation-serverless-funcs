@@ -58,7 +58,7 @@ if cache_client.ping():
 
 constantsutils = ConstantsUtils(conn)
 
-log_time= TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD)
+log_time= TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_FETCH_INPUTS)
 
 def number_of_batches_required(total_records, adhoc_batch_size):
     if total_records < adhoc_batch_size:
