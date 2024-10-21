@@ -187,11 +187,6 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
     """
     allocation_result = {}
     log_time.start()
-        
-    api_call_counter = 0
-    batch_number = 1
-    batch_start_time = datetime.now()
-
     for leg_key, inventory_nests in inventory_dict.items():
         for inventory_nest in inventory_nests:
             nest_key = inventory_nest["nestKey"]
@@ -225,22 +220,6 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
                 arr = p.map(patch_nav_dcs_inventory_api, args)
                 for key, value in arr:
                     allocation_result[key] = value
-                    api_call_counter += 1
-                    if api_call_counter % 10 == 0:
-                        batch_end_time = datetime.now()
-                        conn.execute(
-                            "INSERT INTO api_call_logs (run_id, batch_number, start_time, end_time, api_calls_count) VALUES (%s, %s, %s, %s, %s)",
-                            (run_id, batch_number, batch_start_time, batch_end_time, 10)
-                        )
-                        batch_number += 1
-                        batch_start_time = datetime.now()
-    if api_call_counter % 10 != 0:
-        batch_end_time = datetime.now()
-        conn.execute(
-            "INSERT INTO api_call_logs (run_id, batch_number, start_time, end_time, api_calls_count) VALUES (%s, %s, %s, %s, %s)",
-            (run_id, batch_number, batch_start_time, batch_end_time, api_call_counter % 10)
-        )
-
     log_time.end("update_au_in_navitaire")
     return allocation_result
 
