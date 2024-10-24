@@ -459,6 +459,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.allocationStatus = (openDataB2C['allocationStatus'][0])
 			self.outputSummaryRow_b2c.overBookingCount = overBookingCount
 			self.outputSummaryRow_b2c.actualbookedPlf = self.actualplf
+			self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
 			
 			self.allocResults.append(self.outputSummaryRow_b2c)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
@@ -483,6 +484,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2b.allocationStatus = (openDataB2B['allocationStatus'][0])
 			self.outputSummaryRow_b2b.overBookingCount = overBookingCount
 			self.outputSummaryRow_b2b.actualbookedPlf = self.actualplf
+			self.outputSummaryRow_b2b.recommendedActions = self.recommend_action(self.outputSummaryRow_b2b)
 
 			self.allocResults.append(self.outputSummaryRow_b2b)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
@@ -819,7 +821,7 @@ class DynAlloc:
 		else:
 			self.runId = self.utils.getUniqueId()
 		self.log_time = self.currParams.time_logger
-		self.log_time.update_run_id(self.currParams.run_id)
+		# self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
 		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
@@ -882,3 +884,19 @@ class DynAlloc:
 			blocked_seats['SeatsBlocked'] = blocked_seats['SeatsBlocked'].astype(int)
 			total_count = blocked_seats['SeatsBlocked'].sum()
 		return currBookedLoad+total_count
+
+	def recommend_action(self, row):
+            if float(row.MktFare_Min) < float(row.Backstop):
+                return "Revise Backstop"            
+            elif float(row.Variance) > 12:
+                if (float(row.MktFare_Min) - float(row.SellingFare)) > 100:
+                    return "Push prices UP"
+                else:
+                    return "NO action required"
+            elif float(row.Variance) < -12:
+                if (float(row.SellingFare) - float(row.MktFare_Min)) > 100 :
+                    return "Pull prices DOWN"
+                else:
+                    return "NO action required"
+            else:
+                return "NO action required"
