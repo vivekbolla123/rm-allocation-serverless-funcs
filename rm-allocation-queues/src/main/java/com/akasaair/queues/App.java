@@ -561,7 +561,7 @@ public class App implements RequestHandler<S3Event, Object> {
         String tableNameForHeader = tableName;
         if (tableNameForHeader.startsWith(MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS))
             tableNameForHeader = MARKET_LIST_CONNECTIONS_TABLE_NAME;
-        if (tableNameForHeader.startsWith(MARKET_LIST_ADHOC_TABLE_NAME))
+        if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME))
             tableNameForHeader = MARKET_LIST_TABLE_NAME_S3;
 
         List<String> headers = Arrays.asList(getColumnHeaders(tableNameForHeader).split(COMMA));

@@ -25,7 +25,7 @@ if env == 'prod':
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds"
     NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
-    NAV_DB_USER = "0KODSUSER"
+    NAV_DB_USER = "0KODSUSER2"
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
     RM_CACHE_PASSWORD = "bRT__04M})0"
     
