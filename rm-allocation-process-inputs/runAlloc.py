@@ -893,17 +893,27 @@ class DynAlloc:
 		return currBookedLoad+total_count
 
 	def recommend_action(self, row):
-            if float(row.MktFare_Min) < float(row.Backstop):
-                return "Revise Backstop"            
-            elif float(row.Variance) > 12:
-                if (float(row.MktFare_Min) - float(row.SellingFare)) > 100:
-                    return "Push prices UP"
-                else:
-                    return "NO action required"
-            elif float(row.Variance) < -12:
-                if (float(row.SellingFare) - float(row.MktFare_Min)) > 100 :
-                    return "Pull prices DOWN"
-                else:
-                    return "NO action required"
-            else:
-                return "NO action required"
+		try:
+			mkt_fare_min = float(str(row.MktFare_Min).strip() or 0)
+			backstop = float(str(row.Backstop).strip() or 0)
+			variance = float(str(row.Variance).strip() or 0)
+			selling_fare = float(str(row.SellingFare).strip() or 0)
+
+			if mkt_fare_min < backstop:
+				return "Revise Backstop"            
+			elif variance > 12:
+				if (mkt_fare_min - selling_fare) > 100:
+					return "Push prices UP"
+				else:
+					return "NO action required"
+			elif variance < -12:
+				if (selling_fare - mkt_fare_min) > 100:
+					return "Pull prices DOWN"
+				else:
+					return "NO action required"
+			else:
+				return "NO action required"
+				
+		except (ValueError, AttributeError, TypeError) as e:
+			self.logger.error(f"Error in recommend_action: {str(e)}")
+			return "NO action required"
