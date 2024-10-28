@@ -1229,6 +1229,13 @@ public class App implements RequestHandler<S3Event, Object> {
     public List<Map<String, Object>> findAllRecordsFromTable(String tableName, List<String> headers, int limit) {
         List<Map<String, Object>> listObj = new ArrayList<>();
 
+        // List of headers that need Y/N conversion
+        List<String> booleanHeaders = Arrays.asList(
+                "OwnFareFlag", "AutoTimeRangeFlag", "openingFares", "OverBooking",
+                "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
+                "autoGroup"
+        );
+
         String headerValues = String.join(",", headers);
         String limitCondition = (limit > 0) ? " LIMIT " + limit : "";
         String query = "SELECT " + headerValues + " FROM " + tableName + limitCondition;
@@ -1238,7 +1245,20 @@ public class App implements RequestHandler<S3Event, Object> {
             while (resultSet.next()) {
                 Map<String, Object> row = new HashMap<>();
                 for (String header : headers) {
-                    row.put(header, resultSet.getObject(header));
+                    Object value = resultSet.getObject(header);
+
+                    // Convert 1/0 to Y/N for specified headers
+                    if (booleanHeaders.contains(header) && value != null) {
+                        // Handle both Integer and String cases
+                        String stringValue = value.toString();
+                        if (stringValue.equals("1") ) {
+                            value = "Y";
+                        } else if (stringValue.equals("0")) {
+                            value = "N";
+                        }
+                    }
+
+                    row.put(header, value);
                 }
                 listObj.add(row);
             }
