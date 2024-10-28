@@ -27,6 +27,7 @@ class ConstantsUtils:
         self.END_OF_DAY_LF_FACTOR = END_OF_DAY_LF_FACTOR
         self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
+        self.GROUP_QUOTATION = GROUP_QUOTATION
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -83,3 +84,5 @@ class ConstantsUtils:
                 self.OVERBOOKING_FARE_ABSOLUTE_VALUE = float(parameter_value) 
             elif parameter_key == MARKET_FARES_THRESHOLD_KEY:
                 self.MARKET_FARES_THRESHOLD = parameter_value
+            elif parameter_key == GROUP_QUOTATION_KEY:
+                self.GROUP_QUOTATION = parameter_value
