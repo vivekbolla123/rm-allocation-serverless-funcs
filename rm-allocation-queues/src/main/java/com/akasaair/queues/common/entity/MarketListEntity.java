@@ -86,5 +86,8 @@ public class MarketListEntity {
     public String distressInventoryFlag;
     @Column(name = "seriesBlock")
     public String seriesBlock;
+    @Column(name = "autoGroup")
+    public String autoGroup;
+
 }
 

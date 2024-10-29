@@ -382,6 +382,7 @@ class DynAlloc:
 					currRec.b2brunid = self.outputSummaryRow_b2b.Id
 
 				profileExtract = self.rmdatabasehelper.profileFaresExtract(self.currParams.origin, self.currParams.destin, month, dow, deptTime)
+				profileExtractMap = profileExtract
 				profileExtract = profileExtract.transpose()
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
@@ -418,7 +419,9 @@ class DynAlloc:
 				self.pl_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 							
 
-				self.s_w8_rbd_allocation(plf, currRec, brd_counter)
+				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
+				self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
+				
 
 				self.AUFileData.append(currRec)
 
@@ -506,10 +509,13 @@ class DynAlloc:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
+		
 		if self.thresholdflag:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
+
+		return brd_counter+6
 			
 
 	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
