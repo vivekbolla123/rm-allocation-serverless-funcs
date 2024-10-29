@@ -32,6 +32,7 @@ class MarketListRow:
         self.over_booking = currParams.get("OverBooking", CONST_NA)
         self.profileFares = currParams.get("profileFares", CONST_NA)
         self.rbdPushFlag = currParams.get("rbdPushFlag", CONST_NA)
+        self.autoBackstopFlag = currParams.get("autoBackstopFlag", CONST_NA)
         self.b2c_tolerance = currParams.get("B2CTolerance", CONST_NA)
         self.b2b_tolerance = currParams.get("B2BTolerance", CONST_NA)
         self.distressInventoryFlag = currParams.get("distressInventoryFlag", CONST_NA)

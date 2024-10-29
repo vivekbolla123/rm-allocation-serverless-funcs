@@ -1,4 +1,5 @@
 import json
+import math
 from Constants import *
 import numpy as np
 import pandas as pd
@@ -29,6 +30,7 @@ class MarketFareService:
 
         if(len(mktFareRange) > 0):
             lowFare = mktFareRange['gross_fare'][0]
+            min_10 = mktFareRange['gross_fare'][math.ceil(0.1 * len(mktFareRange['gross_fare']))]
             hiFare = mktFareRange['gross_fare'].iloc[-1]
             lowAirlineCode = mktFareRange['outbound_airline_code'][0]
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
@@ -44,7 +46,7 @@ class MarketFareService:
         
             isMarketFareAvailable = True
 
-        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
+        return lowFare,min_10,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
         mktFareRange = self.fetchMarketFareRange(
@@ -173,7 +175,6 @@ class MarketFareService:
         return self.rmdatabasehelper.getMarketFareRangeConnections(
             channel, params,flightDate, outBoundStop,outboundDuration
         )
-
     
     def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,outboundDuration,criteria,inputSource,convert_currency):
         
