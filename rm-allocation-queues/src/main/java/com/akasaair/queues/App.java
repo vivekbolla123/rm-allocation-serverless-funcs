@@ -1233,7 +1233,7 @@ public class App implements RequestHandler<S3Event, Object> {
         List<String> booleanHeaders = Arrays.asList(
                 "OwnFareFlag", "AutoTimeRangeFlag", "openingFares", "OverBooking",
                 "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
-                "autoGroup"
+                "autoGroup", "autoBackstopFlag"
         );
 
         String headerValues = String.join(",", headers);
@@ -1377,7 +1377,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
             pstmt.setString(33, marketListEntity.getSeriesBlock());
             pstmt.setString(34, marketListEntity.getAutoGroup());
-            pstmt.setString(35, marketListEntity.getUuid());
+            pstmt.setString(35, marketListEntity.getAutoBackstopFlag());
+            pstmt.setString(36, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1564,6 +1565,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .distressInventoryFlag(convertYNToBoolean(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG)))
                 .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
                 .autoGroup(convertYNToBoolean(record.get(CSV_HEADER_AUTO_GROUP)))
+                .autoBackstopFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG)))
                 .analystName(analystName)
                 .build());
     }

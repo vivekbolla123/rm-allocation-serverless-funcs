@@ -22,6 +22,7 @@ class MarketFareService:
         # on OTA - Flag the error for correction here
         isMarketFareAvailable = False
         lowFare = 0
+        min_10 = 0
         hiFare = 0
         lowAirlineCode = "Market Fare not found"
         hiAirlineCode = "Market Fare not found"
@@ -30,7 +31,7 @@ class MarketFareService:
 
         if(len(mktFareRange) > 0):
             lowFare = mktFareRange['gross_fare'][0]
-            min_10 = mktFareRange['gross_fare'][math.ceil(0.1 * len(mktFareRange['gross_fare']))]
+            min_10 = mktFareRange['gross_fare'].quantile(0.1)
             hiFare = mktFareRange['gross_fare'].iloc[-1]
             lowAirlineCode = mktFareRange['outbound_airline_code'][0]
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
