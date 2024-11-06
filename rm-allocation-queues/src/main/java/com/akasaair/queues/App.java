@@ -1754,15 +1754,19 @@ public class App implements RequestHandler<S3Event, Object> {
             String hardAnchor = record.get(CSV_HEADER_HARD_ANCHOR);
             String fareOffset = record.get(CSV_HEADER_FARE_OFFSET);
             String plfThreshold = record.get(CSV_HEADER_PLF_THRESHOLD);
-            if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
-                listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
-            }
+
             if (listOfCriteria.contains(hardAnchor)) {
                 // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be numeric
                 if (fareOffset == null || fareOffset.trim().isEmpty()) {
-                    listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is MIN, MAX, MINO, or MAXO");
+                    listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 } else if (!isNumeric(fareOffset)) {
                     listOfErrors.add(lineNum + "Fare Offset must be a valid number");
+                }
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                }
+                if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
             }
 // If hardAnchor is numeric
@@ -1777,15 +1781,27 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
                     listOfErrors.add(lineNum + "Hard Anchor must be either a number or one of: " + validOptions);
                 }
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                }
                 // When hardAnchor is numeric, fareOffset is optional but must be numeric if present
                 if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
                     listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
                 }
+                if (fareOffset == null || fareOffset.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
+                }
+                if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
+                }
             }
 // If hardAnchor is empty - all three fields can be empty
             else {
-                if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
-                    listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
+                if (fareOffset != null && !fareOffset.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset must be empty");
+                }
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be empty");
                 }
             }
 
