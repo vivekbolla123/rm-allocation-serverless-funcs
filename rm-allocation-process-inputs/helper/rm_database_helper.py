@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -95,7 +95,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, marketFaresSummary, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, recommendedActions, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -142,6 +142,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.currentLoadFactor)}',
                     '{str(latest_row.historicOwnFare)}',
                     '{str(latest_row.overBookingCount)}',
+                    '{str(latest_row.recommendedActions)}',
                     '{str(latest_row.marketFaresSummary)}',
                     '{str(latest_row.profileFare)}',
                     '{str(latest_row.status)}'
@@ -204,15 +205,17 @@ class RMDatabaseHelper:
         return dplfBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
-        pflThresholdQuery = "SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
-        pflThresholdQuery = pflThresholdQuery+ " SELECT plf_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
+        pflThresholdQuery = "SELECT W8_threshold,W6_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
+        pflThresholdQuery = pflThresholdQuery+ " SELECT W8_threshold,W6_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
         pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
-        threshold = pflThresholdList['plf_threshold']
-        return threshold
+        w8_threshold = pflThresholdList['W8_threshold']
+        w6_threshold = pflThresholdList['W6_threshold']
+        
+        return w8_threshold,w6_threshold
 
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
