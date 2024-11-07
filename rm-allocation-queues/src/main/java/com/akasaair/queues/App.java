@@ -1350,34 +1350,35 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(5, marketListEntity.getStartDate());
             pstmt.setString(6, marketListEntity.getEndDate());
             pstmt.setInt(7, new BigInteger(marketListEntity.getDayOfWeek()).intValue());
-            pstmt.setString(8, marketListEntity.getStrategyFlag());
-            pstmt.setString(9, marketListEntity.getStartTime());
-            pstmt.setString(10, marketListEntity.getEndTime());
-            pstmt.setString(11, marketListEntity.getCurveId());
-            pstmt.setString(12, marketListEntity.getCarrExclusionB2B());
-            pstmt.setString(13, marketListEntity.getCarrExclusionB2C());
-            pstmt.setString(14, marketListEntity.getFareAnchor());
-            pstmt.setString(15, marketListEntity.getFareOffset());
-            pstmt.setInt(16, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
-            pstmt.setInt(17, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
-            pstmt.setInt(18, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
-            pstmt.setInt(19, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
-            pstmt.setString(20, marketListEntity.getB2bFactor());
-            pstmt.setString(21, marketListEntity.getSkippingFactor());
-            pstmt.setString(22, marketListEntity.getDaySpan());
-            pstmt.setString(23, marketListEntity.getOwnFareFlag());
-            pstmt.setString(24, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(25, marketListEntity.getAnalystName());
-            pstmt.setString(26, marketListEntity.getOpeningFares());
-            pstmt.setString(27, marketListEntity.getOverBooking());
-            pstmt.setString(28, marketListEntity.getRbdPushFlag());
-            pstmt.setString(29, marketListEntity.getProfileFares());
-            pstmt.setString(30, marketListEntity.getB2cTolerance());
-            pstmt.setString(31, marketListEntity.getB2bTolerance());
-            pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(33, marketListEntity.getSeriesBlock());
-            pstmt.setString(34, marketListEntity.getAutoGroup());
-            pstmt.setString(35, marketListEntity.getUuid());
+            pstmt.setString(8, marketListEntity.getHardAnchor());
+            pstmt.setString(9, marketListEntity.getPlfThreshold());
+            pstmt.setString(10, marketListEntity.getStartTime());
+            pstmt.setString(11, marketListEntity.getEndTime());
+            pstmt.setString(12, marketListEntity.getCurveId());
+            pstmt.setString(13, marketListEntity.getCarrExclusionB2B());
+            pstmt.setString(14, marketListEntity.getCarrExclusionB2C());
+            pstmt.setString(15, marketListEntity.getFareAnchor());
+            pstmt.setString(16, marketListEntity.getFareOffset());
+            pstmt.setInt(17, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
+            pstmt.setInt(18, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
+            pstmt.setInt(19, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
+            pstmt.setInt(20, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
+            pstmt.setString(21, marketListEntity.getB2bFactor());
+            pstmt.setString(22, marketListEntity.getSkippingFactor());
+            pstmt.setString(23, marketListEntity.getDaySpan());
+            pstmt.setString(24, marketListEntity.getOwnFareFlag());
+            pstmt.setString(25, marketListEntity.getAutoTimeRangeFlag());
+            pstmt.setString(26, marketListEntity.getAnalystName());
+            pstmt.setString(27, marketListEntity.getOpeningFares());
+            pstmt.setString(28, marketListEntity.getOverBooking());
+            pstmt.setString(29, marketListEntity.getRbdPushFlag());
+            pstmt.setString(30, marketListEntity.getProfileFares());
+            pstmt.setString(31, marketListEntity.getB2cTolerance());
+            pstmt.setString(32, marketListEntity.getB2bTolerance());
+            pstmt.setString(33, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(34, marketListEntity.getSeriesBlock());
+            pstmt.setString(35, marketListEntity.getAutoGroup());
+            pstmt.setString(36, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1538,7 +1539,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .startDate(record.get(CSV_HEADER_START_DATE))
                 .endDate(record.get(CSV_HEADER_END_DATE))
                 .dayOfWeek(record.get(CSV_HEADER_DAY_OF_WEEK))
-                .strategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))
+                .hardAnchor(record.get(CSV_HEADER_HARD_ANCHOR))
+                .plfThreshold(record.get(CSV_HEADER_PLF_THRESHOLD))
                 .startTime(record.get(CSV_HEADER_START_TIME))
                 .endTime(record.get(CSV_HEADER_END_TIME))
                 .curveId(record.get(CSV_HEADER_CURVE_ID))
@@ -1722,9 +1724,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     && checkDOWDigits(record.get(CSV_HEADER_DAY_OF_WEEK)))) {
                 listOfErrors.add(lineNum + "DOW is not 7 digits or has value other than '1' or '9'");
             }
-            if (!checkStrategyFlag(record.get(CSV_HEADER_STRATEGY_FLAG))) {
-                listOfErrors.add(lineNum + "Strategy Flag has value other than '1' or '0'");
-            }
             if (!(isValidTime(record.get(CSV_HEADER_START_TIME)))) {
                 listOfErrors.add(lineNum + "Start Time is not invalid time format");
             }
@@ -1749,19 +1748,60 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
                 listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
             }
-            if (record.get(CSV_HEADER_STRATEGY_FLAG).equalsIgnoreCase(FLAG_1)) {
-                if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                    listOfErrors.add(lineNum + "Strategy has an invalid value");
+            if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
+                listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
+            }
+            String hardAnchor = record.get(CSV_HEADER_HARD_ANCHOR);
+            String fareOffset = record.get(CSV_HEADER_FARE_OFFSET);
+            String plfThreshold = record.get(CSV_HEADER_PLF_THRESHOLD);
+
+            if (listOfCriteria.contains(hardAnchor)) {
+                // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be numeric
+                if (fareOffset == null || fareOffset.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 }
-                if (!record.get(CSV_HEADER_FARE_OFFSET).trim().isEmpty()) {
-                    listOfErrors.add(lineNum + "Fare Offset should be empty");
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
                 }
-            } else {
-                if (!listOfCriteria.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
-                    listOfErrors.add(lineNum + "Fare Anchor has an invalid value");
+                if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
-                if (!isNumeric(record.get(CSV_HEADER_FARE_OFFSET))) {
-                    listOfErrors.add(lineNum + "Fare Offset is not a number");
+            }
+// If hardAnchor is numeric
+            else if (hardAnchor != null && !hardAnchor.trim().isEmpty()) {
+                if (!isNumeric(hardAnchor)) {
+                    StringBuilder validOptions = new StringBuilder();
+                    for (int i = 0; i < listOfCriteria.size(); i++) {
+                        if (i > 0) {
+                            validOptions.append(", ");
+                        }
+                        validOptions.append(listOfCriteria.get(i));
+                    }
+                    listOfErrors.add(lineNum + "Hard Anchor must be either a number or one of: " + validOptions);
+                }
+                else{
+                   if (!isNumeric(fareOffset) && !fareOffset.isEmpty()) {
+                        listOfErrors.add(lineNum + "Fare Offset must be a valid number");
+                    }
+                }
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                }
+                // When hardAnchor is numeric, fareOffset is optional but must be numeric if present
+                if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
+                    listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
+                }
+                if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
+                }
+            }
+// If hardAnchor is empty - all three fields can be empty
+            else {
+                if (fareOffset != null && !fareOffset.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Fare Offset must be empty");
+                }
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "PLF Threshold must be empty");
                 }
             }
 
