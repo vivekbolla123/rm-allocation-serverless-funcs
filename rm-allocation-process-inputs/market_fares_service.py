@@ -22,7 +22,6 @@ class MarketFareService:
         # on OTA - Flag the error for correction here
         isMarketFareAvailable = False
         lowFare = 0
-        min_10 = 0
         hiFare = 0
         lowAirlineCode = "Market Fare not found"
         hiAirlineCode = "Market Fare not found"
@@ -31,7 +30,6 @@ class MarketFareService:
 
         if(len(mktFareRange) > 0):
             lowFare = mktFareRange['gross_fare'][0]
-            min_10 = mktFareRange['gross_fare'].quantile(0.1)
             hiFare = mktFareRange['gross_fare'].iloc[-1]
             lowAirlineCode = mktFareRange['outbound_airline_code'][0]
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
@@ -47,7 +45,7 @@ class MarketFareService:
         
             isMarketFareAvailable = True
 
-        return lowFare,min_10,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
         mktFareRange = self.fetchMarketFareRange(
@@ -213,3 +211,11 @@ class MarketFareService:
         return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria
 
 
+    def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime):
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+        min_10 = 0
+
+        if(len(mktFareRange) > 0):
+            min_10 = mktFareRange['gross_fare'].quantile(0.1)
+
+        return min_10

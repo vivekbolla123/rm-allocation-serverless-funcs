@@ -309,13 +309,11 @@ class DynAlloc:
 
 			# Actual Work Happens here
 			# Get the B2C and B2B Fare ranges
-			min_10_b2c = 0
-			min_10_b2b = 0
 			self.logger.info("Getting market Fares")
 
-			self.outputSummaryRow_b2c.MktFare_Min, min_10_b2c, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.marketFaresSummary, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
+			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.marketFaresSummary, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
 
-			self.outputSummaryRow_b2b.MktFare_Min, min_10_b2b, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.marketFaresSummary, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
+			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.marketFaresSummary, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
 
 			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
 			bookloadPercentile = self.mathutils.getCeilNumber(currBookedLoad / actualPercentile)
@@ -336,34 +334,39 @@ class DynAlloc:
 			upsellValue = 0
 			b2c_backstop = 0
 			b2b_backstop = 0
+			min_10_b2c = 0
+			min_10_b2b = 0
 			final_mkt_fare_b2b = 0
 			final_mkt_fare_b2c = 0
-			self.logger.info("startEndOfDayDplfBand is: " + str(startEndOfDayDplfBand))
-			if(startEndOfDayDplfBand == 0 or startEndOfDayDplfBand == 1 or startEndOfDayDplfBand == 2):
+			self.logger.info("dplfBand is: " + str(dplfBand))
+			if(dplfBand == 0 or dplfBand == 1 or dplfBand == 2):
+				ab_start_time = "00:00"
+				ab_end_time = "23:59"
+				min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
+				min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
 				final_mkt_fare_b2b = min_10_b2b
 				final_mkt_fare_b2c = min_10_b2c
-			elif(startEndOfDayDplfBand == 3):
+			elif(dplfBand == 3):
 				final_mkt_fare_b2b = self.outputSummaryRow_b2b.MktFare_Min
 				final_mkt_fare_b2c = self.outputSummaryRow_b2c.MktFare_Min
 			else:
 				final_mkt_fare_b2b = min_10_b2b
 				final_mkt_fare_b2c = min_10_b2c
 
-			self.logger.info("Market fare Min from output summary B2B: " + str(self.outputSummaryRow_b2b.MktFare_Min))
-			self.logger.info("Market fare Min from output summary B2C: " + str(self.outputSummaryRow_b2c.MktFare_Min))
-			self.logger.info("market fare 10 %tile B2B: " + str(min_10_b2b))
-			self.logger.info("market fare 10 %tile B2C: " + str(min_10_b2c))
-			self.logger.info("final market fare for auto backstop b2b: " + str(final_mkt_fare_b2b))
-			self.logger.info("final market fare for auto backstop b2c: " + str(final_mkt_fare_b2c))
-			auto_b2c_backstop = self.auto_backstop(self.currParams.b2c_backstop, startEndOfDayDplfBand, final_mkt_fare_b2c)
-			auto_b2b_backstop = self.auto_backstop(self.currParams.b2b_backstop, startEndOfDayDplfBand, final_mkt_fare_b2b)
+			auto_b2b_backstop = self.auto_backstop(self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
+			auto_b2c_backstop = self.auto_backstop(self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
+			self.logger.info("auto backstop b2b: " + str(auto_b2b_backstop))
+			self.logger.info("auto backstop b2c: " + str(auto_b2c_backstop))
    
-			if(auto_b2c_backstop != "NA" and auto_b2b_backstop != "NA"):
-				b2b_backstop = auto_b2b_backstop
+			if(auto_b2c_backstop != "NA"):
 				b2c_backstop = auto_b2c_backstop
 			else:
-				b2b_backstop = self.currParams.b2b_backstop
 				b2c_backstop = self.currParams.b2c_backstop
+    
+			if(auto_b2b_backstop != "NA"):
+				b2b_backstop = auto_b2b_backstop
+			else:
+				b2b_backstop = self.currParams.b2b_backstop
     
 			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
@@ -935,12 +938,17 @@ class DynAlloc:
 
 	def recommend_action(self, row):
 		try:
-			mkt_fare_min = float(str(row.MktFare_Min).strip() or 0)
-			Backstop = float(str(row.Backstop).strip() or 0)
-			variance = float(str(row.Variance).strip() or 0)
-			selling_fare = float(str(row.SellingFare).strip() or 0)
-		
-			if mkt_fare_min < Backstop:
+			def safe_float(value):
+				if value is None or str(value).strip().upper() == 'NA':
+					return 0.0
+				return float(str(value).strip())
+
+			mkt_fare_min = safe_float(row.MktFare_Min)
+			backstop = safe_float(row.Backstop)
+			variance = safe_float(row.Variance)
+			selling_fare = safe_float(row.SellingFare)
+
+			if mkt_fare_min < backstop:
 				return "Revise Backstop"            
 			elif variance > 12:
 				if (mkt_fare_min - selling_fare) > 100:
@@ -958,31 +966,35 @@ class DynAlloc:
 		except (ValueError, AttributeError, TypeError) as e:
 			self.logger.error(f"Error in recommend_action: {str(e)}")
 			return "NO action required"
-
+		
 	def auto_backstop(self, backstop, dplfBand, mkt_fare):
 		try:
 			autoBackstopValue = 0
-			autoBackstopFlag = self.currParams.autoBackstopFlag
-			self.logger.info("AUTO BACKSTOP: autobackstop flag is: "+ str(autoBackstopFlag))
-			self.logger.info("AUTO BACKSTOP: Passed backstop is: "+ str(backstop))
-			self.logger.info("AUTO BACKSTOP: provided dplf band is: "+ str(dplfBand))
-			self.logger.info("AUTO BACKSTOP: passed market fare is: "+ str(mkt_fare))
-			if(int(autoBackstopFlag) == int('1')):
-				if(dplfBand == 0 or dplfBand == 1 or dplfBand == 2):
-					if(mkt_fare < backstop):
+
+			def safe_float(value):
+				if value is None or str(value).strip() == '' or str(value).strip().upper() == 'NA':
+					return None
+				try:
+					return float(str(value).strip())
+				except (ValueError, TypeError):
+					return None
+
+			autoBackstopFlag = str(self.currParams.autoBackstopFlag).strip()
+			backstop = safe_float(backstop)
+			mkt_fare = safe_float(mkt_fare)
+			
+			try:
+				dplfBand = int(str(dplfBand).strip())
+			except (ValueError, TypeError, AttributeError):
+				return 'NA'
+
+			if autoBackstopFlag == '1':
+				if dplfBand in [0, 1, 2, 3]:
+					if None not in [backstop, mkt_fare] and mkt_fare < backstop:
 						autoBackstopValue = mkt_fare - 50
 						return autoBackstopValue
-					else:
-						return 'NA'
-				elif(dplfBand == 3):
-					if(mkt_fare < backstop):
-						autoBackstopValue = (mkt_fare) - 50
-						return autoBackstopValue
-					else:
-						return 'NA'
-			else:
-				return 'NA'
-    
-		except (ValueError, AttributeError, TypeError) as e:
+			return 'NA'
+
+		except Exception as e:
 			self.logger.error(f"Error in autoBackstop: {str(e)}")
-			return "Error: Cannot generate auto backstop"
+			return 'NA'  # Changed from error message to 'NA' for consistency
