@@ -900,10 +900,15 @@ class DynAlloc:
 
 	def recommend_action(self, row):
 		try:
-			mkt_fare_min = float(str(row.MktFare_Min).strip() or 0)
-			backstop = float(str(row.Backstop).strip() or 0)
-			variance = float(str(row.Variance).strip() or 0)
-			selling_fare = float(str(row.SellingFare).strip() or 0)
+			def safe_float(value):
+				if value is None or str(value).strip().upper() == 'NA':
+					return 0.0
+				return float(str(value).strip())
+
+			mkt_fare_min = safe_float(row.MktFare_Min)
+			backstop = safe_float(row.Backstop)
+			variance = safe_float(row.Variance)
+			selling_fare = safe_float(row.SellingFare)
 
 			if mkt_fare_min < backstop:
 				return "Revise Backstop"            
