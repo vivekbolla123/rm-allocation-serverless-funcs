@@ -505,23 +505,29 @@ class DynAlloc:
 	def s_w8_rbd_allocation(self, plf, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'S')
 		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W8')
+		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W6')
 		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
 		
-		if self.thresholdflag:
+		if self.w8_thresholdflag:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
+   
+		if self.w6_thresholdflag:
+			currRec.set_class_attribute(brd_counter+7, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+7, 'class_au', -1)
 
-		return brd_counter+6
+		return brd_counter+7
 			
 
 	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter + 2, 'class_au', -1)
 		currRec.set_class_attribute(brd_counter + 2, 'class_of_service', 'G7')
-		if self.thresholdflag:
+		if self.w8_thresholdflag:
 			self.set_default_class_attributes(currRec, brd_counter)
 		elif int(self.currParams.distressInventoryFlag) == 1:
 			self.allocate_distress_inventory(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
@@ -674,12 +680,16 @@ class DynAlloc:
 		return DaySpan, input_time_str
 
 	def checkTreshold(self, currFlt, ndocounter, plf):
-		thresholdValue = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
-		self.thresholdflag = False
-
-		if len(thresholdValue) != 0:
-			if plf > thresholdValue[0]:
-				self.thresholdflag = True
+		w8_thresholdValue,w6_thresholdValue = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		self.w8_thresholdflag = False
+		self.w6_thresholdflag = False
+		if len(w8_thresholdValue) != 0:
+			if plf > w8_thresholdValue[0]:
+				self.w8_thresholdflag = True
+    
+		if len(w6_thresholdValue) != 0:
+			if plf > w6_thresholdValue[0]:
+				self.w6_thresholdflag = True
 
 	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime):
 		b2boverbookingflag = False
