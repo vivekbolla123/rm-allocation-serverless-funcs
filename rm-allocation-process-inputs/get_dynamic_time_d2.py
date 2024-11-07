@@ -1,15 +1,48 @@
 from datetime import datetime, timedelta
+
+import pandas as pd
 from Constants import *
+import numpy as np
 
 class GetDynamicTimeD2:
     def __init__(self, database_helper):
         self.rmdatabasehelper = database_helper
 
-    def getDynamicTime(self, currParams, dplfBand, ndoBand, DaySpan, channel):
+    def getDynamicTime(self, currParams, dplfBand, ndoBand, DaySpan, channel,plf):
         startTime = currParams.time_window_start
         endTime = currParams.time_window_end
         time_range = '0'
-        if str(currParams.strategy_flag) == '1':
+        fare=-1
+        
+        if currParams.plfthreshold !='' and pd.notna(float(currParams.plfthreshold)):
+            if int(plf) < int(currParams.plfthreshold):
+                startTime = currParams.time_window_start
+                endTime = currParams.time_window_end
+                time_range = '0'
+            else:
+                dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+                time_range = dynamicTimeList['time_range'][0]
+
+                rangeList = self.rmdatabasehelper.getTimeRange(time_range)
+
+                if rangeList['type'][0] == CONST_ABSOLUTE:
+                    if DaySpan < 0:
+                        endTime = rangeList['end'][0]
+                    elif DaySpan > 0:
+                        startTime = rangeList['start'][0]
+                    else:
+                        endTime = rangeList['end'][0]
+                        startTime = rangeList['start'][0]
+
+                if rangeList['type'][0] == CONST_RELATIVE:
+                    startTime, endTime = self.getRelativeTimeValue(currParams, rangeList, DaySpan)
+
+                if rangeList['type'][0] == CONST_REFERENCE:
+                    rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
+                    startTime = rangeList['ar_start'][0]
+                    endTime = rangeList['ar_end'][0]
+                
+        if (str(currParams.plfthreshold)== '' or (not pd.notna(float(currParams.plfthreshold)) )):
             dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
             time_range = dynamicTimeList['time_range'][0]
 
@@ -31,8 +64,36 @@ class GetDynamicTimeD2:
                 rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
                 startTime = rangeList['ar_start'][0]
                 endTime = rangeList['ar_end'][0]
+            
+        if self.check_int(currParams.hardanchor):
+            if int(plf) < int(currParams.plfthreshold):
+                fare = currParams.hardanchor
+            else:
+                dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+                time_range = dynamicTimeList['time_range'][0]
 
-        return str(startTime), str(endTime), str(time_range)
+                rangeList = self.rmdatabasehelper.getTimeRange(time_range)
+
+                if rangeList['type'][0] == CONST_ABSOLUTE:
+                    if DaySpan < 0:
+                        endTime = rangeList['end'][0]
+                    elif DaySpan > 0:
+                        startTime = rangeList['start'][0]
+                    else:
+                        endTime = rangeList['end'][0]
+                        startTime = rangeList['start'][0]
+
+                if rangeList['type'][0] == CONST_RELATIVE:
+                    startTime, endTime = self.getRelativeTimeValue(currParams, rangeList, DaySpan)
+
+                if rangeList['type'][0] == CONST_REFERENCE:
+                    rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
+                    startTime = rangeList['ar_start'][0]
+                    endTime = rangeList['ar_end'][0]
+                
+            
+
+        return str(startTime), str(endTime), str(time_range),fare
 
     def getRelativeTimeValue(self, currParams, rangeList, DaySpan):
         start_datetime_object = datetime.strptime(currParams.per_start, DATE_FORMAT)
@@ -55,15 +116,44 @@ class GetDynamicTimeD2:
 
         return startTime, endTime
     
-    def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel):
-        criteria = currParams.fare_anchor
-        offset = currParams.fare_offset
-        strategy = CONST_NA
-
-        if (str(currParams.strategy_flag)== '1'):
+    def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel,plf):
+        fare=-1
+        if currParams.plfthreshold !='' and pd.notna(float(currParams.plfthreshold)):
+            if int(plf) < int(currParams.plfthreshold):
+                criteria = currParams.hardanchor
+                offset = currParams.fare_offset
+                strategy = CONST_NA
+            else:
+                dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
+                criteria = dynamicD2List['criteria'][0]
+                offset = dynamicD2List['offset'][0]
+                strategy = dynamicD2List['strategy'][0]
+                
+        if (str(currParams.plfthreshold)== '' or (not pd.notna(float(currParams.plfthreshold)))):
             dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
             criteria = dynamicD2List['criteria'][0]
             offset = dynamicD2List['offset'][0]
             strategy = dynamicD2List['strategy'][0]
+            
+        if self.check_int(currParams.hardanchor):
+            if int(plf) < int(currParams.plfthreshold):
+                fare = currParams.hardanchor
+                criteria = CONST_NA
+                offset = 0
+                strategy = CONST_NA
+            else:
+                dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
+                criteria = dynamicD2List['criteria'][0]
+                offset = dynamicD2List['offset'][0]
+                strategy = dynamicD2List['strategy'][0]
+                
         
-        return criteria, offset, strategy
+        return criteria, offset, strategy,fare
+    
+    
+    def check_int(self,value):
+        try:
+            int(value)
+            return True
+        except:
+            return False
