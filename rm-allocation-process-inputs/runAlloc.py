@@ -469,6 +469,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.allocationStatus = (openDataB2C['allocationStatus'][0])
 			self.outputSummaryRow_b2c.overBookingCount = overBookingCount
 			self.outputSummaryRow_b2c.actualbookedPlf = self.actualplf
+			self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
 			
 			self.allocResults.append(self.outputSummaryRow_b2c)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
@@ -493,6 +494,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2b.allocationStatus = (openDataB2B['allocationStatus'][0])
 			self.outputSummaryRow_b2b.overBookingCount = overBookingCount
 			self.outputSummaryRow_b2b.actualbookedPlf = self.actualplf
+			self.outputSummaryRow_b2b.recommendedActions = self.recommend_action(self.outputSummaryRow_b2b)
 
 			self.allocResults.append(self.outputSummaryRow_b2b)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
@@ -912,3 +914,34 @@ class DynAlloc:
 			blocked_seats['SeatsBlocked'] = blocked_seats['SeatsBlocked'].astype(int)
 			total_count = blocked_seats['SeatsBlocked'].sum()
 		return currBookedLoad+total_count
+
+	def recommend_action(self, row):
+		try:
+			def safe_float(value):
+				if value is None or str(value).strip().upper() == 'NA':
+					return 0.0
+				return float(str(value).strip())
+
+			mkt_fare_min = safe_float(row.MktFare_Min)
+			backstop = safe_float(row.Backstop)
+			variance = safe_float(row.Variance)
+			selling_fare = safe_float(row.SellingFare)
+
+			if mkt_fare_min < backstop:
+				return "Revise Backstop"            
+			elif variance > 12:
+				if (mkt_fare_min - selling_fare) > 100:
+					return "Push prices UP"
+				else:
+					return "NO action required"
+			elif variance < -12:
+				if (selling_fare - mkt_fare_min) > 100:
+					return "Pull prices DOWN"
+				else:
+					return "NO action required"
+			else:
+				return "NO action required"
+				
+		except (ValueError, AttributeError, TypeError) as e:
+			self.logger.error(f"Error in recommend_action: {str(e)}")
+			return "NO action required"
