@@ -1759,8 +1759,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be numeric
                 if (fareOffset == null || fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
-                } else if (!isNumeric(fareOffset)) {
-                    listOfErrors.add(lineNum + "Fare Offset must be a valid number");
                 }
                 if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
                     listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
@@ -1781,15 +1779,17 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
                     listOfErrors.add(lineNum + "Hard Anchor must be either a number or one of: " + validOptions);
                 }
+                else{
+                   if (!isNumeric(fareOffset) && !fareOffset.isEmpty()) {
+                        listOfErrors.add(lineNum + "Fare Offset must be a valid number");
+                    }
+                }
                 if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
                     listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
                 }
                 // When hardAnchor is numeric, fareOffset is optional but must be numeric if present
                 if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
                     listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
-                }
-                if (fareOffset == null || fareOffset.trim().isEmpty()) {
-                    listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 }
                 if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
