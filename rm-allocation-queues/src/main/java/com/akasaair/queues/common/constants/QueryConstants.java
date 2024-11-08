@@ -28,7 +28,7 @@ public class QueryConstants {
 
     public static String INSERT_INTO_MARKET_LIST(String tableName) {
         return "INSERT INTO " + tableName +
-                " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, strategyFlag, TimeWindowStart, " +
+                " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, hardAnchor, plfThreshold, TimeWindowStart, " +
                 "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, " +
                 "B2BBackstop, B2CBackstop, B2BFactor, SkippingFactor, DaySpan, OwnFareFlag, AutoTimeRangeFlag, " +
                 "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag, UUID) " +

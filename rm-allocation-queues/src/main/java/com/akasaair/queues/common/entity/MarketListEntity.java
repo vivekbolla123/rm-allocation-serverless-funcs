@@ -34,8 +34,6 @@ public class MarketListEntity {
     public String endDate;
     @Column(name = "DOW")
     public String dayOfWeek;
-    @Column(name = "strategyFlag")
-    public String strategyFlag;
     @Column(name = "TimeWindowStart")
     public String startTime;
     @Column(name = "TimeWindowEnd")
@@ -48,6 +46,10 @@ public class MarketListEntity {
     public String carrExclusionB2B;
     @Column(name = "fareAnchor")
     public String fareAnchor;
+    @Column(name = "hardAnchor")
+    public String hardAnchor;
+    @Column(name = "plfThreshold")
+    public String plfThreshold;
     @Column(name = "fareOffset")
     public String fareOffset;
     @Column(name = "FirstRBDAlloc")
