@@ -1846,6 +1846,9 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!checkOwnFareFlag(record.get(CSV_HEADER_AUTO_GROUP))) {
                 listOfErrors.add(lineNum + "auto group has value other than 'Y' or 'N'");
             }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG))) {
+                listOfErrors.add(lineNum + "auto group has value other than 'Y' or 'N'");
+            }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_RBD_PUSH_FLAG))) {
                 listOfErrors.add(lineNum + "RBD Push has value other than 'Y' or 'N'");
             }
