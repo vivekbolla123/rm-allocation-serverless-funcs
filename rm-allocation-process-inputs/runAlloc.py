@@ -354,9 +354,19 @@ class DynAlloc:
 			else:
 				final_mkt_fare_b2b = min_10_b2b
 				final_mkt_fare_b2c = min_10_b2c
+			
+			self.logger.info("min 10 precentile b2b: " + str(min_10_b2b))
+			self.logger.info("min 10 percentile b2c: " + str(min_10_b2c))
+   
+			self.logger.info("min market fare b2b: " + str(self.outputSummaryRow_b2b.MktFare_Min))
+			self.logger.info("min market fare b2c: " + str(self.outputSummaryRow_b2c.MktFare_Min))
+			
+			self.logger.info("final_mkt_fare_b2b: " + str(final_mkt_fare_b2b))
+			self.logger.info("final_mkt_fare_b2c: " + str(final_mkt_fare_b2c))
 
-			auto_b2b_backstop = self.auto_backstop(self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
-			auto_b2c_backstop = self.auto_backstop(self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
+			self.logger.info("auto backstop flag is: " + str(self.currParams.autoBackstopFlag))
+			auto_b2b_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
+			auto_b2c_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
 			self.logger.info("auto backstop b2b: " + str(auto_b2b_backstop))
 			self.logger.info("auto backstop b2c: " + str(auto_b2c_backstop))
    
@@ -369,6 +379,9 @@ class DynAlloc:
 				b2b_backstop = auto_b2b_backstop
 			else:
 				b2b_backstop = self.currParams.b2b_backstop
+    
+			self.logger.info("final backstop b2b: " + str(b2b_backstop))
+			self.logger.info("final backstop b2c: " + str(b2c_backstop))
     
 			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
@@ -984,7 +997,7 @@ class DynAlloc:
 			self.logger.error(f"Error in recommend_action: {str(e)}")
 			return "NO action required"
 		
-	def auto_backstop(self, backstop, dplfBand, mkt_fare):
+	def auto_backstop(self, abf, backstop, dplfBand, mkt_fare):
 		try:
 			autoBackstopValue = 0
 
@@ -996,10 +1009,13 @@ class DynAlloc:
 				except (ValueError, TypeError):
 					return None
 
-			autoBackstopFlag = str(self.currParams.autoBackstopFlag).strip()
+			autoBackstopFlag = str(abf)
 			backstop = safe_float(backstop)
 			mkt_fare = safe_float(mkt_fare)
-			
+			self.logger.info("AUTOBACKSTOP: Autobackstop Flag is: " + str(autoBackstopFlag))
+			self.logger.info("AUTOBACKSTOP: Backstop is: " + str(backstop))
+			self.logger.info("AUTOBACKSTOP: mkt_fare is: " + str(mkt_fare))
+			self.logger.info("AUTOBACKSTOP: dplfBand is: " + str(dplfBand))
 			try:
 				dplfBand = int(str(dplfBand).strip())
 			except (ValueError, TypeError, AttributeError):

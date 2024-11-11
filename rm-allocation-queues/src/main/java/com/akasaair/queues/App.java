@@ -1378,7 +1378,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(33, marketListEntity.getDistressInventoryFlag());
             pstmt.setString(34, marketListEntity.getSeriesBlock());
             pstmt.setString(35, marketListEntity.getAutoGroup());
-            pstmt.setString(36, marketListEntity.getUuid());
+            pstmt.setString(36, marketListEntity.getAutoBackstopFlag());
+            pstmt.setString(37, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
