@@ -14,7 +14,7 @@ class GetDynamicTimeD2:
         time_range = '0'
         fare=-1
         
-        if currParams.plfthreshold !='' and pd.notna(float(currParams.plfthreshold)):
+        if currParams.plfthreshold !='' and pd.notna(currParams.plfthreshold):
             if int(plf) < int(currParams.plfthreshold):
                 startTime = currParams.time_window_start
                 endTime = currParams.time_window_end
@@ -42,7 +42,7 @@ class GetDynamicTimeD2:
                     startTime = rangeList['ar_start'][0]
                     endTime = rangeList['ar_end'][0]
                 
-        if (str(currParams.plfthreshold)== '' or (not pd.notna(float(currParams.plfthreshold)) )):
+        if (str(currParams.plfthreshold)== '' or (not pd.notna(currParams.plfthreshold) )):
             dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
             time_range = dynamicTimeList['time_range'][0]
 
@@ -118,7 +118,7 @@ class GetDynamicTimeD2:
     
     def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel,plf):
         fare=-1
-        if currParams.plfthreshold !='' and pd.notna(float(currParams.plfthreshold)):
+        if currParams.plfthreshold !='' and pd.notna(currParams.plfthreshold):
             if int(plf) < int(currParams.plfthreshold):
                 criteria = currParams.hardanchor
                 offset = currParams.fare_offset
@@ -129,7 +129,7 @@ class GetDynamicTimeD2:
                 offset = dynamicD2List['offset'][0]
                 strategy = dynamicD2List['strategy'][0]
                 
-        if (str(currParams.plfthreshold)== '' or (not pd.notna(float(currParams.plfthreshold)))):
+        if (str(currParams.plfthreshold)== '' or (not pd.notna(currParams.plfthreshold))):
             dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
             criteria = dynamicD2List['criteria'][0]
             offset = dynamicD2List['offset'][0]
