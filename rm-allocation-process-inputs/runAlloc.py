@@ -440,7 +440,7 @@ class DynAlloc:
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
+				b2cAllocationsUnits, brd_counter, status,alloc_df,B2CRBDs = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue)
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
@@ -473,7 +473,8 @@ class DynAlloc:
 							
 
 				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
-				self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
+				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
+				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs)
 				
 
 				self.AUFileData.append(currRec)

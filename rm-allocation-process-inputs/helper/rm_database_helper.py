@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,autoBackstopFlag FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -370,7 +370,12 @@ class RMDatabaseHelper:
             openResult = {'RBD':[CONST_NA], 'Fare':[CONST_NA], 'FareResult':['QP Fares not available'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
             return openResult, rbddata
+        exclude_rbd_list = TBF_RBD.split(',')
 
+    # Convert the list of RBDs to a comma-separated string for the SQL query
+        exclude_rbd_str = ",".join(["'{}'".format(rbd) for rbd in exclude_rbd_list])
+        RBDQuery += f" AND RBD NOT IN ({exclude_rbd_str})"
+        
         if channel == 'B2C':
             RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z'"
         if channel == 'B2B':
@@ -401,8 +406,13 @@ class RMDatabaseHelper:
         return openResult, rbddata
 
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop,route):
+        exclude_rbd_list = TBF_RBD.split(',')
 
+    # Convert the list of RBDs to a comma-separated string for the SQL query
+        exclude_rbd_str = ",".join(["'{}'".format(rbd) for rbd in exclude_rbd_list])
         RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' and route = '"+route+"'"
+        RBDQuery += f" AND RBD NOT IN ({exclude_rbd_str})"
+        
         if channel == 'B2C':
             if type == 'LOW':
                 RBDQuery = RBDQuery + " and LEFT(RBD,1) != 'Z' and Total >= '" + str(backstop) + "' order by Total asc" 

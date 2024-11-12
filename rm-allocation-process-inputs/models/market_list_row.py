@@ -39,6 +39,7 @@ class MarketListRow:
         self.seriesBlock = currParams.get("seriesBlock", CONST_NA)
         self.autoGroup = currParams.get("autoGroup", CONST_NA)
         self.autoBackstopFlag = currParams.get("autoBackstopFlag", CONST_NA)
+        self.tbfFlag = currParams.get("tbfFlag", CONST_NA)
         
         self.run_id = currParams.get("runId", CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method", CONST_NA)

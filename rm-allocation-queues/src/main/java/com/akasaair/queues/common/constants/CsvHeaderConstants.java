@@ -36,11 +36,12 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_SERIES_BLOCK_FLAG = 31;
     int CSV_HEADER_AUTO_GROUP = 32;
     int CSV_HEADER_AUTO_BACKSTOP_FLAG = 33;
+    int CSV_HEADER_TBF_FLAG = 34;
 
     String CSV_HEADER_TIME = "Time";
     String CSV_HEADER_CRITERIA = "Criteria";
     String CSV_HEADER_OFFSET = "Offset";
-    //Connections
+    // Connections
     int CSV_HEADER_CONNECTIONS_SECTOR1 = 0;
     int CSV_HEADER_CONNECTIONS_FLIGHT1 = 1;
     int CSV_HEADER_CONNECTIONS_SECTOR2 = 2;

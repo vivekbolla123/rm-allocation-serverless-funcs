@@ -53,10 +53,12 @@ public class App implements RequestHandler<S3Event, Object> {
     public App() throws SQLException {
         s3Client = DependencyFactory.s3Client();
     }
+
     public static void main(String[] args) throws SQLException {
         App app = new App();
-        app.uploadFile(FILE_NAME,S3_BUCKET_NAME);
+        app.uploadFile(FILE_NAME, S3_BUCKET_NAME);
     }
+
     @Override
     public Object handleRequest(S3Event event, Context context) {
         event.getRecords().forEach(record -> {
@@ -78,7 +80,7 @@ public class App implements RequestHandler<S3Event, Object> {
     private void uploadFile(String key, String bucketName) {
         final String finalKey = key;
         int lengthOfKey = finalKey.length();
-        String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length()+7, lengthOfKey - 4);
+        String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length() + 7, lengthOfKey - 4);
 
         // Initialize the tableName variable
         String tableName = null;
@@ -103,9 +105,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
         } catch (SQLException e) {
-            error_occurred=1;
+            error_occurred = 1;
             listOfErrors.add(e.getMessage());
-            addErrorsToTable(listOfErrors,obj_id);
+            addErrorsToTable(listOfErrors, obj_id);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -119,13 +121,13 @@ public class App implements RequestHandler<S3Event, Object> {
         // Now you can use tableName in your subsequent logic
         System.out.println("The table name is -> " + table);
         try {
-            insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName, adhocUsername, routeString, status);
-        }
-        catch (Exception e) {
-            error_occurred=1;
-            if(listOfErrors.isEmpty()){
+            insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName,
+                    adhocUsername, routeString, status);
+        } catch (Exception e) {
+            error_occurred = 1;
+            if (listOfErrors.isEmpty()) {
                 listOfErrors.add(e.getMessage());
-                addErrorsToTable(listOfErrors,obj_id);
+                addErrorsToTable(listOfErrors, obj_id);
             }
             System.out.println(e);
             e.printStackTrace();
@@ -162,28 +164,33 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         // Deleting the object from S3
-        if(!finalKey.substring(S3_FILE_PATH_NAME.length(),20).equalsIgnoreCase("locals")){
+        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
             s3Client.deleteObject(DeleteObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(finalKey)
-                            .build())
+                    .bucket(bucketName)
+                    .key(finalKey)
+                    .build())
                     .join();
         }
 
     }
 
-    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName, AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername, String routeString, String status) throws Exception {
+    private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName,
+            AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername,
+            String routeString, String status) throws Exception {
         try {
             switch (tableName) {
-                case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME, MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
+                case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME,
+                        MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
                     String route;
                     if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
                         route = DOMESTIC;
-                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE + adhocUsername;
+                        tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + CONNECTIONS + UNDERSCORE
+                                + adhocUsername;
                     } else if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                         if (routeString.equals(INTERNATIONAL)) {
                             route = INTERNATIONAL;
-                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE + adhocUsername;
+                            tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + INTERNATIONAL + UNDERSCORE
+                                    + adhocUsername;
                         } else {
                             route = DOMESTIC;
                             tableName = MARKET_LIST_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
@@ -204,19 +211,22 @@ public class App implements RequestHandler<S3Event, Object> {
                     String finalRoute = route;
                     String finalTableName = tableName;
                     s3Client.getObject(GetObjectRequest.builder()
-                                            .bucket(bucketName)
-                                            .key(key)
-                                            .build(),
-                                    AsyncResponseTransformer.toBytes())
+                            .bucket(bucketName)
+                            .key(key)
+                            .build(),
+                            AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     if (finalTableName.equalsIgnoreCase(MARKET_LIST_CONNECTIONS_TABLE_NAME)) {
                                         uploadMarketListConnectionsFile(reader, table, userName, role_obj, obj_id);
-                                    } else if (finalTableName.toLowerCase().startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
-                                        uploadMarketListConnectionsFile(reader, finalTableName, userName, role_obj, obj_id);
+                                    } else if (finalTableName.toLowerCase()
+                                            .startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
+                                        uploadMarketListConnectionsFile(reader, finalTableName, userName, role_obj,
+                                                obj_id);
                                     } else {
-                                        uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute, obj_id, numOfRows);
+                                        uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute,
+                                                obj_id, numOfRows);
                                     }
                                 } catch (Exception e) {
                                     throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
@@ -237,18 +247,20 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                                            .bucket(bucketName)
-                                            .key(key)
-                                            .build(),
-                                    AsyncResponseTransformer.toBytes())
+                            .bucket(bucketName)
+                            .key(key)
+                            .build(),
+                            AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
+                                        .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadStrategyGridFile(reader, userName, obj_id);
                                 } catch (Exception e) {
-                                    throw new RuntimeException("Error processing strategy file content: " + e.getMessage(), e);
+                                    throw new RuntimeException(
+                                            "Error processing strategy file content: " + e.getMessage(), e);
                                 }
                             })
                             .join();
@@ -262,18 +274,20 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                                            .bucket(bucketName)
-                                            .key(key)
-                                            .build(),
-                                    AsyncResponseTransformer.toBytes())
+                            .bucket(bucketName)
+                            .key(key)
+                            .build(),
+                            AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
+                                        .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadDateEventFile(reader, userName);
                                 } catch (Exception e) {
-                                    throw new RuntimeException("Error processing date event file content: " + e.getMessage(), e);
+                                    throw new RuntimeException(
+                                            "Error processing date event file content: " + e.getMessage(), e);
                                 }
                             })
                             .join();
@@ -287,13 +301,14 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                                            .bucket(bucketName)
-                                            .key(key)
-                                            .build(),
-                                    AsyncResponseTransformer.toBytes())
+                            .bucket(bucketName)
+                            .key(key)
+                            .build(),
+                            AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
+                                        .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadFile(reader, table, userName, obj_id);
@@ -315,8 +330,8 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-
-    public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route, String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
+    public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route,
+            String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
         List<MarketListEntity> marketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
@@ -334,11 +349,12 @@ public class App implements RequestHandler<S3Event, Object> {
             List<Object> listOfCriteria = searchDistinctResults(CRITERIA_COLUMN_NAME, CRITERIA_TABLE);
 
             List<List<String>> csvData = getDataFromCSVFile(file);
-            csvData = splitRowsByDateRange(csvData,listOfErrors);
-            numOfRows.set(csvData.size()-1);
+            csvData = splitRowsByDateRange(csvData, listOfErrors);
+            numOfRows.set(csvData.size() - 1);
             for (int i = 0; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
-                String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i, role, userName, listOfCurves, listOfStrategies, listOfCriteria);
+                String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i,
+                        role, userName, listOfCurves, listOfStrategies, listOfCriteria);
                 createMarketListEntity(csvData.get(i), marketListEntityList, uuidForEntries, analystName);
             }
 
@@ -369,7 +385,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData,List<String> listOfErrors)  {
+    public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData, List<String> listOfErrors) {
         DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
         List<List<String>> intermediateResult = new ArrayList<>();
         List<List<String>> result = new ArrayList<>();
@@ -388,11 +404,12 @@ public class App implements RequestHandler<S3Event, Object> {
             String dowPattern = row.get(5);
 
             if (startDate.equals(endDate)) {
-                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
+                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7; // 0 for Sunday, 1 for Monday, etc.
                 if (dowPattern.charAt(dayOfWeek) == '1') {
                     addRowWithDuplicateCheck(intermediateResult, uniqueKeys, row, listOfErrors, rowIndex);
                 }
-                // If DOW doesn't match, the record is implicitly removed by not adding it to the result
+                // If DOW doesn't match, the record is implicitly removed by not adding it to
+                // the result
             } else {
                 long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
 
@@ -419,10 +436,11 @@ public class App implements RequestHandler<S3Event, Object> {
         return result;
     }
 
-    private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,List<String> listOfErrors, int rowIndex) {
+    private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,
+            List<String> listOfErrors, int rowIndex) {
         String key = row.get(0) + "|" + row.get(1) + "|" + row.get(2) + "|" + row.get(3);
         if (!uniqueKeys.add(key)) {
-            listOfErrors.add("Duplicate record found at Line"+rowIndex+": " + key);
+            listOfErrors.add("Duplicate record found at Line" + rowIndex + ": " + key);
         }
         result.add(row);
     }
@@ -430,13 +448,10 @@ public class App implements RequestHandler<S3Event, Object> {
     private static String adjustDowPattern(LocalDate date, String dowPattern) {
         // Create a new DOW pattern with only the relevant day set to '1'
         StringBuilder adjustedPattern = new StringBuilder("9999999");
-        int dayOfWeek = date.getDayOfWeek().getValue() % 7;  // 0 for Sunday, 1 for Monday, etc.
+        int dayOfWeek = date.getDayOfWeek().getValue() % 7; // 0 for Sunday, 1 for Monday, etc.
         adjustedPattern.setCharAt(dayOfWeek, '1');
         return adjustedPattern.toString();
     }
-
-
-
 
     public void addErrorsToTable(List<String> errorsList, String obj_id) {
         String errorsString = String.join(", ", errorsList);
@@ -451,7 +466,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     }
 
-    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws  Exception{
+    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws Exception {
         String uuid = generateUUID();
         try {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
@@ -500,7 +515,7 @@ public class App implements RequestHandler<S3Event, Object> {
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
                 val = searchResults(PARAMETER_RBD_VALUES);
             }
-            if (validate != null && !validate.isValid(data, val,listOfErrors)) {
+            if (validate != null && !validate.isValid(data, val, listOfErrors)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
                 listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
@@ -509,8 +524,7 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             try {
                 insertStatement(data, headers, tempTableName);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 throw e;
             }
             insertInputStatusTable(tableName);
@@ -537,8 +551,8 @@ public class App implements RequestHandler<S3Event, Object> {
             };
 
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
-                deleteValuesFare(uniqueValues,tableName);
-            }else{
+                deleteValuesFare(uniqueValues, tableName);
+            } else {
                 deleteValues(uniqueValues, tableName, columnName);
             }
             copyFromTempToMainTable(tableName, tempTableName);
@@ -551,7 +565,6 @@ public class App implements RequestHandler<S3Event, Object> {
             updateInputStatus(tableName);
         }
     }
-
 
     public ByteArrayInputStream createCSV(String tableName) throws DataMismatchedException {
 
@@ -574,7 +587,6 @@ public class App implements RequestHandler<S3Event, Object> {
 
         return convertToCSV(values, headers);
     }
-
 
     public List<Map<String, Object>> retrieveStrategyGrid(String value) {
         int limit = getCountOfEntries(DPLF_BANDS_TABLE);
@@ -606,7 +618,7 @@ public class App implements RequestHandler<S3Event, Object> {
         String query = "SHOW TABLES LIKE '" + tableName + "'";
 
         try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(query)) {
+                ResultSet resultSet = stmt.executeQuery(query)) {
             while (resultSet.next()) {
                 Map<String, Object> row = new HashMap<>();
                 row.put("tableName", resultSet.getString(1)); // Usually the table name is in the first column
@@ -626,10 +638,11 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         return uniqueValues;
     }
-    private Set<String> getUniqueFareSector(List<Map<String, String>> data, String sector,String route) {
+
+    private Set<String> getUniqueFareSector(List<Map<String, String>> data, String sector, String route) {
         Set<String> uniqueValues = new HashSet<>();
         for (Map<String, String> singleData : data) {
-            uniqueValues.add(singleData.get(sector)+singleData.get(route));
+            uniqueValues.add(singleData.get(sector) + singleData.get(route));
         }
         return uniqueValues;
     }
@@ -672,6 +685,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         return data;
     }
+
     private List<Map<String, String>> createListOfMapSeriesBlock(List<List<String>> csvData) {
         List<String> headers = csvData.get(0);
         csvData.remove(0);
@@ -679,11 +693,10 @@ public class App implements RequestHandler<S3Event, Object> {
         DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
         DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (List<String> singleCsvData : csvData) {
-            String inputDate  = singleCsvData.get(0);
+            String inputDate = singleCsvData.get(0);
 
             LocalDate date = LocalDate.parse(inputDate, inputFormatter);
             String departureDate = date.format(outputFormatter);
-
 
             for (int i = 1; i < singleCsvData.size(); i++) {
                 Map<String, String> map = new HashMap<>();
@@ -701,14 +714,16 @@ public class App implements RequestHandler<S3Event, Object> {
         int channelHeader = 1;
         int startColumn = 2;
         String[] gridValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
-        return createTransformDataSet(csvData, ndoBandHeader, channelHeader, startColumn, NDO_BANDS_COLUMN_NAME, CHANNEL_COLUMN_NAME, gridValueNames, DLF_BANDS_COLUMN_NAME);
+        return createTransformDataSet(csvData, ndoBandHeader, channelHeader, startColumn, NDO_BANDS_COLUMN_NAME,
+                CHANNEL_COLUMN_NAME, gridValueNames, DLF_BANDS_COLUMN_NAME);
     }
 
     public Map<String, Map<String, String>> getDistressStrategy(List<List<String>> csvData) {
         int ndoBandHeader = 0;
         int startColumn = 1;
         String[] gridValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
-        return createTransformDataSetDistress(csvData, ndoBandHeader, startColumn, DISTRESS_NDO_BANDS_COLUMN_NAME, gridValueNames, DISTRESS_DLF_BANDS_COLUMN_NAME);
+        return createTransformDataSetDistress(csvData, ndoBandHeader, startColumn, DISTRESS_NDO_BANDS_COLUMN_NAME,
+                gridValueNames, DISTRESS_DLF_BANDS_COLUMN_NAME);
     }
 
     public Map<String, Map<String, String>> getHourlyDropData(List<List<String>> csvData) {
@@ -716,10 +731,13 @@ public class App implements RequestHandler<S3Event, Object> {
         int ndoEndHeader = 1;
         int startColumn = 2;
         String[] hourlyValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
-        return createTransformDataSet(csvData, ndoStartHeader, ndoEndHeader, startColumn, NDO_START_COLUMN_NAME, NDO_END_COLUMN_NAME, hourlyValueNames, HOUR_COLUMN_NAME);
+        return createTransformDataSet(csvData, ndoStartHeader, ndoEndHeader, startColumn, NDO_START_COLUMN_NAME,
+                NDO_END_COLUMN_NAME, hourlyValueNames, HOUR_COLUMN_NAME);
     }
 
-    public Map<String, Map<String, String>> createTransformDataSet(List<List<String>> csvData, int key1Header, int key2Header, int valueStartColumn, String key1Name, String key2Name, String[] valueNames, String headerKey) {
+    public Map<String, Map<String, String>> createTransformDataSet(List<List<String>> csvData, int key1Header,
+            int key2Header, int valueStartColumn, String key1Name, String key2Name, String[] valueNames,
+            String headerKey) {
         Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -742,7 +760,9 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         return resultMap;
     }
-    public Map<String, Map<String, String>> createTransformDataSetDistress(List<List<String>> csvData, int key1Header,  int valueStartColumn, String key1Name, String[] valueNames, String headerKey) {
+
+    public Map<String, Map<String, String>> createTransformDataSetDistress(List<List<String>> csvData, int key1Header,
+            int valueStartColumn, String key1Name, String[] valueNames, String headerKey) {
         Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -750,7 +770,7 @@ public class App implements RequestHandler<S3Event, Object> {
             for (int j = valueStartColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String valueName = valueNames[j - valueStartColumn];
-                String keyVal = key1  + valueName;
+                String keyVal = key1 + valueName;
                 if (!resultMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
                     map.put(key1Name, key1);
@@ -764,7 +784,8 @@ public class App implements RequestHandler<S3Event, Object> {
         return resultMap;
     }
 
-    public void uploadMarketListConnectionsFile(Reader file, String tableName, String userName, Object role, String obj_id) throws DataMismatchedException {
+    public void uploadMarketListConnectionsFile(Reader file, String tableName, String userName, Object role,
+            String obj_id) throws DataMismatchedException {
         try {
             List<String> permissions = getRoleAccess(role);
             String uuid = generateUUID();
@@ -780,8 +801,10 @@ public class App implements RequestHandler<S3Event, Object> {
 
             for (int i = 1; i < csvData.size(); i++) {
                 String uuidForEntries = generateUUID();
-                String analystName = validationForMarketListConnectionsFile(csvData.get(i), rowCount, permissions, role, userName, errorsFound);
-                createMarketListConnectionsEntity(csvData.get(i), MarketListConnectionsEntityList, uuidForEntries, analystName);
+                String analystName = validationForMarketListConnectionsFile(csvData.get(i), rowCount, permissions, role,
+                        userName, errorsFound);
+                createMarketListConnectionsEntity(csvData.get(i), MarketListConnectionsEntityList, uuidForEntries,
+                        analystName);
                 rowCount++;
             }
 
@@ -843,7 +866,8 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    private void deleteRecordsConnections(List<MarketListConnectionsEntity> marketListConnectionsEntityList, String tableName) {
+    private void deleteRecordsConnections(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
+            String tableName) {
         Set<String> uuid = new HashSet<>();
         for (MarketListConnectionsEntity marketEntity : marketListConnectionsEntityList) {
             List<Map<String, Object>> listOfResult = searchMarketListConnections(marketEntity, tableName);
@@ -854,7 +878,8 @@ public class App implements RequestHandler<S3Event, Object> {
         deleteValues(uuid, tableName, UUID_COLUMN_NAME);
     }
 
-    public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity, String tableName) {
+    public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity,
+            String tableName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
         try (PreparedStatement pstmt = connection.prepareStatement(SELECT_MARKET_LIST_CONNECTIONS(tableName))) {
             pstmt.setString(1, marketListEntity.getSector1());
@@ -874,7 +899,8 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    private static void createMarketListConnectionsEntity(List<String> record, List<MarketListConnectionsEntity> MarketListConnectionsEntityList, String uuid, String analystName) {
+    private static void createMarketListConnectionsEntity(List<String> record,
+            List<MarketListConnectionsEntity> MarketListConnectionsEntityList, String uuid, String analystName) {
         MarketListConnectionsEntityList.add(MarketListConnectionsEntity.builder()
                 .uuid(uuid)
                 .sector1(record.get(CSV_HEADER_CONNECTIONS_SECTOR1))
@@ -919,10 +945,12 @@ public class App implements RequestHandler<S3Event, Object> {
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> dateEventMap = getDateEvent(csvData);
             List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
-            List<String> upsellHeaders = Arrays.asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
+            List<String> upsellHeaders = Arrays
+                    .asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
             List<Map<String, String>> data = createListOfMapDateEvent(csvData, dateEventHeaders);
 
-            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders, ProfileFareStationUpsellTempTableName);
+            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders,
+                    ProfileFareStationUpsellTempTableName);
             insertStatement(data, dateEventHeaders, dateEventTempTableName);
             String columnName = SECTOR_COLUMN_NAME.toLowerCase();
             Set<String> uniqueValues = dateEventMap.values().stream()
@@ -941,10 +969,9 @@ public class App implements RequestHandler<S3Event, Object> {
             deleteTable(ProfileFareStationUpsellTempTableName);
             deleteTable(dateEventTempTableName);
             error_occurred = 0;
-        } catch (Exception e){
+        } catch (Exception e) {
             throw new RuntimeException(e);
-        }
-        finally {
+        } finally {
             updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
@@ -1023,7 +1050,8 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName) throws Exception{
+    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName)
+            throws Exception {
         StringBuilder columnNames = new StringBuilder();
         StringBuilder placeholders = new StringBuilder();
         for (String header : columnHeaders) {
@@ -1032,7 +1060,8 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         // Finalize the SQL statement
-        String insertSql = "INSERT INTO " + tableName + " (" + columnNames.substring(0, columnNames.length() - 1) + ") VALUES (" + placeholders.substring(0, placeholders.length() - 1) + ")";
+        String insertSql = "INSERT INTO " + tableName + " (" + columnNames.substring(0, columnNames.length() - 1)
+                + ") VALUES (" + placeholders.substring(0, placeholders.length() - 1) + ")";
 
         try {
             connection2.setAutoCommit(false);
@@ -1085,13 +1114,16 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    public void deleteValuesStrategyTable(Set<String> value, String tableName, String strategyColumnName, String channelColumnName) {
+    public void deleteValuesStrategyTable(Set<String> value, String tableName, String strategyColumnName,
+            String channelColumnName) {
         if (!value.isEmpty()) {
             // Creating the placeholder string for the SQL IN clause
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
             // Constructing to delete SQL query
-            // Note: Direct table and column name insertion into the query can lead to SQL injection if not handled properly.
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE concat(" + strategyColumnName + "," + channelColumnName + ") IN (" + placeholders + ")";
+            // Note: Direct table and column name insertion into the query can lead to SQL
+            // injection if not handled properly.
+            String deleteQuery = "DELETE FROM " + tableName + " WHERE concat(" + strategyColumnName + ","
+                    + channelColumnName + ") IN (" + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
                 // Execute the update
                 int index = 1;
@@ -1113,7 +1145,8 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategy;
     }
 
-    public Map<String, Map<String, String>> getStrategyGrid(List<List<String>> csvData, Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
+    public Map<String, Map<String, String>> getStrategyGrid(List<List<String>> csvData,
+            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int strategyGridHeader = 0;
         int channelHeader = 1;
@@ -1161,7 +1194,8 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues, List<String> errorList) throws DataMismatchedException {
+    private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues,
+            List<String> errorList) throws DataMismatchedException {
         int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
         int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
         int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * NUMBER_OF_DECISIONS * 2;
@@ -1175,7 +1209,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public int getCountOfEntries(String tableName) {
         int count = 0;
         try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(COUNT_OF_RECORDS(tableName))) {
+                ResultSet resultSet = stmt.executeQuery(COUNT_OF_RECORDS(tableName))) {
             if (resultSet.next()) {
                 count = resultSet.getInt(COUNT_COLUMN_NAME);
             }
@@ -1201,7 +1235,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public List<String> getListOfTimeRange() {
-        List<Map<String, Object>> listOfTimeRange = findAllRecordsFromTable(TIME_RANGE_TABLE, Collections.singletonList(TIME_RANGE_COLUMN_NAME));
+        List<Map<String, Object>> listOfTimeRange = findAllRecordsFromTable(TIME_RANGE_TABLE,
+                Collections.singletonList(TIME_RANGE_COLUMN_NAME));
         List<String> timeRangeValues = new ArrayList<>();
         for (Map<String, Object> timeRange : listOfTimeRange) {
             timeRangeValues.add(timeRange.get(TIME_RANGE_COLUMN_NAME).toString());
@@ -1210,7 +1245,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public List<String> getListOfCriteria() {
-        List<Map<String, Object>> listOfCriteria = findAllRecordsFromTable(CRITERIA_TABLE, Collections.singletonList(CRITERIA_COLUMN_NAME));
+        List<Map<String, Object>> listOfCriteria = findAllRecordsFromTable(CRITERIA_TABLE,
+                Collections.singletonList(CRITERIA_COLUMN_NAME));
         List<String> criteriaValues = new ArrayList<>();
         for (Map<String, Object> criteria : listOfCriteria) {
             criteriaValues.add(criteria.get(CRITERIA_COLUMN_NAME).toString());
@@ -1233,15 +1269,14 @@ public class App implements RequestHandler<S3Event, Object> {
         List<String> booleanHeaders = Arrays.asList(
                 "OwnFareFlag", "AutoTimeRangeFlag", "openingFares", "OverBooking",
                 "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
-                "autoGroup", "autoBackstopFlag"
-        );
+                "autoGroup", "autoBackstopFlag");
 
         String headerValues = String.join(",", headers);
         String limitCondition = (limit > 0) ? " LIMIT " + limit : "";
         String query = "SELECT " + headerValues + " FROM " + tableName + limitCondition;
 
         try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(query)) {
+                ResultSet resultSet = stmt.executeQuery(query)) {
             while (resultSet.next()) {
                 Map<String, Object> row = new HashMap<>();
                 for (String header : headers) {
@@ -1251,7 +1286,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     if (booleanHeaders.contains(header) && value != null) {
                         // Handle both Integer and String cases
                         String stringValue = value.toString();
-                        if (stringValue.equals("1") ) {
+                        if (stringValue.equals("1")) {
                             value = "Y";
                         } else if (stringValue.equals("0")) {
                             value = "N";
@@ -1379,7 +1414,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(34, marketListEntity.getSeriesBlock());
             pstmt.setString(35, marketListEntity.getAutoGroup());
             pstmt.setString(36, marketListEntity.getAutoBackstopFlag());
-            pstmt.setString(37, marketListEntity.getUuid());
+            pstmt.setString(37, marketListEntity.getTbfFlag());
+            pstmt.setString(38, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1405,11 +1441,13 @@ public class App implements RequestHandler<S3Event, Object> {
             }
         }
     }
+
     public void deleteValuesFare(Set<String> value, String tableName) {
         if (!value.isEmpty()) {
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE CONCAT(" +SECTOR_COLUMN_NAME+","+ROUTE_COLUMN_NAME  + ") IN ("
-                    +  placeholders + ")";
+            String deleteQuery = "DELETE FROM " + tableName + " WHERE CONCAT(" + SECTOR_COLUMN_NAME + ","
+                    + ROUTE_COLUMN_NAME + ") IN ("
+                    + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
                 // Set each value in the PreparedStatement
                 int index = 1;
@@ -1530,7 +1568,8 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    private static void createMarketListEntity(List<String> record, List<MarketListEntity> marketListEntityList, String uuid, String analystName) {
+    private static void createMarketListEntity(List<String> record, List<MarketListEntity> marketListEntityList,
+            String uuid, String analystName) {
         marketListEntityList.add(MarketListEntity.builder()
                 .uuid(uuid)
                 .origin(record.get(CSV_HEADER_ORIGIN))
@@ -1568,10 +1607,10 @@ public class App implements RequestHandler<S3Event, Object> {
                 .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
                 .autoGroup(convertYNToBoolean(record.get(CSV_HEADER_AUTO_GROUP)))
                 .autoBackstopFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG)))
+                .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
                 .analystName(analystName)
                 .build());
     }
-
 
     private static String convertYNToBoolean(String value) {
         return "Y".equalsIgnoreCase(value) ? "1" : "0";
@@ -1630,7 +1669,9 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    private String validationForMarketListFile(List<String> record, List<String> permissions, String route, List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves, List<Object> listOfStrategies, List<Object> listOfCriteria) throws Exception {
+    private String validationForMarketListFile(List<String> record, List<String> permissions, String route,
+            List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves,
+            List<Object> listOfStrategies, List<Object> listOfCriteria) throws Exception {
         try {
             JSONArray roles = new JSONArray();
             if (role instanceof String roleStr) {
@@ -1650,7 +1691,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 routeSymbol = DOMESTIC_SYMBOL;
             }
 
-            List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN), record.get(CSV_HEADER_DESTINATION), routeSymbol);
+            List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN),
+                    record.get(CSV_HEADER_DESTINATION), routeSymbol);
             String lineNum = "Line " + rowCount + ": ";
             if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
                 listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
@@ -1677,7 +1719,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
                     user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
 
-                }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
+                } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
                     if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
                         user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
                     } else {
@@ -1758,7 +1800,8 @@ public class App implements RequestHandler<S3Event, Object> {
             String plfThreshold = record.get(CSV_HEADER_PLF_THRESHOLD);
 
             if (listOfCriteria.contains(hardAnchor)) {
-                // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be numeric
+                // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be
+                // numeric
                 if (fareOffset == null || fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 }
@@ -1769,7 +1812,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
             }
-// If hardAnchor is numeric
+            // If hardAnchor is numeric
             else if (hardAnchor != null && !hardAnchor.trim().isEmpty()) {
                 if (!isNumeric(hardAnchor)) {
                     StringBuilder validOptions = new StringBuilder();
@@ -1780,16 +1823,16 @@ public class App implements RequestHandler<S3Event, Object> {
                         validOptions.append(listOfCriteria.get(i));
                     }
                     listOfErrors.add(lineNum + "Hard Anchor must be either a number or one of: " + validOptions);
-                }
-                else{
-                   if (!isNumeric(fareOffset) && !fareOffset.isEmpty()) {
+                } else {
+                    if (!isNumeric(fareOffset) && !fareOffset.isEmpty()) {
                         listOfErrors.add(lineNum + "Fare Offset must be a valid number");
                     }
                 }
                 if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
                     listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
                 }
-                // When hardAnchor is numeric, fareOffset is optional but must be numeric if present
+                // When hardAnchor is numeric, fareOffset is optional but must be numeric if
+                // present
                 if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
                     listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
                 }
@@ -1797,7 +1840,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
             }
-// If hardAnchor is empty - all three fields can be empty
+            // If hardAnchor is empty - all three fields can be empty
             else {
                 if (fareOffset != null && !fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset must be empty");
@@ -1830,11 +1873,13 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_OPENING_FARES))) {
                 listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
-             }
-            if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE))) && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_B2B_TOLERANCE)))
+                    && !record.get(CSV_HEADER_B2B_TOLERANCE).trim().isEmpty()) {
                 listOfErrors.add(lineNum + "B2B Tolerance is not a number or empty");
             }
-            if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE))) && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
+            if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE)))
+                    && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
                 listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
@@ -1858,6 +1903,9 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
                 listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
             }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_TBF_FLAG))) {
+                listOfErrors.add(lineNum + "TBF Flag has value other than 'Y' or 'N'");
+            }
 
             return user;
         } catch (Exception e) {
@@ -1865,7 +1913,8 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    private String validationForMarketListConnectionsFile(List<String> record, int rowCount, List<String> permissions, Object role, String userName, List<String> errorsFound) {
+    private String validationForMarketListConnectionsFile(List<String> record, int rowCount, List<String> permissions,
+            Object role, String userName, List<String> errorsFound) {
         JSONArray roles = new JSONArray();
         if (role instanceof String roleStr) {
             roleStr = roleStr.substring(1, roleStr.length() - 1);
@@ -1905,7 +1954,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 user1 = getSectors(sector1, SECTOR_MAP_USER4_COLUMN_NAME);
                 user2 = getSectors(sector2, SECTOR_MAP_USER4_COLUMN_NAME);
 
-            }else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
+            } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
                 if (!daysFromToday.isBefore(formattedEndDate) && !formattedStartDate.isAfter(daysFromToday)) {
                     user1 = getSectors(sector1, SECTOR_MAP_USER3_COLUMN_NAME);
                     user2 = getSectors(sector2, SECTOR_MAP_USER3_COLUMN_NAME);
@@ -1916,7 +1965,8 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
                 user = userName.split(SPACE)[0].toUpperCase();
-                if (!userName.split(SPACE)[0].equalsIgnoreCase(user1) && !userName.split(SPACE)[0].equalsIgnoreCase(user2)) {
+                if (!userName.split(SPACE)[0].equalsIgnoreCase(user1)
+                        && !userName.split(SPACE)[0].equalsIgnoreCase(user2)) {
                     errorsFound.add(lineNum + "You don't have access for this sector " + sector1 + SLASH + sector2);
                 }
             } else {
