@@ -35,6 +35,8 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_DISTRESS_INVENTORY_FLAG = 30;
     int CSV_HEADER_SERIES_BLOCK_FLAG = 31;
     int CSV_HEADER_AUTO_GROUP = 32;
+    int CSV_HEADER_TBF_FLAG = 33;
+
 
     String CSV_HEADER_TIME = "Time";
     String CSV_HEADER_CRITERIA = "Criteria";

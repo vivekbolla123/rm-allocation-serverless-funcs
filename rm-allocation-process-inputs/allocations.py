@@ -388,20 +388,63 @@ class RBDAllocations:
         
         alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
         tbf_rbds = tbf_rbds.sort_values(by='Total').reset_index(drop=True)
-        
+        remaining_tbf_rbds = tbf_rbds.copy()
+        latest_allocations = {}
+        desired_order = ['TF', 'TE', 'TD', 'TC', 'TB', 'TY']
+        default_values = {
+        'index': 'NA',
+        'min_other_diff': 0
+    }
+    
+    # Create new dictionary with desired order
+        result = {}
         if int(tbfFlag) == 1:
-            for _, rbd_row in tbf_rbds.iterrows():
-                # Find the nearest jumpingRBDPrice in alloc_df for the Total price in tbf_rbds
-                nearest_index = (alloc_df['jumpingRBDPrice'] - rbd_row['Total']).abs().idxmin()
-                nearest_row = alloc_df.iloc[nearest_index]
+            for idx, alloc_row in alloc_df.iterrows():
+                jumping_price = alloc_row['jumpingRBDPrice']
+                incremental = alloc_row['incremental']
+                
+                # Calculate differences with all TBF RBDs
+                differences = abs(tbf_rbds['Total'] - jumping_price)
+                min_diff = differences.min()
+                nearest_idx = differences.idxmin()
+                nearest_rbd = tbf_rbds.loc[nearest_idx, 'RBD']
+                nearest_total = tbf_rbds.loc[nearest_idx, 'Total']
+                
+                # Check if this jumping price has the closest match to any TBF RBD
+                # Compare with all other jumping prices
+                other_prices_diff = abs(alloc_df['jumpingRBDPrice'] - nearest_total)
+                min_other_diff = other_prices_diff.min()
+                
+                # If this is the closest match for the TBF RBD
+                if nearest_rbd not in latest_allocations or min_other_diff < latest_allocations[nearest_rbd]['min_other_diff']:
+                    # Update the latest allocation for this class_of_service
+                    latest_allocations[nearest_rbd] = {
+                        'index': idx,
+                        'min_other_diff': min_other_diff
+                    }
 
-                # Get the RBD and incremental value from alloc_df's nearest row
-                rbd_label = rbd_row['RBD']
-                allocation_value = nearest_row['incremental']
-
-                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd_label)
-                currRec.set_class_attribute(brd_counter, 'class_au', int(allocation_value))
+                
+            for key in desired_order:
+                if key in latest_allocations:
+                    result[key] = latest_allocations[key]
+                else:
+                    result[key] = default_values.copy()
+            for nearest_rbd, allocation in result.items():
+                idx=allocation['index']
+                currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
+                if idx!=CONST_NA:
+                    currRec.set_class_attribute(brd_counter, 'class_au', alloc_df.loc[idx, 'incremental'])
+                else:
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
+            # for _, tbf_row in tbf_rbds.iterrows():
+            #     rbd = tbf_row['RBD']
+            #     if rbd not in latest_allocations:
+            #         # Find the next available index in alloc_df
+            #         next_index = alloc_df.index[-1] + 1 if not alloc_df.empty else 0
+            #         currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+            #         currRec.set_class_attribute(brd_counter, 'class_au', 0)
+            #         brd_counter += 1
                 
         else:
             for RBDLabel in rbd_list:

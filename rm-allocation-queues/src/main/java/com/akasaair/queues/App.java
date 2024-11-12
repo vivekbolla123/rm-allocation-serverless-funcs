@@ -1378,7 +1378,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(33, marketListEntity.getDistressInventoryFlag());
             pstmt.setString(34, marketListEntity.getSeriesBlock());
             pstmt.setString(35, marketListEntity.getAutoGroup());
-            pstmt.setString(36, marketListEntity.getUuid());
+            pstmt.setString(36, marketListEntity.getTbfFlag());
+            pstmt.setString(37, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1566,6 +1567,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .distressInventoryFlag(convertYNToBoolean(record.get(CSV_HEADER_DISTRESS_INVENTORY_FLAG)))
                 .seriesBlock(convertYNToBoolean(record.get(CSV_HEADER_SERIES_BLOCK_FLAG)))
                 .autoGroup(convertYNToBoolean(record.get(CSV_HEADER_AUTO_GROUP)))
+                .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -1852,6 +1854,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_PROFILE_FARES))) {
                 listOfErrors.add(lineNum + "Profile Fares has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_TBF_FLAG))) {
+                listOfErrors.add(lineNum + "TBF Flag has value other than 'Y' or 'N'");
             }
 
             return user;
