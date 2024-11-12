@@ -90,6 +90,8 @@ public class MarketListEntity {
     public String seriesBlock;
     @Column(name = "autoGroup")
     public String autoGroup;
+    @Column(name = "autoBackstopFlag")
+    public String autoBackstopFlag;
 
 }
 

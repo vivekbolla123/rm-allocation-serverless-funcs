@@ -334,6 +334,55 @@ class DynAlloc:
 			upsellValueData = self.rmdatabasehelper.getUpsellValue(currFltDate, sector)
 
 			upsellValue = 0
+			b2c_backstop = 0
+			b2b_backstop = 0
+			min_10_b2c = 0
+			min_10_b2b = 0
+			final_mkt_fare_b2b = 0
+			final_mkt_fare_b2c = 0
+			self.logger.info("dplfBand is: " + str(dplfBand))
+			if(dplfBand == 0 or dplfBand == 1 or dplfBand == 2):
+				ab_start_time = "00:00"
+				ab_end_time = "23:59"
+				min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
+				min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
+				final_mkt_fare_b2b = min_10_b2b
+				final_mkt_fare_b2c = min_10_b2c
+			elif(dplfBand == 3):
+				final_mkt_fare_b2b = self.outputSummaryRow_b2b.MktFare_Min
+				final_mkt_fare_b2c = self.outputSummaryRow_b2c.MktFare_Min
+			else:
+				final_mkt_fare_b2b = min_10_b2b
+				final_mkt_fare_b2c = min_10_b2c
+			
+			self.logger.info("min 10 precentile b2b: " + str(min_10_b2b))
+			self.logger.info("min 10 percentile b2c: " + str(min_10_b2c))
+   
+			self.logger.info("min market fare b2b: " + str(self.outputSummaryRow_b2b.MktFare_Min))
+			self.logger.info("min market fare b2c: " + str(self.outputSummaryRow_b2c.MktFare_Min))
+			
+			self.logger.info("final_mkt_fare_b2b: " + str(final_mkt_fare_b2b))
+			self.logger.info("final_mkt_fare_b2c: " + str(final_mkt_fare_b2c))
+
+			self.logger.info("auto backstop flag is: " + str(self.currParams.autoBackstopFlag))
+			auto_b2b_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
+			auto_b2c_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
+			self.logger.info("auto backstop b2b: " + str(auto_b2b_backstop))
+			self.logger.info("auto backstop b2c: " + str(auto_b2c_backstop))
+   
+			if(auto_b2c_backstop != "NA"):
+				b2c_backstop = auto_b2c_backstop
+			else:
+				b2c_backstop = self.currParams.b2c_backstop
+    
+			if(auto_b2b_backstop != "NA"):
+				b2b_backstop = auto_b2b_backstop
+			else:
+				b2b_backstop = self.currParams.b2b_backstop
+    
+			self.logger.info("final backstop b2b: " + str(b2b_backstop))
+			self.logger.info("final backstop b2c: " + str(b2c_backstop))
+    
 			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
 
@@ -347,7 +396,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.anchorFare = int(hardfare)
 
 				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(self.outputSummaryRow_b2c.MktFare_Min) + " to " + str(self.outputSummaryRow_b2c.MktFare_Max))
-				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.historicOwnFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity))
+				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.historicOwnFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity))
 
 				if isB2BMarketFareAvailable:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
@@ -359,7 +408,7 @@ class DynAlloc:
 
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, self.currParams.b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity))
+					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity))
 				else:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else:
@@ -463,6 +512,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
 			self.outputSummaryRow_b2c.HowDetermined = str(openDataB2C['FareResult'][0])
 			self.outputSummaryRow_b2c.Backstop = self.currParams.b2c_backstop
+			self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop
 			self.outputSummaryRow_b2c.Variance = str(variance)
 			self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
 			self.outputSummaryRow_b2c.bookedPlf = str(plf)
@@ -488,6 +538,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
 			self.outputSummaryRow_b2b.HowDetermined = str(openDataB2B['FareResult'][0])
 			self.outputSummaryRow_b2b.Backstop = self.currParams.b2b_backstop
+			self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop
 			self.outputSummaryRow_b2b.Variance = str(variance)
 			self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
 			self.outputSummaryRow_b2b.bookedPlf = str(plf)
@@ -945,3 +996,38 @@ class DynAlloc:
 		except (ValueError, AttributeError, TypeError) as e:
 			self.logger.error(f"Error in recommend_action: {str(e)}")
 			return "NO action required"
+		
+	def auto_backstop(self, abf, backstop, dplfBand, mkt_fare):
+		try:
+			autoBackstopValue = 0
+
+			def safe_float(value):
+				if value is None or str(value).strip() == '' or str(value).strip().upper() == 'NA':
+					return None
+				try:
+					return float(str(value).strip())
+				except (ValueError, TypeError):
+					return None
+
+			autoBackstopFlag = str(abf)
+			backstop = safe_float(backstop)
+			mkt_fare = safe_float(mkt_fare)
+			self.logger.info("AUTOBACKSTOP: Autobackstop Flag is: " + str(autoBackstopFlag))
+			self.logger.info("AUTOBACKSTOP: Backstop is: " + str(backstop))
+			self.logger.info("AUTOBACKSTOP: mkt_fare is: " + str(mkt_fare))
+			self.logger.info("AUTOBACKSTOP: dplfBand is: " + str(dplfBand))
+			try:
+				dplfBand = int(str(dplfBand).strip())
+			except (ValueError, TypeError, AttributeError):
+				return 'NA'
+
+			if autoBackstopFlag == '1':
+				if dplfBand in [0, 1, 2, 3]:
+					if None not in [backstop, mkt_fare] and mkt_fare < backstop:
+						autoBackstopValue = mkt_fare - 50
+						return autoBackstopValue
+			return 'NA'
+
+		except Exception as e:
+			self.logger.error(f"Error in autoBackstop: {str(e)}")
+			return 'NA'  # Changed from error message to 'NA' for consistency
