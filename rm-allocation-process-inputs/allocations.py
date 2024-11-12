@@ -416,12 +416,11 @@ class RBDAllocations:
                 min_other_diff = other_prices_diff.min()
                 
                 # If this is the closest match for the TBF RBD
-                if nearest_rbd not in latest_allocations or min_other_diff < latest_allocations[nearest_rbd]['min_other_diff']:
                     # Update the latest allocation for this class_of_service
-                    latest_allocations[nearest_rbd] = {
-                        'index': idx,
-                        'min_other_diff': min_other_diff
-                    }
+                latest_allocations[nearest_rbd] = {
+                    'index': idx,
+                    'min_other_diff': min_other_diff
+                }
 
                 
             for key in desired_order:
@@ -429,11 +428,19 @@ class RBDAllocations:
                     result[key] = latest_allocations[key]
                 else:
                     result[key] = default_values.copy()
+            last_index = None
+            for key, value in result.items():
+                if value['index'] == 'NA':
+                    # If index is 'NA', replace it with the last known non-'NA' index
+                    value['index'] = last_index
+                else:
+                    # Update the last known non-'NA' index
+                    last_index = value['index']
             for nearest_rbd, allocation in result.items():
                 idx=allocation['index']
                 currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
-                if idx!=CONST_NA:
-                    currRec.set_class_attribute(brd_counter, 'class_au', alloc_df.loc[idx, 'incremental'])
+                if idx!=None:
+                    currRec.set_class_attribute(brd_counter, 'class_au', int(alloc_df.loc[idx, 'incremental']))
                 else:
                     currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
