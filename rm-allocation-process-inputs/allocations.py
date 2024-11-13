@@ -109,7 +109,7 @@ class RBDAllocations:
         'price':price_list
         }
         df = pd.DataFrame(data)
-        df_filtered = df[(df['jumpingRBDPrice'] <= df['price'])& (df['jumpingRBDPrice'] != 0)]
+        df_filtered = df[(df['jumpingRBDPrice'] != 0)]
         df_filtered['price_diff'] = df_filtered['jumpingRBDPrice'] - df_filtered['price']
         df_unique = df_filtered.sort_values(['jumpingRBDPrice', 'price_diff']).drop_duplicates('jumpingRBDPrice')
         df_unique = df_unique.drop(columns='price_diff')
