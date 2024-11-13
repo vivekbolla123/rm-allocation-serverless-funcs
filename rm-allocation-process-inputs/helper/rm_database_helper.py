@@ -123,7 +123,7 @@ class RMDatabaseHelper:
                     '{str(latest_row.FlightNumber_Max)}',
                     '{str(latest_row.FlightNumber_Min)}',
                     '{str(latest_row.Backstop)}',
-                    '{str(latest_row.autoBackstop)}'
+                    '{str(latest_row.autoBackstop)}',
                     '{str(latest_row.Variance)}',
                     '{str(latest_row.StrategyReference)}',
                     '{str(latest_row.analystName)}',
