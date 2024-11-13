@@ -28,21 +28,25 @@ public class QueryConstants {
 
     public static String INSERT_INTO_MARKET_LIST(String tableName) {
         return "INSERT INTO " + tableName +
-                " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, hardAnchor, plfThreshold, TimeWindowStart, " +
-                "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, " +
+                " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, hardAnchor, plfThreshold, TimeWindowStart, "
+                +
+                "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, "
+                +
                 "B2BBackstop, B2CBackstop, B2BFactor, SkippingFactor, DaySpan, OwnFareFlag, AutoTimeRangeFlag, " +
-                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock,autoGroup, UUID) " +
-                "VALUES " +
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
-    }
+                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, UUID) "
+                +
 
+                "VALUES " +
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
+    }
 
     public static String GET_ROLE_PERMISSION_LIST(Object role) {
         return "SELECT " +
                 "DISTINCT p.Permission AS permissions " +
                 "FROM config_permissions p " +
                 "JOIN ( " +
-                "SELECT crp.Role, GROUP_CONCAT(permissions.permission ORDER BY permissions.position) AS concatenated_string " +
+                "SELECT crp.Role, GROUP_CONCAT(permissions.permission ORDER BY permissions.position) AS concatenated_string "
+                +
                 "FROM config_role_permission crp " +
                 "CROSS JOIN JSON_TABLE( " +
                 "JSON_UNQUOTE(JSON_EXTRACT(crp.PermissionID, '$.permissions[*]')), " +

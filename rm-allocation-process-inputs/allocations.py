@@ -3,6 +3,7 @@ import math
 
 import numpy as np
 from Constants import *
+import pandas as pd
 
 
 class RBDAllocations:
@@ -16,6 +17,9 @@ class RBDAllocations:
     def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
+        fullRbds=B2CRBDs
+        rbd_list = self.constantsutils.TBF_RBD.split(',')
+        B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['Total'].iloc[-1]
         openingRBD = openDataB2C['RBD'][0]
@@ -35,6 +39,11 @@ class RBDAllocations:
         status = CONST_NA
         # reset
         # Loop Through
+        jumpingRBDPrice_list = []
+        incremental_list = []
+        rbdlabel_list=[]
+        price_list=[]
+        
         while b2cctr < B2CRBDs.shape[0] or b2bctr < self.constantsutils.B2B_RDB_COUNT:
             if b2cctr < B2CRBDs.shape[0]:
                 RBDLabel = B2CRBDs['RBD'][b2cctr]
@@ -89,8 +98,23 @@ class RBDAllocations:
                 currRec.set_class_attribute(b2cctr + 1, 'class_au', 0)
             if b2cctr < B2CRBDs.shape[0]:
                 b2cctr = b2cctr + 1
+            jumpingRBDPrice_list.append(jumpingRBDPrice)
+            incremental_list.append(incremental)
+            rbdlabel_list.append(RBDLabel)
+            price_list.append(price)
+        data = {
+        'jumpingRBDPrice': jumpingRBDPrice_list,
+        'incremental': incremental_list,
+        'RBD':rbdlabel_list,
+        'price':price_list
+        }
+        df = pd.DataFrame(data)
+        df_filtered = df[(df['jumpingRBDPrice'] != 0)]
+        df_filtered['price_diff'] = df_filtered['jumpingRBDPrice'] - df_filtered['price']
+        df_unique = df_filtered.sort_values(['jumpingRBDPrice', 'price_diff']).drop_duplicates('jumpingRBDPrice')
+        df_unique = df_unique.drop(columns='price_diff')
 
-        return b2cAllocationsUnits, b2cctr + 1, status
+        return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds
 
     def getIncrementalValue(self, currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, profileExtract, counter, bookloadPercentile):
         if int(currParams.rbdPushFlag) == 0:
@@ -356,6 +380,86 @@ class RBDAllocations:
                 brd_counter += 1
 
         return  brd_counter
+    
+    
+    def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs):
+        rbd_list = self.constantsutils.TBF_RBD.split(',')
+        tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
+        
+        alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
+        tbf_rbds = tbf_rbds.sort_values(by='Total').reset_index(drop=True)
+        remaining_tbf_rbds = tbf_rbds.copy()
+        latest_allocations = {}
+        desired_order = ['TF', 'TE', 'TD', 'TC', 'TB', 'TY']
+        default_values = {
+        'index': 'NA',
+        'min_other_diff': 0
+    }
+    
+    # Create new dictionary with desired order
+        result = {}
+        if int(tbfFlag) == 1:
+            for idx, alloc_row in alloc_df.iterrows():
+                jumping_price = alloc_row['jumpingRBDPrice']
+                incremental = alloc_row['incremental']
+                
+                # Calculate differences with all TBF RBDs
+                differences = abs(tbf_rbds['Total'] - jumping_price)
+                min_diff = differences.min()
+                nearest_idx = differences.idxmin()
+                nearest_rbd = tbf_rbds.loc[nearest_idx, 'RBD']
+                nearest_total = tbf_rbds.loc[nearest_idx, 'Total']
+                
+                # Check if this jumping price has the closest match to any TBF RBD
+                # Compare with all other jumping prices
+                other_prices_diff = abs(alloc_df['jumpingRBDPrice'] - nearest_total)
+                min_other_diff = other_prices_diff.min()
+                
+                # If this is the closest match for the TBF RBD
+                    # Update the latest allocation for this class_of_service
+                latest_allocations[nearest_rbd] = {
+                    'index': idx,
+                    'min_other_diff': min_other_diff
+                }
+
+                
+            for key in desired_order:
+                if key in latest_allocations:
+                    result[key] = latest_allocations[key]
+                else:
+                    result[key] = default_values.copy()
+            last_index = None
+            for key, value in result.items():
+                if value['index'] == 'NA':
+                    # If index is 'NA', replace it with the last known non-'NA' index
+                    value['index'] = last_index
+                else:
+                    # Update the last known non-'NA' index
+                    last_index = value['index']
+            for nearest_rbd, allocation in result.items():
+                idx=allocation['index']
+                currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
+                if idx!=None:
+                    currRec.set_class_attribute(brd_counter, 'class_au', int(alloc_df.loc[idx, 'incremental']))
+                else:
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                brd_counter += 1
+            # for _, tbf_row in tbf_rbds.iterrows():
+            #     rbd = tbf_row['RBD']
+            #     if rbd not in latest_allocations:
+            #         # Find the next available index in alloc_df
+            #         next_index = alloc_df.index[-1] + 1 if not alloc_df.empty else 0
+            #         currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+            #         currRec.set_class_attribute(brd_counter, 'class_au', 0)
+            #         brd_counter += 1
+                
+        else:
+            for RBDLabel in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                brd_counter += 1
+
+    
 
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
