@@ -218,8 +218,7 @@ class MarketFareService:
     def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime):
         startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
         min_10 = 0
-        self.logger.info("min 10 precentile b2b: " + str(mktFareRange))
         if(len(mktFareRange) > 0):
-            min_10 = mktFareRange['gross_fare'].quantile(0.1)
+            min_10 = mktFareRange['gross_fare'][round((mktFareRange['gross_fare'].shape[0])/10)]
 
         return min_10
