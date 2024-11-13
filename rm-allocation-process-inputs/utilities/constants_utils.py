@@ -28,6 +28,7 @@ class ConstantsUtils:
         self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
+        self.TBF_RBD = TBF_RBD
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -86,3 +87,5 @@ class ConstantsUtils:
                 self.MARKET_FARES_THRESHOLD = parameter_value
             elif parameter_key == GROUP_QUOTATION_KEY:
                 self.GROUP_QUOTATION = parameter_value
+            elif parameter_key == TBF_RBD_KEY:
+                self.TBF_RBD = parameter_value

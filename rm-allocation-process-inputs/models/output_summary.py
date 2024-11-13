@@ -41,6 +41,7 @@ class OutputSummary:
         self.startTime = CONST_NA
         self.endTime = CONST_NA
         self.Backstop = CONST_NA
+        self.autoBackstop = CONST_NA
         self.StrategyReference = CONST_NA
         self.dlfBand = CONST_NA
         self.endOfDaydlfBand = CONST_NA        

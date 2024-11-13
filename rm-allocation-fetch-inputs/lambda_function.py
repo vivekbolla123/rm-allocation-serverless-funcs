@@ -376,7 +376,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,profileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
