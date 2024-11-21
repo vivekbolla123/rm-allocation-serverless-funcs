@@ -84,12 +84,8 @@ class RunConnections:
         }
         if getenv('env', default=None)=="prod":
             headers.pop('x-api-key')
-
-        try:
             response = requests.post(url, headers=headers, json=request)
             response.raise_for_status()
             self.updateConnectionsStarted(run_id)# Raise an exception for non-2xx status codes
             self.logger.info("SUCCESS, %s", response.text)
-        except requests.exceptions.RequestException as e:
-            self.logger.error("Error from response: %s", e)
-            raise RuntimeError(e)
+        
