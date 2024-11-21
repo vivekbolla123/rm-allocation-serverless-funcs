@@ -68,28 +68,27 @@ class GetDynamicTimeD2:
         if self.check_int(currParams.hardanchor):
             if int(plf) < int(currParams.plfthreshold):
                 fare = currParams.hardanchor
-            else:
-                dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
-                time_range = dynamicTimeList['time_range'][0]
+            dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+            time_range = dynamicTimeList['time_range'][0]
 
-                rangeList = self.rmdatabasehelper.getTimeRange(time_range)
+            rangeList = self.rmdatabasehelper.getTimeRange(time_range)
 
-                if rangeList['type'][0] == CONST_ABSOLUTE:
-                    if DaySpan < 0:
-                        endTime = rangeList['end'][0]
-                    elif DaySpan > 0:
-                        startTime = rangeList['start'][0]
-                    else:
-                        endTime = rangeList['end'][0]
-                        startTime = rangeList['start'][0]
+            if rangeList['type'][0] == CONST_ABSOLUTE:
+                if DaySpan < 0:
+                    endTime = rangeList['end'][0]
+                elif DaySpan > 0:
+                    startTime = rangeList['start'][0]
+                else:
+                    endTime = rangeList['end'][0]
+                    startTime = rangeList['start'][0]
 
-                if rangeList['type'][0] == CONST_RELATIVE:
-                    startTime, endTime = self.getRelativeTimeValue(currParams, rangeList, DaySpan)
+            if rangeList['type'][0] == CONST_RELATIVE:
+                startTime, endTime = self.getRelativeTimeValue(currParams, rangeList, DaySpan)
 
-                if rangeList['type'][0] == CONST_REFERENCE:
-                    rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
-                    startTime = rangeList['ar_start'][0]
-                    endTime = rangeList['ar_end'][0]
+            if rangeList['type'][0] == CONST_REFERENCE:
+                rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
+                startTime = rangeList['ar_start'][0]
+                endTime = rangeList['ar_end'][0]
                 
             
 
@@ -138,14 +137,10 @@ class GetDynamicTimeD2:
         if self.check_int(currParams.hardanchor):
             if int(plf) < int(currParams.plfthreshold):
                 fare = currParams.hardanchor
-                criteria = CONST_NA
-                offset = 0
-                strategy = CONST_NA
-            else:
-                dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
-                criteria = dynamicD2List['criteria'][0]
-                offset = dynamicD2List['offset'][0]
-                strategy = dynamicD2List['strategy'][0]
+            dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
+            criteria = dynamicD2List['criteria'][0]
+            offset = dynamicD2List['offset'][0]
+            strategy = dynamicD2List['strategy'][0]
                 
         
         return criteria, offset, strategy,fare

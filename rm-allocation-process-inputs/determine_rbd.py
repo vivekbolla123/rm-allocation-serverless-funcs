@@ -14,7 +14,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -87,7 +87,7 @@ class DetermineRBD:
         self.logger.info("Historic Fare: " + str(historicOwnFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand)
 
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
@@ -109,7 +109,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
 
-    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount):
+    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -122,8 +122,10 @@ class DetermineRBD:
                 faresList.append(float(lastSoldFare))
             if historicOwnFare != CONST_NA:
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and int(currParams.profileFares) == 1:
+            if profileFare != CONST_NA and int(currParams.profileFares) == 1 and int(dplfBand)!=3:
                 faresList.append(float(profileFare))
+            if hardAnchorFare != -1:
+                faresList.append(float(hardAnchorFare))
 
             # Check if any values exist
             if faresList:
@@ -163,8 +165,10 @@ class DetermineRBD:
                 faresList.append(float(lastSoldFare))
             if historicOwnFare != CONST_NA and float(historicOwnFare) <= float(strategyFare):
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and float(profileFare) <= float(strategyFare) and int(currParams.profileFares) == 1:
+            if profileFare != CONST_NA and float(profileFare) <= float(strategyFare) and int(currParams.profileFares) == 1 and int(dplfBand)!=3:
                 faresList.append(float(profileFare))
+            if hardAnchorFare != -1:
+                faresList.append(float(hardAnchorFare))
 
             if faresList:
                 max_value = max(faresList)
