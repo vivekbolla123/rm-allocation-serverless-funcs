@@ -136,8 +136,9 @@ class DetermineRBD:
             else:
                 if max_value > strategyFare:
                     howDetermined = 'AllocationY_MaxOwnFare_UpsellY'
-                    if random.choice([True, False]):
-                        upsell = max_value * 0.05
+                    if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
+                        if random.choice([True, False]):
+                            upsell = max_value * 0.05
                     anchorFare = max_value + upsell
                 else:
                     upsell = CONST_NA
