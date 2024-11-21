@@ -9,6 +9,7 @@ class RunConnections:
     def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.rm_rd_conn = params['rdconn']
+        self.rm_wr_conn = params['wrconn']
         self.sqs = params['sqs']
         self.cache_client = params['cache_client']
 
@@ -74,7 +75,7 @@ class RunConnections:
             
     def updateConnectionsStarted(self,runid):
         query=f"update allocation_run_audit set is_connections_started='1' where run_id='{runid}'"
-        self.rm_rd_conn.execute(query)
+        self.rm_wr_conn.execute(query)
         
     def make_lambda_api_call(self,request,run_id):
         url = configsettings.FETCH_INPUTS_API_URL
