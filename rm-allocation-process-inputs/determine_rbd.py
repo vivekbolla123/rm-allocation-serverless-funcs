@@ -122,7 +122,7 @@ class DetermineRBD:
                 faresList.append(float(lastSoldFare))
             if historicOwnFare != CONST_NA:
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and int(currParams.profileFares) == 1 and int(dplfBand)!=3:
+            if profileFare != CONST_NA and int(currParams.profileFares) == 1:
                 faresList.append(float(profileFare))
             if hardAnchorFare != -1:
                 faresList.append(float(hardAnchorFare))
@@ -165,7 +165,7 @@ class DetermineRBD:
                 faresList.append(float(lastSoldFare))
             if historicOwnFare != CONST_NA and float(historicOwnFare) <= float(strategyFare):
                 faresList.append(float(historicOwnFare))
-            if profileFare != CONST_NA and float(profileFare) <= float(strategyFare) and int(currParams.profileFares) == 1 and int(dplfBand)!=3:
+            if profileFare != CONST_NA and float(profileFare) <= float(strategyFare) and int(currParams.profileFares) == 1:
                 faresList.append(float(profileFare))
             if hardAnchorFare != -1:
                 faresList.append(float(hardAnchorFare))
