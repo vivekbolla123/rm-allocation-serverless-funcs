@@ -109,9 +109,9 @@ class RBDAllocations:
         'price':price_list
         }
         df = pd.DataFrame(data)
-        df_filtered = df[(df['jumpingRBDPrice'] != 0)]
+        df_filtered = df[(df['incremental'] != -1)]
         df_filtered['price_diff'] = df_filtered['jumpingRBDPrice'] - df_filtered['price']
-        df_unique = df_filtered.sort_values(['jumpingRBDPrice', 'price_diff']).drop_duplicates('jumpingRBDPrice')
+        df_unique = df_filtered.sort_values(['price', 'price_diff']).drop_duplicates('RBD')
         df_unique = df_unique.drop(columns='price_diff')
 
         return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds
@@ -400,7 +400,7 @@ class RBDAllocations:
         result = {}
         if int(tbfFlag) == 1:
             for idx, alloc_row in alloc_df.iterrows():
-                jumping_price = alloc_row['jumpingRBDPrice']
+                jumping_price = alloc_row['price']
                 incremental = alloc_row['incremental']
                 
                 # Calculate differences with all TBF RBDs
@@ -412,7 +412,7 @@ class RBDAllocations:
                 
                 # Check if this jumping price has the closest match to any TBF RBD
                 # Compare with all other jumping prices
-                other_prices_diff = abs(alloc_df['jumpingRBDPrice'] - nearest_total)
+                other_prices_diff = abs(alloc_df['price'] - nearest_total)
                 min_other_diff = other_prices_diff.min()
                 
                 # If this is the closest match for the TBF RBD
