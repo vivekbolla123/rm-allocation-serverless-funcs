@@ -170,17 +170,39 @@ class DataProcessor:
         return file_content
     # Function to upload the file to SFTP
     def push_message_back_to_sqs(self, runid):
-        sqs_client = boto3.client('sqs')
-        message_body = {
-            "run_id": runid
-        }
-        sqs_client.send_message(
-            QueueUrl=configsettings.AWS_SQS_QUEUE_URL,
-            MessageBody=json.dumps(message_body)
-        )
-        logger.info(f"message with runid: {runid} send back to Queue Succesfully")
+        # Check current retry count
+        retry_query = f"SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = '{runid}'"
+        retry_count_result = pd.read_sql(retry_query, conn)
+        
+        # Only push back to SQS if retry count is less than 2
+        if retry_count_result['sftp_retry_count'].iloc[0] < 2:
+            # Increment retry count
+            conn.execute(f"""
+                UPDATE allocation_run_audit 
+                SET sftp_retry_count = sftp_retry_count + 1 
+                WHERE run_id = '{runid}'
+            """)
+            
+            sqs_client = boto3.client('sqs')
+            message_body = {
+                "run_id": runid
+            }
+            sqs_client.send_message(
+                QueueUrl=configsettings.AWS_SQS_QUEUE_URL,
+                MessageBody=json.dumps(message_body)
+            )
+            logger.info(f"message with runid: {runid} sent back to Queue Successfully")
+        else:
+            logger.info(f"Maximum retry attempts reached for run_id: {runid}")
         
     def fetch_data(self,runid):
+        retry_query = f"SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = '{runid}'"
+        retry_count_result = pd.read_sql(retry_query, conn)
+        
+        # If retry count is already 2 or more, stop processing
+        if retry_count_result['sftp_retry_count'].iloc[0] >= 2:
+            logger.info(f"Maximum retry attempts reached for run_id: {runid}")
+            return
         data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and (b2cstatus != 'Done' OR b2bstatus != 'Done')")
         # Generate and write data to the AUUPDATE file
         file_name = configsettings.TEMP_FILE_NAME  # Use Lambda's /tmp directory
