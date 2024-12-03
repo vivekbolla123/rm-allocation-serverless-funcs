@@ -17,6 +17,8 @@ class MarketListRow:
         self.curve_id = currParams.get("CurveID", CONST_NA)
         self.carr_exclusion_b2c = currParams.get("CarrExlusionB2C", CONST_NA)
         self.carr_exclusion_b2b = currParams.get("CarrExlusionB2B", CONST_NA)
+        self.flightExclusionB2B = currParams.get("flightExclusionB2B", CONST_NA)
+        self.flightExclusionB2C = currParams.get("flightExclusionB2C", CONST_NA)
         self.fare_anchor = currParams.get("fareAnchor", CONST_NA)
         self.fare_offset = currParams.get("fareOffset", CONST_NA)
         self.first_rbd_alloc = currParams.get("FirstRBDAlloc", CONST_NA)

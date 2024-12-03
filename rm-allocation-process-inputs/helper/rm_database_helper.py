@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2B,flightExclusionB2C,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -266,8 +266,10 @@ class RMDatabaseHelper:
                 enddateTime=f"{updateDate} {endtime}"
         if channel==B2B_CHANNEL:
             carr_exclusion = currParams.carr_exclusion_b2b
+            flightExclusion = currParams.flightExclusionB2B
         else:
             carr_exclusion = currParams.carr_exclusion_b2c
+            flightExclusion = currParams.flightExclusionB2C
     
         carr_exclusion_str = str(tuple(carr_exclusion.split('/')))  
         if len(tuple(carr_exclusion.split('/'))) == 1:
@@ -283,7 +285,7 @@ class RMDatabaseHelper:
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight 
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
             and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop = 0
-            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
+            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_flight!={flightExclusion}
         """
         if Day3Flag:
             mktLowestQuery = mktLowestQuery + f""" AND CAST(departure_date AS DATE) >= CAST('{currFltDate}' AS DATE)

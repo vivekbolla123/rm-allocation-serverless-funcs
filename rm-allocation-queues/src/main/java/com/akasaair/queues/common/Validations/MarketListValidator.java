@@ -5,6 +5,8 @@ import java.time.LocalTime;
 import java.time.format.DateTimeParseException;
 
 import static com.akasaair.queues.common.constants.Constants.*;
+import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_OUTPUT_FORMATTER;
+import static com.akasaair.queues.common.constants.DateTimeConstants.TIME_OUTPUT_FORMATTER;
 
 public class MarketListValidator {
 
@@ -26,6 +28,13 @@ public class MarketListValidator {
             isValid = false;
         }
         return isValid;
+    }
+
+    public static boolean isValidFlightNumber(String flightNumber) {
+        if (flightNumber == null || flightNumber.trim().isEmpty()) {
+            return false;
+        }
+        return flightNumber.matches("^[A-Z]{2}-\\d{3,4}$");
     }
 
     public static boolean checkDOWDigits(String value) {
