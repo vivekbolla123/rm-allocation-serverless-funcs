@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
+import json
 import pandas as pd
 from Constants import *
 import random
@@ -14,11 +16,10 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,lastSoldFare,last7avg):
 
         origin = currParams.origin
         destin = currParams.destin
-        lastSoldFare = CONST_NA
         strategyFare = CONST_NA
         historicOwnFare = CONST_NA
         profileFare = CONST_NA
@@ -58,22 +59,8 @@ class DetermineRBD:
             if upsellValue != 0:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
-        if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
-            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-                farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
-                if farePrice.shape[0] != 0:
-                    if channel == B2C_CHANNEL:
-                        lastSoldFare = farePrice["B2Cfare"][0]
-                    if channel == B2B_CHANNEL:
-                        lastSoldFare = farePrice["B2Bfare"][0]
-                        
-            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-                lastSoldFare = 0
-                flag = 'R' if channel == B2C_CHANNEL else 'M' if channel == B2B_CHANNEL else ''
-                flightDate = datetime.strptime(currFltDate, DATE_FORMAT_2).date()	
-                key = f"LastSoldFare:{currParams.origin}{currParams.destin}{currParams.flight_number}_{flightDate}_{flag}"
-                if self.redishelper.exists(key):
-                    lastSoldFare = self.redishelper.get(key).decode('utf-8')
+        if not (int(currParams.opening_fares) == 1) or not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
+            lastSoldFare = CONST_NA
                 
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
@@ -87,7 +74,7 @@ class DetermineRBD:
         self.logger.info("Historic Fare: " + str(historicOwnFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,last7avg)
 
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
@@ -109,7 +96,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
 
-    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount):
+    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,last7avg):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -209,7 +196,8 @@ class DetermineRBD:
                 anchorFare = (calculatedFare+strategyFare)/2
             else:
                 anchorFare = calculatedFare  
-
+        if last7avg:
+            howDetermined+="_last7bkgsAvg"
         return anchorFare, howDetermined, upsell
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):

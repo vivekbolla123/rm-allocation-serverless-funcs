@@ -1,6 +1,6 @@
 import logging
 from sys import exit
-
+import json
 
 import pandas as pd
 import pymssql
@@ -44,8 +44,13 @@ class LastSoldFare:
             exit()
 
     def get_last_sold_fare(self):
+        time = None
+        if self.cache_client.exists("LastSoldFare:executionTime"):
+            time = self.cache_client.get("LastSoldFare:executionTime").decode('utf-8')
         
-        whereCondition = "DATEADD(HOUR, -48, GETDATE())"
+        whereCondition = f"'{str(time)}'"
+        if time is None:
+            whereCondition = "DATEADD(HOUR, -48, GETDATE())"
 
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
@@ -57,45 +62,96 @@ class LastSoldFare:
 
             # Sort the DataFrame by BookingUTC
             df = df.sort_values(by='BookingUTC')
+            df = df.loc[df.groupby('BookingID')['BookingUTC'].idxmax()]
+            # Group by the required columns and get the last booking based on BookingUTC
+            last_booking_df = df.groupby(['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate', 'FareBasis']).apply(
+                lambda x: x.nlargest(7, 'BookingUTC')).reset_index(drop=True)
 
-            # Group by the required columns and get the last three bookings
-            last_three_bookings = df.groupby(['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']) \
-                .apply(lambda x: x.nlargest(3, 'BookingUTC')) \
-                .reset_index(drop=True)
+            last_booking_df = last_booking_df[
+                last_booking_df['FareBasis'].notna() & (last_booking_df['FareBasis'] != '')]
 
-            # Calculate average fare for groups with at least three bookings
-            avg_fares = last_three_bookings.groupby(['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']) \
-    .apply(lambda x: x['Fare'].mean() if len(x) >= 3 else None) \
-    .reset_index(name='AverageFare')
-
-            # Remove None values
-            avg_fares = avg_fares.dropna()
-
-            # Rename columns for clarity
-            avg_fares.columns = ['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate', 'AverageFare']
-
-            # Filter out groups with fewer than 3 bookings
-            avg_fares = avg_fares[avg_fares['FareBasis'].notna() & (avg_fares['FareBasis'] != '')]
-
-            self.updateValuesToRedis(avg_fares)
+            self.updateValuesToRedis(last_booking_df)
 
         self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         print("completed")
 
-    def updateValuesToRedis(self, avg_fares):
-        for index, row in avg_fares.iterrows():
+    def updateValuesToRedis(self, last_booking_df):
+        for (departure, arrival, flight, date), group in last_booking_df.groupby(['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']):
             # Generate the composite key
-            key = self.generate_key(row)
-            # Get the average fare value
-            value = row["AverageFare"]
-            # Set the key in Redis with a 48-hour expiration
-            self.cache_client.set(key, value, 172800)
+            key = f"LastSoldFare:{departure}{arrival}{flight}_{date}"
+            
+            # Prepare all fares list
+            new_all_fares = group.sort_values('BookingUTC', ascending=False).apply(lambda row: {
+                'BookingID': row['BookingID'],
+                'FareBasis': row['FareBasis'],
+                'Fare': row['Fare'],
+                'BookingUTC': row['BookingUTC'].strftime('%Y-%m-%dT%H:%M:%S.%f')
+            }, axis=1).tolist()
+            
+            # Check if key exists in Redis
+            existing_data = self.cache_client.get(key)
+            
+            if existing_data:
+                # Parse existing data
+                existing_dict = json.loads(existing_data.decode('utf-8'))
+                
+                # Merge and deduplicate all fares
+                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), new_all_fares, 7)
+                
+                # Separate and merge B2B and B2C fares
+                b2b_fares = self._merge_and_limit_entries(
+                    existing_dict.get('b2bfares', []), 
+                    [fare for fare in new_all_fares if fare['FareBasis'] == 'M'], 
+                    3
+                )
+                
+                b2c_fares = self._merge_and_limit_entries(
+                    existing_dict.get('b2cfares', []), 
+                    [fare for fare in new_all_fares if fare['FareBasis'] in ['R', 'C', 'V', 'Z']], 
+                    3
+                )
+                
+                # Prepare final dictionary
+                final_data = {
+                    'allfares': merged_all_fares,
+                    'b2bfares': b2b_fares,
+                    'b2cfares': b2c_fares
+                }
+            else:
+                # If no existing data, create new lists
+                final_data = {
+                    'allfares': new_all_fares[:7],
+                    'b2bfares': [fare for fare in new_all_fares if fare['FareBasis'] == 'M'][:3],
+                    'b2cfares': [fare for fare in new_all_fares if fare['FareBasis'] in ['R', 'C', 'V', 'Z']][:3]
+                }
+
+            # Store in Redis as JSON
+            self.cache_client.set(key, json.dumps(final_data), 172800)
+    
+    def _merge_and_limit_entries(self, existing_list, new_list, limit):
+        # Combine lists and remove duplicates
+        combined_list = []
+        seen_bookings = set()
+        
+        # Combine new and existing entries
+        for item in new_list + existing_list:
+            if item['BookingID'] not in seen_bookings:
+                combined_list.append(item)
+                seen_bookings.add(item['BookingID'])
+        
+        # Sort by BookingUTC and keep top entries
+        return sorted(combined_list, 
+                     key=lambda x: datetime.strptime(x['BookingUTC'], '%Y-%m-%dT%H:%M:%S.%f'), 
+                     reverse=True)[:limit]
+
+
 
     def lastSoldQuery(self, whereCondition):
         query = f"""
         Select 
-            BookingID, BookingUTC, PassengerID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, SUBSTRING(FareBasis, 5, 1) as FareBasis, Fare
+            BookingID, BookingUTC, PassengerID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, 
+            SUBSTRING(FareBasis, 5, 1) as FareBasis, Fare
             from 
             (
               Select
@@ -130,19 +186,17 @@ class LastSoldFare:
                     inner join REZ0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
+                    AND SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
                   GROUP BY
                     B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator
                 ) X
               ) Y
               WHERE
-                (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R') ) AND SUBSTRING(FareBasis, 3, 1) != 'C'
+                SUBSTRING(FareBasis, 3, 1) != 'C'
         """
         df = pd.read_sql(query, self.NavitaireConnection)
         return df
-
-    def generate_key(self, row):
-        return f"LastSoldFare:{row['DepartureStation']}{row['ArrivalStation']}{row['FlightNumber']}_{row['DepartureDate']}_{row['FareBasis']}"
 
     def get_credentials(self, parameter_name):
         ssm_client = client('ssm', region_name='ap-south-1')
