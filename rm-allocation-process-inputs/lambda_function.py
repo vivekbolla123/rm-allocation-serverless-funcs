@@ -11,7 +11,7 @@ import Constants
 from runAlloc import DynAlloc
 from runAlloc_Connections import DynAllocConnections
 from time_logger import TimeLogger
-from constants_utils import ConstantsUtils
+from utilities import constants_utils
 
 warnings.filterwarnings('ignore')
 
@@ -57,7 +57,7 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
-constantsutils = ConstantsUtils(wrconn)
+constantsutils = constants_utils.ConstantsUtils(wrconn)
 log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTS)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
