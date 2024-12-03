@@ -5,6 +5,7 @@ from sys import exit
 import pandas as pd
 import pymssql
 from redis import Redis
+from datetime import datetime
 from boto3 import client
 
 
@@ -43,131 +44,99 @@ class LastSoldFare:
             exit()
 
     def get_last_sold_fare(self):
+        
+        whereCondition = "DATEADD(HOUR, -48, GETDATE())"
 
-        df = self.lastSoldQuery()
+        df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
-            self.updateValuesToRedis(df)
+            df['FareBasis'] = df.groupby(['BookingID', 'PassengerID'])['FareBasis'].apply(
+                lambda x: x.replace('', pd.NA).ffill().bfill().replace(pd.NA, ''))
+
+            # Convert BookingUTC to datetime
+            df['BookingUTC'] = pd.to_datetime(df['BookingUTC'])
+
+            # Sort the DataFrame by BookingUTC
+            df = df.sort_values(by='BookingUTC')
+
+            # Group by the required columns and get the last three bookings
+            last_three_bookings = df.groupby(['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']) \
+                .apply(lambda x: x.nlargest(3, 'BookingUTC')) \
+                .reset_index(drop=True)
+
+            # Calculate average fare for groups with at least three bookings
+            avg_fares = last_three_bookings.groupby(['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']) \
+    .apply(lambda x: x['Fare'].mean() if len(x) >= 3 else None) \
+    .reset_index(name='AverageFare')
+
+            # Remove None values
+            avg_fares = avg_fares.dropna()
+
+            # Rename columns for clarity
+            avg_fares.columns = ['FareBasis', 'DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate', 'AverageFare']
+
+            # Filter out groups with fewer than 3 bookings
+            avg_fares = avg_fares[avg_fares['FareBasis'].notna() & (avg_fares['FareBasis'] != '')]
+
+            self.updateValuesToRedis(avg_fares)
+
+        self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         print("completed")
 
-    def updateValuesToRedis(self, last_booking_df):
-        for index, row in last_booking_df.iterrows():
-            row_dict = row.to_dict()
-            row_dict['DepartureDate'] = row_dict['DepartureDate'].strftime('%Y-%m-%d')
+    def updateValuesToRedis(self, avg_fares):
+        for index, row in avg_fares.iterrows():
+            # Generate the composite key
             key = self.generate_key(row)
-            value = row_dict["AverageFare"]
-           
+            # Get the average fare value
+            value = row["AverageFare"]
+            # Set the key in Redis with a 48-hour expiration
             self.cache_client.set(key, value, 172800)
 
-    def lastSoldQuery(self):
+    def lastSoldQuery(self, whereCondition):
         query = f"""
-        WITH BookingFares AS (
-    Select
-        BookingID, 
-        BookingUTC, 
-        DepartureStation, 
-        ArrivalStation, 
-        DepartureDate, 
-        FlightNumber, 
-        FareBasis,
-        SUM(TotalCharge) as Fare
-    FROM (
-        SELECT
-            B.RecordLocator, 
-            B.BookingID, 
-            B.BookingUTC, 
-            BP.PassengerID, 
-            PJS.SegmentID, 
-            IL.InventoryLegID, 
-            IL.DepartureStation, 
-            IL.ArrivalStation, 
-            IL.DepartureDate, 
-            IL.FlightNumber,
-            PJS.TripNumber, 
-            PJS.JourneyNumber, 
-            PJS.SegmentNumber, 
-            PJS.FareComponentNumber, 
-            PJS.FareJourneyType, 
-            PJS.FareBasis,
-            CAST((Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType in (0,1,2,3) then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
-                when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType in (0,1,2,3) and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) else 0 end
-            + Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType=4 then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
-                when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType=4 and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) else 0 end
-            + Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType=5 then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
-            + SUM(Case when PJC.ChargeType=3 and CTM.IncludedTaxFlag=1  then (PJC.ChargeAmount*CCV.ConversionRate) else 0 end)
-            when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType=5 and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
-            + SUM(Case when PJC.ChargeType=3 and CTM.IncludedTaxFlag=1  then (PJC.ChargeAmount*CCV.ConversionRate) else 0 end)
-            else 0 end) * (SQRT(CP.ActualDistance))/SUM(SQRT(CP.ActualDistance)) OVER (PARTITION BY B.BookingID) as decimal(19,4)) as TotalCharge
-        FROM
-            REZ0KWB01.rez.Booking B
-            INNER JOIN REZ0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-            INNER JOIN REZ0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('G', 'S') 
-            INNER JOIN REZ0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
-            INNER JOIN REZ0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
-            LEFT JOIN REZ0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-            LEFT JOIN REZ0KWB01.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
-            Left join REZ0KWB01.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
-            inner join REZ0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
-        WHERE
-            BookingUTC >= DATEADD(HOUR, -48, GETDATE())
-        GROUP BY
-            B.BookingID, 
-            B.BookingUTC, 
-            BP.PassengerID, 
-            PJS.SegmentID, 
-            IL.InventoryLegID, 
-            IL.DepartureStation, 
-            IL.ArrivalStation, 
-            IL.DepartureDate, 
-            IL.FlightNumber,
-            PJS.TripNumber, 
-            PJS.JourneyNumber, 
-            PJS.SegmentNumber, 
-            PJS.FareComponentNumber, 
-            PJS.FareJourneyType, 
-            PJS.FareBasis, 
-            B.RecordLocator,
-            CP.ActualDistance
-    ) X
-    GROUP BY 
-        BookingID,
-        BookingUTC,
-        DepartureStation,
-        ArrivalStation,
-        DepartureDate,
-        FlightNumber,
-        FareBasis
-),
-RankedFares AS (
-    SELECT 
-        DepartureStation,
-        ArrivalStation,
-        DepartureDate,
-        FlightNumber,
-        SUBSTRING(FareBasis, 5, 1) as FareBasis,
-        Fare,
-        ROW_NUMBER() OVER (PARTITION BY FlightNumber, DepartureDate ORDER BY BookingUTC DESC) as rn
-    FROM BookingFares
-    WHERE
-        (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R')) 
-        AND SUBSTRING(FareBasis, 3, 1) != 'C'
-)
-SELECT 
-    DepartureStation,
-    ArrivalStation,
-    DepartureDate,
-    FlightNumber,
-    FareBasis,
-    AVG(Fare) as AverageFare   
-FROM RankedFares
-WHERE rn <= 3
-GROUP BY 
-    DepartureStation,
-    ArrivalStation,
-    DepartureDate,
-    FlightNumber,
-    FareBasis
-HAVING COUNT(*) = 3
+        Select 
+            BookingID, BookingUTC, PassengerID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, SUBSTRING(FareBasis, 5, 1) as FareBasis, Fare
+            from 
+            (
+              Select
+                BookingID, BookingUTC, PassengerID, SegmentID, InventoryLegID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, FareBasis, RecordLocator,
+                CAST(sum(BaseFare+AirportCharges+Taxes) over (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber)*(SQRT(Distance))/SUM(SQRT(Distance)) OVER (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber) as decimal(19,4)) as Fare
+                from 
+                (
+                  SELECT
+                    B.RecordLocator, B.BookingID, B.BookingUTC, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, 
+                    IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
+                    PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis,
+                    Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType in (0,1,2,3) then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
+                      when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType in (0,1,2,3) and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) else 0 end as BaseFare,
+                    Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType=4 then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
+                      when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType=4 and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) else 0 end as AirportCharges,
+                    Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType=5 then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
+                    + SUM(Case when PJC.ChargeType=3 and CTM.IncludedTaxFlag=1  then (PJC.ChargeAmount*CCV.ConversionRate) else 0 end)
+                    when PJS.FareJourneyType=2 then SUM(Case when PJC.ChargeType=5 and PJS.SegmentNumber=PJL.LegNumber then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
+                    + SUM(Case when PJC.ChargeType=3 and CTM.IncludedTaxFlag=1  then (PJC.ChargeAmount*CCV.ConversionRate) else 0 end)
+                    else 0 end as Taxes,
+                    case when PJS.FareBasis='' then 1 else SegmentNumber end as ModSegmentNumber,
+                    avg(CP.ActualDistance) as Distance
+                  FROM
+                    TST0KWB01.rez.Booking B
+                    INNER JOIN TST0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
+                    INNER JOIN TST0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('G', 'S') 
+                    INNER JOIN TST0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
+                    INNER JOIN TST0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
+                    LEFT JOIN TST0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
+                    LEFT JOIN TST0KWB01.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
+                    Left join TST0KWB01.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
+                    inner join TST0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
+                  WHERE
+                    BookingUTC >= {whereCondition}
+                  GROUP BY
+                    B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
+                    PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator
+                ) X
+              ) Y
+              WHERE
+                (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R') ) AND SUBSTRING(FareBasis, 3, 1) != 'C'
         """
         df = pd.read_sql(query, self.NavitaireConnection)
         return df
