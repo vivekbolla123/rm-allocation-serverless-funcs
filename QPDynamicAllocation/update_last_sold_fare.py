@@ -119,15 +119,15 @@ class LastSoldFare:
                     case when PJS.FareBasis='' then 1 else SegmentNumber end as ModSegmentNumber,
                     avg(CP.ActualDistance) as Distance
                   FROM
-                    TST0KWB01.rez.Booking B
-                    INNER JOIN TST0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-                    INNER JOIN TST0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('G', 'S') 
-                    INNER JOIN TST0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
-                    INNER JOIN TST0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
-                    LEFT JOIN TST0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-                    LEFT JOIN TST0KWB01.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
-                    Left join TST0KWB01.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
-                    inner join TST0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
+                    REZ0KWB01.rez.Booking B
+                    INNER JOIN REZ0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
+                    INNER JOIN REZ0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('G', 'S') 
+                    INNER JOIN REZ0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
+                    INNER JOIN REZ0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
+                    LEFT JOIN REZ0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
+                    LEFT JOIN REZ0KWB01.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
+                    Left join REZ0KWB01.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
+                    inner join REZ0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
                   GROUP BY
