@@ -341,11 +341,19 @@ class DynAlloc:
 			final_mkt_fare_b2b = 0
 			final_mkt_fare_b2c = 0
 			self.logger.info("dplfBand is: " + str(dplfBand))
-			if(dplfBand == 0 or dplfBand == 1 or dplfBand == 2):
+			
+			if(dplfBand == 0):
 				ab_start_time = "00:00"
 				ab_end_time = "23:59"
-				min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
-				min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
+				min_10_b2c=self.marketfaresservice.getMFinRange0(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
+				min_10_b2b=self.marketfaresservice.getMFinRange0(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
+				final_mkt_fare_b2b = min_10_b2b
+				final_mkt_fare_b2c = min_10_b2c
+			elif(dplfBand == 1 or dplfBand == 2):
+				ab_start_time = "00:00"
+				ab_end_time = "23:59"
+				min_10_b2c=self.marketfaresservice.getMFinRange2(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
+				min_10_b2b=self.marketfaresservice.getMFinRange2(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
 				final_mkt_fare_b2b = min_10_b2b
 				final_mkt_fare_b2c = min_10_b2c
 			elif(dplfBand == 3):
