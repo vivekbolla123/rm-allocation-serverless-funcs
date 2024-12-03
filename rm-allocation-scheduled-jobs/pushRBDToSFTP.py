@@ -18,7 +18,7 @@ class PushRBDtoSFTP:
         self.cache_client = params['cache_client']
 
     def run(self):
-        query = "SELECT run_id FROM allocation_run_audit WHERE update_navitaire_method = 'sftp' and is_sftp_pushed IS NULL "
+        query = "SELECT run_id FROM allocation_run_audit WHERE update_navitaire_method = 'sftp' and is_sftp_started IS NULL "
         rows = pd.read_sql(query, self.rm_rd_conn)
         for index,row in rows.iterrows():
             run_id = row["run_id"]
@@ -51,3 +51,5 @@ class PushRBDtoSFTP:
                         }),
                 )
             self.logger.info(f"{run_id} is pushed into queue for sftp")
+            query = "SELECT run_id FROM allocation_run_audit WHERE update_navitaire_method = 'sftp' and is_sftp_started IS NULL "
+            rows = pd.read_sql(query, self.rm_rd_conn)
