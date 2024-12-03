@@ -29,6 +29,8 @@ class ConstantsUtils:
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
+        self.MFMIN0 = MFMIN0
+        self.MFMIN1 = MFMIN1
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -89,3 +91,7 @@ class ConstantsUtils:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
                 self.TBF_RBD = parameter_value
+            elif parameter_key == MFMIN0:
+                self.MFMIN0 = int(parameter_value)
+            elif parameter_key == MFMIN1:
+                self.MFMIN1 = int(parameter_value)

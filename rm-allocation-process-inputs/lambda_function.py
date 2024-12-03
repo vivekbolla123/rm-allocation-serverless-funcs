@@ -58,7 +58,7 @@ except Exception as e:
     sys.exit()
 
 constantsutils = ConstantsUtils(wrconn)
-log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTSS)
+log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTS)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 def lambda_handler(event, context):
