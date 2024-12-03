@@ -59,7 +59,7 @@ class DetermineRBD:
             if upsellValue != 0:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
-        if not (int(currParams.opening_fares) == 1) or not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
+        if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
             lastSoldFare = CONST_NA
                 
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)

@@ -801,6 +801,8 @@ class RMDatabaseHelper:
             AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
         '''
         df = pd.read_sql(query, self.conn)
+        if df.empty:
+            return -1, -1, -1, -1
         l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
         p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
         G8_class_seats_sold = df[df['class_code'] == 'G8']['seats_sold'].values[0]
@@ -820,6 +822,8 @@ class RMDatabaseHelper:
                 AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
             """
         df = pd.read_sql(query, self.conn)
+        if df.empty:
+            return -1, -1, -1, -1
         l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
         p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
         G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]

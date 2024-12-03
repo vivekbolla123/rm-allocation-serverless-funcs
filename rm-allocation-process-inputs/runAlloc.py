@@ -388,6 +388,7 @@ class DynAlloc:
 
 			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 				farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams)
+				last_seven_avg = 0
 				if farePrice.shape[0] != 0:
 					lastSoldFareb2c = farePrice["B2C_last3avg_fare"][0]
 					lastSoldFareb2b = farePrice["B2B_last3avg_fare"][0]
@@ -396,6 +397,7 @@ class DynAlloc:
 			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
 				lastSoldFareb2c = 0
 				lastSoldFareb2b = 0
+				last_seven_avg = 0
 				flightDate = datetime.strptime(currFltDate, DATE_FORMAT_2).date()	
 				key = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{self.currParams.flight_number}_{flightDate}"
 				if self.redishelper.exists(key):
@@ -414,10 +416,8 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.anchorFare = int(hardfare)
 				last7avg = False
 				if not isB2CMarketFareAvailable:
-					self.outputSummaryRow_b2b.lastSevenAvgFare = last_seven_avg
 					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
 					self.outputSummaryRow_b2c.anchorFare = last_seven_avg
-					self.outputSummaryRow_b2b.anchorFare = last_seven_avg
 					last7avg = True
     
 
@@ -432,7 +432,10 @@ class DynAlloc:
 					if hardfare!=-1:
 						self.outputSummaryRow_b2b.anchorFare = int(hardfare)
 
-
+					if not isB2BMarketFareAvailable:
+						self.outputSummaryRow_b2b.lastSevenAvgFare = last_seven_avg
+						self.outputSummaryRow_b2b.anchorFare = last_seven_avg
+						last7avg = True
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
 					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),lastSoldFareb2b,last7avg)
 				else:
