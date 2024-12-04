@@ -19,6 +19,7 @@ class OutputSummary:
         self.bookingToday = CONST_NA
         self.bookingLastHour = CONST_NA
         self.historicOwnFare = CONST_NA
+        self.hardAnchorFare = CONST_NA
         self.strategyFare = CONST_NA
         self.lastSellingFare = CONST_NA
         self.profileFare = CONST_NA
