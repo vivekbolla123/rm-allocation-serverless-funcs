@@ -88,4 +88,8 @@ class RunConnections:
             response = requests.post(url, headers=headers, json=request)
             self.updateConnectionsStarted(run_id)
             self.logger.info("SUCCESS")
+        else:
+            response = requests.post(url, headers=headers, json=request)
+            self.updateConnectionsStarted(run_id)
+            self.logger.info("SUCCESS")
         
