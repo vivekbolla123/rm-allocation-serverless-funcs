@@ -8,10 +8,11 @@ import warnings
 import boto3
 from redis import Redis
 import Constants
+from helper.rm_database_helper import RMDatabaseHelper
 from runAlloc import DynAlloc
 from runAlloc_Connections import DynAllocConnections
 from time_logger import TimeLogger
-from utilities import constants_utils
+from constants_utils import ConstantsUtils
 
 warnings.filterwarnings('ignore')
 
@@ -57,7 +58,7 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
-constantsutils = constants_utils.ConstantsUtils(wrconn)
+constantsutils = ConstantsUtils(wrconn)
 log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTS)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 

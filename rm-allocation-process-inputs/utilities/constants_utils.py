@@ -31,6 +31,7 @@ class ConstantsUtils:
         self.TBF_RBD = TBF_RBD
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
+        self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -95,3 +96,5 @@ class ConstantsUtils:
                 self.MFMIN0 = int(parameter_value)
             elif parameter_key == MFMIN1:
                 self.MFMIN1 = int(parameter_value)
+            elif parameter_key == CHECK_THRESHOLD_PROCESS_INPUTS:
+                self.CHECK_THRESHOLD_PROCESS_INPUTS = int(parameter_value)
