@@ -1016,7 +1016,7 @@ class DynAlloc:
 
 			if autoBackstopFlag == '1':
 				if dplfBand in [0, 1, 2, 3]:
-					if None not in [backstop, mkt_fare] and mkt_fare < backstop:
+					if None not in [backstop, mkt_fare] and mkt_fare < backstop and mkt_fare!=0:
 						autoBackstopValue = mkt_fare - 50
 						return autoBackstopValue
 			return 'NA'
