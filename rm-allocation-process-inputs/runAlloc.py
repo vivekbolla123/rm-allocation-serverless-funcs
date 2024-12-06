@@ -407,7 +407,7 @@ class DynAlloc:
 					lastSoldFareb2c = lastsoldb2c
 					lastSoldFareb2b = lastsoldb2b
    
-			if isB2CMarketFareAvailable or last_seven_avg!=0:
+			if isB2CMarketFareAvailable or last_seven_avg!=CONST_NA:
 				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
@@ -425,7 +425,7 @@ class DynAlloc:
 
 				
 
-				if isB2BMarketFareAvailable or last_seven_avg!=0:
+				if isB2BMarketFareAvailable or last_seven_avg!=CONST_NA:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
 					if self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
