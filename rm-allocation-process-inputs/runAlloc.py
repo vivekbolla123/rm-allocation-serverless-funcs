@@ -389,20 +389,20 @@ class DynAlloc:
 
 			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 				farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams)
-				last_seven_avg = 0
+				last_seven_avg = CONST_NA
 				if farePrice.shape[0] != 0:
 					lastSoldFareb2c = farePrice["B2C_last3avg_fare"][0]
 					lastSoldFareb2b = farePrice["B2B_last3avg_fare"][0]
 					last_seven_avg = farePrice["last7avg"][0]
 						
 			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-				lastSoldFareb2c = 0
-				lastSoldFareb2b = 0
-				last_seven_avg = 0
-				flightDate = datetime.strptime(currFltDate, DATE_FORMAT_2).date()	
+				lastSoldFareb2c = CONST_NA
+				lastSoldFareb2b = CONST_NA
+				last_seven_avg = CONST_NA
+				flightDate = datetime.strptime(currFltDate, DATE_FORMAT).date()	
 				key = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{self.currParams.flight_number}_{flightDate}"
-				if self.redishelper.exists(key):
-					fare_manifest = self.redishelper.get(key).decode('utf-8')
+				if self.cache_client.exists(key):
+					fare_manifest = self.cache_client.get(key).decode('utf-8')
 					last_seven_avg, lastsoldb2b, lastsoldb2c = self.calculate_averages(fare_manifest)
 					lastSoldFareb2c = lastsoldb2c
 					lastSoldFareb2b = lastsoldb2b
