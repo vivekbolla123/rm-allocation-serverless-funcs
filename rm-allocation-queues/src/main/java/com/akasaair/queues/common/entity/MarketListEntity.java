@@ -72,8 +72,6 @@ public class MarketListEntity {
     public String analystName;
     @Column(name = "DaySpan")
     public String daySpan;
-    @Column(name = "OwnFareFlag")
-    public String ownFareFlag;
     @Column(name = "openingFares")
     public String openingFares;
     @Column(name = "AutoTimeRangeFlag")

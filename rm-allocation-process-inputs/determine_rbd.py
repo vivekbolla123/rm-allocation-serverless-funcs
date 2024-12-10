@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from decimal import Decimal
+import json
 import pandas as pd
 from Constants import *
 import random
@@ -14,30 +16,40 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg):
 
         origin = currParams.origin
         destin = currParams.destin
-        lastSoldFare = CONST_NA
         strategyFare = CONST_NA
-        historicOwnFare = CONST_NA
         profileFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
+        hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
+        if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
+            hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
+            if hardrbddata.shape[0] == 0 and  hardAnchorFare!=CONST_NA:
+                hardopenResult = self.extremeFaresSkipping(origin, destin, hardAnchorFare, hardoffset, channel, backstop,  hardopenResult, 'L')
+            elif  hardAnchorFare!=CONST_NA:
+                hardopenResult = self.getFares(origin, destin, hardAnchorFare, hardoffset, channel,  hardopenResult, hardrbddata, howDetermined, 'L')
+            hardAnchorFare=hardopenResult['Fare'][0]
+            
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
+            
         else:
             openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
+            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
+        
+            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L') 
         
         strategyFare = openResult['Fare'][0]
-
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
 
         self.logger.info("totalCapacity: " + str(totalCapacity))
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -45,12 +57,6 @@ class DetermineRBD:
         sector = origin + destin
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
 
-        if int(currParams.own_fare_flag) == 1:
-            historicData = self.rmdatabasehelper.getFareHistoryData(ndocounter, sector, month, dow, channel, deptTime)
-            if len(historicData) != 0:
-                historicOwnFare = historicData['price'][0]
-                if upsellValue != 0:
-                    historicOwnFare = (float(historicOwnFare) * (1 + float(upsellValue)/100))
 
         profileFaresData = self.rmdatabasehelper.getProfileFares(sector, month, dow, deptTime, percentile)
         if len(profileFaresData) != 0:
@@ -58,22 +64,8 @@ class DetermineRBD:
             if upsellValue != 0:
                 profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
-        if (int(currParams.opening_fares) == 1) or (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
-            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-                farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, currParams)
-                if farePrice.shape[0] != 0:
-                    if channel == B2C_CHANNEL:
-                        lastSoldFare = farePrice["B2Cfare"][0]
-                    if channel == B2B_CHANNEL:
-                        lastSoldFare = farePrice["B2Bfare"][0]
-                        
-            if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-                lastSoldFare = 0
-                flag = 'R' if channel == B2C_CHANNEL else 'M' if channel == B2B_CHANNEL else ''
-                flightDate = datetime.strptime(currFltDate, DATE_FORMAT_2).date()	
-                key = f"LastSoldFare:{currParams.origin}{currParams.destin}{currParams.flight_number}_{flightDate}_{flag}"
-                if self.redishelper.exists(key):
-                    lastSoldFare = self.redishelper.get(key).decode('utf-8')
+        if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
+            lastSoldFare = CONST_NA
                 
         value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
         if value.shape[0] != 0:
@@ -84,18 +76,17 @@ class DetermineRBD:
 
         self.logger.info("Last Sold Price: " + str(lastSoldFare))
         self.logger.info("Profile Fare: " + str(profileFare))
-        self.logger.info("Historic Fare: " + str(historicOwnFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, historicOwnFare, profileFare, lastSoldFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg)
 
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
             timeString = 'Post10'
             
-        if dPLF > 0:
+        if anchorValue == 'A':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_A_' + howDetermined
-        else:
+        elif anchorValue == 'B':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_B_' + howDetermined
 
         if anchorFare != 0:
@@ -107,9 +98,9 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, historicOwnFare, profileFare, upsell
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell
 
-    def finalFareAnchor(self, strategyFare, historicOwnFare, profileFare, lastSoldFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount):
+    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -120,40 +111,90 @@ class DetermineRBD:
             # Check each variable if it exists and add its value to the list
             if lastSoldFare != CONST_NA:
                 faresList.append(float(lastSoldFare))
-            if historicOwnFare != CONST_NA:
-                faresList.append(float(historicOwnFare))
+            # if historicOwnFare != CONST_NA:
+            #     faresList.append(float(historicOwnFare))
             if profileFare != CONST_NA and int(currParams.profileFares) == 1:
                 faresList.append(float(profileFare))
-
-            # Check if any values exist
-            if faresList:
-                max_value = max(faresList)
-                
-            if max_value == 0:
-                anchorFare = strategyFare
-                howDetermined = 'AllocationY_StrategyFare_UpsellN'
-                upsell = CONST_NA
-            else:
-                if max_value > strategyFare:
-                    howDetermined = 'AllocationY_MaxOwnFare_UpsellY'
-                    if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-                        if random.choice([True, False]):
-                            upsell = max_value * 0.05
-                    anchorFare = max_value + upsell
-                else:
-                    upsell = CONST_NA
-                    interpolatedValue = (max_value + strategyFare) / 2
-                    howDetermined = 'AllocationY_UpsoldMaxOwnFare_UpsellN'
-                    
-                    if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
-                        anchorFare = interpolatedValue
-                    else:
-                        tolaranceValue = float(strategyFare) - float(toleranceFare)
-                        if interpolatedValue > tolaranceValue:
-                            anchorFare = interpolatedValue
+            # if hardAnchorFare != CONST_NA:
+            #     faresList.append(float(hardAnchorFare))
+            if lastSoldFare != CONST_NA:
+                if profileFare != CONST_NA and int(currParams.profileFares) == 1:
+                    if float(lastSoldFare)<float(profileFare) or float(lastSoldFare)<float(strategyFare):
+                        delta = max(float(profileFare),float(strategyFare))-float(lastSoldFare)
+                        if dPLF<0:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellN'
+                            anchorFare=lastSoldFare
+                        elif dPLF<15:
+                            dec="lastsoldfare"
+                            if  max(float(profileFare),float(lastSoldFare))==float(profileFare):
+                                dec="profilefare"
+                            howDetermined = f'AllocationY_Interpollated_last_sold_fare_{dec}_UpsellN'
+                            anchorFare=lastSoldFare+delta*(dPLF/15)
                         else:
-                            anchorFare = tolaranceValue
-                            howDetermined = howDetermined + '_ToleranceHit'
+                            howDetermined = f'AllocationY_Max_own_fare_var_15+_UpsellN'
+                            anchorFare=max(float(profileFare),float(strategyFare))
+                    if float(lastSoldFare)>=float(profileFare) and float(lastSoldFare)>=float(strategyFare):
+                        if float(BookingsInHour)>0:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellY'
+                            upsell=lastSoldFare*0.05
+                            anchorFare=lastSoldFare+upsell
+                        else:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellN'
+                            anchorFare=lastSoldFare
+                else:
+                    if float(lastSoldFare)<=float(strategyFare):
+                        delta = float(strategyFare) - float(lastSoldFare)
+                        if dPLF<0:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellN'
+                            anchorFare=lastSoldFare
+                        else:
+                            howDetermined = 'AllocationY_Interpollated_last_sold_fare_UpsellN'
+                            anchorFare=lastSoldFare+delta*(dPLF/15)
+                    else:
+                        if float(BookingsInHour)>0:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellY'
+                            upsell=lastSoldFare*0.05
+                            anchorFare=lastSoldFare+upsell
+                        else:
+                            howDetermined = 'AllocationY_last_sold_fare_UpsellN'
+                            anchorFare=lastSoldFare
+            else:
+                if profileFare!=CONST_NA and int(currParams.profileFares) == 1:
+                    anchorFare=(float(profileFare)+float(strategyFare))/2
+                    howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN'
+                else:
+                    anchorFare=float(strategyFare)
+                    howDetermined = 'AllocationY_Startegy_fare_UpsellN'
+                
+            # Check if any values exist
+            # if faresList:
+            #     max_value = max(faresList)
+                
+            # if max_value == 0:
+            #     anchorFare = strategyFare
+            #     howDetermined = 'AllocationY_StrategyFare_UpsellN'
+            #     upsell = CONST_NA
+            # else:
+            #     if max_value > strategyFare:
+            #         howDetermined = 'AllocationY_MaxOwnFare_UpsellY'
+            #         if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
+            #             if random.choice([True, False]):
+            #                 upsell = max_value * 0.05
+            #         anchorFare = max_value + upsell
+            #     else:
+            #         upsell = CONST_NA
+            #         interpolatedValue = (max_value + strategyFare) / 2
+            #         howDetermined = 'AllocationY_UpsoldMaxOwnFare_UpsellN'
+                    
+            #         if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
+            #             anchorFare = interpolatedValue
+            #         else:
+            #             tolaranceValue = float(strategyFare) - float(toleranceFare)
+            #             if interpolatedValue > tolaranceValue:
+            #                 anchorFare = interpolatedValue
+            #             else:
+            #                 anchorFare = tolaranceValue
+            #                 howDetermined = howDetermined + '_ToleranceHit'
 
         if value == 'B':
             upsell = CONST_NA
@@ -161,10 +202,12 @@ class DetermineRBD:
             max_value = 0
             if lastSoldFare != CONST_NA and float(lastSoldFare) <= float(strategyFare):
                 faresList.append(float(lastSoldFare))
-            if historicOwnFare != CONST_NA and float(historicOwnFare) <= float(strategyFare):
-                faresList.append(float(historicOwnFare))
+            # if historicOwnFare != CONST_NA and float(historicOwnFare) <= float(strategyFare):
+            #     faresList.append(float(historicOwnFare))
             if profileFare != CONST_NA and float(profileFare) <= float(strategyFare) and int(currParams.profileFares) == 1:
                 faresList.append(float(profileFare))
+            # if hardAnchorFare != CONST_NA and float(hardAnchorFare) <= float(strategyFare):
+            #     faresList.append(float(hardAnchorFare))
 
             if faresList:
                 max_value = max(faresList)
@@ -172,23 +215,54 @@ class DetermineRBD:
             if max_value == 0:
                 anchorFare = float(strategyFare)
                 howDetermined = 'AllocationY_StrategyFare_UpsellN'
+                if hardAnchorFare!=CONST_NA:
+                    anchorFare = min(float(strategyFare),float(hardAnchorFare))
+                    dec="StrategyFare"
+                    if  min(float(strategyFare),float(hardAnchorFare))==float(hardAnchorFare):
+                            dec="hardanchorfare"
+                    howDetermined =f"AllocationY_{dec}_UpsellN"
             else:
-                delta = float(strategyFare) - float(max_value)
-                howDetermined = 'AllocationY_InterpolatedMaxOwnFare_UpsellN'
-                if float(max_value) <= float(strategyFare):
-                    interpolatedValue = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
-                if dPLF <= (float(self.constantsutils.OWN_FARE_DELTA) * -1):
-                    interpolatedValue = max_value
-
-                if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
-                    anchorFare = interpolatedValue
-                else:
-                    tolaranceValue = float(strategyFare) - float(toleranceFare)
-                    if interpolatedValue > tolaranceValue:
-                        anchorFare = interpolatedValue
+                if max_value == float(strategyFare):
+                    if hardAnchorFare!=CONST_NA:
+                        dec="strategyFare"
+                        if  min(float(strategyFare),float(hardAnchorFare))==float(hardAnchorFare):
+                            dec="hardanchorfare"
+                        anchorFare = min(float(strategyFare),float(hardAnchorFare))
+                        howDetermined =f"AllocationY_min_{dec}_UpsellN"
                     else:
-                        anchorFare = tolaranceValue
-                        howDetermined = howDetermined + '_ToleranceHit'
+                        anchorFare = float(strategyFare)
+                    howDetermined ="AllocationY_Startegy_fare_UpsellN"
+                if max_value<float(strategyFare):
+                    delta = float(strategyFare) - float(max_value)
+                    howDetermined = 'AllocationY_Interpollated_Max_own_fare_UpsellN'
+                    if dPLF>-30:
+                        v1 = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
+                    else:
+                        v1=max_value
+                    if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
+                        v2=0
+                    else:
+                        v2=float(strategyFare)-float(toleranceFare)
+                    if hardAnchorFare!=CONST_NA:
+                        anchorFare=min(max(v1,v2),float(hardAnchorFare))
+                    else:
+                        anchorFare=max(v1,v2)
+                # delta = float(strategyFare) - float(max_value)
+                # howDetermined = 'AllocationY_InterpolatedMaxOwnFare_UpsellN'
+                # if float(max_value) <= float(strategyFare):
+                #     interpolatedValue = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
+                # if dPLF <= (float(self.constantsutils.OWN_FARE_DELTA) * -1):
+                #     interpolatedValue = max_value
+
+                # if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
+                #     anchorFare = interpolatedValue
+                # else:
+                #     tolaranceValue = float(strategyFare) - float(toleranceFare)
+                #     if interpolatedValue > tolaranceValue:
+                #         anchorFare = interpolatedValue
+                #     else:
+                #         anchorFare = tolaranceValue
+                #         howDetermined = howDetermined + '_ToleranceHit'
 
         if value == 'C':
             # Skip allocations
@@ -209,7 +283,8 @@ class DetermineRBD:
                 anchorFare = (calculatedFare+strategyFare)/2
             else:
                 anchorFare = calculatedFare  
-
+        if last7avg:
+            howDetermined+="_last7bkgsAvg"
         return anchorFare, howDetermined, upsell
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
@@ -329,7 +404,14 @@ class DetermineRBD:
         
         openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
         return openResult
-      
+    
+    def check_int(self,value):
+        try:
+            int(value)
+            return True
+        except:
+            return False
+        
     def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route):
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section

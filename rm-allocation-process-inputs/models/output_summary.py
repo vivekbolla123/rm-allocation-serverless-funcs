@@ -18,10 +18,11 @@ class OutputSummary:
         self.currentTgtLoad = CONST_NA
         self.bookingToday = CONST_NA
         self.bookingLastHour = CONST_NA
-        self.historicOwnFare = CONST_NA
+        self.hardAnchorFare = CONST_NA
         self.strategyFare = CONST_NA
         self.lastSellingFare = CONST_NA
         self.profileFare = CONST_NA
+        self.lastSevenAvgFare = CONST_NA
         self.upsell = CONST_NA
         self.anchorFare = CONST_NA
         self.OpenRBD = CONST_NA

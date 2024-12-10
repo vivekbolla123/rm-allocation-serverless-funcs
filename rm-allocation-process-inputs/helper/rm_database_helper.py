@@ -36,7 +36,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,OwnFareFlag,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -95,7 +95,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, historicOwnFare, overBookingCount, recommendedActions, marketFaresSummary, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare,lastSevenAvgFare,hardAnchorFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, marketFaresSummary, profileFare, status)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -136,12 +136,13 @@ class RMDatabaseHelper:
                     '{str(latest_row.endOfDayTgtLoad)}',
                     '{str(latest_row.strategyFare)}',
                     '{str(latest_row.lastSellingFare)}',
+                    '{str(latest_row.lastSevenAvgFare)}',
+                    '{str(latest_row.hardAnchorFare)}',
                     '{str(latest_row.upsell)}',
                     '{str(latest_row.bookingToday)}',
                     '{str(latest_row.bookingLastHour)}',
                     '{str(latest_row.currentTgtLoad)}',
                     '{str(latest_row.currentLoadFactor)}',
-                    '{str(latest_row.historicOwnFare)}',
                     '{str(latest_row.overBookingCount)}',
                     '{str(latest_row.recommendedActions)}',
                     '{str(latest_row.marketFaresSummary)}',
@@ -616,10 +617,10 @@ class RMDatabaseHelper:
 
     def getLastSellingFare(self, currFltDateStr, currParams):
 
-        currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+        currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
 
         query=f'''
-            select B2Bfare,B2Cfare from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
+            select B2B_last3avg_fare,B2C_last3avg_fare,last7avg from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
         conn=self.conn
         farePrice = pd.read_sql(query, conn)
@@ -803,6 +804,8 @@ class RMDatabaseHelper:
             AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
         '''
         df = pd.read_sql(query, self.conn)
+        if df.empty:
+            return -1, -1, -1, -1
         l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
         p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
         G8_class_seats_sold = df[df['class_code'] == 'G8']['seats_sold'].values[0]
@@ -822,6 +825,8 @@ class RMDatabaseHelper:
                 AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
             """
         df = pd.read_sql(query, self.conn)
+        if df.empty:
+            return -1, -1, -1, -1
         l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
         p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
         G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
