@@ -1,4 +1,5 @@
 import copy
+from decimal import Decimal
 import traceback
 import os
 import json
@@ -297,12 +298,12 @@ class DynAlloc:
 			# Get Dynamic D1 (Time) Value
 			DaySpan, input_time_str = self.autoTimeRange(currFltDepartureTime)
 
-			self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange,hardfare = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2B_CHANNEL,plf)
-			self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange,hardfare = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2C_CHANNEL,plf)
+			self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange,hardstartTime,hardendTime = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2B_CHANNEL,plf)
+			self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange,hardstartTime,hardendTime = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2C_CHANNEL,plf)
 
 			# Get Dynamic D2 (Offset & Criteria) Value
-			self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.fareOffset, self.outputSummaryRow_b2b.StrategyReference,hardfare = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2B_CHANNEL,plf)
-			self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.fareOffset, self.outputSummaryRow_b2c.StrategyReference,hardfare = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2C_CHANNEL,plf)
+			self.outputSummaryRow_b2b.criteria,hardcriteria, self.outputSummaryRow_b2b.fareOffset,hardoffset, self.outputSummaryRow_b2b.StrategyReference,hardfareb2b = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2B_CHANNEL,plf)
+			self.outputSummaryRow_b2c.criteria,hardcriteria, self.outputSummaryRow_b2c.fareOffset,hardoffset, self.outputSummaryRow_b2c.StrategyReference,hardfareb2c = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2C_CHANNEL,plf)
 
 			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
 			self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -310,13 +311,13 @@ class DynAlloc:
 			# Actual Work Happens here
 			# Get the B2C and B2B Fare ranges
 			self.logger.info("Getting market Fares")
-			if hardfare==-1:
-				self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.marketFaresSummary, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str)
 
-				self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.marketFaresSummary, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str)
-			else:
-				isB2CMarketFareAvailable=True
-				isB2BMarketFareAvailable=True
+			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.marketFaresSummary, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
+   
+
+			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.marketFaresSummary, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
+
+			
 			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
 			bookloadPercentile = self.mathutils.getCeilNumber(currBookedLoad / actualPercentile)
 
@@ -378,29 +379,56 @@ class DynAlloc:
 			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
 
-			if isB2CMarketFareAvailable:
-
+			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
+				farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams)
+				last_seven_avg = CONST_NA
+				if farePrice.shape[0] != 0:
+					lastSoldFareb2c = farePrice["B2C_last3avg_fare"][0]
+					lastSoldFareb2b = farePrice["B2B_last3avg_fare"][0]
+					last_seven_avg = farePrice["last7avg"][0]
+						
+			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+				lastSoldFareb2c = CONST_NA
+				lastSoldFareb2b = CONST_NA
+				last_seven_avg = CONST_NA
+				flightDate = datetime.strptime(currFltDate, DATE_FORMAT).date()	
+				key = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{self.currParams.flight_number}_{flightDate}"
+				if self.cache_client.exists(key):
+					fare_manifest = self.cache_client.get(key).decode('utf-8')
+					last_seven_avg, lastsoldb2b, lastsoldb2c = self.calculate_averages(fare_manifest)
+					lastSoldFareb2c = lastsoldb2c
+					lastSoldFareb2b = lastsoldb2b
+   
+			if isB2CMarketFareAvailable or last_seven_avg!=CONST_NA:
+				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 				if self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
-				if hardfare!=-1:
-					self.outputSummaryRow_b2c.anchorFare = int(hardfare)
+				
+				last7avg = False
+				if not isB2CMarketFareAvailable:
+					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
+					self.outputSummaryRow_b2c.anchorFare = last_seven_avg
+					last7avg = True
 
 				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(self.outputSummaryRow_b2c.MktFare_Min) + " to " + str(self.outputSummaryRow_b2c.MktFare_Max))
-				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.historicOwnFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity))
+				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare,self.outputSummaryRow_b2c.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2c,hardoffset,BookingsInHour,lastSoldFareb2c,last7avg)
 
-				if isB2BMarketFareAvailable:
+				
+
+				if isB2BMarketFareAvailable or last_seven_avg!=CONST_NA:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
 					if self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
-					if hardfare!=-1:
-						self.outputSummaryRow_b2b.anchorFare = int(hardfare)
 
-
+					if not isB2BMarketFareAvailable:
+						self.outputSummaryRow_b2b.lastSevenAvgFare = last_seven_avg
+						self.outputSummaryRow_b2b.anchorFare = last_seven_avg
+						last7avg = True
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.historicOwnFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity))
+					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg)
 				else:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else:
@@ -552,6 +580,9 @@ class DynAlloc:
 		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'S')
 		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W8')
 		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W6')
+		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W5')
+		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W4')
+  
 		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
@@ -564,10 +595,14 @@ class DynAlloc:
    
 		if self.w6_thresholdflag:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', 0)
+			currRec.set_class_attribute(brd_counter+8, 'class_au', 0)
+			currRec.set_class_attribute(brd_counter+9, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', -1)
+			currRec.set_class_attribute(brd_counter+8, 'class_au', -1)
+			currRec.set_class_attribute(brd_counter+9, 'class_au', -1)
 
-		return brd_counter+7
+		return brd_counter+9
 			
 
 	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
@@ -1024,3 +1059,41 @@ class DynAlloc:
 		except Exception as e:
 			self.logger.error(f"Error in autoBackstop: {str(e)}")
 			return 'NA'  # Changed from error message to 'NA' for consistency
+
+	def calculate_last_seven_avg(self,fares):
+		if not fares:
+			return CONST_NA
+		
+		total_fares = sum(Decimal(str(fare['Fare'])) for fare in fares)
+		return float(total_fares / len(fares))
+
+	def calculate_average(self,fares):
+		
+		current_time = datetime.utcnow()
+		recent_fares = [
+			fare for fare in fares 
+			if (current_time - datetime.fromisoformat(fare['BookingUTC'].replace('Z', ''))) <= timedelta(hours=self.constantsUtils.LAST_SOLD_FARE_THRESHOLD)
+		]
+		if len(recent_fares) < 3:
+			return CONST_NA
+		
+		total_fares = sum(Decimal(str(fare['Fare'])) for fare in recent_fares)
+		return float(total_fares / len(recent_fares))
+
+	def calculate_averages(self,fares_manifest):
+		# Parse the JSON string if it's not already a dictionary
+		if isinstance(fares_manifest, str):
+			fares_manifest = json.loads(fares_manifest)
+		
+		# Calculate last_seven_avg (always with all available fares)
+		all_fares = fares_manifest.get('allfares', [])
+		last_seven_avg = self.calculate_last_seven_avg(all_fares)
+		
+		# Calculate lastsoldb2b and lastsoldb2c (require at least 3 fares)
+		b2b_fares = fares_manifest.get('b2bfares', [])
+		b2c_fares = fares_manifest.get('b2cfares', [])
+		
+		lastsoldb2b = self.calculate_average(b2b_fares)
+		lastsoldb2c = self.calculate_average(b2c_fares)
+		
+		return last_seven_avg, lastsoldb2b, lastsoldb2c

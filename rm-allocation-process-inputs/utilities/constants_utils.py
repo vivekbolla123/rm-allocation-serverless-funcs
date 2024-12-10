@@ -29,6 +29,8 @@ class ConstantsUtils:
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
+        self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
+        self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
         self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
@@ -92,6 +94,10 @@ class ConstantsUtils:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
                 self.TBF_RBD = parameter_value
+            elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
+                self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
+            elif parameter_key == LAST_N_AVG_FARE_KEY:
+                self.LAST_N_AVG_FARE = int(parameter_value)
             elif parameter_key == MFMIN0:
                 self.MFMIN0 = int(parameter_value)
             elif parameter_key == MFMIN1:
