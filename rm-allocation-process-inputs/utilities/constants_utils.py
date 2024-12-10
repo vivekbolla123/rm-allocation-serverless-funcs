@@ -31,6 +31,9 @@ class ConstantsUtils:
         self.TBF_RBD = TBF_RBD
         self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
         self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
+        self.MFMIN0 = MFMIN0
+        self.MFMIN1 = MFMIN1
+        self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -95,3 +98,9 @@ class ConstantsUtils:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:
                 self.LAST_N_AVG_FARE = int(parameter_value)
+            elif parameter_key == MFMIN0:
+                self.MFMIN0 = int(parameter_value)
+            elif parameter_key == MFMIN1:
+                self.MFMIN1 = int(parameter_value)
+            elif parameter_key == CHECK_THRESHOLD_PROCESS_INPUTS:
+                self.CHECK_THRESHOLD_PROCESS_INPUTS = int(parameter_value)
