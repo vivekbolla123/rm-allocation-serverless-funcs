@@ -1401,21 +1401,20 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(21, marketListEntity.getB2bFactor());
             pstmt.setString(22, marketListEntity.getSkippingFactor());
             pstmt.setString(23, marketListEntity.getDaySpan());
-            pstmt.setString(24, marketListEntity.getOwnFareFlag());
-            pstmt.setString(25, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(26, marketListEntity.getAnalystName());
-            pstmt.setString(27, marketListEntity.getOpeningFares());
-            pstmt.setString(28, marketListEntity.getOverBooking());
-            pstmt.setString(29, marketListEntity.getRbdPushFlag());
-            pstmt.setString(30, marketListEntity.getProfileFares());
-            pstmt.setString(31, marketListEntity.getB2cTolerance());
-            pstmt.setString(32, marketListEntity.getB2bTolerance());
-            pstmt.setString(33, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(34, marketListEntity.getSeriesBlock());
-            pstmt.setString(35, marketListEntity.getAutoGroup());
-            pstmt.setString(36, marketListEntity.getAutoBackstopFlag());
-            pstmt.setString(37, marketListEntity.getTbfFlag());
-            pstmt.setString(38, marketListEntity.getUuid());
+            pstmt.setString(24, marketListEntity.getAutoTimeRangeFlag());
+            pstmt.setString(25, marketListEntity.getAnalystName());
+            pstmt.setString(26, marketListEntity.getOpeningFares());
+            pstmt.setString(27, marketListEntity.getOverBooking());
+            pstmt.setString(28, marketListEntity.getRbdPushFlag());
+            pstmt.setString(29, marketListEntity.getProfileFares());
+            pstmt.setString(30, marketListEntity.getB2cTolerance());
+            pstmt.setString(31, marketListEntity.getB2bTolerance());
+            pstmt.setString(32, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(33, marketListEntity.getSeriesBlock());
+            pstmt.setString(34, marketListEntity.getAutoGroup());
+            pstmt.setString(35, marketListEntity.getAutoBackstopFlag());
+            pstmt.setString(36, marketListEntity.getTbfFlag());
+            pstmt.setString(37, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1595,7 +1594,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bFactor(record.get(CSV_HEADER_B2B_FACTOR))
                 .skippingFactor(record.get(CSV_HEADER_SKIPPING_FACTOR))
                 .daySpan(record.get(CSV_HEADER_DAY_SPAN))
-                .ownFareFlag(convertYNToBoolean(record.get(CSV_HEADER_OWN_FARE_FLAG)))
                 .openingFares(convertYNToBoolean(record.get(CSV_HEADER_OPENING_FARES)))
                 .autoTimeRangeFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG)))
                 .overBooking(convertYNToBoolean(record.get(CSV_HEADER_OVER_BOOKING)))
@@ -1783,9 +1781,6 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
                 listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
             }
-            if (!checkOwnFareFlag(record.get(CSV_HEADER_OWN_FARE_FLAG))) {
-                listOfErrors.add(lineNum + "OwnFare Flag has value other than 'N' or 'Y'");
-            }
             if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
                 listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
             }
@@ -1883,7 +1878,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
-                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
+                listOfErrors.add(lineNum + "Over Booking has value other than 'Y' or 'N'");
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
                 listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");

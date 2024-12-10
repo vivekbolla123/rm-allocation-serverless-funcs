@@ -17,8 +17,9 @@ class MarketFareService:
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)    
     
-    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime):
+    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime):
         startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo, _ = self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime)
 
         #Does competetive fare exist
         #We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -46,10 +47,19 @@ class MarketFareService:
                 hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
-        
-            isMarketFareAvailable = True
+            if hardcriteria !=CONST_NA:
+                if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                    hardfare = hardmktfareRange_minomaxo['LowFare'][0]
+                if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                    hardfare = hardmktfareRange_minomaxo['HiFare'][0]
+                if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                    hardfare = hardmktFareRange['gross_fare'][0]
+                if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                    hardfare = hardmktFareRange['gross_fare'].iloc[-1]
 
-        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime
+            isMarketFareAvailable = True
+        
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime,hardfare
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
         mktFareRange = self.fetchMarketFareRange(
