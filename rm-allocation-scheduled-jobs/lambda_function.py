@@ -25,6 +25,8 @@ from faresUpdate import Fares
 from historicFares import HistoricFaresModule
 from profileFares import ProfileFaresModule
 from noShowProb import NoShowProbs
+from qcTableGen import QCProcess
+from rangeCheck import QCCheck
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -74,7 +76,9 @@ module_map = {
     "historicFares": HistoricFaresModule,
     "profileFares": ProfileFaresModule,
     "noShowProb" : NoShowProbs,
-    "run_adhocs_queue":SchedulerHandler
+    "run_adhocs_queue":SchedulerHandler,
+    "gen_qc_fares_table": QCProcess,
+    "qc_fares_check": QCCheck
 }
 
 
