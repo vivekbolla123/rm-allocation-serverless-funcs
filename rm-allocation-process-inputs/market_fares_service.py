@@ -232,6 +232,8 @@ class MarketFareService:
             if(len(mktFareRange) > 0):
                 min_10 = mktFareRange['gross_fare'][self.constantsutils.MFMIN0]
         elif(dplfBand == 1 or dplfBand == 2):
-            if(len(mktFareRange) > 0):
+            if(len(mktFareRange) > 1):
                 min_10 = mktFareRange['gross_fare'][self.constantsutils.MFMIN1]
+            elif(len(mktFareRange) == 1):
+                min_10 = mktFareRange['gross_fare'][self.constantsutils.MFMIN0]         
         return min_10
