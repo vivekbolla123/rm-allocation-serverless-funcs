@@ -31,10 +31,10 @@ public class MarketListValidator {
     }
 
     public static boolean isValidFlightNumber(String flightNumber) {
-        if (flightNumber == null || flightNumber.trim().isEmpty()) {
+        if (flightNumber == null ) {
             return false;
         }
-        return flightNumber.matches("^[A-Z]{2}-\\d{3,4}$");
+        return flightNumber.matches("^[A-Z]{2}-\\d{3,4}$")|| flightNumber.trim().isEmpty();
     }
 
     public static boolean checkDOWDigits(String value) {
