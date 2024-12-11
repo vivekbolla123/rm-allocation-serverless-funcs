@@ -175,7 +175,7 @@ class DataProcessor:
         retry_count_result = pd.read_sql(retry_query, conn)
         
         # Only push back to SQS if retry count is less than 2
-        if retry_count_result['sftp_retry_count'].iloc[0] < 2:
+        if int(retry_count_result['sftp_retry_count'].iloc[0]) < 2:
             # Increment retry count
             conn.execute(f"""
                 UPDATE allocation_run_audit 
@@ -200,7 +200,7 @@ class DataProcessor:
         retry_count_result = pd.read_sql(retry_query, conn)
         
         # If retry count is already 2 or more, stop processing
-        if retry_count_result['sftp_retry_count'].iloc[0] >= 2:
+        if int(retry_count_result['sftp_retry_count'].iloc[0]) >= 2:
             logger.info(f"Maximum retry attempts reached for run_id: {runid}")
             return
         data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and (b2cstatus != 'Done' OR b2bstatus != 'Done')")
