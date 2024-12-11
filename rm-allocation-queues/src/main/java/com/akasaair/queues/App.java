@@ -114,8 +114,6 @@ import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_ANCHOR;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_OFFSET;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FIRST_ALLOCATION;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2B;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2C;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_NO;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_HARD_ANCHOR;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OFFSET;
@@ -123,7 +121,6 @@ import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_ORIGIN;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OTHER_ALLOCATION;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OVER_BOOKING;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OWN_FARE_FLAG;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PLF_THRESHOLD;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PROFILE_FARES;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_RBD_PUSH_FLAG;
