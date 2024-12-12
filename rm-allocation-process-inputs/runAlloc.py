@@ -335,46 +335,27 @@ class DynAlloc:
 			upsellValueData = self.rmdatabasehelper.getUpsellValue(currFltDate, sector)
 
 			upsellValue = 0
-			b2c_backstop = 0
-			b2b_backstop = 0
-			min_10_b2c = 0
-			min_10_b2b = 0
-			final_mkt_fare_b2b = 0
-			final_mkt_fare_b2c = 0
-			if(dplfBand == 0):
-				ab_start_time = "00:00"
-				ab_end_time = "23:59"
-				min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
-				min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
-				final_mkt_fare_b2b = min_10_b2b
-				final_mkt_fare_b2c = min_10_b2c
-			elif(dplfBand == 1 or dplfBand == 2):
-				ab_start_time = "00:00"
-				ab_end_time = "23:59"
-				min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
-				min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
-				final_mkt_fare_b2b = min_10_b2b
-				final_mkt_fare_b2c = min_10_b2c
-			elif(dplfBand == 3):
-				final_mkt_fare_b2b = self.outputSummaryRow_b2b.MktFare_Min
-				final_mkt_fare_b2c = self.outputSummaryRow_b2c.MktFare_Min
-			else:
-				final_mkt_fare_b2b = min_10_b2b
-				final_mkt_fare_b2c = min_10_b2c
-
-			auto_b2b_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
-			auto_b2c_backstop = self.auto_backstop(self.currParams.autoBackstopFlag, self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
-
-   
-			if(auto_b2c_backstop != "NA"):
-				b2c_backstop = auto_b2c_backstop
-			else:
-				b2c_backstop = self.currParams.b2c_backstop
-    
-			if(auto_b2b_backstop != "NA"):
-				b2b_backstop = auto_b2b_backstop
-			else:
-				b2b_backstop = self.currParams.b2b_backstop
+			b2c_backstop = self.currParams.b2c_backstop
+			b2b_backstop = self.currParams.b2b_backstop
+			auto_b2b_backstop = "NA"
+			auto_b2c_backstop = "NA"
+			autoBackstopFlag = str(self.currParams.autoBackstopFlag)
+			if(autoBackstopFlag == "1"):
+				final_mkt_fare_b2b, final_mkt_fare_b2c = self.determineFinalMF(dplfBand, currFltDate, DaySpan, input_time_str)
+				auto_b2b_backstop = self.auto_backstop(autoBackstopFlag, self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
+				auto_b2c_backstop = self.auto_backstop(autoBackstopFlag, self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
+				if(auto_b2c_backstop != "NA"):
+					b2c_backstop = auto_b2c_backstop
+				else:
+					b2c_backstop = self.currParams.b2c_backstop
+		
+				if(auto_b2b_backstop != "NA"):
+					b2b_backstop = auto_b2b_backstop
+				else:
+					b2b_backstop = self.currParams.b2b_backstop
+			
+			self.logger.info("auto_b2c_backstop: " + str(auto_b2c_backstop))
+			self.logger.info("auto_b2b_backstop: " + str(auto_b2b_backstop))
     
 			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
 				upsellValue = upsellValueData.percentage[0]
@@ -1025,6 +1006,35 @@ class DynAlloc:
 			self.logger.error(f"Error in recommend_action: {str(e)}")
 			return "NO action required"
 		
+  
+	def determineFinalMF(self, dplfBand, currFltDate, DaySpan, input_time_str):
+		min_10_b2c = 0
+		min_10_b2b = 0
+		final_mkt_fare_b2b = 0
+		final_mkt_fare_b2c = 0
+		if(dplfBand == 0):
+			ab_start_time = "00:00"
+			ab_end_time = "23:59"
+			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
+			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
+			final_mkt_fare_b2b = min_10_b2b
+			final_mkt_fare_b2c = min_10_b2c
+		elif(dplfBand == 1 or dplfBand == 2):
+			ab_start_time = "00:00"
+			ab_end_time = "23:59"
+			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
+			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
+			final_mkt_fare_b2b = min_10_b2b
+			final_mkt_fare_b2c = min_10_b2c
+		elif(dplfBand == 3):
+			final_mkt_fare_b2b = self.outputSummaryRow_b2b.MktFare_Min
+			final_mkt_fare_b2c = self.outputSummaryRow_b2c.MktFare_Min
+		else:
+			final_mkt_fare_b2b = min_10_b2b
+			final_mkt_fare_b2c = min_10_b2c
+   
+		return final_mkt_fare_b2b, final_mkt_fare_b2c
+    
 	def auto_backstop(self, abf, backstop, dplfBand, mkt_fare):
 		try:
 			autoBackstopValue = 0
