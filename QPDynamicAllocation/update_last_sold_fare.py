@@ -50,7 +50,7 @@ class LastSoldFare:
         
         whereCondition = f"'{str(time)}'"
         if time is None:
-            whereCondition = "DATEADD(HOUR, -48, GETDATE())"
+            whereCondition = "DATEADD(HOUR, -168, GETDATE())"
 
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
