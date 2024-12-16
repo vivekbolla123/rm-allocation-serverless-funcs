@@ -646,13 +646,7 @@ public class App implements RequestHandler<S3Event, Object> {
             if (validate != null && !validate.isValid(data, val, listOfErrors)) {
                 updateInputStatus(tableName);
                 error_occurred = 1;
-                List<String> numberedErrors = new ArrayList<>();
-                for (int i = 0; i < data.size(); i++) {
-                    for (String error : listOfErrors) {
-                        numberedErrors.add("Line " + i + ": " + error);
-                    }
-                }
-                listOfErrors = numberedErrors;
+                listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(listOfErrors, obj_id);
                 throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
             }
@@ -1314,7 +1308,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred = 1;
                     updateInputStatus(STRATEGY_TABLE_NAME);
-                    String errorMsg = "Line " + inputRow + ": " + INVALID_DATA_ERROR_MESSAGE
+                    String errorMsg = "Line " + i + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors2.add(errorMsg);
                     throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE
