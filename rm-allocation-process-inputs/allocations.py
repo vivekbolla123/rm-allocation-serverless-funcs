@@ -149,6 +149,8 @@ class RBDAllocations:
     
         # Sort the final DataFrame by price to maintain original order
         final_df = final_df.sort_values('price')
+        if int(currParams.rbdPushFlag)==1:
+            return df_unique_1
         # Return results of both allocations
         return final_df
 
@@ -412,7 +414,7 @@ class RBDAllocations:
             # Allocate all RBDs with -1
             for RBDLabel in rbd_map.values():
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
         return  brd_counter
@@ -492,7 +494,7 @@ class RBDAllocations:
         else:
             for RBDLabel in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
     
