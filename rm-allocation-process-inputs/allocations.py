@@ -121,25 +121,25 @@ class RBDAllocations:
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
-        currParams_copy = copy.deepcopy(currParams)
+        
         currRec_copy = copy.deepcopy(currRec)
         
         
         # First allocation with rbdPushFlag = 0
-        currParams_copy.rbdPushFlag = 0
+        currParams.rbdPushFlag = 0
         _, _, _, df_unique_0, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
-            remainingCapacity, ndocounter, currParams_copy, profileFare, profileExtract, 
+            remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
             bookloadPercentile, upsellValue
         )
         
-        currParams_copy = copy.deepcopy(currParams)
+        
         currRec_copy = copy.deepcopy(currRec)
         # Second allocation with rbdPushFlag = 1
-        currParams_copy.rbdPushFlag = 1
+        currParams.rbdPushFlag = 1
         _, _, _, df_unique_1, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
-            remainingCapacity, ndocounter, currParams_copy, profileFare, profileExtract, 
+            remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
             bookloadPercentile, upsellValue
         )
         merged_df = pd.concat([df_unique_0, df_unique_1], ignore_index=True)
