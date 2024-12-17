@@ -49,7 +49,6 @@ class OutputSummary:
         self.ndoBand = CONST_NA
         self.overBookingCount = CONST_NA
         self.recommendedActions = CONST_NA
-        self.marketFaresSummary = CONST_NA
         self.allocationStatus = CONST_NA
         self.status = CONST_NA
         

@@ -1,4 +1,5 @@
 import ast
+import copy
 import math
 
 import numpy as np
@@ -115,6 +116,43 @@ class RBDAllocations:
         df_unique = df_unique.drop(columns='price_diff')
 
         return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds
+    
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
+        # Store the original rbdPushFlag
+        
+        # Create a copy of currParams to modify
+        
+        currRec_copy = copy.deepcopy(currRec)
+        
+        
+        # First allocation with rbdPushFlag = 0
+        currParams.rbdPushFlag = 0
+        _, _, _, df_unique_0, _ = self.b2CAllocation(
+            currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
+            remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
+            bookloadPercentile, upsellValue
+        )
+        
+        
+        currRec_copy = copy.deepcopy(currRec)
+        # Second allocation with rbdPushFlag = 1
+        currParams.rbdPushFlag = 1
+        _, _, _, df_unique_1, _ = self.b2CAllocation(
+            currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
+            remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
+            bookloadPercentile, upsellValue
+        )
+        merged_df = pd.concat([df_unique_0, df_unique_1], ignore_index=True)
+    
+        # Select row with higher incremental value for each unique RBD
+        final_df = merged_df.sort_values('incremental', ascending=False).drop_duplicates('RBD', keep='first')
+    
+        # Sort the final DataFrame by price to maintain original order
+        final_df = final_df.sort_values('price')
+        if int(currParams.rbdPushFlag)==1:
+            return df_unique_1
+        # Return results of both allocations
+        return final_df
 
     def getIncrementalValue(self, currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, profileExtract, counter, bookloadPercentile):
         if int(currParams.rbdPushFlag) == 0:
@@ -376,7 +414,7 @@ class RBDAllocations:
             # Allocate all RBDs with -1
             for RBDLabel in rbd_map.values():
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
         return  brd_counter
@@ -456,7 +494,7 @@ class RBDAllocations:
         else:
             for RBDLabel in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
     
