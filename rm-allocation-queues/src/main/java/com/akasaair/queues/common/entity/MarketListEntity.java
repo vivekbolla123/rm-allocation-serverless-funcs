@@ -44,6 +44,10 @@ public class MarketListEntity {
     public String carrExclusionB2C;
     @Column(name = "CarrExlusionB2B")
     public String carrExclusionB2B;
+    @Column(name = "flightExclusionB2C")
+    public String flightExclusionB2C;
+    @Column(name = "flightExclusionB2B")
+    public String flightExclusionB2B;
     @Column(name = "fareAnchor")
     public String fareAnchor;
     @Column(name = "hardAnchor")

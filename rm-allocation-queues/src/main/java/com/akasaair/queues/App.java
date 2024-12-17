@@ -37,8 +37,136 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.AU_VALUE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.BAND_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.CHANNEL_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.COLUMNS_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.COUNT_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.CRITERIA_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.CURVES_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DATE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DECISION_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DISTRESS_DLF_BANDS_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DISTRESS_NDO_BANDS_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DLF_BANDS_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.DPLF_BAND_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.HOUR_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_BANDS_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_BAND_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_END_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_START_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.PARAMETER_VALUE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.PERMISSION_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.ROUTE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER1_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER2_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER3_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER4_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.STATION_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.STRATEGY_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.TIME_RANGE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.USER_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.UUID_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.VALUE_COLUMN_NAME;
 import static com.akasaair.queues.common.constants.Constants.*;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_BACKSTOP_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_GROUP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_TIME_RANGE_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_BACKSTOP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_FACTOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_TOLERANCE;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2C_BACKSTOP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2C_TOLERANCE;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CARR_EXCLUSION_B2B;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CARR_EXCLUSION_B2C;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2B;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2C;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2BBACKSTOP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2BFACTOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2CBACKSTOP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_CURRENCY;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DISCOUNTFLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DISCOUNTVALUE;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DOW;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FAREANCHOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FLIGHT1;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FLIGHT2;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OFFSET;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OTHERRBDALLOC;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OUTBOUNDSTOP;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PEREND;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PERSTART;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PRICESTRATEGY;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SECTOR1;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SECTOR2;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SKIPPINGFACTOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CRITERIA;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CURVE_ID;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DAY_OF_WEEK;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DAY_SPAN;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DESTINATION;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DISTRESS_INVENTORY_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_END_DATE;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_END_TIME;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_ANCHOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_OFFSET;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FIRST_ALLOCATION;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_NO;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_HARD_ANCHOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OFFSET;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OPENING_FARES;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_ORIGIN;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OTHER_ALLOCATION;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OVER_BOOKING;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PLF_THRESHOLD;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PROFILE_FARES;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_RBD_PUSH_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_SERIES_BLOCK_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_SKIPPING_FACTOR;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_START_DATE;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_START_TIME;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TBF_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TIME;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.ROW_START_COUNT;
+import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_OUTPUT_FORMATTER;
+import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_TIME_OUTPUT_FORMATTER;
+import static com.akasaair.queues.common.constants.DateTimeConstants.SIMPLE_DATE_OUTPUT_FORMATTER_2;
+import static com.akasaair.queues.common.constants.DateTimeConstants.SIMPLE_DAY_FORMATTER;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.DATABASE_ACCESS_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.FILE_UPLOAD_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_DATA_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_TABLE_NAME_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.PermissionsConstants.ADMIN;
+import static com.akasaair.queues.common.constants.PermissionsConstants.MANAGER;
+import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS;
+import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_ALL;
+import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS;
 import static com.akasaair.queues.common.constants.QueryConstants.*;
+import static com.akasaair.queues.common.constants.TableNamesConstants.CONFIG_PROFILE_FARE_STATION_UPSELL;
+import static com.akasaair.queues.common.constants.TableNamesConstants.CRITERIA_TABLE;
+import static com.akasaair.queues.common.constants.TableNamesConstants.CURVES_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.DATE_EVENT_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.DISTRESS_INVENTORY_STRATEGY_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.DPLF_BANDS_TABLE;
+import static com.akasaair.queues.common.constants.TableNamesConstants.HISTORIC_GRID_DROP_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.HISTORIC_HOURLY_DROP_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_ADHOC_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_CONNECTIONS_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_INTERNATIONAL_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_TABLE_NAME_S3;
+import static com.akasaair.queues.common.constants.TableNamesConstants.NDO_BANDS_TABLE;
+import static com.akasaair.queues.common.constants.TableNamesConstants.PROFILE_FARES_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.QP_FARES_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.SERIES_BLOCKING_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_INPUT_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_TABLE_NAME;
+import static com.akasaair.queues.common.constants.TableNamesConstants.TIME_RANGE_TABLE;
 import static com.akasaair.queues.common.helpers.CsvHelper.convertToCSV;
 import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 
@@ -1585,6 +1713,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .curveId(record.get(CSV_HEADER_CURVE_ID))
                 .carrExclusionB2B(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))
                 .carrExclusionB2C(record.get(CSV_HEADER_CARR_EXCLUSION_B2C))
+                .flightExclusionB2B(record.get(CSV_HEADER_FLIGHT_EXCLUSION_B2B))
+                .flightExclusionB2C(record.get(CSV_HEADER_FLIGHT_EXCLUSION_B2C))
                 .fareAnchor(record.get(CSV_HEADER_FARE_ANCHOR))
                 .fareOffset(record.get(CSV_HEADER_FARE_OFFSET))
                 .firstAllocation(record.get(CSV_HEADER_FIRST_ALLOCATION))
@@ -1780,6 +1910,12 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!isValidCarrExcl(record.get(CSV_HEADER_CARR_EXCLUSION_B2B))) {
                 listOfErrors.add(lineNum + "One of the Carrier Exclusion B2B is not 2 digits");
+            }
+            if (!isValidFlightNumber(record.get(CSV_HEADER_FLIGHT_EXCLUSION_B2C))) {
+                listOfErrors.add(lineNum + "Flight exclusion B2C is not in correct format");
+            }
+            if (!isValidFlightNumber(record.get(CSV_HEADER_FLIGHT_EXCLUSION_B2B))) {
+                listOfErrors.add(lineNum + "Flight exclusion B2B is not in correct format");
             }
             if (!checkDaySpan(record.get(CSV_HEADER_DAY_SPAN))) {
                 listOfErrors.add(lineNum + "DaySpan has value other than '1','-1','0'");
