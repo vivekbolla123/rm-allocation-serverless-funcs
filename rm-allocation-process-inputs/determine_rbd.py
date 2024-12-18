@@ -125,14 +125,15 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
                         elif dPLF<15:
-                            dec="lastsoldfare"
-                            if  max(float(profileFare),float(lastSoldFare))==float(profileFare):
-                                dec="profilefare"
-                            howDetermined = f'AllocationY_Interpollated_last_sold_fare_{dec}_UpsellN'
+                            howDetermined = f'AllocationY_Interpollated_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare+delta*(dPLF/15)
                         else:
                             howDetermined = f'AllocationY_Max_own_fare_var_15+_UpsellN'
                             anchorFare=max(float(profileFare),float(strategyFare))
+                        if hardAnchorFare!=CONST_NA:
+                            anchorFare = min(anchorFare,float(hardAnchorFare))
+                            if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                                howDetermined = "AllocationY_harAnchorfare_UpsellN"
                     if float(lastSoldFare)>=float(profileFare) and float(lastSoldFare)>=float(strategyFare):
                         if float(BookingsInHour)>0:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellY'
@@ -141,6 +142,10 @@ class DetermineRBD:
                         else:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
+                        if hardAnchorFare!=CONST_NA:
+                            anchorFare = min(anchorFare,float(hardAnchorFare))
+                            if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                                howDetermined = "AllocationY_harAnchorfare_UpsellN"
                 else:
                     if float(lastSoldFare)<=float(strategyFare):
                         delta = float(strategyFare) - float(lastSoldFare)
@@ -165,7 +170,10 @@ class DetermineRBD:
                 else:
                     anchorFare=float(strategyFare)
                     howDetermined = 'AllocationY_Startegy_fare_UpsellN'
-                
+                if hardAnchorFare!=CONST_NA:
+                    anchorFare = min(anchorFare,float(hardAnchorFare))
+                    if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                        howDetermined = "AllocationY_harAnchorfare_UpsellN"
             # Check if any values exist
             # if faresList:
             #     max_value = max(faresList)
@@ -245,8 +253,31 @@ class DetermineRBD:
                         v2=float(strategyFare)-float(toleranceFare)
                     if hardAnchorFare!=CONST_NA:
                         anchorFare=min(max(v1,v2),float(hardAnchorFare))
+                        if v2>v1:
+                            howDetermined = howDetermined + '_ToleranceHit'
+                        if hardAnchorFare!=CONST_NA:
+                            anchorFare = min(anchorFare,float(hardAnchorFare))
+                            if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                                howDetermined = "AllocationY_harAnchorfare_UpsellN"
                     else:
                         anchorFare=max(v1,v2)
+                if profileFare!=CONST_NA and lastSoldFare!=CONST_NA:
+                    if float(strategyFare)>float(profileFare) and float(strategyFare)>float(lastSoldFare):
+                        howDetermined = "AllocationY_interpolated_lastSold_Profile_fare_UpsellN"
+                        v1 = min(float(lastSoldFare),float(profileFare))+((float(lastSoldFare)-float(profileFare))/self.constantsutils.OWN_FARE_DELTA)*(dPLF+self.constantsutils.OWN_FARE_DELTA)
+                        if not (toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare)):
+                            v2 = float(strategyFare) - float(toleranceFare)
+                        else:
+                            v2=0
+                        if v2>v1:
+                            howDetermined = howDetermined + '_ToleranceHit'
+                        if hardAnchorFare!=CONST_NA:
+                            anchorFare = min(max(v1,v2),float(hardAnchorFare))
+                            if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                                howDetermined = "AllocationY_harAnchorfare_UpsellN"
+                        else:
+                            anchorFare = max(v1,v2)
+                        
                 # delta = float(strategyFare) - float(max_value)
                 # howDetermined = 'AllocationY_InterpolatedMaxOwnFare_UpsellN'
                 # if float(max_value) <= float(strategyFare):
