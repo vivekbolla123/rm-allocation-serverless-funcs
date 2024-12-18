@@ -48,9 +48,9 @@ class MarketFareService:
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
             if hardcriteria !=CONST_NA:
-                if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>1)):
+                if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['LowFare'][0]
-                if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>1)):
+                if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['HiFare'][0]
                 if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(hardmktFareRange)>1)):
                     hardfare = hardmktFareRange['gross_fare'][0]
