@@ -648,7 +648,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 error_occurred = 1;
                 listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(listOfErrors, obj_id);
-                throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
+                throw new DataMismatchedException(listOfErrors);
             }
             try {
                 insertStatement(data, headers, tempTableName);
@@ -1311,14 +1311,17 @@ public class App implements RequestHandler<S3Event, Object> {
                     String errorMsg = "Line " + i + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors2.add(errorMsg);
-                    throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE
-                            + " for " + strategyKey + " with decision :" + decision + " having value as " + value));
                 }
                 map.put(headerColumnMap.get(decision), value);
                 countTotalValues++;
             }
         }
         findActualCountBetweenRowsAndColumns(strategyCounter, countTotalValues, listOfErrors2);
+
+        if (!listOfErrors2.isEmpty()) {
+            throw new DataMismatchedException(listOfErrors2);
+        }
+
         return strategyMap;
     }
 
@@ -1952,7 +1955,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     StringBuilder validOptions = new StringBuilder();
                     for (int i = 0; i < listOfCriteria.size(); i++) {
                         if (i > 0) {
-                            validOptions.append(", ");
+                            validOptions.append("/ ");
                         }
                         validOptions.append(listOfCriteria.get(i));
                     }
