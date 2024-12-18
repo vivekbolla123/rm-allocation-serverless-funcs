@@ -2065,7 +2065,8 @@ public class App implements RequestHandler<S3Event, Object> {
 
         String sector1 = record.get(CSV_HEADER_CONNECTIONS_SECTOR1);
         String sector2 = record.get(CSV_HEADER_CONNECTIONS_SECTOR2);
-        String lineNum = "Line " + rowCount + ": ";
+        String flight_line = sector1 + "_" + record.get(CSV_HEADER_CONNECTIONS_FLIGHT1) + "_" + sector2  + "_" + record.get(CSV_HEADER_CONNECTIONS_FLIGHT2)  + "_" + record.get(CSV_HEADER_CONNECTIONS_PERSTART);
+        String lineNum = "Line " + rowCount + ": " + flight_line + ": ";
         if (!isLengthEqualTo(record.get(CSV_HEADER_CONNECTIONS_SECTOR1), 6)) {
             errorsFound.add(lineNum + "Sector1  is not equal to 6 characters");
         }
