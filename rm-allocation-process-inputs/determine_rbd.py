@@ -88,6 +88,8 @@ class DetermineRBD:
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_A_' + howDetermined
         elif anchorValue == 'B':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_B_' + howDetermined
+        elif anchorValue == 'C':
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined
 
         if anchorFare != 0:
             offset = 0
@@ -163,6 +165,10 @@ class DetermineRBD:
                         else:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
+                    if hardAnchorFare!=CONST_NA:
+                        anchorFare = min(anchorFare,float(hardAnchorFare))
+                        if min(anchorFare,float(hardAnchorFare))==float(hardAnchorFare):
+                            howDetermined = "AllocationY_harAnchorfare_UpsellN"
             else:
                 if profileFare!=CONST_NA and int(currParams.profileFares) == 1:
                     anchorFare=(float(profileFare)+float(strategyFare))/2
