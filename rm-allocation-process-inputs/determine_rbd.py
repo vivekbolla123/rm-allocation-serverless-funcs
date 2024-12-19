@@ -126,9 +126,9 @@ class DetermineRBD:
                         if dPLF<0:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
-                        elif dPLF<15:
+                        elif dPLF<self.constantsutils.OWN_FARE_DELTA_A:
                             howDetermined = f'AllocationY_Interpollated_last_sold_fare_UpsellN'
-                            anchorFare=lastSoldFare+delta*(dPLF/15)
+                            anchorFare=lastSoldFare+delta*(dPLF/self.constantsutils.OWN_FARE_DELTA_A)
                         else:
                             howDetermined = f'AllocationY_Max_own_fare_var_15+_UpsellN'
                             anchorFare=max(float(profileFare),float(strategyFare))
@@ -150,7 +150,7 @@ class DetermineRBD:
                                 howDetermined = "AllocationY_harAnchorfare_UpsellN"
                 else:
                     if float(lastSoldFare)<=float(strategyFare):
-                        delta = float(strategyFare) - float(lastSoldFare)
+                        delta = abs(float(strategyFare) - float(lastSoldFare))
                         if dPLF<0:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
@@ -249,8 +249,8 @@ class DetermineRBD:
                 if max_value<float(strategyFare):
                     delta = float(strategyFare) - float(max_value)
                     howDetermined = 'AllocationY_Interpollated_Max_own_fare_UpsellN'
-                    if dPLF>-30:
-                        v1 = max_value + (delta / self.constantsutils.OWN_FARE_DELTA) * (dPLF + self.constantsutils.OWN_FARE_DELTA)
+                    if dPLF>-self.constantsutils.OWN_FARE_DELTA_B:
+                        v1 = max_value + (delta / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
                     else:
                         v1=max_value
                     if toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare):
@@ -270,7 +270,7 @@ class DetermineRBD:
                 if profileFare!=CONST_NA and lastSoldFare!=CONST_NA:
                     if float(strategyFare)>float(profileFare) and float(strategyFare)>float(lastSoldFare):
                         howDetermined = "AllocationY_interpolated_lastSold_Profile_fare_UpsellN"
-                        v1 = min(float(lastSoldFare),float(profileFare))+((float(lastSoldFare)-float(profileFare))/self.constantsutils.OWN_FARE_DELTA)*(dPLF+self.constantsutils.OWN_FARE_DELTA)
+                        v1 = min(float(lastSoldFare),float(profileFare))+(abs(float(lastSoldFare)-float(profileFare))/self.constantsutils.OWN_FARE_DELTA_B)*(dPLF+self.constantsutils.OWN_FARE_DELTA_B)
                         if not (toleranceFare is None or pd.isna(toleranceFare) or toleranceFare == CONST_NA or toleranceFare == '' or pd.isnull(toleranceFare)):
                             v2 = float(strategyFare) - float(toleranceFare)
                         else:

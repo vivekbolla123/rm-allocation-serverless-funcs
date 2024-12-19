@@ -903,7 +903,6 @@ class DynAlloc:
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()
 		self.NavitaireConnection = self.currParams.navitaire_connection
-		self.OWN_FARE_DELTA = OWN_FARE_DELTA
 		self.allocResults = []
 		self.AUFileData = []
 		if self.currParams.run_id:
