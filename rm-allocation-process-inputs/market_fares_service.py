@@ -18,8 +18,8 @@ class MarketFareService:
     logger.setLevel(logging.INFO)    
     
     def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
-        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo, _ = self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime)
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo= self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime)
 
         #Does competetive fare exist
         #We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -48,76 +48,26 @@ class MarketFareService:
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
             if hardcriteria !=CONST_NA:
-                if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['LowFare'][0]
-                if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['HiFare'][0]
-                if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(hardmktFareRange)>1)):
                     hardfare = hardmktFareRange['gross_fare'][0]
-                if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(mktFareRange)>1)):
+                if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(hardmktFareRange)>1)):
                     hardfare = hardmktFareRange['gross_fare'].iloc[-1]
 
             isMarketFareAvailable = True
         
-        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, summary, startTime, endTime,hardfare
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
         mktFareRange = self.fetchMarketFareRange(
             channel, currFltDate, currParams, DaySpan, startTime, endTime, includeWeekend=False
         )
-    
-        summary = "MF_Org"
-        
-        if(len(mktFareRange) == 0):
-            start_time=self.timeutils.subtract_hours(startTime,2)
-            end_time=self.timeutils.add_hours(endTime, 2)
-            mktFareRange = self.fetchMarketFareRange(
-                channel, currFltDate, currParams, DaySpan, start_time, end_time, includeWeekend=False
-            )
-    
-            summary = "MF_Extend_2hrs"
-            if(len(mktFareRange)==0):
-                
-                if(flightTime <= '14:00'):
-                    start_time="00:00"
-                    end_time="14:00"
-                else:
-                    start_time="14:01"
-                    end_time="23:59"
-                
-                summary = "MF_HalfDay"
-                mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
-        
-                            
-                if(len(mktFareRange) == 0):
-                    start_time="00:00"
-                    end_time="23:59"
-                    summary = "MF_Fullday"
-                    mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
-
-                    if(len(mktFareRange) == 0):
-                        DaySpan = 3
-                        summary = "MF_TR_3Days"
-                        start_time=startTime
-                        end_time=endTime
-                        mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan, startTime, endTime,True)
-
-                        if(len(mktFareRange) == 0):
-                            DaySpan=3
-                            start_time="00:00"
-                            end_time="23:59"
-                            summary = "MF_FR_3Days"
-                            mktFareRange = self.fetchMarketFareRange(channel,currFltDate, currParams,DaySpan,start_time,end_time,False)
-
-                            if(len(mktFareRange) == 0):
-                                summary = "MF_NA"
-                                start_time = startTime
-                                end_time = endTime
             
-            startTime = start_time
-            endTime = end_time
 
-        return self.prepareResponse(startTime, endTime, criteria, mktFareRange, summary)
+        return self.prepareResponse(startTime, endTime, criteria, mktFareRange)
     
     def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
         ndo=self.timeutils.calculate_ndo(flightDate)
@@ -179,9 +129,9 @@ class MarketFareService:
             {'LowFare': [min_fare], 'HiFare': [max_fare],'LowFare_airline_code': [min_airline_code], 'LowFare_outbound_flight': [min_outbound_flight], 'HiFare_airline_code': [max_airline_code], 'HiFare_outbound_flight': [max_outbound_flight]})
         return mktFareRange
 
-    def prepareResponse(self, startTime, endTime, criteria, marketFareRange, summary):
+    def prepareResponse(self, startTime, endTime, criteria, marketFareRange):
         minMaxFare = self.getMarketFareRangeminomaxo(marketFareRange)
-        return startTime, endTime, criteria, marketFareRange, minMaxFare, summary
+        return startTime, endTime, criteria, marketFareRange, minMaxFare
     
     def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,outboundDuration):
         
@@ -226,7 +176,7 @@ class MarketFareService:
 
 
     def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime, dplfBand):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo, summary = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
         min_10 = 0
         if(dplfBand == 0):
             if(len(mktFareRange) > 0):

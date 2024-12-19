@@ -50,7 +50,7 @@ class LastSoldFare:
         
         whereCondition = f"'{str(time)}'"
         if time is None:
-            whereCondition = "DATEADD(HOUR, -48, GETDATE())"
+            whereCondition = "DATEADD(HOUR, -168, GETDATE())"
 
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
@@ -127,7 +127,7 @@ class LastSoldFare:
                 }
 
             # Store in Redis as JSON
-            self.cache_client.set(key, json.dumps(final_data), 172800)
+            self.cache_client.set(key, json.dumps(final_data))
     
     def _merge_and_limit_entries(self, existing_list, new_list, limit):
         # Combine lists and remove duplicates
