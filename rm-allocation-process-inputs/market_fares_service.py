@@ -52,9 +52,9 @@ class MarketFareService:
                     hardfare = hardmktfareRange_minomaxo['LowFare'][0]
                 if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['HiFare'][0]
-                if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(hardmktFareRange)>1)):
+                if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(hardmktFareRange)>0)):
                     hardfare = hardmktFareRange['gross_fare'][0]
-                if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(hardmktFareRange)>1)):
+                if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(hardmktFareRange)>0)):
                     hardfare = hardmktFareRange['gross_fare'].iloc[-1]
 
             isMarketFareAvailable = True

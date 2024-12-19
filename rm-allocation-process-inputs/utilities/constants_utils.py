@@ -15,7 +15,8 @@ class ConstantsUtils:
         self.LOWEST_B2C_RBD_VALUE = LOWEST_B2C_RBD_VALUE
         self.HIGHEST_B2B_RBD_VALUE = HIGHEST_B2B_RBD_VALUE
         self.HIGHEST_B2C_RBD_VALUE = HIGHEST_B2C_RBD_VALUE
-        self.OWN_FARE_DELTA = OWN_FARE_DELTA
+        self.OWN_FARE_DELTA_B = OWN_FARE_DELTA_B
+        self.OWN_FARE_DELTA_A = OWN_FARE_DELTA_A
         self.OVERBOOKING_LF = OVERBOOKING_LF
         self.OVERBOOKING_START_NDO = OVERBOOKING_START_NDO
         self.OVERBOOKING_END_NDO = OVERBOOKING_END_NDO
@@ -66,8 +67,10 @@ class ConstantsUtils:
                 self.HIGHEST_B2B_RBD_VALUE = str(parameter_value)
             elif parameter_key == HIGHEST_B2C_RBD_VALUE_KEY:
                 self.HIGHEST_B2C_RBD_VALUE = str(parameter_value)
-            elif parameter_key == OWN_FARE_DELTA_KEY:
-                self.OWN_FARE_DELTA = float(parameter_value)
+            elif parameter_key == OWN_FARE_DELTA_A_KEY:
+                self.OWN_FARE_DELTA_A = float(parameter_value)
+            elif parameter_key == OWN_FARE_DELTA_B_KEY:
+                self.OWN_FARE_DELTA_B = float(parameter_value)
             elif parameter_key == OVERBOOKING_LF_KEY:
                 self.OVERBOOKING_LF = float(parameter_value)
             elif parameter_key == OVERBOOKING_START_NDO_KEY:

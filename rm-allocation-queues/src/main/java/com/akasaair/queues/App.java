@@ -648,7 +648,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 error_occurred = 1;
                 listOfErrors.add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(listOfErrors, obj_id);
-                throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE));
+                throw new DataMismatchedException(listOfErrors);
             }
             try {
                 insertStatement(data, headers, tempTableName);
@@ -1308,17 +1308,20 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred = 1;
                     updateInputStatus(STRATEGY_TABLE_NAME);
-                    String errorMsg = INVALID_DATA_ERROR_MESSAGE
+                    String errorMsg = "Line " + i + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors2.add(errorMsg);
-                    throw new DataMismatchedException(Collections.singletonList(INVALID_DATA_ERROR_MESSAGE
-                            + " for " + strategyKey + " with decision :" + decision + " having value as " + value));
                 }
                 map.put(headerColumnMap.get(decision), value);
                 countTotalValues++;
             }
         }
         findActualCountBetweenRowsAndColumns(strategyCounter, countTotalValues, listOfErrors2);
+
+        if (!listOfErrors2.isEmpty()) {
+            throw new DataMismatchedException(listOfErrors2);
+        }
+
         return strategyMap;
     }
 
@@ -1815,6 +1818,7 @@ public class App implements RequestHandler<S3Event, Object> {
             String routeSymbol = "";
             String user = "";
             String sector = record.get(CSV_HEADER_ORIGIN) + record.get(CSV_HEADER_DESTINATION);
+            String sector_flight_dept = sector + "_" + record.get(CSV_HEADER_FLIGHT_NO) + "_" +record.get(CSV_HEADER_START_DATE);
             if (route.equalsIgnoreCase(INTERNATIONAL)) {
                 routeSymbol = INTERNATIONAL_SYMBOL;
             } else if (route.equalsIgnoreCase(DOMESTIC)) {
@@ -1823,7 +1827,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN),
                     record.get(CSV_HEADER_DESTINATION), routeSymbol);
-            String lineNum = "Line " + rowCount + ": ";
+            String lineNum = "Line " + rowCount + ": " + sector_flight_dept + ":";
             if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
                 listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
             }
@@ -1951,7 +1955,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     StringBuilder validOptions = new StringBuilder();
                     for (int i = 0; i < listOfCriteria.size(); i++) {
                         if (i > 0) {
-                            validOptions.append(", ");
+                            validOptions.append("/ ");
                         }
                         validOptions.append(listOfCriteria.get(i));
                     }
@@ -2016,7 +2020,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
-                listOfErrors.add(lineNum + "Over Booking has value other than 'Y' or 'N'");
+                listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_SERIES_BLOCK_FLAG))) {
                 listOfErrors.add(lineNum + "Series Block has value other than 'Y' or 'N'");
@@ -2061,7 +2065,8 @@ public class App implements RequestHandler<S3Event, Object> {
 
         String sector1 = record.get(CSV_HEADER_CONNECTIONS_SECTOR1);
         String sector2 = record.get(CSV_HEADER_CONNECTIONS_SECTOR2);
-        String lineNum = "Line " + rowCount + ": ";
+        String flight_line = sector1 + "_" + record.get(CSV_HEADER_CONNECTIONS_FLIGHT1) + "_" + sector2  + "_" + record.get(CSV_HEADER_CONNECTIONS_FLIGHT2)  + "_" + record.get(CSV_HEADER_CONNECTIONS_PERSTART);
+        String lineNum = "Line " + rowCount + ": " + flight_line + ": ";
         if (!isLengthEqualTo(record.get(CSV_HEADER_CONNECTIONS_SECTOR1), 6)) {
             errorsFound.add(lineNum + "Sector1  is not equal to 6 characters");
         }
