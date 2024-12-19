@@ -34,7 +34,7 @@ public class MarketListValidator {
         if (flightNumber == null) {
             return false;
         }
-        return flightNumber.matches("^[A-Z0-9]{2,3}-\\d{3,4}$") || flightNumber.trim().isEmpty();
+        return flightNumber.matches("^[A-Z0-9]{2,3}-\\d{2,4}$") || flightNumber.trim().isEmpty();
     }
 
     public static boolean checkDOWDigits(String value) {
