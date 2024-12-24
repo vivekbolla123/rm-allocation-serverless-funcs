@@ -60,9 +60,10 @@ class DetermineRBD:
 
         profileFaresData = self.rmdatabasehelper.getProfileFares(sector, month, dow, deptTime, percentile)
         if len(profileFaresData) != 0:
-            profileFare = profileFaresData['price'][0]
-            if upsellValue != 0:
-                profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
+            if profileFaresData['price'][0]!="":
+                profileFare = profileFaresData['price'][0]
+                if upsellValue != 0:
+                    profileFare = (float(profileFare) * (1 + float(upsellValue)/100))
 
         if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
             lastSoldFare = CONST_NA
