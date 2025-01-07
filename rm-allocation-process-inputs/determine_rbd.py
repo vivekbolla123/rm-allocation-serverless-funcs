@@ -128,8 +128,15 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
                         elif dPLF<self.constantsutils.OWN_FARE_DELTA_A:
-                            howDetermined = f'AllocationY_Interpollated_last_sold_fare_UpsellN'
-                            anchorFare=lastSoldFare+delta*(dPLF/self.constantsutils.OWN_FARE_DELTA_A)
+                            if toleranceFare is not None and pd.isna(toleranceFare)==False and toleranceFare != CONST_NA and toleranceFare != '' and pd.isnull(toleranceFare)==False:
+                                anchorFare=max(lastSoldFare+delta*(dPLF/self.constantsutils.OWN_FARE_DELTA_A), float(strategyFare)-float(toleranceFare))
+                                if anchorFare == lastSoldFare+delta*(dPLF/self.constantsutils.OWN_FARE_DELTA_A):
+                                    howDetermined = f'AllocationY_Interpollated_last_sold_fare_UpsellN'
+                                else:
+                                    howDetermined = f'AllocationY_ToleranceHit_UpsellN'
+                            else:
+                                anchorFare=lastSoldFare+delta*(dPLF/self.constantsutils.OWN_FARE_DELTA_A)
+                                howDetermined = f'AllocationY_Interpollated_last_sold_fare_UpsellN'
                         else:
                             howDetermined = f'AllocationY_Max_own_fare_var_15+_UpsellN'
                             anchorFare=max(float(profileFare),float(strategyFare))
@@ -155,9 +162,17 @@ class DetermineRBD:
                         if dPLF<0:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare
+                        elif dPLF>self.constantsutils.OWN_FARE_DELTA_A:
+                            howDetermined = 'AllocationY_strategy_fare_15+_UpsellN'
+                            anchorFare=strategyFare
                         else:
                             howDetermined = 'AllocationY_Interpollated_last_sold_fare_UpsellN'
                             anchorFare=lastSoldFare+delta*(dPLF/15)
+  
+                        if toleranceFare is not None and pd.isna(toleranceFare)==False and toleranceFare != CONST_NA and toleranceFare != '' and pd.isnull(toleranceFare)==False:
+                            anchorFare=max(anchorFare, (float(strategyFare)-float(toleranceFare)))
+                            if anchorFare == ((float(strategyFare)-float(toleranceFare))):
+                                howDetermined = 'AllocationY_ToleranceHit_UpsellN'
                     else:
                         if float(BookingsInHour)>0:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellY'
@@ -172,8 +187,15 @@ class DetermineRBD:
                             howDetermined = "AllocationY_harAnchorfare_UpsellN"
             else:
                 if profileFare!=CONST_NA and int(currParams.profileFares) == 1:
-                    anchorFare=(float(profileFare)+float(strategyFare))/2
-                    howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN'
+                    if toleranceFare is not None and pd.isna(toleranceFare)==False and toleranceFare != CONST_NA and toleranceFare != '' and pd.isnull(toleranceFare)==False:
+                        anchorFare=max(((float(profileFare)+float(strategyFare))/2), (float(strategyFare)-float(toleranceFare)))
+                        if anchorFare == ((float(profileFare)+float(strategyFare))/2):
+                            howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN'
+                        else:
+                            howDetermined = 'AllocationY_ToleranceHit_UpsellN'
+                    else:
+                        anchorFare=(float(profileFare)+float(strategyFare))/2
+                        howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN'
                 else:
                     anchorFare=float(strategyFare)
                     howDetermined = 'AllocationY_Startegy_fare_UpsellN'
