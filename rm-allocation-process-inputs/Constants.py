@@ -222,3 +222,13 @@ LOCAL_OUTPUT = {
 MFMIN0 = 0
 MFMIN1 = 1
 CHECK_THRESHOLD_PROCESS_INPUTS = 5
+
+HD_NO_REF_CURVE = "No Reference Curve Found"
+HD_NO_QP_FARES = "No QP Fares Found"
+HD_NO_TBF_FARES = "TBF fares are missing or not found"
+HD_NO_REF_CURVE_ID = "unable to get CurevId"
+HD_NO_BOOKLOADS = "unable to get Booked loads"
+HD_INVALID_CONNECTION = "Connection is invalid"
+
+TBF_RBD_QUERY = "'TF','TE','TD','TC','TB','TY'"
+TBF_COUNT = 6

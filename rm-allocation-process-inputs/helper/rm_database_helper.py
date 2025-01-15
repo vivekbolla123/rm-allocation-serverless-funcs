@@ -359,6 +359,37 @@ class RMDatabaseHelper:
             self.logger.error(e) 
         return rbddata["currency"][0]
     
+    def get_qp_fares(self,origin, destin):
+        query= "select * from Fares where Org = '" + origin + "' and Dst = '" + destin + "'"
+        try:
+            rbddata = pd.read_sql(query, self.conn)
+        except Exception as e:
+            self.logger.error(e)
+        return rbddata
+
+    def get_TBF_fares(self, origin, destin):
+        is_valid = False     
+        query = f"""
+            SELECT TOTAL 
+            FROM Fares 
+            WHERE Org = '{origin}' 
+            AND Dst = '{destin}'
+            AND RBD IN ({TBF_RBD_QUERY})
+        """
+        
+        try:
+            rbddata = pd.read_sql(query, self.conn)
+            is_valid = (
+                len(rbddata) == TBF_COUNT 
+                and not (rbddata['TOTAL'] <= 0).any() 
+                and not rbddata['TOTAL'].isnull().any()
+            )
+            
+        except Exception as e:
+            self.logger.error(e)
+        
+        return is_valid
+    
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult,route):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
