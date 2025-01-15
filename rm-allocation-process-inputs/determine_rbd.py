@@ -56,7 +56,9 @@ class DetermineRBD:
 
         sector = origin + destin
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
-
+        
+        if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
+            upsellValue = 0
 
         profileFaresData = self.rmdatabasehelper.getProfileFares(sector, month, dow, deptTime, percentile)
         if len(profileFaresData) != 0:

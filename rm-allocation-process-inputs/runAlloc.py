@@ -125,7 +125,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.Destin = destination
 					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
-					self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
+					self.outputSummaryRow_b2c.HowDetermined = HD_NO_BOOKLOADS
 					self.outputSummaryRow_b2c.analystName = analystName
 					self.outputSummaryRow_b2c.allocationStatus = 0
 					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
@@ -156,7 +156,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 					self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
-					self.outputSummaryRow_b2c.HowDetermined = "unable to get Booked loads"
+					self.outputSummaryRow_b2c.HowDetermined = HD_NO_BOOKLOADS
 					self.outputSummaryRow_b2c.analystName = analystName
 					self.outputSummaryRow_b2c.allocationStatus = 0
 					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
@@ -170,9 +170,62 @@ class DynAlloc:
 					self.redishelper.updateRunAudit()
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
+					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
+					TBFExist = self.rmdatabasehelper.get_TBF_fares(origin, destination)
+					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
-						tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
-						self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoadPercent)
+						if not qpFares.empty:
+							if int(self.currParams.tbfFlag) == 1 and not TBFExist:
+								self.logger.info("Unable to get TBF Fares - Check the fares table")
+								self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+								self.outputSummaryRow_b2c.RunId = self.runId
+								self.outputSummaryRow_b2c.Origin = origin
+								self.outputSummaryRow_b2c.Destin = destination
+								self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+								self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+								self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+								self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
+								self.outputSummaryRow_b2c.HowDetermined = HD_NO_TBF_FARES
+								self.outputSummaryRow_b2c.analystName = analystName
+								self.outputSummaryRow_b2c.allocationStatus = 0
+								self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
+
+								self.outputSummaryRow_b2b = copy.deepcopy(self.outputSummaryRow_b2c)
+								self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+								self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
+
+								self.allocResults.append(self.outputSummaryRow_b2c)
+								self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+								self.allocResults.append(self.outputSummaryRow_b2b)
+								self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+								self.redishelper.updateRunAudit()
+							else:
+								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
+								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoadPercent)
+						else:
+							self.logger.info("Unable to get QP Fares - Check the fares table")
+							self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+							self.outputSummaryRow_b2c.RunId = self.runId
+							self.outputSummaryRow_b2c.Origin = origin
+							self.outputSummaryRow_b2c.Destin = destination
+							self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+							self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+							self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+							self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
+							self.outputSummaryRow_b2c.HowDetermined = HD_NO_QP_FARES
+							self.outputSummaryRow_b2c.analystName = analystName
+							self.outputSummaryRow_b2c.allocationStatus = 0
+							self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
+
+							self.outputSummaryRow_b2b = copy.deepcopy(self.outputSummaryRow_b2c)
+							self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+							self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
+
+							self.allocResults.append(self.outputSummaryRow_b2c)
+							self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+							self.allocResults.append(self.outputSummaryRow_b2b)
+							self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+							self.redishelper.updateRunAudit()
 					else:
 						# Cannot get a reference curve - Abort
 						self.logger.info("Unable to get a Target - Check the booking curves")
@@ -184,7 +237,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
 						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
-						self.outputSummaryRow_b2c.HowDetermined = "No Reference Curve Found"
+						self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
 						self.outputSummaryRow_b2c.analystName = analystName
 						self.outputSummaryRow_b2c.allocationStatus = 0
 						self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
@@ -478,6 +531,7 @@ class DynAlloc:
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue)
 				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs)
 				
+    
 
 				self.AUFileData.append(currRec)
 

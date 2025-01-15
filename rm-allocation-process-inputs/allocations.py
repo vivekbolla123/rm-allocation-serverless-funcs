@@ -45,6 +45,9 @@ class RBDAllocations:
         rbdlabel_list=[]
         price_list=[]
         
+        if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
+            upsellValue = 0
+        
         while b2cctr < B2CRBDs.shape[0] or b2bctr < self.constantsutils.B2B_RDB_COUNT:
             if b2cctr < B2CRBDs.shape[0]:
                 RBDLabel = B2CRBDs['RBD'][b2cctr]
@@ -361,9 +364,12 @@ class RBDAllocations:
 
             # Calculate base allocation unit
             base_unit = math.ceil(adjustedCapacity / 10)
-        
-            # Calculate upsell fares
-            profilefarextract['Upsell'] = profilefarextract['Total'] * (1 + int(upsell) / 100)
+            try:
+                upsell_value = int(upsell) if upsell and str(upsell).strip().upper() != 'NA' else 0
+            except (ValueError, TypeError):
+                upsell_value = 0
+                
+            profilefarextract['Upsell'] = profilefarextract['Total'] * (1 + upsell_value / 100)
 
             # Sort the dataframe by original fares
             profilefarextract = profilefarextract.sort_values(by='Total').reset_index(drop=True)
