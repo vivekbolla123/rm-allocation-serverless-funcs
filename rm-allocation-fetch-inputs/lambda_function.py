@@ -3,13 +3,15 @@ import logging
 import boto3
 import json
 import warnings
+import pymssql
 import configsettings
 import pytz
 import time
+import pandas as pd
 from uuid import uuid4
 from sqlalchemy import create_engine
 from pandas import read_sql,Timestamp
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from redis import Redis
 from constants_utils import ConstantsUtils
 from concurrent.futures import ThreadPoolExecutor
@@ -48,6 +50,12 @@ try:
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     conn = create_engine(DB_RD_CONN_STRING)
     wrconn = create_engine(DB_WR_CONN_STRING)
+    
+    NavitaireConnection = pymssql.connect(
+        host=configsettings.NAV_DB_HOST,
+        user=configsettings.NAV_DB_USER,
+        password=configsettings.NAV_DB_PASSWORD
+    )
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -195,14 +203,16 @@ def lambda_handler(event, context):
         market_list_query = getConnectionMarketListQuery(start_period, end_period, market_list_table)
 
     mkt_list = read_sql(market_list_query, conn)
+    mkt_list, failCount = clean_markets_optimized(mkt_list)
     markets_count = mkt_list.shape[0]
+    exeMLCount = markets_count - failCount
     logger.info(f"Total markets: {markets_count}")
 
     start_time = datetime.now()
     run_id = str(uuid4())
     log_time.update_run_id(run_id)
     
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count, exeMLCount)
 
     cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
     cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
@@ -268,7 +278,7 @@ def custom_serializer(obj):
     return str(obj)# Convert Timestamp to ISO format string
     raise TypeError(f'Type {type(obj)} not serializable')
 
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count, exeMLCount):
     log_time.start()
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
@@ -281,10 +291,10 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
-    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount, exeMLCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
-                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count, exeMLCount))
     except Exception as e:
         logger.info(e)
     finally:
@@ -431,6 +441,87 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     """
     log_time.end("getConnectionMarketListQuery")
     return query
+
+def getFltSectDeptTimeForCurrentDay():
+    """Get all flights for current day with their departure times"""
+    current_date = datetime.now().date()
+    NavitaireQuery = f"""
+        SELECT  
+            Origin,
+            Destination,
+            TRIM(FlightNumber) as FlightNumber,
+            DepartureDate,
+            FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
+        FROM {configsettings.NAV_DB_NAME}rez.inventoryleg 
+        WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
+    """
+    return pd.read_sql(NavitaireQuery, NavitaireConnection)
+
+def create_flight_lookup_map(flights_df):
+    """Create a lookup dictionary from flights dataframe"""
+    flight_map = {}
+    for _, flight in flights_df.iterrows():
+        # Key format: FlightNumber_Origin_Destination_Date
+        key = f"{flight['FlightNumber']}_{flight['Origin']}_{flight['Destination']}_{flight['DepartureDate']}"
+        flight_map[key] = flight['DepartureTimeUTC']
+    return flight_map
+
+def filter_market_list(market_list, ndo0_map):
+    """
+    Filter market list based on NDO0 map and time criteria
+    Returns both filtered list and list of skipped flights for verification
+    """
+    filtered_markets = []
+    skipped_markets = []
+    
+    current_datetime = datetime.now(timezone.utc)
+    cutoff_time = (current_datetime + timedelta(minutes=constantsutils.TIME_BEFORE_DEPARTURE)).strftime("%H:%M")
+    current_date = current_datetime.strftime("%Y-%m-%d")
+    
+    logger.info(f"Filtering markets. Current date: {current_date}, Cutoff time: {cutoff_time}")
+    
+    for market in market_list:
+        # Extract origin and destination from market data
+        origin = market["Origin"]
+        destination = market["Destin"]
+        flight_number = market["FlightNumber"]
+        
+        # Construct key for lookup
+        key = f"{flight_number}_{origin}_{destination}_{current_date}"
+        
+        if key in ndo0_map:
+            departure_time = ndo0_map[key]
+            logger.info(f"Found flight {flight_number} {origin}-{destination} with departure time: {departure_time}")
+            
+            if departure_time > cutoff_time:
+                filtered_markets.append(market)
+                logger.info(f"Keeping flight {flight_number} as departure time {departure_time} is after cutoff {cutoff_time}")
+            else:
+                skipped_markets.append(market)
+                logger.info(f"Skipping flight {flight_number} as departure time {departure_time} is within 30 minutes")
+        else:
+            # If flight not found in today's flights, keep it (it might be for future dates)
+            filtered_markets.append(market)
+            logger.info(f"Flight {flight_number} not found in today's flights - keeping for future processing")
+    
+    logger.info(f"Original market list size: {len(market_list)}")
+    logger.info(f"Filtered market list size: {len(filtered_markets)}")
+    logger.info(f"Skipped flights count: {len(skipped_markets)}")
+    
+    return filtered_markets, skipped_markets
+
+def clean_markets_optimized(market_list):
+    """Main function to filter markets using optimized approach"""
+    # Get all current day flights in one query
+    current_flights_df = getFltSectDeptTimeForCurrentDay()
+    
+    # Create lookup map
+    ndo0_map = create_flight_lookup_map(current_flights_df)
+    
+    # Filter market list and get both filtered and skipped markets
+    filtered_markets, skipped_markets = filter_market_list(market_list, ndo0_map)
+    
+    return filtered_markets, len(skipped_markets)
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({
