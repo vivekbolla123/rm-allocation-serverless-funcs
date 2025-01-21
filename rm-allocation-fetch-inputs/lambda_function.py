@@ -204,11 +204,12 @@ def lambda_handler(event, context):
 
     mkt_list = read_sql(market_list_query, conn)
     print(f"Original Market List {mkt_list}")
+    markets_count = mkt_list.shape[0]
+    logger.info(f"Total markets: {markets_count}")
     mkt_list, failCount = clean_markets_optimized(mkt_list)
     print(f"Filtered Market List {mkt_list}")
-    markets_count = mkt_list.shape[0]
+    logger.info(f"Total filtered markets: {str(mkt_list.shape[0])}")
     exeMLCount = markets_count - failCount
-    logger.info(f"Total markets: {markets_count}")
 
     start_time = datetime.now()
     run_id = str(uuid4())
