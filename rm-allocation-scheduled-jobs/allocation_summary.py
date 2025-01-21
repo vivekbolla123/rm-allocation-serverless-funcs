@@ -81,7 +81,7 @@ class AllocationSummaryReport:
                         IFNULL(ara.actual_end_time, '') AS actual_end_time,
                         IFNULL(SUM(CASE WHEN naa.failures > 0 THEN 1 ELSE 0 END), - 1) AS failures,
                         IFNULL(COUNT(naa.totalApiCalls), - 1) AS total,
-                        IFNULL(ara.marketListCount, - 1) AS marketListCount,
+                        IFNULL(ara.exeMLCount, ara.marketListCount) AS marketListCount,
                         ara.user,
                         IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, ara.start_time, max(naa.end_time))), '') AS runTime,
                         ara.market_list_name,

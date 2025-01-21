@@ -174,7 +174,7 @@ class SFTPErrorRate:
                                                             user, 
                                                             IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, start_time, MAX(actual_end_time))), '') AS runTime,
                                                             market_list_name,
-                                                            marketListCount,
+                                                            IFNULL(exeMLCount, -1) AS marketListCount,
                                                             IFNULL(market_list, 0) AS Id_marketList,
                                                             IFNULL(Curves, 0) AS Id_Curves,
                                                             IFNULL(d1_d2_strategies, 0) AS Id_Strategy,
