@@ -148,7 +148,7 @@ class SchedulerHandler:
     def get_shortest_run(self):
         try:
             with self.wrconn.connect() as connection:
-                query = text("SELECT run_id,batch_completed,total_batch_size FROM QP_DW_RMALLOC.allocation_run_audit WHERE total_batch_size - batch_completed <> 0 AND adhoc_run_status = 'IN-QUEUE' ORDER BY (total_batch_size - batch_completed) ASC, CONVERT(exeMLCount,UNSIGNED INTEGER) ASC LIMIT 1")
+                query = text("SELECT run_id,batch_completed,total_batch_size FROM QP_DW_RMALLOC.allocation_run_audit WHERE total_batch_size - batch_completed <> 0 AND adhoc_run_status = 'IN-QUEUE' ORDER BY (total_batch_size - batch_completed) ASC, CONVERT(IFNULL(ara.exeMLCount, ara.marketListCount),UNSIGNED INTEGER) ASC LIMIT 1")
                 result = connection.execute(query)
                 shortest_run = result.fetchone()
                 if shortest_run:
