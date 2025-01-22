@@ -204,21 +204,20 @@ def lambda_handler(event, context):
 
     mkt_list = read_sql(market_list_query, conn)
     print(f"Original Market List {mkt_list}")
-    markets_count = mkt_list.shape[0]
     logger.info(f"Total markets: {markets_count}")
     mkt_list, failCount = clean_markets_optimized(mkt_list)
     print(f"Filtered Market List {mkt_list}")
+    markets_count = mkt_list.shape[0]
     logger.info(f"Total filtered markets: {str(mkt_list.shape[0])}")
-    exeMLCount = markets_count - failCount
 
     start_time = datetime.now()
     run_id = str(uuid4())
     log_time.update_run_id(run_id)
     
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count, exeMLCount)
+    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(exeMLCount), 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(exeMLCount), 86400)
+    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
+    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
     cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
@@ -227,7 +226,7 @@ def lambda_handler(event, context):
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id, update_navitaire_method, route_type, queue_name)
     else:
-        batches_required = number_of_batches_required(exeMLCount, adhoc_batch_size)
+        batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
         for batch_num in range(batches_required[0]):
             start_idx = batch_num * adhoc_batch_size
             end_idx = start_idx + adhoc_batch_size
@@ -272,7 +271,7 @@ def lambda_handler(event, context):
     log_time.send_time_log_db()
     return {
         "statusCode": 200, 
-        "body": exeMLCount
+        "body": markets_count
     }
 
 def custom_serializer(obj):
@@ -281,7 +280,7 @@ def custom_serializer(obj):
     return str(obj)# Convert Timestamp to ISO format string
     raise TypeError(f'Type {type(obj)} not serializable')
 
-def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count, exeMLCount):
+def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     log_time.start()
     currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
     currVersionValues = read_sql(currVersionQuery, conn)
@@ -294,10 +293,10 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         else:
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
-    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount, exeMLCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
-                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count, exeMLCount))
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
     except Exception as e:
         logger.info(e)
     finally:
