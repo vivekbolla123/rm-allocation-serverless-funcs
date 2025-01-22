@@ -217,8 +217,8 @@ def lambda_handler(event, context):
     
     insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, markets_count, exeMLCount)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
+    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(exeMLCount), 86400)
+    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(exeMLCount), 86400)
     cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
     cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
@@ -227,7 +227,7 @@ def lambda_handler(event, context):
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id, update_navitaire_method, route_type, queue_name)
     else:
-        batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
+        batches_required = number_of_batches_required(exeMLCount, adhoc_batch_size)
         for batch_num in range(batches_required[0]):
             start_idx = batch_num * adhoc_batch_size
             end_idx = start_idx + adhoc_batch_size
@@ -272,7 +272,7 @@ def lambda_handler(event, context):
     log_time.send_time_log_db()
     return {
         "statusCode": 200, 
-        "body": markets_count
+        "body": exeMLCount
     }
 
 def custom_serializer(obj):
