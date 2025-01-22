@@ -1,5 +1,6 @@
 import ast
 import copy
+import json
 import math
 
 import numpy as np
@@ -20,6 +21,7 @@ class RBDAllocations:
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
         fullRbds=B2CRBDs
         rbd_list = self.constantsutils.TBF_RBD.split(',')
+        rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
         B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['Total'].iloc[-1]
@@ -118,7 +120,7 @@ class RBDAllocations:
         df_unique = df_filtered.sort_values(['price', 'price_diff']).drop_duplicates('RBD')
         df_unique = df_unique.drop(columns='price_diff')
 
-        return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds
+        return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds,openingRBDPrice
     
     def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
         # Store the original rbdPushFlag
@@ -130,7 +132,7 @@ class RBDAllocations:
         
         # First allocation with rbdPushFlag = 0
         currParams.rbdPushFlag = 0
-        _, _, _, df_unique_0, _ = self.b2CAllocation(
+        _, _, _, df_unique_0, _,_ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
             bookloadPercentile, upsellValue
@@ -140,7 +142,7 @@ class RBDAllocations:
         currRec_copy = copy.deepcopy(currRec)
         # Second allocation with rbdPushFlag = 1
         currParams.rbdPushFlag = 1
-        _, _, _, df_unique_1, _ = self.b2CAllocation(
+        _, _, _, df_unique_1, _,_ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
             bookloadPercentile, upsellValue
@@ -356,7 +358,10 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell):
+    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice):
+        rbd_list = list(json.loads(GROUP_QUOTATION).values())
+        group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
+        group_alloc_df=group_alloc_df.sort_values(by='Total').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         if int(autoGroup) == 1 and (not profilefarextract.empty):
             profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
@@ -375,11 +380,16 @@ class RBDAllocations:
             profilefarextract = profilefarextract.sort_values(by='Total').reset_index(drop=True)
 
             # Initialize allocation dictionary
-            allocation_dict = {RBD: 0 for RBD in profilefarextract['RBD']}
+            allocation_dict = {RBD: {'allocation': 0, 'price_diff': 0} for RBD in profilefarextract['RBD']}
 
             # Initialize allocation counter
             allocation_counter = 0
-
+            profilefarextract = profilefarextract.merge(
+            group_alloc_df[['RBD', 'Total']],
+            on='RBD',
+            how='left',
+            suffixes=('', '_QP')
+        )
             # Loop through upsell fares and allocate based on nearest original fare
             for current_index, row in profilefarextract.iterrows():
                 upsell_price = row['Upsell']
@@ -388,15 +398,20 @@ class RBDAllocations:
                 # Find the nearest original fare that hasn't been fully allocated
                 if profilefarextract.empty:
                     break
-                nearest_index = (profilefarextract['Total'] - upsell_price).abs().idxmin()
+                nearest_index = (profilefarextract['Total_QP'] - upsell_price).abs().idxmin()
                 nearest_price = profilefarextract['Total'][nearest_index]
                 RBDLabel = profilefarextract['RBD'][nearest_index]
-
+                price_diff = openingRBDPrice - profilefarextract.loc[nearest_index, 'Total_QP']
+                if RBDLabel == profilefarextract.iloc[-1]['RBD'] and allocation_dict[RBDLabel]['allocation'] > 0:
+                    continue
                 # Calculate allocation for this RBD
                 allocation = min((allocation_counter + 1) * base_unit, adjustedCapacity)
 
                 # Set allocation
-                allocation_dict[RBDLabel] = allocation
+                allocation_dict[RBDLabel] = {
+                    'allocation': allocation,
+                    'price_diff': price_diff
+                }
 
                 # Increment allocation counter
                 allocation_counter += 1
@@ -406,8 +421,14 @@ class RBDAllocations:
                     break
             last_non_zero_allocation = 0
             # Apply allocations to the current record
-            for RBDLabel, allocation in allocation_dict.items():
-                if allocation == 0:
+            for RBDLabel, value in allocation_dict.items():
+                
+                price_diff = value['price_diff'] 
+                if price_diff<5000:
+                    allocation = value['allocation']
+                else:
+                    allocation=0
+                if allocation == 0 and price_diff<5000:
                     # If it is, use the last non-zero allocation
                     allocation = last_non_zero_allocation
                 else:
