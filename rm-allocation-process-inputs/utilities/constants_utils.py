@@ -35,6 +35,8 @@ class ConstantsUtils:
         self.MFMIN0 = MFMIN0
         self.MFMIN1 = MFMIN1
         self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
+        self.GROUP_DIFF_FARE = GROUP_DIFF_FARE
+        
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -107,3 +109,5 @@ class ConstantsUtils:
                 self.MFMIN1 = int(parameter_value)
             elif parameter_key == CHECK_THRESHOLD_PROCESS_INPUTS:
                 self.CHECK_THRESHOLD_PROCESS_INPUTS = int(parameter_value)
+            elif parameter_key == GROUP_DIFF_FARE_KEY:
+                self.GROUP_DIFF_FARE = int(parameter_value)
