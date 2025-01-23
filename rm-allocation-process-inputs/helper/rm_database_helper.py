@@ -1,4 +1,5 @@
 from datetime import datetime,timedelta
+import json
 import pandas as pd
 import pytz
 from ownlogger import OwnLogger
@@ -404,6 +405,7 @@ class RMDatabaseHelper:
             self.redishelper.updateRunAudit()
             return openResult, rbddata
         exclude_rbd_list = TBF_RBD.split(',')
+        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
     # Convert the list of RBDs to a comma-separated string for the SQL query
         exclude_rbd_str = ",".join(["'{}'".format(rbd) for rbd in exclude_rbd_list])
@@ -440,7 +442,7 @@ class RMDatabaseHelper:
 
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop,route):
         exclude_rbd_list = TBF_RBD.split(',')
-
+        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
     # Convert the list of RBDs to a comma-separated string for the SQL query
         exclude_rbd_str = ",".join(["'{}'".format(rbd) for rbd in exclude_rbd_list])
         RBDQuery = "select RBD, Total from Fares where Org = '" + origin + "' and Dst = '" + destin + "' and route = '"+route+"'"
