@@ -1,11 +1,11 @@
 date,DOW,mappedMonth,event
-08/04/2023,Thu,November,
 08/20/2023,Sun,November,
 08/22/2023,Mon,November,
 08/23/2023,Tue,November,
 08/24/2023,Wed,November,
 08/25/2023,Thu,November,
 08/26/2023,Fri,November,
+08/03/2023,Thu,November,
 08/05/2023,Sat,November,
 09/11/2023,Mon,November,
 09/12/2023,Tue,November,
@@ -19,8 +19,8 @@ date,DOW,mappedMonth,event
 03/21/2024,Thu,Febuary,
 03/22/2024,Fri,Febuary,
 03/23/2024,Sat,Febuary,
-03/24/2024,Sun,Febuary,Holi
-03/25/2024,Mon,Febuary,
+03/24/2024,Sun,Febuary,
+03/25/2024,Mon,Febuary,Holi
 03/26/2024,Tue,Febuary,
 03/27/2024,Wed,Febuary,
 03/28/2024,Thu,Febuary,
