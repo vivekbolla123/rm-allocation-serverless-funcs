@@ -424,11 +424,11 @@ class RBDAllocations:
             for RBDLabel, value in allocation_dict.items():
                 
                 price_diff = value['price_diff'] 
-                if price_diff<5000:
+                if price_diff<self.constantsutils.GROUP_DIFF_FARE:
                     allocation = value['allocation']
                 else:
                     allocation=0
-                if allocation == 0 and price_diff<5000:
+                if allocation == 0 and price_diff<self.constantsutils.GROUP_DIFF_FARE:
                     # If it is, use the last non-zero allocation
                     allocation = last_non_zero_allocation
                 else:
