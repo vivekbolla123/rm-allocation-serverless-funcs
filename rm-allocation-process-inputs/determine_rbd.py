@@ -46,8 +46,21 @@ class DetermineRBD:
             openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
         
             openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L') 
-        
+        curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
+        timeString = 'Pre10'
+        if curTime > TIME_10_AM:
+            timeString = 'Post10'
+        value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
+        if value.shape[0] != 0:
+            if channel == B2B_CHANNEL:
+                anchorValue = value['B2BValue'][0]
+            if channel == B2C_CHANNEL:
+                anchorValue = value['B2CValue'][0]
         strategyFare = openResult['Fare'][0]
+        if anchorValue == 'C':
+            openResult['FareResult']=[timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined]
+            openResult['anchorFare']=['NA']
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
         if strategyFare == CONST_NA:
             return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
 
@@ -55,7 +68,6 @@ class DetermineRBD:
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
 
         sector = origin + destin
-        curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
         
         if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
             upsellValue = 0
@@ -83,9 +95,7 @@ class DetermineRBD:
         
         anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg)
 
-        timeString = 'Pre10'
-        if curTime > TIME_10_AM:
-            timeString = 'Post10'
+        
             
         if anchorValue == 'A':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_A_' + howDetermined
