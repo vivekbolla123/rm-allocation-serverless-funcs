@@ -15,8 +15,10 @@ class GetDynamicTimeD2:
         hardendTime = currParams.time_window_end
         time_range = '0'
         
-        if currParams.plfthreshold !='' and pd.notna(currParams.plfthreshold):
-            if int(plf) < int(currParams.plfthreshold):
+        if currParams.plfthreshold != '' and pd.notna(currParams.plfthreshold):
+            threshold_value = float(str(currParams.plfthreshold).replace('%', ''))
+            
+            if int(plf) < threshold_value:
                 hardstartTime = currParams.time_window_start
                 hardendTime = currParams.time_window_end
                 hard_time_range = '0'
@@ -69,26 +71,31 @@ class GetDynamicTimeD2:
 
         return startTime, endTime
     
-    def getDynamicD2Value(self, currParams, dplfBand, ndoBand,channel,plf):
-        hardcriteria=CONST_NA
-        hardoffset=CONST_NA
-        fare=CONST_NA
-        if currParams.plfthreshold !='' and pd.notna(currParams.plfthreshold) and not self.check_int(currParams.hardanchor):
-            if int(plf) < int(currParams.plfthreshold):
+    def getDynamicD2Value(self, currParams, dplfBand, ndoBand, channel, plf):
+        hardcriteria = CONST_NA
+        hardoffset = CONST_NA
+        fare = CONST_NA
+        
+        # Convert PLF values to float, removing % symbols
+        int(plf) = float(str(plf).replace('%', ''))
+        
+        if currParams.plfthreshold != '' and pd.notna(currParams.plfthreshold) and not self.check_int(currParams.hardanchor):
+            threshold_value = float(str(currParams.plfthreshold).replace('%', ''))
+            if int(plf) < threshold_value:
                 hardcriteria = currParams.hardanchor
                 hardoffset = currParams.fare_offset
-        dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand,channel)
+                
+        dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
         criteria = dynamicD2List['criteria'][0]
         offset = dynamicD2List['offset'][0]
         strategy = dynamicD2List['strategy'][0]
-                
-            
-        if self.check_int(currParams.hardanchor):
-            if int(plf) < int(currParams.plfthreshold):
-                fare = currParams.hardanchor
-                
         
-        return criteria,hardcriteria, offset,hardoffset, strategy,fare
+        if self.check_int(currParams.hardanchor):
+            threshold_value = float(str(currParams.plfthreshold).replace('%', ''))
+            if int(plf) < threshold_value:
+                fare = currParams.hardanchor
+        
+        return criteria, hardcriteria, offset, hardoffset, strategy, fare
     
     
     def check_int(self,value):
