@@ -206,6 +206,7 @@ def lambda_handler(event, context):
     print(f"Original Market List {mkt_list}")
     mkt_list, failCount = clean_markets_optimized(mkt_list)
     print(f"Filtered Market List {mkt_list}")
+    mkt_list = mkt_list.reset_index()
     markets_count = mkt_list.shape[0]
     logger.info(f"Total markets: {markets_count}")
 
@@ -451,8 +452,6 @@ def create_flight_lookup_map(flights_df):
         flight_map[key] = flight['DepartureTimeUTC']
     return flight_map
 
-
-
 def getFltSectDeptTimeForCurrentDay():
     try:
         current_date = datetime.now(timezone.utc).date()
@@ -474,21 +473,7 @@ def getFltSectDeptTimeForCurrentDay():
         logger.error(f"Error fetching flight data: {str(e)}")
         raise
 
-def filter_market_list(market_list, ndo0_map):
-    """
-    Filter market list based on NDO0 map and time criteria.
-    Only applies time-based filtering for today's flights.
-    
-    Args:
-        market_list (list): List of market dictionaries
-        ndo0_map (dict): Dictionary of today's flights with departure times
-    
-    Returns:
-        tuple: (filtered_markets, skipped_markets)
-    """
-    filtered_markets = []
-    skipped_markets = []
-    
+def filter_market_list(market_list_df, ndo0_map):
     current_datetime = datetime.now(timezone.utc)    
     print(f"Current time: {current_datetime}")
     print(f"skipping time delta: {str(constantsutils.TIME_BEFORE_DEPARTURE)}")
@@ -497,7 +482,11 @@ def filter_market_list(market_list, ndo0_map):
     
     print(f"Filtering markets. Current date: {current_date}, Cutoff time: {cutoff_time}")
     
-    for market in market_list:
+    # Create mask for rows to keep
+    keep_mask = pd.Series(False, index=market_list_df.index)
+    skip_mask = pd.Series(False, index=market_list_df.index)
+    
+    for idx, market in market_list_df.iterrows():
         try:
             origin = market.get("Origin")
             destination = market.get("Destin")
@@ -516,45 +505,34 @@ def filter_market_list(market_list, ndo0_map):
                     departure_time = ndo0_map[key]
                     
                     if departure_time > cutoff_time:
-                        filtered_markets.append(market)
+                        keep_mask[idx] = True
                         print(f"Keeping today's flight {flight_number} {origin}-{destination} as departure time {departure_time} is after cutoff {cutoff_time}")
                     else:
-                        skipped_markets.append(market)
+                        skip_mask[idx] = True
                         print(f"Skipping today's flight {flight_number} due to departure time {departure_time} before cutoff {cutoff_time}")
                 else:
                     print(f"Today's flight {flight_number} not found in Navitaire data - skipping")
-                    skipped_markets.append(market)
+                    skip_mask[idx] = True
             else:
                 # Future dates - keep all flights
-                filtered_markets.append(market)
+                keep_mask[idx] = True
                 print(f"Keeping future flight {flight_number} for date {market_date}")
                 
         except Exception as e:
             logger.error(f"Error processing market {market}: {str(e)}")
             continue
     
-    print(f"Total markets processed: {len(market_list)}")
-    print(f"Markets kept: {len(filtered_markets)}")
-    print(f"Markets skipped: {len(skipped_markets)}")
+    filtered_markets_df = market_list_df[keep_mask].copy()
+    skipped_markets_df = market_list_df[skip_mask].copy()
     
-    return filtered_markets, skipped_markets
+    print(f"Total markets processed: {len(market_list_df)}")
+    print(f"Markets kept: {len(filtered_markets_df)}")
+    print(f"Markets skipped: {len(skipped_markets_df)}")
+    
+    return filtered_markets_df, skipped_markets_df
 
 def clean_markets_optimized(market_list_df):
-    """
-    Clean and filter markets based on departure times and current UTC time.
-    Only filters today's flights based on departure time.
-    
-    Args:
-        market_list_df (pd.DataFrame): DataFrame containing market list data
-        
-    Returns:
-        tuple: (filtered_market_list_df, int) Filtered DataFrame and count of skipped markets
-    """
     try:
-        # Convert DataFrame to list of dicts for processing
-        market_list = market_list_df.to_dict('records')
-        
-        # Get current flights with error handling
         try:
             current_flights_df = getFltSectDeptTimeForCurrentDay()
             if current_flights_df.empty:
@@ -570,18 +548,10 @@ def clean_markets_optimized(market_list_df):
             print("Empty flight lookup map created")
             return market_list_df, 0
             
-        # Filter markets
-        filtered_markets, skipped_markets = filter_market_list(market_list, ndo0_map)
+        # Filter markets while maintaining DataFrame structure
+        filtered_markets_df, skipped_markets_df = filter_market_list(market_list_df, ndo0_map)
         
-        # Convert back to DataFrame maintaining original structure
-        if filtered_markets:
-            filtered_df = pd.DataFrame(filtered_markets)
-            # Ensure column order matches input
-            filtered_df = filtered_df[market_list_df.columns]
-        else:
-            filtered_df = pd.DataFrame(columns=market_list_df.columns)
-            
-        return filtered_df, len(skipped_markets)
+        return filtered_markets_df, len(skipped_markets_df)
         
     except Exception as e:
         logger.error(f"Error in clean_markets_optimized: {str(e)}")
@@ -589,5 +559,5 @@ def clean_markets_optimized(market_list_df):
     
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({
-#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_test\"}"
+#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_Test\"}"
 # },None)
