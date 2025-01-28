@@ -1942,8 +1942,22 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (fareOffset == null || fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 }
-                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
-                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty()) {
+                    String trimmedValue = plfThreshold.trim();
+                    if (!trimmedValue.endsWith("%")) {
+                        listOfErrors.add(lineNum + "PLF Threshold must include a percentage symbol (%)");
+                    } else {
+                        // Remove the % symbol for numeric validation
+                        String numericValue = trimmedValue.substring(0, trimmedValue.length() - 1);
+                        if (!isNumeric(numericValue)) {
+                            listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                        } else {
+                            float value = Float.parseFloat(numericValue);
+                            if (value > PLFTHRESHOLD_VALUE) {
+                                listOfErrors.add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            }
+                        }
+                    }
                 }
                 if (plfThreshold == null || plfThreshold.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
@@ -1965,8 +1979,22 @@ public class App implements RequestHandler<S3Event, Object> {
                         listOfErrors.add(lineNum + "Fare Offset must be a valid number");
                     }
                 }
-                if (plfThreshold != null && !plfThreshold.trim().isEmpty() && !isNumeric(plfThreshold)) {
-                    listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                if (plfThreshold != null && !plfThreshold.trim().isEmpty()) {
+                    String trimmedValue = plfThreshold.trim();
+                    if (!trimmedValue.endsWith("%")) {
+                        listOfErrors.add(lineNum + "PLF Threshold must include a percentage symbol (%)");
+                    } else {
+                        // Remove the % symbol for numeric validation
+                        String numericValue = trimmedValue.substring(0, trimmedValue.length() - 1);
+                        if (!isNumeric(numericValue)) {
+                            listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
+                        } else {
+                            float value = Float.parseFloat(numericValue);
+                            if (value > PLFTHRESHOLD_VALUE) {
+                                listOfErrors.add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            }
+                        }
+                    }
                 }
                 // When hardAnchor is numeric, fareOffset is optional but must be numeric if
                 // present
