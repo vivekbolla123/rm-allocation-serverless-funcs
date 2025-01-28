@@ -203,9 +203,9 @@ def lambda_handler(event, context):
         market_list_query = getConnectionMarketListQuery(start_period, end_period, market_list_table)
 
     mkt_list = read_sql(market_list_query, conn)
-    print(f"Original Market List {mkt_list}")
+    logger.info(f"Original Market List {mkt_list}")
     mkt_list, failCount = clean_markets_optimized(mkt_list)
-    print(f"Filtered Market List {mkt_list}")
+    logger.info(f"Filtered Market List {mkt_list}")
     mkt_list = mkt_list.reset_index()
     markets_count = mkt_list.shape[0]
     logger.info(f"Total markets: {markets_count}")
@@ -475,12 +475,12 @@ def getFltSectDeptTimeForCurrentDay():
 
 def filter_market_list(market_list_df, ndo0_map):
     current_datetime = datetime.now(timezone.utc)    
-    print(f"Current time: {current_datetime}")
-    print(f"skipping time delta: {str(constantsutils.TIME_BEFORE_DEPARTURE)}")
+    logger.info(f"Current time: {current_datetime}")
+    logger.info(f"skipping time delta: {str(constantsutils.TIME_BEFORE_DEPARTURE)}")
     cutoff_time = (current_datetime + timedelta(minutes=constantsutils.TIME_BEFORE_DEPARTURE)).strftime("%H:%M")
     current_date = current_datetime.strftime("%Y-%m-%d")
     
-    print(f"Filtering markets. Current date: {current_date}, Cutoff time: {cutoff_time}")
+    logger.info(f"Filtering markets. Current date: {current_date}, Cutoff time: {cutoff_time}")
     
     # Create mask for rows to keep
     keep_mask = pd.Series(False, index=market_list_df.index)
@@ -494,7 +494,7 @@ def filter_market_list(market_list_df, ndo0_map):
             market_date = datetime.strptime(market.get("PerStart"), "%m/%d/%Y").strftime("%Y-%m-%d")
             
             if not all([origin, destination, flight_number, market_date]):
-                print(f"Skipping market due to missing data: {market}")
+                logger.info(f"Skipping market due to missing data: {market}")
                 continue
             
             # Only check departure time for today's flights
@@ -506,17 +506,17 @@ def filter_market_list(market_list_df, ndo0_map):
                     
                     if departure_time > cutoff_time:
                         keep_mask[idx] = True
-                        print(f"Keeping today's flight {flight_number} {origin}-{destination} as departure time {departure_time} is after cutoff {cutoff_time}")
+                        logger.info(f"Keeping today's flight {flight_number} {origin}-{destination} as departure time {departure_time} is after cutoff {cutoff_time}")
                     else:
                         skip_mask[idx] = True
-                        print(f"Skipping today's flight {flight_number} due to departure time {departure_time} before cutoff {cutoff_time}")
+                        logger.info(f"Skipping today's flight {flight_number} due to departure time {departure_time} before cutoff {cutoff_time}")
                 else:
-                    print(f"Today's flight {flight_number} not found in Navitaire data - skipping")
+                    logger.info(f"Today's flight {flight_number} not found in Navitaire data - skipping")
                     skip_mask[idx] = True
             else:
                 # Future dates - keep all flights
                 keep_mask[idx] = True
-                print(f"Keeping future flight {flight_number} for date {market_date}")
+                logger.info(f"Keeping future flight {flight_number} for date {market_date}")
                 
         except Exception as e:
             logger.error(f"Error processing market {market}: {str(e)}")
@@ -525,9 +525,9 @@ def filter_market_list(market_list_df, ndo0_map):
     filtered_markets_df = market_list_df[keep_mask].copy()
     skipped_markets_df = market_list_df[skip_mask].copy()
     
-    print(f"Total markets processed: {len(market_list_df)}")
-    print(f"Markets kept: {len(filtered_markets_df)}")
-    print(f"Markets skipped: {len(skipped_markets_df)}")
+    logger.info(f"Total markets processed: {len(market_list_df)}")
+    logger.info(f"Markets kept: {len(filtered_markets_df)}")
+    logger.info(f"Markets skipped: {len(skipped_markets_df)}")
     
     return filtered_markets_df, skipped_markets_df
 
@@ -536,7 +536,7 @@ def clean_markets_optimized(market_list_df):
         try:
             current_flights_df = getFltSectDeptTimeForCurrentDay()
             if current_flights_df.empty:
-                print("No current day flights found in Navitaire")
+                logger.info("No current day flights found in Navitaire")
                 return market_list_df, 0
         except Exception as e:
             logger.error(f"Error fetching current flights: {str(e)}")
@@ -545,7 +545,7 @@ def clean_markets_optimized(market_list_df):
         # Create lookup map with validation
         ndo0_map = create_flight_lookup_map(current_flights_df)
         if not ndo0_map:
-            print("Empty flight lookup map created")
+            logger.info("Empty flight lookup map created")
             return market_list_df, 0
             
         # Filter markets while maintaining DataFrame structure
