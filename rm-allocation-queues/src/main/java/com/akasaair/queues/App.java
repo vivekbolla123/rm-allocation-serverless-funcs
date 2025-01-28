@@ -1952,7 +1952,7 @@ public class App implements RequestHandler<S3Event, Object> {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
                         } else {
-                            float value = Float.parseFloat(numericValue);
+                            double value = Double.parseDouble(numericValue);
                             if (value > PLFTHRESHOLD_VALUE) {
                                 listOfErrors.add(lineNum + "PLF Threshold must be lesser than 103 percent");
                             }
@@ -1989,7 +1989,7 @@ public class App implements RequestHandler<S3Event, Object> {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
                         } else {
-                            float value = Float.parseFloat(numericValue);
+                            double value = Double.parseDouble(numericValue);
                             if (value > PLFTHRESHOLD_VALUE) {
                                 listOfErrors.add(lineNum + "PLF Threshold must be lesser than 103 percent");
                             }
