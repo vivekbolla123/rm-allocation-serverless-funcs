@@ -76,9 +76,6 @@ class GetDynamicTimeD2:
         hardoffset = CONST_NA
         fare = CONST_NA
         
-        # Convert PLF values to float, removing % symbols
-        int(plf) = float(str(plf).replace('%', ''))
-        
         if currParams.plfthreshold != '' and pd.notna(currParams.plfthreshold) and not self.check_int(currParams.hardanchor):
             threshold_value = float(str(currParams.plfthreshold).replace('%', ''))
             if int(plf) < threshold_value:
