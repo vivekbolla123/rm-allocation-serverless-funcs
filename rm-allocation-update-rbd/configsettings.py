@@ -14,7 +14,7 @@ if env == 'prod':
     RM_DB_APPUSER_URL="prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-    RM_CACHE_PASSWORD = "bRT__04M})0"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
