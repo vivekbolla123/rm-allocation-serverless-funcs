@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -81,8 +81,7 @@ class DetermineRBD:
         self.logger.info("Profile Fare: " + str(profileFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg)
-
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFare)
         timeString = 'Pre10'
         if curTime > TIME_10_AM:
             timeString = 'Post10'
@@ -105,7 +104,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell
 
-    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg):
+    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFareDiscounted):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -347,6 +346,9 @@ class DetermineRBD:
                 anchorFare = calculatedFare  
         if last7avg:
             howDetermined+="_last7bkgsAvg"
+        if b2b_discount_fare:
+            anchorFare = anchorFareDiscounted
+            upsell = CONST_NA
         return anchorFare, howDetermined, upsell
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
