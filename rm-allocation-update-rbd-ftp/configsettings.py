@@ -15,7 +15,7 @@ if env == 'prod':
     SFTP_USERNAME = '0KProdr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-    RM_CACHE_PASSWORD = "bRT__04M})0"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
        
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"

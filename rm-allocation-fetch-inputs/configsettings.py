@@ -19,7 +19,14 @@ if env == 'prod':
     RM_DB_APPUSER_URL_READ="prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_PASSWORD_READ=get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-    RM_CACHE_PASSWORD = "bRT__04M})0"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
+    NAV_DB_HOST = "10.154.12.13:52900"
+    NAV_DB_NAME = "[REZ0KOD01]."
+    NAV_DB_DW_NAME = "[REZ0KDW01]."
+    NAV_DB_WB_NAME = "[REZ0KWB01]."
+    NAV_DB_REF_NAME = "[REF0KOD01]."
+    NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
+    NAV_DB_USER = "0KODSUSER2"
 
 if env == 'uat':
     RM_DB_APPUSER_USERNAME="rm-user"
@@ -34,6 +41,13 @@ if env == 'uat':
     RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
     # RM_CACHE_ENDPOINT = "172.24.72.8"
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+    NAV_DB_HOST = "10.154.12.19:52900"
+    NAV_DB_NAME = "[TST0KOD01]."
+    NAV_DB_DW_NAME = "[TST0KDW01]."
+    NAV_DB_WB_NAME = "[TST0KWB01]."
+    NAV_DB_REF_NAME = "[TSTREF0KOD01]."
+    NAV_DB_USER = "0KODSUSER"
+    NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379
