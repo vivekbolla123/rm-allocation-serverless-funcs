@@ -3,13 +3,15 @@ import logging
 import boto3
 import json
 import warnings
+import pymssql
 import configsettings
 import pytz
 import time
+import pandas as pd
 from uuid import uuid4
 from sqlalchemy import create_engine
 from pandas import read_sql,Timestamp
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from redis import Redis
 from constants_utils import ConstantsUtils
 from concurrent.futures import ThreadPoolExecutor
@@ -48,6 +50,12 @@ try:
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     conn = create_engine(DB_RD_CONN_STRING)
     wrconn = create_engine(DB_WR_CONN_STRING)
+    
+    NavitaireConnection = pymssql.connect(
+        host=configsettings.NAV_DB_HOST,
+        user=configsettings.NAV_DB_USER,
+        password=configsettings.NAV_DB_PASSWORD
+    )
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -195,6 +203,10 @@ def lambda_handler(event, context):
         market_list_query = getConnectionMarketListQuery(start_period, end_period, market_list_table)
 
     mkt_list = read_sql(market_list_query, conn)
+    logger.info(f"Original Market List {mkt_list}")
+    mkt_list, failCount = clean_markets_optimized(mkt_list)
+    logger.info(f"Filtered Market List {mkt_list}")
+    mkt_list = mkt_list.reset_index()
     markets_count = mkt_list.shape[0]
     logger.info(f"Total markets: {markets_count}")
 
@@ -432,7 +444,120 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     log_time.end("getConnectionMarketListQuery")
     return query
 
+def create_flight_lookup_map(flights_df):
+    flight_map = {}
+    for _, flight in flights_df.iterrows():
+        # Key format: FlightNumber_Origin_Destination_Date
+        key = f"{flight['FlightNumber']}_{flight['Origin']}_{flight['Destination']}_{flight['DepartureDate']}"
+        flight_map[key] = flight['DepartureTimeUTC']
+    return flight_map
+
+def getFltSectDeptTimeForCurrentDay():
+    try:
+        current_date = datetime.now(timezone.utc).date()
+        NavitaireQuery = f"""
+            SELECT  
+                DepartureStation Origin,
+                ArrivalStation Destination,
+                TRIM(FlightNumber) as FlightNumber,
+                DepartureDate,
+                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
+            FROM {configsettings.NAV_DB_NAME}rez.inventoryleg 
+            WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
+        """
+        
+        with NavitaireConnection as conn:
+            return pd.read_sql(NavitaireQuery, conn)
+            
+    except Exception as e:
+        logger.error(f"Error fetching flight data: {str(e)}")
+        raise
+
+def filter_market_list(market_list_df, ndo0_map):
+    current_datetime = datetime.now(timezone.utc)    
+    logger.info(f"Current time: {current_datetime}")
+    logger.info(f"skipping time delta: {str(constantsutils.TIME_BEFORE_DEPARTURE)}")
+    cutoff_time = (current_datetime + timedelta(minutes=constantsutils.TIME_BEFORE_DEPARTURE)).strftime("%H:%M")
+    current_date = current_datetime.strftime("%Y-%m-%d")
+    
+    logger.info(f"Filtering markets. Current date: {current_date}, Cutoff time: {cutoff_time}")
+    
+    # Create mask for rows to keep
+    keep_mask = pd.Series(False, index=market_list_df.index)
+    skip_mask = pd.Series(False, index=market_list_df.index)
+    
+    for idx, market in market_list_df.iterrows():
+        try:
+            origin = market.get("Origin")
+            destination = market.get("Destin")
+            flight_number = market.get("FlightNumber")
+            market_date = datetime.strptime(market.get("PerStart"), "%m/%d/%Y").strftime("%Y-%m-%d")
+            
+            if not all([origin, destination, flight_number, market_date]):
+                logger.info(f"Skipping market due to missing data: {market}")
+                continue
+            
+            # Only check departure time for today's flights
+            if market_date == current_date:
+                key = f"{flight_number}_{origin}_{destination}_{current_date}"
+                
+                if key in ndo0_map:
+                    departure_time = ndo0_map[key]
+                    
+                    if departure_time > cutoff_time:
+                        keep_mask[idx] = True
+                        logger.info(f"Keeping today's flight {flight_number} {origin}-{destination} as departure time {departure_time} is after cutoff {cutoff_time}")
+                    else:
+                        skip_mask[idx] = True
+                        logger.info(f"Skipping today's flight {flight_number} due to departure time {departure_time} before cutoff {cutoff_time}")
+                else:
+                    logger.info(f"Today's flight {flight_number} not found in Navitaire data - skipping")
+                    skip_mask[idx] = True
+            else:
+                # Future dates - keep all flights
+                keep_mask[idx] = True
+                logger.info(f"Keeping future flight {flight_number} for date {market_date}")
+                
+        except Exception as e:
+            logger.error(f"Error processing market {market}: {str(e)}")
+            continue
+    
+    filtered_markets_df = market_list_df[keep_mask].copy()
+    skipped_markets_df = market_list_df[skip_mask].copy()
+    
+    logger.info(f"Total markets processed: {len(market_list_df)}")
+    logger.info(f"Markets kept: {len(filtered_markets_df)}")
+    logger.info(f"Markets skipped: {len(skipped_markets_df)}")
+    
+    return filtered_markets_df, skipped_markets_df
+
+def clean_markets_optimized(market_list_df):
+    try:
+        try:
+            current_flights_df = getFltSectDeptTimeForCurrentDay()
+            if current_flights_df.empty:
+                logger.info("No current day flights found in Navitaire")
+                return market_list_df, 0
+        except Exception as e:
+            logger.error(f"Error fetching current flights: {str(e)}")
+            return market_list_df, 0
+            
+        # Create lookup map with validation
+        ndo0_map = create_flight_lookup_map(current_flights_df)
+        if not ndo0_map:
+            logger.info("Empty flight lookup map created")
+            return market_list_df, 0
+            
+        # Filter markets while maintaining DataFrame structure
+        filtered_markets_df, skipped_markets_df = filter_market_list(market_list_df, ndo0_map)
+        
+        return filtered_markets_df, len(skipped_markets_df)
+        
+    except Exception as e:
+        logger.error(f"Error in clean_markets_optimized: {str(e)}")
+        return market_list_df, 0
+    
 # DO COMMENT THE BELOW LINE AFTER TESTING
 # lambda_handler({
-#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_KM\"}"
+#   "body": "{\"start_interval\": 0, \"end_interval\": 365, \"run_type\": \"Adhoc\", \"update_navitaire_method\": \"api\", \"market_list_table_name\": \"market_list_adhoc_SV_Test\"}"
 # },None)
