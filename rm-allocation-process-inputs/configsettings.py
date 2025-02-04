@@ -27,7 +27,7 @@ if env == 'prod':
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     NAV_DB_USER = "0KODSUSER2"
     RM_CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-    RM_CACHE_PASSWORD = "bRT__04M})0"
+    RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
