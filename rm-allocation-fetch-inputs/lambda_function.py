@@ -201,10 +201,11 @@ def lambda_handler(event, context):
         is_connections_required = "0"
         region = 'Domestic'
         market_list_query = getConnectionMarketListQuery(start_period, end_period, market_list_table)
-
+    
+    w0_df= get_w0_rbd(start_period,end_period)
     mkt_list = read_sql(market_list_query, conn)
     logger.info(f"Original Market List {mkt_list}")
-    mkt_list, failCount = clean_markets_optimized(mkt_list)
+    mkt_list, failCount = clean_markets_optimized(mkt_list,w0_df)
     logger.info(f"Filtered Market List {mkt_list}")
     mkt_list = mkt_list.reset_index()
     markets_count = mkt_list.shape[0]
@@ -466,8 +467,30 @@ def getFltSectDeptTimeForCurrentDay():
             WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
         """
         
-        with NavitaireConnection as conn:
-            return pd.read_sql(NavitaireQuery, conn)
+        
+        return pd.read_sql(NavitaireQuery, NavitaireConnection)
+            
+    except Exception as e:
+        logger.error(f"Error fetching flight data: {str(e)}")
+        raise
+    
+def get_w0_rbd(start_date,end_date):
+    try:
+        NavitaireQuery = f"""SELECT classofservice,
+       classau,
+       CONVERT(VARCHAR(10), departuredate, 120) AS DepartureDate,
+       IL.flightnumber,
+       IL.departurestation,
+       IL.arrivalstation
+FROM   {configsettings.NAV_DB_NAME}[Rez].[inventorylegclass] ILC
+       JOIN {configsettings.NAV_DB_NAME}[Rez].[inventoryleg] IL
+         ON IL.[inventorylegid] = ILC.[inventorylegid]
+WHERE  IL.departuredate >= '{start_date}'
+       AND IL.departuredate <= '{end_date}'
+       AND classofservice = 'W0'
+ORDER  BY departuredate """
+        
+        return pd.read_sql(NavitaireQuery, NavitaireConnection)
             
     except Exception as e:
         logger.error(f"Error fetching flight data: {str(e)}")
@@ -531,7 +554,7 @@ def filter_market_list(market_list_df, ndo0_map):
     
     return filtered_markets_df, skipped_markets_df
 
-def clean_markets_optimized(market_list_df):
+def clean_markets_optimized(market_list_df,w0_df):
     try:
         try:
             current_flights_df = getFltSectDeptTimeForCurrentDay()
@@ -550,8 +573,25 @@ def clean_markets_optimized(market_list_df):
             
         # Filter markets while maintaining DataFrame structure
         filtered_markets_df, skipped_markets_df = filter_market_list(market_list_df, ndo0_map)
+        w0_df["DepartureDate"] = pd.to_datetime(w0_df["DepartureDate"])  # Convert DepartureDate to datetime
+        filtered_markets_df['PerStart'] = pd.to_datetime(filtered_markets_df['PerStart'])
+        w0_df['flightnumber'] = w0_df['flightnumber'].astype('int64')
+        filtered_markets_df['FlightNumber'] = filtered_markets_df['FlightNumber'].astype('int64')
+        merged_df = pd.merge(
+        filtered_markets_df,
+        w0_df,
+        left_on=['PerStart', 'Origin', 'Destin', 'FlightNumber'],
+        right_on=['DepartureDate', 'departurestation', 'arrivalstation', 'flightnumber'],
+        how='left'
+    )
+    
+        # Rename classau column to wo_value
+        merged_df = merged_df.rename(columns={'classau': 'w0_value'})
         
-        return filtered_markets_df, len(skipped_markets_df)
+        # Convert PerStart back to normal date format (MM/DD/YYYY)
+        merged_df['PerStart'] = merged_df['PerStart'].dt.strftime('%m/%d/%Y')
+        merged_df.drop(columns=['DepartureDate', 'flightnumber', 'departurestation', 'arrivalstation','classofservice'], inplace=True)
+        return merged_df, len(skipped_markets_df)
         
     except Exception as e:
         logger.error(f"Error in clean_markets_optimized: {str(e)}")
