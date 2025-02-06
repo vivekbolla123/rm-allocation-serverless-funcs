@@ -36,6 +36,7 @@ class ConstantsUtils:
         self.MFMIN1 = MFMIN1
         self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
         self.GROUP_DIFF_FARE = GROUP_DIFF_FARE
+        self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         
         # Generate constants from database values
         self.generateConstantValues()
@@ -111,3 +112,5 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_PROCESS_INPUTS = int(parameter_value)
             elif parameter_key == GROUP_DIFF_FARE_KEY:
                 self.GROUP_DIFF_FARE = int(parameter_value)
+            elif parameter_key == B2B_DISCOUNT_MAP_KEY:
+                self.B2B_DISCOUNT_MAP = parameter_value
