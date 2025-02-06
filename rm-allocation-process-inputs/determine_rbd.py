@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare,discount_amount):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -60,6 +60,9 @@ class DetermineRBD:
         if anchorValue == 'C':
             openResult['FareResult']=[timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined]
             openResult['anchorFare']=['NA']
+            openResult['RBD']=['NA']
+            openResult['Fare']=['NA']
+            
             return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
         if strategyFare == CONST_NA:
             return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
@@ -103,7 +106,8 @@ class DetermineRBD:
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_B_' + howDetermined
         elif anchorValue == 'C':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined
-
+        if anchorValue!='C' and b2b_discount_fare:
+            howDetermined+=f"_Discounted_{discount_amount}"
         if anchorFare != 0:
             offset = 0
             openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
