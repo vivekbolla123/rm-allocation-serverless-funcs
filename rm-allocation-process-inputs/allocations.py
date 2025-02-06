@@ -447,7 +447,9 @@ class RBDAllocations:
         return  brd_counter
     
     
-    def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs):
+    def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice):
+        max_au = currBookedLoad-currtbfBookedLoad+30
+        max_au = min(max_au,adjustedCapacity-20)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
         tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         
@@ -504,10 +506,18 @@ class RBDAllocations:
             for nearest_rbd, allocation in result.items():
                 idx=allocation['index']
                 currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
-                if idx!=None:
-                    currRec.set_class_attribute(brd_counter, 'class_au', int(alloc_df.loc[idx, 'incremental']))
+                if idx is not None:
+                    incremental_value = int(alloc_df.loc[idx, 'incremental'])
+                
+                    # Check if difference between price and openingRBDPrice is less than 1000
+                    if abs(int(openingRBDPrice) - openingRBDPrice) < self.constantsutils.TBF_DIFF_FARE:
+                        class_au = min(incremental_value, max_au)
+                    else:
+                        # Ensure the value doesn't exceed max_au
+                        class_au = 0
                 else:
-                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                    class_au = 0
+                currRec.set_class_attribute(brd_counter, 'class_au', class_au)
                 brd_counter += 1
             # for _, tbf_row in tbf_rbds.iterrows():
             #     rbd = tbf_row['RBD']
