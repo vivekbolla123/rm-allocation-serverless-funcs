@@ -31,7 +31,7 @@ select
     count(PassengerID) as bookedPax,
     max(Lid) as capacity,
     AdjustedCapacity as adjustedCapacity,
-    SUM(CASE WHEN ClassOfService LIKE '%T%' THEN 1 ELSE 0 END) as tbf_bookings
+    SUM(CASE WHEN ClassOfService IN ('TF', 'TE', 'TD', 'TC', 'TB', 'TY') THEN 1 ELSE 0 END) AS tbf_bookings
 from
     (
         select
