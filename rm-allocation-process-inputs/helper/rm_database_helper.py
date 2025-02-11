@@ -623,7 +623,7 @@ class RMDatabaseHelper:
 
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 
-        NavitaireQuery = f"""SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity ,DepartureTime, adjustedCapacity from bookload
+        NavitaireQuery = f"""SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity ,DepartureTime, adjustedCapacity,tbf_bookings from bookload
             where DepartureDate >= '{str(startDate)}' and DepartureDate <= '{str(endDate)}'
             and Origin = '{origin}' and Destination = '{destin}' """
         bookedData = pd.read_sql(NavitaireQuery, self.conn)

@@ -280,12 +280,13 @@ class DynAlloc:
 			currBookedLoad = ndoBookedLoad["bookedPax"][fltCounter]
 			currLid = ndoBookedLoad['capacity'][fltCounter]
 			currAdjustedCapacity = ndoBookedLoad['adjustedCapacity'][fltCounter]
+			currtbfBookedLoad = ndoBookedLoad['tbf_bookings'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter], DATE_FORMAT)
 			currFltDepartureTime = ndoBookedLoad["DepartureTime"][fltCounter]
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad):
 		self.outputSummaryRow_b2b = OutputSummary()
 		self.outputSummaryRow_b2c = OutputSummary()
 		tgtBookloadFactor = tgtBookedLoadPercent
@@ -543,7 +544,7 @@ class DynAlloc:
 
 				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
-				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs)
+				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice)
 				
     
 
