@@ -26,5 +26,5 @@ MARKET_FARES_THRESHOLD,"[ {""startNdo"": ""0"", ""endNdo"": ""7"", ""value"": ""
 TBF_RBD,"TF,TE,TD,TC,TB,TY"
 GROUP_DIFF_FARE,5000
 TBF_DIFF_FARE,2000
-
+B2B_DISCOUNT_MAP,"{ ""0"": ""450"", ""1"": ""350"", ""2"": ""250"", ""3"": ""150"" }"
 

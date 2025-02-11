@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare,discount_amount):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -60,6 +60,9 @@ class DetermineRBD:
         if anchorValue == 'C':
             openResult['FareResult']=[timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined]
             openResult['anchorFare']=['NA']
+            openResult['RBD']=['NA']
+            openResult['Fare']=['NA']
+            
             return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
         if strategyFare == CONST_NA:
             return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
@@ -93,7 +96,7 @@ class DetermineRBD:
         self.logger.info("Profile Fare: " + str(profileFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg)
+        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFare)
 
         
             
@@ -103,7 +106,8 @@ class DetermineRBD:
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_B_' + howDetermined
         elif anchorValue == 'C':
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined
-
+        if anchorValue!='C' and b2b_discount_fare:
+            howDetermined+=f"_Discounted_{discount_amount}"
         if anchorFare != 0:
             offset = 0
             openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
@@ -115,7 +119,7 @@ class DetermineRBD:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
         return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell
 
-    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg):
+    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFareDiscounted):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -428,6 +432,9 @@ class DetermineRBD:
                 anchorFare = calculatedFare  
         if last7avg:
             howDetermined+="_last7bkgsAvg"
+        if b2b_discount_fare:
+            anchorFare = anchorFareDiscounted
+            upsell = CONST_NA
         return anchorFare, howDetermined, upsell
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):

@@ -10,6 +10,7 @@ B2B_RDB_COUNT = 20
 PROFILE_FARES_QUARTILE = 20
 PROFILE_FARES_25PERCENT_QUARTILE = 5
 GROUP_QUOTATION =  '{ "Q2": "GJ", "Q4": "GI", "Q6": "GH", "Q8": "GG", "Q10": "GF", "Q12": "GE", "Q14": "GD", "Q16": "GC", "Q18": "GB", "Q20": "GA" }'
+B2B_DISCOUNT_MAP = '{ "0": "450", "1": "350", "2": "250", "3": "150" }'
 
 MARKET_FARES_THRESHOLD = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
 
@@ -65,6 +66,7 @@ LAST_SOLD_FARE_THRESHOLD_KEY = 'LAST_SOLD_FARE_THRESHOLD'
 LAST_N_AVG_FARE_KEY = 'LAST_N_AVG_FARE'
 GROUP_DIFF_FARE_KEY = 'GROUP_DIFF_FARE'
 TBF_DIFF_FARE_KEY = 'TBF_DIFF_FARE'
+B2B_DISCOUNT_MAP_KEY = 'B2B_DISCOUNT_MAP'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
