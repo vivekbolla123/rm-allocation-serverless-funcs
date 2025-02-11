@@ -510,7 +510,7 @@ class RBDAllocations:
                     incremental_value = int(alloc_df.loc[idx, 'incremental'])
                 
                     # Check if difference between price and openingRBDPrice is less than 1000
-                    if abs(int(openingRBDPrice) - openingRBDPrice) < self.constantsutils.TBF_DIFF_FARE:
+                    if (tbf_rbds[tbf_rbds['RBD'] == nearest_rbd]['Total'].values[0]-int(openingRBDPrice)) > self.constantsutils.TBF_DIFF_FARE:
                         class_au = min(incremental_value, max_au)
                     else:
                         # Ensure the value doesn't exceed max_au
