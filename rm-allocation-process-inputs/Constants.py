@@ -235,6 +235,8 @@ HD_NO_TBF_FARES = "TBF fares are missing or not found"
 HD_NO_REF_CURVE_ID = "unable to get CurevId"
 HD_NO_BOOKLOADS = "unable to get Booked loads"
 HD_INVALID_CONNECTION = "Connection is invalid"
+HD_W0_IS_ONE = "W0 RBD is 1 aborting"
+
 
 TBF_RBD_QUERY = "'TF','TE','TD','TC','TB','TY'"
 TBF_COUNT = 6

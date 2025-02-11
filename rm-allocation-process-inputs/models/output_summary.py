@@ -51,4 +51,5 @@ class OutputSummary:
         self.recommendedActions = CONST_NA
         self.allocationStatus = CONST_NA
         self.status = CONST_NA
+        self.w0Flag = CONST_NA
         
