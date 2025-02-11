@@ -50,7 +50,8 @@ def testCase1():
         "runTime":None,
         "cache_client":None,
         "route_type":"direct",
-        "timelogger":None
+        "timelogger":None,
+        "w0_value":0
     }
     outputData = {}
 

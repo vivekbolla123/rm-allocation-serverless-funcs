@@ -30,7 +30,8 @@ select
     FORMAT(STD, 'HH:mm') as DepartureTime,
     count(PassengerID) as bookedPax,
     max(Lid) as capacity,
-    AdjustedCapacity as adjustedCapacity
+    AdjustedCapacity as adjustedCapacity,
+    SUM(CASE WHEN ClassOfService LIKE '%T%' THEN 1 ELSE 0 END) as tbf_bookings
 from
     (
         select
@@ -41,7 +42,8 @@ from
             IL.FlightNumber,
             IL.AdjustedCapacity,
             IL.Lid,
-            IL.STD
+            IL.STD,
+            PJS.ClassOfService
         from
             [rez].InventoryLeg IL
             left outer join [rez].PassengerJourneyLeg PJL on PJL.InventoryLegID = IL.InventoryLegID

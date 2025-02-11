@@ -114,7 +114,7 @@ class DynAlloc:
 			# For each NDO
 			for ndocounter in range(startNDO, endNDO+1):
 				self.outputSummaryRow_b2c = OutputSummary()
-    
+				self.outputSummaryRow_b2c.w0Flag = int(self.w0Flag)
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
 				if bookedLoad.shape[0] == 0:
@@ -127,6 +127,28 @@ class DynAlloc:
 					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 					self.outputSummaryRow_b2c.HowDetermined = HD_NO_BOOKLOADS
+					self.outputSummaryRow_b2c.analystName = analystName
+					self.outputSummaryRow_b2c.allocationStatus = 0
+					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
+					self.outputSummaryRow_b2b= copy.deepcopy(self.outputSummaryRow_b2c)
+					self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2b.Channel=B2B_CHANNEL
+					self.allocResults.append(self.outputSummaryRow_b2c)
+					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.allocResults.append(self.outputSummaryRow_b2b)
+					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+					self.redishelper.updateRunAudit()
+					break
+				if int(self.w0Flag) == 1:
+					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
+					self.logger.info("W0 value is 1 - Aborting")
+					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+					self.outputSummaryRow_b2c.RunId = self.runId
+					self.outputSummaryRow_b2c.Origin = origin
+					self.outputSummaryRow_b2c.Destin = destination
+					self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
+					self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
+					self.outputSummaryRow_b2c.HowDetermined = HD_W0_IS_ONE
 					self.outputSummaryRow_b2c.analystName = analystName
 					self.outputSummaryRow_b2c.allocationStatus = 0
 					self.outputSummaryRow_b2c.Channel=B2C_CHANNEL
@@ -280,14 +302,17 @@ class DynAlloc:
 			currBookedLoad = ndoBookedLoad["bookedPax"][fltCounter]
 			currLid = ndoBookedLoad['capacity'][fltCounter]
 			currAdjustedCapacity = ndoBookedLoad['adjustedCapacity'][fltCounter]
+			currtbfBookedLoad = ndoBookedLoad['tbf_bookings'][fltCounter]
 			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter], DATE_FORMAT)
 			currFltDepartureTime = ndoBookedLoad["DepartureTime"][fltCounter]
 
-			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity)
+			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad):
 		self.outputSummaryRow_b2b = OutputSummary()
 		self.outputSummaryRow_b2c = OutputSummary()
+		self.outputSummaryRow_b2c.w0Flag = int(self.w0Flag)
+		self.outputSummaryRow_b2b.w0Flag = int(self.w0Flag)
 		tgtBookloadFactor = tgtBookedLoadPercent
 		tgtBookedLoad = tgtBookedLoadPercent * currLid
 
@@ -543,7 +568,7 @@ class DynAlloc:
 
 				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
-				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs)
+				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice)
 				
     
 
@@ -975,6 +1000,7 @@ class DynAlloc:
 		self.sqs = self.currParams.sqs
 		self.conn = self.currParams.dbconn
 		self.wrconn = self.currParams.wrconn
+		self.w0Flag = self.currParams.w0Flag
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()
 		self.NavitaireConnection = self.currParams.navitaire_connection

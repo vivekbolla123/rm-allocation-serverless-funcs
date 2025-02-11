@@ -96,7 +96,7 @@ class RMDatabaseHelper:
 
             insertQuery = f""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare,lastSevenAvgFare,hardAnchorFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf,actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare,lastSevenAvgFare,hardAnchorFare, upsell, bookingToday,bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status,w0Flag)  
                 VALUES (
                     '{latest_row.Id}', 
                     '{latest_row.Origin}', 
@@ -147,7 +147,8 @@ class RMDatabaseHelper:
                     '{str(latest_row.overBookingCount)}',
                     '{str(latest_row.recommendedActions)}',
                     '{str(latest_row.profileFare)}',
-                    '{str(latest_row.status)}'
+                    '{str(latest_row.status)}',
+                    '{str(latest_row.w0Flag)}'
                 )
             """
             try:
@@ -623,7 +624,7 @@ class RMDatabaseHelper:
 
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 
-        NavitaireQuery = f"""SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity ,DepartureTime, adjustedCapacity from bookload
+        NavitaireQuery = f"""SELECT Origin, Destination, FlightNumber, DepartureDate, bookedPax, capacity ,DepartureTime, adjustedCapacity,tbf_bookings from bookload
             where DepartureDate >= '{str(startDate)}' and DepartureDate <= '{str(endDate)}'
             and Origin = '{origin}' and Destination = '{destin}' """
         bookedData = pd.read_sql(NavitaireQuery, self.conn)
