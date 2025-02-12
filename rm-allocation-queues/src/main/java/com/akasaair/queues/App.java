@@ -412,7 +412,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                         .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadDateEventFile(reader, userName);
+                                    uploadDateEventFile(reader, userName, obj_id);
                                 } catch (Exception e) {
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
@@ -467,7 +467,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 createTable(tableName, MARKET_LIST_TABLE_NAME);
             }
 
-            String uuid = UUID.randomUUID().toString();
+            String uuid = obj_id;
 
             insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(tableName);
@@ -595,7 +595,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws Exception {
-        String uuid = generateUUID();
+        String uuid = obj_id;
         try {
             insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(STRATEGY_TABLE_NAME);
@@ -621,7 +621,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws Exception {
-        String uuid = generateUUID();
+        String uuid = obj_id;
 
         try {
             String tempTableName = tableName + UNDERSCORE + TEMP;
@@ -916,7 +916,7 @@ public class App implements RequestHandler<S3Event, Object> {
             String obj_id) throws DataMismatchedException {
         try {
             List<String> permissions = getRoleAccess(role);
-            String uuid = generateUUID();
+            String uuid = obj_id;
             insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
             insertInputStatusTable(tableName);
             List<String> errorsFound = new ArrayList<>();
@@ -1057,8 +1057,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void uploadDateEventFile(Reader file, String userName) throws RuntimeException {
-        String uuid = generateUUID();
+    public void uploadDateEventFile(Reader file, String userName, String obj_id) throws RuntimeException {
+        String uuid = obj_id;
         try {
             String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
             String ProfileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
