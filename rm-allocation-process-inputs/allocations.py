@@ -122,7 +122,7 @@ class RBDAllocations:
 
         return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds,openingRBDPrice
     
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue,openingRBDPrice):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
@@ -147,7 +147,13 @@ class RBDAllocations:
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
             bookloadPercentile, upsellValue
         )
-        merged_df = pd.concat([df_unique_0, df_unique_1], ignore_index=True)
+        
+        df_unique_1_modified = df_unique_1.copy()
+    
+        # Set incremental to 0 where price difference condition is not met
+        price_diff_mask = abs(openingRBDPrice-df_unique_1_modified['price']) >= self.constantsutils.TBF_DIFF_FARE
+        df_unique_1_modified.loc[price_diff_mask, 'incremental'] = 0
+        merged_df = pd.concat([df_unique_0, df_unique_1_modified], ignore_index=True)
     
         # Select row with higher incremental value for each unique RBD
         final_df = merged_df.sort_values('incremental', ascending=False).drop_duplicates('RBD', keep='first')
@@ -510,11 +516,8 @@ class RBDAllocations:
                     incremental_value = int(alloc_df.loc[idx, 'incremental'])
                 
                     # Check if difference between price and openingRBDPrice is less than 1000
-                    if (tbf_rbds[tbf_rbds['RBD'] == nearest_rbd]['Total'].values[0]-int(openingRBDPrice)) > self.constantsutils.TBF_DIFF_FARE:
-                        class_au = min(incremental_value, max_au)
-                    else:
-                        # Ensure the value doesn't exceed max_au
-                        class_au = 0
+                    class_au = min(incremental_value, max_au)
+                    
                 else:
                     class_au = 0
                 currRec.set_class_attribute(brd_counter, 'class_au', class_au)
