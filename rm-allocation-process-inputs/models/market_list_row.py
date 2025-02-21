@@ -26,6 +26,8 @@ class MarketListRow:
         self.b2b_backstop = currParams.get("B2BBackstop", CONST_NA)
         self.b2c_backstop = currParams.get("B2CBackstop", CONST_NA)
         self.b2b_factor = currParams.get("B2BFactor", CONST_NA)
+        self.obSeats = currParams.get("obSeats", CONST_NA)
+        self.obFare = currParams.get("obFare", CONST_NA)
         self.skipping_factor = currParams.get("SkippingFactor", CONST_NA)
         self.day_span = currParams.get("DaySpan", CONST_NA)
         self.auto_time_range_flag = currParams.get("AutoTimeRangeFlag", CONST_NA)

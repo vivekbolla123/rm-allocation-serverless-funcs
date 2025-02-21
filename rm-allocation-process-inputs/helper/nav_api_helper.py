@@ -35,14 +35,14 @@ class NavAPIHelper:
         else:
             self.logger.info("Failed to get token:"+ response.text)
 
-    def get_leg_nest_details(self,  dep_date, carrier_code, identifier):
+    def get_leg_nest_details(self,  dep_date, carrier_code, identifier, origin, destin ):
         dep_date=datetime.strptime(str(dep_date), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
         url = f"{self.base_url}/nsk/v2/manifest?BeginDate={dep_date}&endDate={dep_date}&CarrierCode={carrier_code}&Identifier={identifier}&FlightType=3"
         response = self.session.get(url)
         data = response.json().get('data', [])
         for item in data:
             for journey in item.get('journeys', []):
-                # if journey['identifier']['identifier'] == flight_number:
+                if journey['designator']['destination'] == destin and journey['designator']['origin'] == origin:
                     for segment in journey.get('segments', []):
                         for leg in segment['legs']:
                             leg_key = leg['legKey']
@@ -72,10 +72,13 @@ class NavAPIHelper:
     def update_leg(self, leg_key, lid):
         url = f"{self.base_url}/dcs/v1/inventory/legs/{leg_key}"
         data = {"lid": int(lid)}
+        self.logger.info('lid api called '+ str(url))
+        self.logger.info('payload sent '+ str(data))
         
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
             self.logger.info('lid changed sucessfully to '+ str(lid))
+            self.logger.info("Response :"+ response.text)
         else:
             self.logger.info("Failed to update leg :"+ response.text)
            

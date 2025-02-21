@@ -78,6 +78,10 @@ public class MarketListEntity {
     public String autoTimeRangeFlag;
     @Column(name = "OverBooking")
     public String overBooking;
+    @Column(name = "obSeats")
+    public String OBSeats;
+    @Column(name = "obFare")
+    public String OBFare;
     @Column(name = "rbdPushFlag")
     public String rbdPushFlag;
     @Column(name = "profileFares")
