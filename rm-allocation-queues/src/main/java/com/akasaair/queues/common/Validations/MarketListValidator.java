@@ -117,6 +117,18 @@ public class MarketListValidator {
         return true;
     }
 
+    public static boolean isFloat(String strNum) {
+        if (strNum == null) {
+            return false;
+        }
+        try {
+            Float.parseFloat(strNum);
+        } catch (NumberFormatException ex) {
+            return false;
+        }
+        return true;
+    }
+
     public static boolean isPositive(String strNum) {
         return Integer.parseInt(strNum) >= 0;
     }
