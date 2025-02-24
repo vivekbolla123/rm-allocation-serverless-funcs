@@ -24,6 +24,7 @@ class ConstantsUtils:
         self.OVERBOOKING_FARE_LF = OVERBOOKING_FARE_LF
         self.OVERBOOKING_FARE_PERCENT_VALUE = OVERBOOKING_FARE_PERCENT_VALUE
         self.OVERBOOKING_FARE_ABSOLUTE_VALUE = OVERBOOKING_FARE_ABSOLUTE_VALUE
+        self.OVERBOOKING_MANUAL_LF = OVERBOOKING_MANUAL_LF
         self.S_CLASS_PLF_THRESHOLD = S_CLASS_PLF_THRESHOLD
         self.END_OF_DAY_LF_FACTOR = END_OF_DAY_LF_FACTOR
         self.AU_COLUMN_LENGTH_CONNECTIONS=AU_COLUMN_LENGTH_CONNECTIONS
@@ -118,3 +119,5 @@ class ConstantsUtils:
                 self.TBF_DIFF_FARE = int(parameter_value)
             elif parameter_key == B2B_DISCOUNT_MAP_KEY:
                 self.B2B_DISCOUNT_MAP = parameter_value
+            elif parameter_key == OVERBOOKING_MANUAL_LF:
+                self.OVERBOOKING_MANUAL_LF = int(parameter_value)
