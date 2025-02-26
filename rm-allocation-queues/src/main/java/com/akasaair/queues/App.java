@@ -1365,59 +1365,100 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> expectedColumns) {
-        List<Map<String, String>> result = new ArrayList<>();
+    /**
+     * Create list of maps for date event records
+     * Properly handles columns and preserves original logic
+     */
+    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> expectedHeaders) {
+        // Create a copy of csvData to avoid modifying the original
+        List<List<String>> dataCopy = new ArrayList<>(csvData);
         
-        // Get headers
-        List<String> headers = csvData.get(0);
+        // Get and remove the header row (don't modify original csvData)
+        List<String> actualHeaders = dataCopy.remove(0);
+        System.out.println("Actual CSV headers: " + String.join(", ", actualHeaders));
+        System.out.println("Expected headers: " + String.join(", ", expectedHeaders));
         
-        // Find column indices dynamically
+        // Find date column index (default to 0 if not found)
+        int dateColumnIndex = 0;
+        for (int i = 0; i < actualHeaders.size(); i++) {
+            if (actualHeaders.get(i).equalsIgnoreCase("Date")) {
+                dateColumnIndex = i;
+                break;
+            }
+        }
+        System.out.println("Using date column at index: " + dateColumnIndex);
+        
+        // Find other column indices
         Map<String, Integer> columnIndices = new HashMap<>();
-        for (String expectedColumn : expectedColumns) {
-            for (int i = 0; i < headers.size(); i++) {
-                if (headers.get(i).trim().equalsIgnoreCase(expectedColumn)) {
-                    columnIndices.put(expectedColumn.toLowerCase(), i);
-                    System.out.println("Found column '" + expectedColumn + "' at index " + i);
+        for (String header : expectedHeaders) {
+            if (header.equalsIgnoreCase("date")) {
+                columnIndices.put(header.toLowerCase(), dateColumnIndex);
+                continue;
+            }
+            
+            for (int i = 0; i < actualHeaders.size(); i++) {
+                if (actualHeaders.get(i).equalsIgnoreCase(header)) {
+                    columnIndices.put(header.toLowerCase(), i);
+                    System.out.println("Found column '" + header + "' at index " + i);
                     break;
                 }
             }
         }
         
-        // Verify we found the required columns
-        for (String column : expectedColumns) {
-            if (!columnIndices.containsKey(column.toLowerCase())) {
-                System.out.println("Warning: Could not find column '" + column + "' in CSV headers");
+        List<Map<String, String>> data = new ArrayList<>();
+        for (int rowIndex = 0; rowIndex < dataCopy.size(); rowIndex++) {
+            List<String> row = dataCopy.get(rowIndex);
+            if (row.size() <= dateColumnIndex) {
+                System.out.println("Skipping row " + rowIndex + " (insufficient columns)");
+                continue;
             }
-        }
-        
-        // Process data rows
-        for (int i = 1; i < csvData.size(); i++) {
-            List<String> row = csvData.get(i);
-            Map<String, String> record = new HashMap<>();
             
-            boolean hasData = false;
-            for (String column : expectedColumns) {
-                Integer index = columnIndices.get(column.toLowerCase());
-                if (index != null && index < row.size()) {
-                    String value = row.get(index);
-                    record.put(column.toLowerCase(), value);
-                    if (value != null && !value.trim().isEmpty()) {
-                        hasData = true;
+            String date = row.get(dateColumnIndex);
+            System.out.println("Processing row " + rowIndex + " with date: " + date);
+            
+            Map<String, String> map = new HashMap<>();
+            
+            // Add all expected columns, retrieving values from the correct positions
+            for (String header : expectedHeaders) {
+                String key = header.toLowerCase();
+                String value = "";
+                
+                if (key.equals("date")) {
+                    value = date;
+                } else if (key.equals("dow")) {
+                    // Try to get DOW from CSV first if column exists
+                    Integer dowIndex = columnIndices.get(key);
+                    if (dowIndex != null && dowIndex < row.size() && !row.get(dowIndex).trim().isEmpty()) {
+                        value = row.get(dowIndex);
+                        System.out.println("Using DOW from CSV: " + value);
+                    } else {
+                        // Calculate DOW as fallback
+                        try {
+                            value = getAbbreviatedDayOfWeek(parseDate(date));
+                            System.out.println("Calculated DOW from date: " + value);
+                        } catch (Exception e) {
+                            System.out.println("Error calculating DOW: " + e.getMessage());
+                        }
                     }
                 } else {
-                    record.put(column.toLowerCase(), "");
+                    // Get value for other columns if they exist in the CSV
+                    Integer index = columnIndices.get(key);
+                    if (index != null && index < row.size()) {
+                        value = row.get(index);
+                    }
                 }
+                
+                map.put(key, value);
+                System.out.println("Set " + key + " = '" + value + "'");
             }
             
-            if (hasData) {
-                result.add(record);
-                System.out.println("Added date event record for row " + i + ": " + record);
-            }
+            data.add(map);
+            System.out.println("Added date record: " + map);
         }
         
-        return result;
+        System.out.println("Total date records created: " + data.size());
+        return data;
     }
-
     public static Date parseDate(String dateString) {
         try {
             return SIMPLE_DATE_OUTPUT_FORMATTER_2.parse(dateString);
