@@ -1057,30 +1057,149 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
+    public Map<String, Map<String, String>> getDateEventForUpsertOnly(List<List<String>> csvData) {
+        Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
+        int dateHeader = 0;
+        int startColumn = 4;  // Start after Date, DOW, Mapped Month, Event columns
+        
+        // Get headers (sector names)
+        List<String> headers = csvData.get(0);
+        
+        // Debug logging to verify headers
+        System.out.println("CSV Headers: " + String.join(", ", headers));
+        
+        // Ensure we don't go out of bounds
+        if (headers.size() <= startColumn) {
+            System.out.println("Warning: No sector columns found in CSV");
+            return strategyMap;
+        }
+        
+        List<String> sectorHeaders = new ArrayList<>(headers.subList(startColumn, headers.size()));
+        System.out.println("Sector Headers: " + String.join(", ", sectorHeaders));
+        
+        // Process each row
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            if (inputRow.size() <= startColumn) {
+                System.out.println("Skipping row " + i + " (insufficient columns)");
+                continue; // Skip if row doesn't have sector data
+            }
+            
+            String dateKey = inputRow.get(dateHeader);
+            
+            // Debug logging
+            System.out.println("Processing row for date: " + dateKey + " with " + 
+                            (inputRow.size() - startColumn) + " sector values");
+            
+            // Process each sector in the row
+            for (int j = 0; j < sectorHeaders.size() && (j + startColumn) < inputRow.size(); j++) {
+                String sectorValue = inputRow.get(j + startColumn);
+                String sectorName = sectorHeaders.get(j);
+                
+                // Debug each sector processing
+                System.out.println("Row " + i + ", Column '" + sectorName + "': " + sectorValue);
+                
+                if (sectorValue != null && !sectorValue.trim().isEmpty() && !sectorValue.trim().equalsIgnoreCase(EMPTY)) {
+                    Map<String, String> map = new HashMap<>();
+                    map.put(DATE_COLUMN_NAME, dateKey);
+                    map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorName);  // Use the column header as sector name
+                    map.put(VALUE_COLUMN_NAME, sectorValue);  // Use the cell value as the value to store
+                    
+                    String mapKey = dateKey + "_" + sectorName;
+                    strategyMap.put(mapKey, map);
+                    
+                    System.out.println("Adding sector update - Date: " + dateKey + 
+                                    ", Sector: " + sectorName + ", Value: " + sectorValue);
+                }
+            }
+        }
+        
+        System.out.println("Total sector updates to process: " + strategyMap.size());
+        return strategyMap;
+    }
+
+    /**
+     * Upsert a single sector record
+     * Only updates the specific sectors included in the CSV
+     */
+    public void upsertSectorRecord(Map<String, String> record) throws SQLException {
+        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_profile_fare_station_upsell WHERE date = ? AND sector = ?";
+        String updateQuery = "UPDATE QP_DW_RMALLOC.config_profile_fare_station_upsell SET value = ? WHERE date = ? AND sector = ?";
+        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_profile_fare_station_upsell (date, sector, value) VALUES (?, ?, ?)";
+        
+        String date = record.get(DATE_COLUMN_NAME);
+        String sector = record.get(SECTOR_COLUMN_NAME.toLowerCase());
+        String value = record.get(VALUE_COLUMN_NAME);
+        
+        // Debug the actual values being used for the SQL
+        System.out.println("SQL Parameters - Date: " + date + ", Sector: " + sector + ", Value: " + value);
+        
+        try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
+            checkStmt.setString(1, date);
+            checkStmt.setString(2, sector);
+            ResultSet rs = checkStmt.executeQuery();
+            
+            if (rs.next()) {
+                // Both date and sector exist, update
+                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
+                    updateStmt.setString(1, value);
+                    updateStmt.setString(2, date);
+                    updateStmt.setString(3, sector);
+                    int updated = updateStmt.executeUpdate();
+                    System.out.println("Updated " + updated + " record for date: " + date + ", sector: " + sector);
+                }
+            } else {
+                // Either date or sector doesn't exist, insert
+                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
+                    insertStmt.setString(1, date);
+                    insertStmt.setString(2, sector);
+                    insertStmt.setString(3, value);
+                    int inserted = insertStmt.executeUpdate();
+                    System.out.println("Inserted " + inserted + " record for date: " + date + ", sector: " + sector);
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Error upserting sector record for date " + date + " and sector " + sector + ": " + e.getMessage());
+            throw e;
+        }
+    }
+
+
     public void uploadDateEventFileWithUpsert(Reader reader, String userName) throws Exception {
         // Generate UUID for this upload
         String uuid = UUID.randomUUID().toString();
         String tableName = "config_profile_fare_station_upsell";
-        String startTime = getCurrentDateTime();
+        String startTime = getCurrentTimestamp();
         
         try {
             // Insert audit record for this upload
             insertAuditStatement(tableName, startTime, userName, uuid);
+            
+            // Parse CSV data
             List<List<String>> csvData = getDataFromCSVFile(reader);
+            
+            // Log CSV structure for debugging
+            System.out.println("CSV has " + csvData.size() + " rows and " + 
+                            (csvData.size() > 0 ? csvData.get(0).size() : 0) + " columns");
+            
+            // Extract date event information
             List<Map<String, String>> dateEventRecords = createListOfMapDateEvent(csvData, Arrays.asList("date", "DOW", "mappedMonth", "event"));
+            System.out.println("Date event records to process: " + dateEventRecords.size());
             
-            // Extract sector information
+            // Extract sector information - this is where the issue was
             Map<String, Map<String, String>> sectorData = getDateEventForUpsertOnly(csvData);
+            System.out.println("Sector records to process: " + sectorData.size());
             
+            // Begin transaction
             connection.setAutoCommit(false);
             
             try {
-                // Update date_event table
+                // Process date_event table (handles dates)
                 for (Map<String, String> record : dateEventRecords) {
                     upsertDateEventRecord(record);
                 }
                 
-                // Update sectors table
+                // Process sectors table (handles sectors with values)
                 for (Map<String, String> record : sectorData.values()) {
                     upsertSectorRecord(record);
                 }
@@ -1089,13 +1208,12 @@ public class App implements RequestHandler<S3Event, Object> {
                 connection.commit();
                 
                 // Update audit records
-                String endTime = getCurrentDateTime();
+                String endTime = getCurrentTimestamp();
                 updateAuditStatement(tableName, endTime, uuid);
                 insertInputStatusTable(tableName);
                 
-                int sectorsUpdated = sectorData.size();
-                int datesUpdated = dateEventRecords.size();
-                System.out.println("Successfully updated " + sectorsUpdated + " sector records across " + datesUpdated + " dates");
+                System.out.println("Successfully processed " + dateEventRecords.size() + " date records and " + 
+                                sectorData.size() + " sector records");
             } catch (Exception e) {
                 // Rollback on error
                 connection.rollback();
@@ -1108,135 +1226,6 @@ public class App implements RequestHandler<S3Event, Object> {
             throw e;
         }
     }
-
-    public void upsertDateEventRecord(Map<String, String> record) throws SQLException {
-        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_date_event WHERE date = ?";
-        String updateQuery = "UPDATE QP_DW_RMALLOC.config_date_event SET DOW = ?, mappedMonth = ?, event = ? WHERE date = ?";
-        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_date_event (date, DOW, mappedMonth, event) VALUES (?, ?, ?, ?)";
-        
-        String date = record.get("date");
-        String dow = record.get("DOW");
-        String mappedMonth = record.get("mappedMonth");
-        String event = record.get("event");
-        
-        if (event == null) {
-            event = ""; // Ensure event is never null
-        }
-        
-        try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
-            checkStmt.setString(1, date);
-            ResultSet rs = checkStmt.executeQuery();
-            
-            if (rs.next()) {
-                // Date exists, update record
-                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
-                    updateStmt.setString(1, dow);
-                    updateStmt.setString(2, mappedMonth);
-                    updateStmt.setString(3, event);
-                    updateStmt.setString(4, date);
-                    int updated = updateStmt.executeUpdate();
-                    System.out.println("Updated " + updated + " date event records for date " + date);
-                }
-            } else {
-                // Date doesn't exist, insert new record
-                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
-                    insertStmt.setString(1, date);
-                    insertStmt.setString(2, dow);
-                    insertStmt.setString(3, mappedMonth);
-                    insertStmt.setString(4, event);
-                    int inserted = insertStmt.executeUpdate();
-                    System.out.println("Inserted " + inserted + " date event records for date " + date);
-                }
-            }
-        } catch (SQLException e) {
-            System.out.println("Error upserting date event record for date " + date + ": " + e.getMessage());
-            throw e;
-        }
-    }
-
-    public void upsertSectorRecord(Map<String, String> record) throws SQLException {
-        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_profile_fare_station_upsell WHERE date = ? AND sector = ?";
-        String updateQuery = "UPDATE QP_DW_RMALLOC.config_profile_fare_station_upsell SET value = ? WHERE date = ? AND sector = ?";
-        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_profile_fare_station_upsell (date, sector, value) VALUES (?, ?, ?)";
-        
-        String date = record.get(DATE_COLUMN_NAME);
-        String sector = record.get(SECTOR_COLUMN_NAME.toLowerCase());
-        String value = record.get(VALUE_COLUMN_NAME);
-        
-        try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
-            checkStmt.setString(1, date);
-            checkStmt.setString(2, sector);
-            ResultSet rs = checkStmt.executeQuery();
-            
-            if (rs.next()) {
-                // Both date and sector exist, update only this specific record
-                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
-                    updateStmt.setString(1, value);
-                    updateStmt.setString(2, date);
-                    updateStmt.setString(3, sector);
-                    int updated = updateStmt.executeUpdate();
-                    System.out.println("Updated " + updated + " records for date " + date + " and sector " + sector);
-                }
-            } else {
-                // Either date or sector doesn't exist, insert only this specific record
-                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
-                    insertStmt.setString(1, date);
-                    insertStmt.setString(2, sector);
-                    insertStmt.setString(3, value);
-                    int inserted = insertStmt.executeUpdate();
-                    System.out.println("Inserted " + inserted + " records for date " + date + " and sector " + sector);
-                }
-            }
-        } catch (SQLException e) {
-            System.out.println("Error upserting sector record for date " + date + " and sector " + sector + ": " + e.getMessage());
-            throw e;
-        }
-    }
-
-
-    public Map<String, Map<String, String>> getDateEventForUpsertOnly(List<List<String>> csvData) {
-        Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
-        int dateHeader = 0;
-        int startColumn = 4;  // Start after Date, DOW, Mapped Month, Event columns
-        
-        // Get headers (sector names)
-        List<String> headers = csvData.get(0);
-        List<String> sectorHeaders = new ArrayList<>();
-        
-        // Only include headers that exist and are after column 3
-        if (headers.size() > startColumn) {
-            sectorHeaders.addAll(headers.subList(startColumn, headers.size()));
-        }
-        
-        // Process each row
-        for (int i = 1; i < csvData.size(); i++) {
-            List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= startColumn) {
-                continue; // Skip if row doesn't have sector data
-            }
-            
-            String dateKey = inputRow.get(dateHeader);
-            
-            // Process each sector in the row
-            for (int j = 0; j < sectorHeaders.size() && (j + startColumn) < inputRow.size(); j++) {
-                String value = inputRow.get(j + startColumn);
-                String sectorKey = sectorHeaders.get(j);
-                
-                // Only process non-empty values
-                if (value != null && !value.trim().isEmpty() && !value.trim().equalsIgnoreCase(EMPTY)) {
-                    Map<String, String> map = new HashMap<>();
-                    map.put(DATE_COLUMN_NAME, dateKey);
-                    map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorKey);
-                    map.put(VALUE_COLUMN_NAME, value);
-                    strategyMap.put(dateKey + "_" + sectorKey, map);
-                    
-                    System.out.println("Processing update for date: " + dateKey + ", sector: " + sectorKey + ", value: " + value);
-                }
-            }
-        }
-        return strategyMap;
-    }
-
     public void uploadDateEventFile(Reader file, String userName) throws RuntimeException {
         String uuid = generateUUID();
         try {
