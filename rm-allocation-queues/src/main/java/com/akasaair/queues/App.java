@@ -1118,6 +1118,51 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
+    public void upsertDateEventRecord(Map<String, String> record) throws SQLException {
+        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_date_event WHERE date = ?";
+        String updateQuery = "UPDATE QP_DW_RMALLOC.config_date_event SET DOW = ?, mappedMonth = ?, event = ? WHERE date = ?";
+        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_date_event (date, DOW, mappedMonth, event) VALUES (?, ?, ?, ?)";
+        
+        String date = record.get("date");
+        String dow = record.get("dow");
+        String mappedMonth = record.get("mappedmonth");
+        String event = record.get("event");
+        
+        if (event == null) {
+            event = ""; // Ensure event is never null
+        }
+        
+        try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
+            checkStmt.setString(1, date);
+            ResultSet rs = checkStmt.executeQuery();
+            
+            if (rs.next()) {
+                // Date exists, update record
+                try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
+                    updateStmt.setString(1, dow);
+                    updateStmt.setString(2, mappedMonth);
+                    updateStmt.setString(3, event);
+                    updateStmt.setString(4, date);
+                    int updated = updateStmt.executeUpdate();
+                    System.out.println("Updated " + updated + " date event record for date " + date);
+                }
+            } else {
+                // Date doesn't exist, insert new record
+                try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
+                    insertStmt.setString(1, date);
+                    insertStmt.setString(2, dow);
+                    insertStmt.setString(3, mappedMonth);
+                    insertStmt.setString(4, event);
+                    int inserted = insertStmt.executeUpdate();
+                    System.out.println("Inserted " + inserted + " date event record for date " + date);
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Error upserting date event record for date " + date + ": " + e.getMessage());
+            throw e;
+        }
+    }
+
     /**
      * Upsert a single sector record
      * Only updates the specific sectors included in the CSV
