@@ -27,6 +27,7 @@ from profileFares import ProfileFaresModule
 from noShowProb import NoShowProbs
 from qcTableGen import QCProcess
 from rangeCheck import QCCheck
+from calendarUpdate import CalendarUpdate
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -78,7 +79,8 @@ module_map = {
     "noShowProb" : NoShowProbs,
     "run_adhocs_queue":SchedulerHandler,
     "gen_qc_fares_table": QCProcess,
-    "qc_fares_check": QCCheck
+    "qc_fares_check": QCCheck,
+    "update_calendar": CalendarUpdate
 }
 
 
@@ -157,7 +159,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"fares\": 1}}"
+#   "body": "{\"modules\":{\"update_calendar\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
