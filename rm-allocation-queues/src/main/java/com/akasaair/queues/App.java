@@ -1065,7 +1065,7 @@ public class App implements RequestHandler<S3Event, Object> {
         // Generate UUID for this upload
         String uuid = UUID.randomUUID().toString();
         String tableName = "config_profile_fare_station_upsell";
-        String startTime = getCurrentTimestamp();
+        String startTime = getCurrentDateTime();
         
         try {
             // Insert audit record for this upload
@@ -1090,7 +1090,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 connection.commit();
                 
                 // Update audit records
-                String endTime = getCurrentTimestamp();
+                String endTime = getCurrentDateTime();
                 updateAuditStatement(tableName, endTime, uuid);
                 insertInputStatusTable(tableName);
                 
@@ -1190,14 +1190,6 @@ public class App implements RequestHandler<S3Event, Object> {
             }
         }
         return strategyMap;
-    }
-
-    /**
-     * Simple helper to get current timestamp
-     */
-    private String getCurrentTimestamp() {
-        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        return sdf.format(new Date());
     }
 
     public void uploadDateEventFile(Reader file, String userName) throws RuntimeException {
