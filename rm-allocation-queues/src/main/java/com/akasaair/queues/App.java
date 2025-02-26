@@ -1169,7 +1169,7 @@ public class App implements RequestHandler<S3Event, Object> {
         // Generate UUID for this upload
         String uuid = UUID.randomUUID().toString();
         String tableName = "config_profile_fare_station_upsell";
-        String startTime = getCurrentTimestamp();
+        String startTime = getCurrentDateTime();
         
         try {
             // Insert audit record for this upload
@@ -1208,7 +1208,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 connection.commit();
                 
                 // Update audit records
-                String endTime = getCurrentTimestamp();
+                String endTime = getCurrentDateTime();
                 updateAuditStatement(tableName, endTime, uuid);
                 insertInputStatusTable(tableName);
                 
