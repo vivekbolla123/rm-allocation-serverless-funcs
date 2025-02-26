@@ -1059,8 +1059,6 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public Map<String, Map<String, String>> getDateEventForUpsertOnly(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
-        int dateHeader = 0;
-        int startColumn = 4;  // Start after Date, DOW, Mapped Month, Event columns
         
         // Get headers (sector names)
         List<String> headers = csvData.get(0);
@@ -1068,48 +1066,77 @@ public class App implements RequestHandler<S3Event, Object> {
         // Debug logging to verify headers
         System.out.println("CSV Headers: " + String.join(", ", headers));
         
-        // Ensure we don't go out of bounds
-        if (headers.size() <= startColumn) {
-            System.out.println("Warning: No sector columns found in CSV");
-            return strategyMap;
+        // Dynamically find column indices
+        int dateColumnIndex = -1;
+        int dowColumnIndex = -1;
+        int mappedMonthColumnIndex = -1;
+        int eventColumnIndex = -1;
+        Map<String, Integer> sectorColumnIndices = new LinkedHashMap<>();
+        
+        // Find indices for all columns
+        for (int i = 0; i < headers.size(); i++) {
+            String header = headers.get(i).trim();
+            
+            if (header.equalsIgnoreCase("Date")) {
+                dateColumnIndex = i;
+            } else if (header.equalsIgnoreCase("DOW")) {
+                dowColumnIndex = i;
+            } else if (header.equalsIgnoreCase("Mapped Month")) {
+                mappedMonthColumnIndex = i;
+            } else if (header.equalsIgnoreCase("Event")) {
+                eventColumnIndex = i;
+            } else {
+                // This is a sector column
+                sectorColumnIndices.put(header, i);
+            }
         }
         
-        List<String> sectorHeaders = new ArrayList<>(headers.subList(startColumn, headers.size()));
-        System.out.println("Sector Headers: " + String.join(", ", sectorHeaders));
+        // Log what was found
+        System.out.println("Found Date column at index: " + dateColumnIndex);
+        System.out.println("Found DOW column at index: " + dowColumnIndex);
+        System.out.println("Found Mapped Month column at index: " + mappedMonthColumnIndex);
+        System.out.println("Found Event column at index: " + eventColumnIndex);
+        System.out.println("Found " + sectorColumnIndices.size() + " sector columns: " + String.join(", ", sectorColumnIndices.keySet()));
+        
+        if (dateColumnIndex == -1) {
+            System.out.println("Error: Date column not found in CSV");
+            return strategyMap;
+        }
         
         // Process each row
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= startColumn) {
-                System.out.println("Skipping row " + i + " (insufficient columns)");
-                continue; // Skip if row doesn't have sector data
+            if (inputRow.size() <= dateColumnIndex) {
+                System.out.println("Skipping row " + i + " (missing Date column)");
+                continue;
             }
             
-            String dateKey = inputRow.get(dateHeader);
-            
-            // Debug logging
-            System.out.println("Processing row for date: " + dateKey + " with " + 
-                            (inputRow.size() - startColumn) + " sector values");
+            String dateKey = inputRow.get(dateColumnIndex);
+            System.out.println("Processing row " + i + " for date: " + dateKey);
             
             // Process each sector in the row
-            for (int j = 0; j < sectorHeaders.size() && (j + startColumn) < inputRow.size(); j++) {
-                String sectorValue = inputRow.get(j + startColumn);
-                String sectorName = sectorHeaders.get(j);
+            for (Map.Entry<String, Integer> sectorEntry : sectorColumnIndices.entrySet()) {
+                String sectorName = sectorEntry.getKey();
+                int columnIndex = sectorEntry.getValue();
                 
-                // Debug each sector processing
-                System.out.println("Row " + i + ", Column '" + sectorName + "': " + sectorValue);
-                
-                if (sectorValue != null && !sectorValue.trim().isEmpty() && !sectorValue.trim().equalsIgnoreCase(EMPTY)) {
-                    Map<String, String> map = new HashMap<>();
-                    map.put(DATE_COLUMN_NAME, dateKey);
-                    map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorName);  // Use the column header as sector name
-                    map.put(VALUE_COLUMN_NAME, sectorValue);  // Use the cell value as the value to store
+                if (columnIndex < inputRow.size()) {
+                    String sectorValue = inputRow.get(columnIndex);
                     
-                    String mapKey = dateKey + "_" + sectorName;
-                    strategyMap.put(mapKey, map);
+                    // Debug each sector processing
+                    System.out.println("Row " + i + ", Column '" + sectorName + "': " + sectorValue);
                     
-                    System.out.println("Adding sector update - Date: " + dateKey + 
-                                    ", Sector: " + sectorName + ", Value: " + sectorValue);
+                    if (sectorValue != null && !sectorValue.trim().isEmpty() && !sectorValue.trim().equalsIgnoreCase(EMPTY)) {
+                        Map<String, String> map = new HashMap<>();
+                        map.put(DATE_COLUMN_NAME, dateKey);
+                        map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorName);
+                        map.put(VALUE_COLUMN_NAME, sectorValue);
+                        
+                        String mapKey = dateKey + "_" + sectorName;
+                        strategyMap.put(mapKey, map);
+                        
+                        System.out.println("Adding sector update - Date: " + dateKey + 
+                                        ", Sector: " + sectorName + ", Value: " + sectorValue);
+                    }
                 }
             }
         }
@@ -1338,19 +1365,28 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> columns) {
+    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> expectedColumns) {
         List<Map<String, String>> result = new ArrayList<>();
         
-        // Get column indices
+        // Get headers
         List<String> headers = csvData.get(0);
-        Map<String, Integer> columnIndices = new HashMap<>();
         
-        for (String column : columns) {
+        // Find column indices dynamically
+        Map<String, Integer> columnIndices = new HashMap<>();
+        for (String expectedColumn : expectedColumns) {
             for (int i = 0; i < headers.size(); i++) {
-                if (headers.get(i).equalsIgnoreCase(column)) {
-                    columnIndices.put(column.toLowerCase(), i);
+                if (headers.get(i).trim().equalsIgnoreCase(expectedColumn)) {
+                    columnIndices.put(expectedColumn.toLowerCase(), i);
+                    System.out.println("Found column '" + expectedColumn + "' at index " + i);
                     break;
                 }
+            }
+        }
+        
+        // Verify we found the required columns
+        for (String column : expectedColumns) {
+            if (!columnIndices.containsKey(column.toLowerCase())) {
+                System.out.println("Warning: Could not find column '" + column + "' in CSV headers");
             }
         }
         
@@ -1360,7 +1396,7 @@ public class App implements RequestHandler<S3Event, Object> {
             Map<String, String> record = new HashMap<>();
             
             boolean hasData = false;
-            for (String column : columns) {
+            for (String column : expectedColumns) {
                 Integer index = columnIndices.get(column.toLowerCase());
                 if (index != null && index < row.size()) {
                     String value = row.get(index);
@@ -1375,6 +1411,7 @@ public class App implements RequestHandler<S3Event, Object> {
             
             if (hasData) {
                 result.add(record);
+                System.out.println("Added date event record for row " + i + ": " + record);
             }
         }
         
