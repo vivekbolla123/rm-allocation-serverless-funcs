@@ -1073,11 +1073,13 @@ public class App implements RequestHandler<S3Event, Object> {
             List<List<String>> csvData = getDataFromCSVFile(reader);
             List<Map<String, String>> dateEventRecords = createListOfMapDateEvent(csvData, Arrays.asList("date", "DOW", "mappedMonth", "event"));
             
+            // Use getDateEventForUpsertOnly instead of upsertDateEventRecord which has wrong return type
             Map<String, Map<String, String>> sectorData = getDateEventForUpsertOnly(csvData);
             
             connection.setAutoCommit(false);
             
             try {
+                // Need to implement this method - it's missing
                 for (Map<String, String> record : dateEventRecords) {
                     upsertDateEventRecord(record);
                 }
@@ -1110,41 +1112,51 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public void upsertSectorRecord(Map<String, String> record) throws SQLException {
-        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_profile_fare_station_upsell WHERE date = ? AND sector = ?";
-        String updateQuery = "UPDATE QP_DW_RMALLOC.config_profile_fare_station_upsell SET value = ? WHERE date = ? AND sector = ?";
-        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_profile_fare_station_upsell (date, sector, value) VALUES (?, ?, ?)";
+    /**
+     * Upsert a single date event record
+     * This method was missing and is needed
+     */
+    public void upsertDateEventRecord(Map<String, String> record) throws SQLException {
+        String checkQuery = "SELECT 1 FROM QP_DW_RMALLOC.config_date_event WHERE date = ?";
+        String updateQuery = "UPDATE QP_DW_RMALLOC.config_date_event SET DOW = ?, mappedMonth = ?, event = ? WHERE date = ?";
+        String insertQuery = "INSERT INTO QP_DW_RMALLOC.config_date_event (date, DOW, mappedMonth, event) VALUES (?, ?, ?, ?)";
         
-        String date = record.get(DATE_COLUMN_NAME);
-        String sector = record.get(SECTOR_COLUMN_NAME.toLowerCase());
-        String value = record.get(VALUE_COLUMN_NAME);
+        String date = record.get("date");
+        String dow = record.get("DOW");
+        String mappedMonth = record.get("mappedMonth");
+        String event = record.get("event");
+        
+        if (event == null) {
+            event = ""; // Ensure event is never null
+        }
         
         try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
             checkStmt.setString(1, date);
-            checkStmt.setString(2, sector);
             ResultSet rs = checkStmt.executeQuery();
             
             if (rs.next()) {
-                // Both date and sector exist, update only this specific record
+                // Date exists, update record
                 try (PreparedStatement updateStmt = connection.prepareStatement(updateQuery)) {
-                    updateStmt.setString(1, value);
-                    updateStmt.setString(2, date);
-                    updateStmt.setString(3, sector);
+                    updateStmt.setString(1, dow);
+                    updateStmt.setString(2, mappedMonth);
+                    updateStmt.setString(3, event);
+                    updateStmt.setString(4, date);
                     int updated = updateStmt.executeUpdate();
-                    System.out.println("Updated " + updated + " records for date " + date + " and sector " + sector);
+                    System.out.println("Updated " + updated + " date event records for date " + date);
                 }
             } else {
-                // Either date or sector doesn't exist, insert only this specific record
+                // Date doesn't exist, insert new record
                 try (PreparedStatement insertStmt = connection.prepareStatement(insertQuery)) {
                     insertStmt.setString(1, date);
-                    insertStmt.setString(2, sector);
-                    insertStmt.setString(3, value);
+                    insertStmt.setString(2, dow);
+                    insertStmt.setString(3, mappedMonth);
+                    insertStmt.setString(4, event);
                     int inserted = insertStmt.executeUpdate();
-                    System.out.println("Inserted " + inserted + " records for date " + date + " and sector " + sector);
+                    System.out.println("Inserted " + inserted + " date event records for date " + date);
                 }
             }
         } catch (SQLException e) {
-            System.out.println("Error upserting sector record for date " + date + " and sector " + sector + ": " + e.getMessage());
+            System.out.println("Error upserting date event record for date " + date + ": " + e.getMessage());
             throw e;
         }
     }
