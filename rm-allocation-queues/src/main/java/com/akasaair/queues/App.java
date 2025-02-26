@@ -1396,11 +1396,25 @@ public class App implements RequestHandler<S3Event, Object> {
                 continue;
             }
             
-            for (int i = 0; i < actualHeaders.size(); i++) {
-                if (actualHeaders.get(i).equalsIgnoreCase(header)) {
-                    columnIndices.put(header.toLowerCase(), i);
-                    System.out.println("Found column '" + header + "' at index " + i);
-                    break;
+            // Special handling for "mappedMonth" which may appear as "Mapped Month" in CSV
+            if (header.equalsIgnoreCase("mappedMonth")) {
+                for (int i = 0; i < actualHeaders.size(); i++) {
+                    // Match both "mappedMonth" and "Mapped Month" 
+                    if (actualHeaders.get(i).equalsIgnoreCase(header) || 
+                        actualHeaders.get(i).equalsIgnoreCase("Mapped Month")) {
+                        columnIndices.put(header.toLowerCase(), i);
+                        System.out.println("Found column '" + header + "' at index " + i);
+                        break;
+                    }
+                }
+            } else {
+                // Normal handling for other columns
+                for (int i = 0; i < actualHeaders.size(); i++) {
+                    if (actualHeaders.get(i).equalsIgnoreCase(header)) {
+                        columnIndices.put(header.toLowerCase(), i);
+                        System.out.println("Found column '" + header + "' at index " + i);
+                        break;
+                    }
                 }
             }
         }
@@ -1459,6 +1473,7 @@ public class App implements RequestHandler<S3Event, Object> {
         System.out.println("Total date records created: " + data.size());
         return data;
     }
+
     public static Date parseDate(String dateString) {
         try {
             return SIMPLE_DATE_OUTPUT_FORMATTER_2.parse(dateString);
