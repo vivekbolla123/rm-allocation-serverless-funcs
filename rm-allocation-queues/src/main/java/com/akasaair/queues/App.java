@@ -1293,23 +1293,47 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> headers) {
-        csvData.remove(0);
-        List<Map<String, String>> data = new ArrayList<>();
-        for (List<String> singleCsvData : csvData) {
-            String date = singleCsvData.get(0);
-            String dayOfWeek = getAbbreviatedDayOfWeek(parseDate(date));
-
-            // Add day of the week to the second position
-            singleCsvData.add(1, dayOfWeek);
-
-            Map<String, String> map = new HashMap<>();
+    public List<Map<String, String>> createListOfMapDateEvent(List<List<String>> csvData, List<String> columns) {
+        List<Map<String, String>> result = new ArrayList<>();
+        
+        // Get column indices
+        List<String> headers = csvData.get(0);
+        Map<String, Integer> columnIndices = new HashMap<>();
+        
+        for (String column : columns) {
             for (int i = 0; i < headers.size(); i++) {
-                map.put(headers.get(i), singleCsvData.get(i));
+                if (headers.get(i).equalsIgnoreCase(column)) {
+                    columnIndices.put(column.toLowerCase(), i);
+                    break;
+                }
             }
-            data.add(map);
         }
-        return data;
+        
+        // Process data rows
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> row = csvData.get(i);
+            Map<String, String> record = new HashMap<>();
+            
+            boolean hasData = false;
+            for (String column : columns) {
+                Integer index = columnIndices.get(column.toLowerCase());
+                if (index != null && index < row.size()) {
+                    String value = row.get(index);
+                    record.put(column.toLowerCase(), value);
+                    if (value != null && !value.trim().isEmpty()) {
+                        hasData = true;
+                    }
+                } else {
+                    record.put(column.toLowerCase(), "");
+                }
+            }
+            
+            if (hasData) {
+                result.add(record);
+            }
+        }
+        
+        return result;
     }
 
     public static Date parseDate(String dateString) {
