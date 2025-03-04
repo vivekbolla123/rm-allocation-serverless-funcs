@@ -37,7 +37,7 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName,DaySpan,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
+                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,analystName,DaySpan,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
             else:
                 marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
             try:
@@ -633,6 +633,19 @@ class RMDatabaseHelper:
             self.logger.info(NavitaireQuery)
 
         return bookedData
+
+    def getLid(self, origin, destin, startDate, endDate, FltNumber):
+
+        NavitaireQuery = f"""SELECT Lid from bookload
+            where DepartureDate >= '{str(startDate)}' and DepartureDate <= '{str(endDate)}'
+            and Origin = '{origin}' and Destination = '{destin}' and FlightNumber='{FltNumber}'"""
+        bookedData = pd.read_sql(NavitaireQuery, self.conn)
+
+        if(self.debugMode):
+            self.logger.info(NavitaireQuery)
+
+        return bookedData
+    
 
     def checkForNextFLight(self, currFltDateStr, currParams):
 

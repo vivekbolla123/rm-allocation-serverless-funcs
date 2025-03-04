@@ -1532,22 +1532,24 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setInt(21, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
             pstmt.setInt(22, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
             pstmt.setString(23, marketListEntity.getB2bFactor());
-            pstmt.setString(24, marketListEntity.getSkippingFactor());
-            pstmt.setString(25, marketListEntity.getDaySpan());
-            pstmt.setString(26, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(27, marketListEntity.getAnalystName());
-            pstmt.setString(28, marketListEntity.getOpeningFares());
-            pstmt.setString(29, marketListEntity.getOverBooking());
-            pstmt.setString(30, marketListEntity.getRbdPushFlag());
-            pstmt.setString(31, marketListEntity.getProfileFares());
-            pstmt.setString(32, marketListEntity.getB2cTolerance());
-            pstmt.setString(33, marketListEntity.getB2bTolerance());
-            pstmt.setString(34, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(35, marketListEntity.getSeriesBlock());
-            pstmt.setString(36, marketListEntity.getAutoGroup());
-            pstmt.setString(37, marketListEntity.getAutoBackstopFlag());
-            pstmt.setString(38, marketListEntity.getTbfFlag());
-            pstmt.setString(39, marketListEntity.getUuid());
+            pstmt.setString(24, marketListEntity.getOBSeats());
+            pstmt.setString(25, marketListEntity.getOBFare());
+            pstmt.setString(26, marketListEntity.getSkippingFactor());
+            pstmt.setString(27, marketListEntity.getDaySpan());
+            pstmt.setString(28, marketListEntity.getAutoTimeRangeFlag());
+            pstmt.setString(29, marketListEntity.getAnalystName());
+            pstmt.setString(30, marketListEntity.getOpeningFares());
+            pstmt.setString(31, marketListEntity.getOverBooking());
+            pstmt.setString(32, marketListEntity.getRbdPushFlag());
+            pstmt.setString(33, marketListEntity.getProfileFares());
+            pstmt.setString(34, marketListEntity.getB2cTolerance());
+            pstmt.setString(35, marketListEntity.getB2bTolerance());
+            pstmt.setString(36, marketListEntity.getDistressInventoryFlag());
+            pstmt.setString(37, marketListEntity.getSeriesBlock());
+            pstmt.setString(38, marketListEntity.getAutoGroup());
+            pstmt.setString(39, marketListEntity.getAutoBackstopFlag());
+            pstmt.setString(40, marketListEntity.getTbfFlag());
+            pstmt.setString(41, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1732,6 +1734,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .openingFares(convertYNToBoolean(record.get(CSV_HEADER_OPENING_FARES)))
                 .autoTimeRangeFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG)))
                 .overBooking(convertYNToBoolean(record.get(CSV_HEADER_OVER_BOOKING)))
+                .OBSeats(record.get(CSV_HEADER_OB_SEATS))
+                .OBFare(record.get(CSV_HEADER_OB_FARE))
                 .rbdPushFlag(convertYNToBoolean(record.get(CSV_HEADER_RBD_PUSH_FLAG)))
                 .profileFares(convertYNToBoolean(record.get(CSV_HEADER_PROFILE_FARES)))
                 .b2bTolerance(record.get(CSV_HEADER_B2B_TOLERANCE))
@@ -2046,6 +2050,33 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!(isNumeric(record.get(CSV_HEADER_B2C_TOLERANCE)))
                     && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
                 listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
+            }
+            
+            boolean hasSeats = !record.get(CSV_HEADER_OB_SEATS).trim().isEmpty();
+            boolean hasFare = !record.get(CSV_HEADER_OB_FARE).trim().isEmpty();
+
+            if (hasSeats != hasFare) {
+                listOfErrors.add(lineNum + "Overbooking seats and fare must be provided together");
+            }else{
+                if (!(isFloat(record.get(CSV_HEADER_OB_SEATS)))
+                        && !record.get(CSV_HEADER_OB_SEATS).trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Overbooking seats is not a number or empty");
+                } else if (!record.get(CSV_HEADER_OB_SEATS).trim().isEmpty()) {
+                    float seats = Float.parseFloat(record.get(CSV_HEADER_OB_SEATS));
+                    if (seats > 10 || seats < 0) {
+                        listOfErrors.add(lineNum + "Overbooking seats cannot exceed 10 and should be greater than 0");
+                    }
+                }
+    
+                if (!(isFloat(record.get(CSV_HEADER_OB_FARE)))
+                        && !record.get(CSV_HEADER_OB_FARE).trim().isEmpty()) {
+                    listOfErrors.add(lineNum + "Overbooking fare is not a number or empty");
+                } else if (!record.get(CSV_HEADER_OB_FARE).trim().isEmpty()) {
+                    float fare = Float.parseFloat(record.get(CSV_HEADER_OB_FARE));
+                    if (fare <= 1000) {
+                        listOfErrors.add(lineNum + "Overbooking fare cannot be below 1000");
+                    }
+                }
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_OVER_BOOKING))) {
                 listOfErrors.add(lineNum + "Opening Fares has value other than 'Y' or 'N'");
