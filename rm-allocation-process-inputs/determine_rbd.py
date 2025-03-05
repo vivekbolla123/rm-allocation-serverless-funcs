@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare,discount_amount,obfare):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, month, deptTime, dow, percentile, upsellValue, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7avg,b2b_discount_fare,discount_amount,w0Flag,obfare):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -108,6 +108,10 @@ class DetermineRBD:
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_C_' + howDetermined
         if anchorValue!='C' and b2b_discount_fare:
             howDetermined+=f"_Discounted_{discount_amount}"
+        if int(w0Flag)==1:
+            upsell = CONST_NA
+            howDetermined = howDetermined+'_Manual_inventory_retained_skipping_allocation'
+            anchorFare =  0
         if anchorFare != 0:
             offset = 0
             openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
