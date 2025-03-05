@@ -1063,10 +1063,6 @@ public class App implements RequestHandler<S3Event, Object> {
         // Get headers (sector names)
         List<String> headers = csvData.get(0);
         
-        // Debug logging to verify headers
-        System.out.println("CSV Headers: " + String.join(", ", headers));
-        
-        // Dynamically find column indices
         int dateColumnIndex = -1;
         int dowColumnIndex = -1;
         int mappedMonthColumnIndex = -1;
@@ -1091,13 +1087,7 @@ public class App implements RequestHandler<S3Event, Object> {
             }
         }
         
-        // Log what was found
-        System.out.println("Found Date column at index: " + dateColumnIndex);
-        System.out.println("Found DOW column at index: " + dowColumnIndex);
-        System.out.println("Found Mapped Month column at index: " + mappedMonthColumnIndex);
-        System.out.println("Found Event column at index: " + eventColumnIndex);
-        System.out.println("Found " + sectorColumnIndices.size() + " sector columns: " + String.join(", ", sectorColumnIndices.keySet()));
-        
+
         if (dateColumnIndex == -1) {
             System.out.println("Error: Date column not found in CSV");
             return strategyMap;
@@ -1107,24 +1097,17 @@ public class App implements RequestHandler<S3Event, Object> {
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
             if (inputRow.size() <= dateColumnIndex) {
-                System.out.println("Skipping row " + i + " (missing Date column)");
                 continue;
             }
             
             String dateKey = inputRow.get(dateColumnIndex);
-            System.out.println("Processing row " + i + " for date: " + dateKey);
-            
-            // Process each sector in the row
             for (Map.Entry<String, Integer> sectorEntry : sectorColumnIndices.entrySet()) {
                 String sectorName = sectorEntry.getKey();
                 int columnIndex = sectorEntry.getValue();
                 
                 if (columnIndex < inputRow.size()) {
                     String sectorValue = inputRow.get(columnIndex);
-                    
-                    // Debug each sector processing
-                    System.out.println("Row " + i + ", Column '" + sectorName + "': " + sectorValue);
-                    
+                                       
                     if (sectorValue != null && !sectorValue.trim().isEmpty() && !sectorValue.trim().equalsIgnoreCase(EMPTY)) {
                         Map<String, String> map = new HashMap<>();
                         map.put(DATE_COLUMN_NAME, dateKey);
@@ -1134,14 +1117,11 @@ public class App implements RequestHandler<S3Event, Object> {
                         String mapKey = dateKey + "_" + sectorName;
                         strategyMap.put(mapKey, map);
                         
-                        System.out.println("Adding sector update - Date: " + dateKey + 
-                                        ", Sector: " + sectorName + ", Value: " + sectorValue);
                     }
                 }
             }
         }
         
-        System.out.println("Total sector updates to process: " + strategyMap.size());
         return strategyMap;
     }
 
@@ -1203,8 +1183,6 @@ public class App implements RequestHandler<S3Event, Object> {
         String sector = record.get(SECTOR_COLUMN_NAME.toLowerCase());
         String value = record.get(VALUE_COLUMN_NAME);
         
-        // Debug the actual values being used for the SQL
-        System.out.println("SQL Parameters - Date: " + date + ", Sector: " + sector + ", Value: " + value);
         
         try (PreparedStatement checkStmt = connection.prepareStatement(checkQuery)) {
             checkStmt.setString(1, date);
@@ -1250,18 +1228,12 @@ public class App implements RequestHandler<S3Event, Object> {
             // Parse CSV data
             List<List<String>> csvData = getDataFromCSVFile(reader);
             
-            // Log CSV structure for debugging
-            System.out.println("CSV has " + csvData.size() + " rows and " + 
-                            (csvData.size() > 0 ? csvData.get(0).size() : 0) + " columns");
-            
             // Extract date event information
             List<Map<String, String>> dateEventRecords = createListOfMapDateEvent(csvData, Arrays.asList("date", "DOW", "mappedMonth", "event"));
-            System.out.println("Date event records to process: " + dateEventRecords.size());
-            
+
             // Extract sector information - this is where the issue was
             Map<String, Map<String, String>> sectorData = getDateEventForUpsertOnly(csvData);
-            System.out.println("Sector records to process: " + sectorData.size());
-            
+ 
             // Begin transaction
             connection.setAutoCommit(false);
             
@@ -1283,9 +1255,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 String endTime = getCurrentDateTime();
                 updateAuditStatement(tableName, endTime, uuid);
                 insertInputStatusTable(tableName);
-                
-                System.out.println("Successfully processed " + dateEventRecords.size() + " date records and " + 
-                                sectorData.size() + " sector records");
+
             } catch (Exception e) {
                 // Rollback on error
                 connection.rollback();
