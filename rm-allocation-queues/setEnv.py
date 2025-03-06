@@ -30,7 +30,7 @@ if env == "prod":
 RM_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 
 # Set environment variables
-docker_build_command = f'''docker build --no-cache -t {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image --build-arg RM_DB_PASSWORD={RM_DB_PASSWORD} --build-arg RM_DB_URL={RM_DB_URL} --build-arg RM_DB_USERNAME={RM_DB_USERNAME} --build-arg S3_BUCKET_NAME={S3_BUCKET_NAME} --build-arg FILE_PATH_NAME={FILE_PATH_NAME} --build-arg ENVN={env} .'''
+docker_build_command = f'''docker build --no-cache -t {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image --build-arg RM_DB_PASSWORD="{RM_DB_PASSWORD}" --build-arg RM_DB_URL={RM_DB_URL} --build-arg RM_DB_USERNAME={RM_DB_USERNAME} --build-arg S3_BUCKET_NAME={S3_BUCKET_NAME} --build-arg FILE_PATH_NAME={FILE_PATH_NAME} --build-arg ENVN={env} .'''
 
 docker_tag_command = f"docker tag {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image {AWS_ACCOUNT_NUMBER}.dkr.ecr.ap-south-1.amazonaws.com/{ENV_NAME_LAMBDA}rm-allocation-serverless-funcs-rm-allocation-s3-inputs-download:latest"
 

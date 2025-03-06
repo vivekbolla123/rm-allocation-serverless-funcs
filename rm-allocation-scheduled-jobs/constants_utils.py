@@ -7,6 +7,7 @@ class ConstantsUtils:
 
         # Initialize all possible parameters with default values or None
         self.THRESHOLD_TIME = 12
+        self.PF_UPSELL_VALUE = '47%'
         # Generate constants from database values
         self.generateConstantValues()
 
@@ -19,6 +20,9 @@ class ConstantsUtils:
 
             if parameter_key == "THRESHOLD_TIME":
                 self.THRESHOLD_TIME = int(parameter_value)
+                
+            if parameter_key == "PF_UPSELL_VALUE":
+                self.PF_UPSELL_VALUE = int(parameter_value)
 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
