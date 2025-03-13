@@ -187,8 +187,8 @@ class RBDAllocations:
                     else:
                         jumpingRBDPrice = profileExtract[counter]
                         if price < profileFare:
-                            firstRDBAllocation = currBookedLoad + 5
-                            firstRDBAllocationb2b = currBookedLoad + (5 * b2bFactor)
+                            firstRDBAllocation = currBookedLoad + self.constantsutils.PROF_OPEN_COUNT
+                            firstRDBAllocationb2b = currBookedLoad + (self.constantsutils.PROF_OPEN_COUNT * b2bFactor)
                             otherRDBAllocation = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * int(bookloadPercentile))
                             otherRDBAllocationb2b = self.mathutils.generateRoundNumber((totalCapacity / PROFILE_FARES_QUARTILE) * (int(bookloadPercentile) * b2bFactor))
                         else:

@@ -38,7 +38,7 @@ class ConstantsUtils:
         self.CHECK_THRESHOLD_PROCESS_INPUTS = CHECK_THRESHOLD_PROCESS_INPUTS
         self.GROUP_DIFF_FARE = GROUP_DIFF_FARE
         self.TBF_DIFF_FARE = TBF_DIFF_FARE
-        
+        self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         
         # Generate constants from database values
@@ -121,3 +121,5 @@ class ConstantsUtils:
                 self.B2B_DISCOUNT_MAP = parameter_value
             elif parameter_key == OVERBOOKING_MANUAL_LF:
                 self.OVERBOOKING_MANUAL_LF = int(parameter_value)
+            elif parameter_key == PROF_OPEN_COUNT_KEY:
+                self.PROF_OPEN_COUNT = int(parameter_value)
