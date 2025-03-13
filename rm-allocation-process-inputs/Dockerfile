@@ -7,7 +7,7 @@ RUN echo "Creating image for $env Environment"
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
 RUN yum install -y gcc
-RUN yum install --skip-broken -y mysql-devel
+RUN yum install -y mysql-devel --allowerasing
 
 COPY requirements.txt  .
 RUN  pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
