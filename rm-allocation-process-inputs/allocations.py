@@ -534,7 +534,7 @@ class RBDAllocations:
         else:
             for RBDLabel in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
 
     
