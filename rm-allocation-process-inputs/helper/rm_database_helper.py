@@ -208,18 +208,27 @@ class RMDatabaseHelper:
         return dplfBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
-        pflThresholdQuery = "SELECT W8_threshold,W6_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
-        pflThresholdQuery = pflThresholdQuery+ " SELECT W8_threshold,W6_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
+        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
+        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
         pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
+        w9_threshold = pflThresholdList['W9_threshold']
         w8_threshold = pflThresholdList['W8_threshold']
+        w7_threshold = pflThresholdList['W7_threshold']
         w6_threshold = pflThresholdList['W6_threshold']
+        w5_threshold = pflThresholdList['W5_threshold']
+        w4_threshold = pflThresholdList['W4_threshold']
+        w3_threshold = pflThresholdList['W3_threshold']
+        w2_threshold = pflThresholdList['W2_threshold']
+        w1_threshold = pflThresholdList['W1_threshold']
+        p_threshold = pflThresholdList['P_threshold']
+        l_threshold = pflThresholdList['L_threshold']
         B2B_threshold = pflThresholdList['B2B_threshold']
         
-        return w8_threshold,w6_threshold,B2B_threshold
+        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold
 
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
@@ -848,16 +857,14 @@ class RMDatabaseHelper:
             AND DepartureDate = "{str(departure_date)}"
             AND Origin = "{origin}"
             AND Destin = "{destination}"
-            AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
+            AND (ClassOfService = 'P' or ClassOfService = 'L')
         '''
         df = pd.read_sql(query, self.conn)
         if df.empty:
-            return -1, -1, -1, -1
+            return -1, -1
         l_class_seats_sold = df[df['class_code'] == 'L']['seats_sold'].values[0]
         p_class_seats_sold = df[df['class_code'] == 'P']['seats_sold'].values[0]
-        G8_class_seats_sold = df[df['class_code'] == 'G8']['seats_sold'].values[0]
-        G9_class_seats_sold = df[df['class_code'] == 'G9']['seats_sold'].values[0]
-        return l_class_seats_sold, p_class_seats_sold, G8_class_seats_sold, G9_class_seats_sold
+        return l_class_seats_sold, p_class_seats_sold
 
     def get_current_rbds_by_class(self, departure_date, flight_number, sector):
         query = f"""
@@ -869,16 +876,14 @@ class RMDatabaseHelper:
                 DepartureDate = "{departure_date}"
                 AND FlightNumber = "{str(flight_number)}"
                 AND Origin + Destin = "{str(sector)}"
-                AND (ClassOfService = 'P' or ClassOfService = 'L' or ClassOfService = 'G8' or ClassOfService = 'G9')
+                AND (ClassOfService = 'P' or ClassOfService = 'L' )
             """
         df = pd.read_sql(query, self.conn)
         if df.empty:
-            return -1, -1, -1, -1
+            return -1, -1
         l_class_rbd = df[df['class_code'] == 'L']['current_availability'].values[0]
         p_class_rbd = df[df['class_code'] == 'P']['current_availability'].values[0]
-        G8_class_rbd = df[df['class_code'] == 'G8']['current_availability'].values[0]
-        G9_class_rbd = df[df['class_code'] == 'G9']['current_availability'].values[0]
-        return l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd
+        return l_class_rbd, p_class_rbd
     
     def getSeriesBlockedSeats(self,departure_date):
         query=f"""select * from series_blocking where DepartureDate = '{departure_date}'"""
@@ -907,3 +912,25 @@ class RMDatabaseHelper:
         if len(df)==0:
             return ""
         return df['Departuredate2'][0]
+    
+    def get_tbf_discount(self,month,sector):
+        query = f"""
+        SELECT 
+    TF, TE, TD, TC, TB, TY
+FROM
+    tbf_discount_grid
+WHERE
+    (Sector = '{sector}' OR Sector = '*')
+        AND (Month = '{month}' OR Month = '*')
+ORDER BY CASE
+    WHEN Sector = '{sector}' THEN 0
+    ELSE 1
+END , CASE
+    WHEN Month = '{month}' THEN 0
+    ELSE 1
+END
+LIMIT 1
+        """
+        
+        df = pd.read_sql(query, self.conn)
+        return df

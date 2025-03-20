@@ -140,6 +140,9 @@ class RBDAllocations:
         
         
         currRec_copy = copy.deepcopy(currRec)
+        
+        
+        
         # Second allocation with rbdPushFlag = 1
         currParams.rbdPushFlag = 1
         _, _, _, df_unique_1, _,_ = self.b2CAllocation(
@@ -453,7 +456,7 @@ class RBDAllocations:
         return  brd_counter
     
     
-    def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice):
+    def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector):
         max_au = currBookedLoad-currtbfBookedLoad+30
         max_au = min(max_au,adjustedCapacity-20)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
@@ -472,6 +475,7 @@ class RBDAllocations:
     # Create new dictionary with desired order
         result = {}
         if int(tbfFlag) == 1:
+            discounted_df=self.rmdatabasehelper.get_tbf_discount(month,sector)
             for idx, alloc_row in alloc_df.iterrows():
                 jumping_price = alloc_row['price']
                 incremental = alloc_row['incremental']
@@ -495,7 +499,63 @@ class RBDAllocations:
                     'min_other_diff': min_other_diff
                 }
 
+            if not discounted_df.empty:
+                # Get the first allocated RBD (will be one with lowest Total based on sorting)
+                first_allocated_rbd = None
+                for rbd in desired_order:
+                    if rbd in latest_allocations and latest_allocations[rbd]['index'] != 'NA':
+                        first_allocated_rbd = rbd
+                        break
                 
+                if first_allocated_rbd:
+                    # Get discount for this RBD from discounted_df
+                    if first_allocated_rbd in discounted_df.columns:
+                        discount_amount = discounted_df[first_allocated_rbd].iloc[0]
+                        
+                        # Get the original price
+                        idx = latest_allocations[first_allocated_rbd]['index']
+                        original_price = openingRBDPrice
+                        
+                        # Calculate new price after discount
+                        adjusted_price = original_price - discount_amount
+                        
+                        # Find the next highest RBD based on the adjusted price
+                        next_rbd_differences = tbf_rbds['Total'] - adjusted_price
+                        next_rbd_differences = next_rbd_differences[next_rbd_differences > 0]  # Only higher prices
+                        
+                        if not next_rbd_differences.empty:
+                            # Find all subsequent RBDs in sequence
+                            remaining_tbf = tbf_rbds.copy()
+                            current_price = adjusted_price
+                            
+                            while not remaining_tbf.empty:
+                                # Find the next nearest RBD above current_price
+                                next_rbd_diffs = remaining_tbf['Total'] - current_price
+                                next_rbd_diffs = next_rbd_diffs[next_rbd_diffs > 0]  # Only higher prices
+                                
+                                if not next_rbd_diffs.empty:
+                                    next_nearest_idx = next_rbd_diffs.idxmin()
+                                    next_nearest_rbd = remaining_tbf.loc[next_nearest_idx, 'RBD']
+                                    next_rbd_total = remaining_tbf.loc[next_nearest_idx, 'Total']
+                                    
+                                    # Find the index in alloc_df that's closest to this next RBD's Total
+                                    next_alloc_diff = abs(alloc_df['price'] - next_rbd_total)
+                                    next_alloc_idx = next_alloc_diff.idxmin()
+                                    
+                                    # Update the allocation for this RBD
+                                    latest_allocations[next_nearest_rbd] = {
+                                        'index': next_alloc_idx,
+                                        'min_other_diff': next_alloc_diff.min()
+                                    }
+                                    
+                                    # Update current_price and remove this RBD from remaining_tbf
+                                    current_price = next_rbd_total
+                                    remaining_tbf = remaining_tbf[remaining_tbf['RBD'] != next_nearest_rbd]
+                                else:
+                                    # No more higher-priced RBDs
+                                    break
+                        else:
+                            latest_allocations={}    
             for key in desired_order:
                 if key in latest_allocations:
                     result[key] = latest_allocations[key]
