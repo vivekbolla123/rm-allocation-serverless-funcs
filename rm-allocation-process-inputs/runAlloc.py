@@ -29,7 +29,7 @@ from helper.nav_database_helper import NavDatabaseHelper
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
 from utilities.time_utils import TimeUtils
-from utilities.constants_utils import ConstantsUtils
+from constants_utils import ConstantsUtils
 
 from models.market_list_row import MarketListRow
 from models.input_source import InputSource

@@ -1,6 +1,8 @@
 import sys,os
+# Get the absolute path of the directory
 path = os.path.abspath("rm-allocation-process-inputs")
-sys.path.insert(1,path)
+sys.path.append('./rm-allocation-configurations')
+sys.path.insert(1, path)
 import Constants
 import datetime
 from testcontainers.mysql import MySqlContainer
