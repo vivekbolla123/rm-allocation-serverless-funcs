@@ -40,6 +40,30 @@ if env == 'prod':
     ESB_PASSWORD=get_credentials('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
  
+ 
+    FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-scheduled-jobs"
+    RM_DB_APPUSER_USERNAME = "rmappuser"
+    RM_DB_APPUSER_URL = "prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    RM_DB_WR_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    SFTP_RBD_QUEUE_URL = "rm-allocation-queues_rm-allocation-rbds-ftp"
+    ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    ESB_DB_USERNAME = "appuser-rm"
+    S3_FILE_PATH = 'prod/'
+    S3_BUCKET_NAME = 'qp-applications'
+    S3_RM_BUCKET_NAME = "rm-systems"
+    FETCH_INPUTS_API_URL = "http://prod-internal-nlb-b7a4a0b9d3b5ddcb.elb.ap-south-1.amazonaws.com/lambda/rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
+    CALCULATE_COMPONENTS_QUEUE_URL = "rm-allocation-queues_rm-allocation-scheduled-jobs"
+    NAV_PWD = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_PASSWORD')
+    NAV_OCP_SUBSCRIPTION_KEY = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_SUBSCRIPTION_KEY')
+
+    ESB_DB_PASSWORD = get_credentials("/rm/" + env + "/rm-allocation/ESB_DB_PASSWORD")
+    RM_GW_API_KEY = get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
+    FETCH_INPUTS_ACCESS_KEY = get_credentials('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY')
+    RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
+    
+    SFTP_USERNAME = '0KProdr4x_sftp'
+    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
+    SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -81,17 +105,51 @@ if env == 'uat':
     ESB_USER=get_credentials('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-User')
     ESB_PASSWORD=get_credentials('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
+    
+    RM_DB_WR_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
+    ESB_DB_WR_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
+    ESB_DB_USERNAME = "DBSAAdmin"
+    # ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    # ESB_DB_USERNAME = "appuser-rm"
+    SFTP_RBD_QUEUE_URL = "test-rm-allocation-queues-rm-allocation-rbds-ftp"
+    S3_FILE_PATH = 'test/'
+    S3_BUCKET_NAME = 'uat-qp-applications'
+    S3_RM_BUCKET_NAME = "uat-rm-systems"
+    FETCH_INPUTS_API_URL = "https://uat-intsvc.qp.akasaair.com/rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
+    CALCULATE_COMPONENTS_QUEUE_URL = 'rm-allocation-queues_test-rm-allocation-scheduled-jobs'
+    
+    NAV_PWD = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_PASSWORD')
+    NAV_OCP_SUBSCRIPTION_KEY = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_SUBSCRIPTION_KEY')
+
+    ESB_DB_PASSWORD = get_credentials("/rm/" + env + "/rm-allocation/ESB_DB_PASSWORD")
+    RM_GW_API_KEY = get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
+    FETCH_INPUTS_ACCESS_KEY = get_credentials('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY')
+    RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
+    
+    SFTP_USERNAME = '0KTestr4x_sftp'
+    AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds-ftp"
+    SFTP_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD')
 
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379
 
 RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
-RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 
 NAV_USERNAME = "aumaster1"
 NAV_DOMAIN = "TOP"
-NAV_PWD = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_PASSWORD')
-NAV_OCP_SUBSCRIPTION_KEY = get_credentials('/rm/' + env + '/rm-allocation/NAV_API_SUBSCRIPTION_KEY')
 
-RM_GW_API_KEY = get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
+
+RM_REPORTS_SCHEMA_NAME = "QP_RM_REPORTS"
+ESB_NAV_SCHEMA_NAME = "QP_DL_NAVDATA"
+
+S3_PARQUET_FILE_PATH = "inventory-optimization/rateGain/paraquet/"
+
+
+SFTP_DES_DIR = '/'
+SFTP_HOST = 'sftp.akasaair.com'
+SFTP_PORT = 10022
+SFTP_TARG_FILE = 'AUUPDATE'
+TEMP_FILE_NAME = "/tmp/AUUPDATE"
+EXP_TIME = 300000
+MAX_FILE_SIZE = 40*1024*1024

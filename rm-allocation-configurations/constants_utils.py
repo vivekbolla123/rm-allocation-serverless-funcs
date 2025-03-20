@@ -46,6 +46,10 @@ class ConstantsUtils:
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
+        self.THRESHOLD_TIME = THRESHOLD_TIME
+        self.PF_UPSELL_VALUE = PF_UPSELL_VALUE
+        self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
+
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
         try:
@@ -143,6 +147,12 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_FETCH_INPUTS = int(parameter_value)
             elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
+            elif parameter_key == THRESHOLD_TIME_KEY:
+                self.THRESHOLD_TIME = int(parameter_value)   
+            elif parameter_key == PF_UPSELL_VALUE_KEY:
+                self.PF_UPSELL_VALUE = int(parameter_value)
+            elif parameter_key == CHECK_THRESHOLD_UPDATE_RBD_KEY:
+                self.CHECK_THRESHOLD_UPDATE_RBD = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
