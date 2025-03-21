@@ -12,7 +12,7 @@ def get_parameters(parameter_names, region='ap-south-1'):
     parameters = {}
     for param in response['Parameters']:
         # Extract just the parameter name from the full path
-        name = param['Name'].split('/')[-1]
+        name = param['Name']
         parameters[name] = param['Value']
     
     return parameters
@@ -50,7 +50,7 @@ parameter_names = [
 parameters = get_parameters(parameter_names)
 
 # Map parameters to variables
-RM_CACHE_PASSWORD = parameters.get('RM_CACHE_PASSWORD','')
-RM_DB_APPUSER_PASSWORD = parameters.get('RM_DB_APPUSER_PASSWORD','')
-NAV_PWD = parameters.get('NAV_API_PASSWORD','')
-NAV_OCP_SUBSCRIPTION_KEY = parameters.get('NAV_API_SUBSCRIPTION_KEY','')
+RM_CACHE_PASSWORD = parameters.get(f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD','')
+RM_DB_APPUSER_PASSWORD = parameters.get(f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD','')
+NAV_PWD = parameters.get(f'/rm/{env}/rm-allocation/NAV_API_PASSWORD','')
+NAV_OCP_SUBSCRIPTION_KEY = parameters.get(f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY','')
