@@ -1,0 +1,135 @@
+Origin,Destin,FlightNumber,PerType,PerStart,Scenario,Mapped Epic
+BOM,DEL,1127,D,08/01/2023,"Normal allocation - Matching Minimum, 0, Full Time Range ",CL1
+BOM,DEL,1127,D,08/02/2023,"Normal allocation - Matching Maximum, 0, Full Time Range ",CL1
+BOM,DEL,1127,D,08/03/2023,"Normal allocation - Matching Minimum, 0, Constrained Time Range  ",CL1
+BOM,DEL,1127,D,08/04/2023,"Normal allocation - Matching Maximum, 0, Constrained Time Range",CL1
+BOM,DEL,1127,D,08/05/2023,Normal allocation - Exclusion Logic,CL1
+BOM,DEL,1127,D,08/06/2023,"Normal allocation - Matching Minimum, Constrained Time Range, -ve offset",CL1
+BOM,DEL,1127,D,08/07/2023,"Normal allocation - Matching Minimum, Constrained Time Range, +ve offset",CL1
+BOM,DEL,1127,D,08/08/2023,"Normal allocation - Matching Maximum, Constrained Time Range, -ve offset",CL1
+BOM,DEL,1127,D,08/09/2023,"Normal allocation - Matching Maximum, Constrained Time Range, +ve offset",CL1
+BOM,DEL,1127,D,08/10/2023,"Normal allocation - Matching Minimum, Constrained Time Range, -ve offset with offset B2C level below V9 level ",CL1
+BOM,DEL,1127,D,08/11/2023,"Normal allocation - Matching Minimum, Constrained Time Range, +ve offset with offset B2C level above Y level ",CL1
+BOM,DEL,1127,D,08/12/2023,"Normal allocation - Matching Minimum, Constrained Time Range, -ve offset with offset B2B level below Z9 level ",CL1
+BOM,DEL,1127,D,08/13/2023,"Normal allocation - Matching Minimum, Constrained Time Range, +ve offset with offset B2B level above Z0 level",CL1
+BOM,DEL,1127,D,08/14/2023,"Normal allocation - Matching Minimum, Constrained Time Range, B2C market fare below V9 level",CL1
+BOM,DEL,1127,D,08/15/2023,"Normal allocation - Matching Minimum, Constrained Time Range, B2C market fare above Y level ",CL1
+BOM,DEL,1127,D,08/16/2023,"Normal allocation - Matching Minimum, Constrained Time Range, B2B market fare below Z9 level",CL1
+BOM,DEL,1127,D,08/17/2023,"Normal allocation - Matching Minimum, Constrained Time Range, B2B market fare above Z0 level ",CL1
+BOM,DEL,1127,D,08/19/2023,D3/D4 Optionality - Normal allocation,CL5
+BOM,DEL,1127,D,08/20/2023,D3/D4 Optionality - Distress allocation (-1),CL5
+BOM,DEL,1127,D,08/21/2023,D3/D4 Optionality - Linear allocation (-2),CL5
+BOM,DEL,1127,D,08/22/2023,D3/D4 Optionality - Linear allocation (-2),CL5
+BOM,DEL,1127,D,08/23/2023,"D3/D4 Optionality - Linear allocation, skips (-3)",CL5
+BOM,DEL,1127,D,08/24/2023,"D3/D4 Optionality - Linear allocation, skips (-3)",CL5
+BOM,DEL,1127,D,08/25/2023,"D3/D4 Optionality - Dynamic allocation, no skip (-99)",CL2
+BOM,DEL,1127,D,08/26/2023,"D3/D4 Optionality - Dynamic allocation, skip (-99), 5",CL2
+BOM,DEL,1127,D,08/27/2023,"D3/D4 Optionality - Dynamic allocation, skip (-99), 10",CL2
+BOM,DEL,1127,D,08/28/2023,Backstop - B2C level backstop - offset value not hitting backstop level,CL3
+BOM,DEL,1127,D,08/29/2023,Backstop - B2C level backstop - offset value hitting backstop level,CL3
+BOM,DEL,1127,D,08/30/2023,Backstop - B2C level backstop - marketfare below offset value,CL3
+BOM,DEL,1127,D,08/31/2023,Backstop - B2B level backstop - offset value not hitting backstop level,CL3
+BOM,DEL,1127,D,09/01/2023,Backstop - B2B level backstop - offset value hitting backstop level,CL3
+BOM,DEL,1127,D,09/02/2023,"Backstop - B2B level backstop - marketfare below backstop value, -ve offset",CL3
+BOM,DEL,1127,D,09/03/2023,"Backstop - B2B level backstop - marketfare below backstop value, +ve offset",CL3
+BOM,DEL,1127,D,09/04/2023,Backstop - B2B level backstop - marketfare unavailable,CL3
+DEL,BOM,1128,D,08/01/2023,"Normal allocation - DOW Strategy Testing - Tuesday, Thursday",CL1
+DEL,BOM,1128,D,08/02/2023,"Normal allocation - DOW Strategy Testing - All days except Tuesday, Thursday",CL1
+DEL,BOM,1128,D,08/03/2023,B2B segment testing - behind the booking curve,CL4
+DEL,BOM,1128,D,08/04/2023,B2B segment testing - ahead of the booking curve,CL4
+DEL,BOM,1128,D,08/05/2023,B2B segment testing - behind the curve with load factor <= 85% and fare delta >=20% between B2C and B2B,CL4
+DEL,BOM,1128,D,08/06/2023,B2B segment testing - behind the curve with load factor >= 85% and fare delta >=20% between B2C and B2B,CL4
+DEL,BOM,1128,D,08/07/2023,189 seater allocation with same reference curve ,CE4
+DEL,BOM,1128,D,08/08/2023,174 seater allocation with same reference curve,CE4
+DEL,BOM,1128,D,08/09/2023,Dynamic D1/D2 - Strategy Grid 1 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/10/2023,Dynamic D1/D2 - Strategy Grid 1 - Case 2,CL7/CL8
+DEL,BOM,1128,D,08/11/2023,Dynamic D1/D2 - Strategy Grid 1 - Case 3,CL7/CL8
+DEL,BOM,1128,D,08/12/2023,Dynamic D1/D2 - Strategy Grid 2 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/13/2023,Dynamic D1/D2 - Strategy Grid 2 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/14/2023,Dynamic D1/D2 - Strategy Grid 2 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/15/2023,Dynamic D1/D2 - Strategy Grid 3 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/16/2023,Dynamic D1/D2 - Strategy Grid 3 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/17/2023,Dynamic D1/D2 - Strategy Grid 3 - Case 1,CL7/CL8
+DEL,BOM,1128,D,08/18/2023,Parameter file - changed inputs ,CE8
+DEL,BOM,1128,D,08/19/2023,"Allocation schedule - previous marketlist run - 
+- Separate run for NDO 0-3; 4-10",CE7
+DEL,BOM,1128,D,08/20/2023,B2B Allocation factor - Normal allocation,CL11
+DEL,BOM,1128,D,08/21/2023,B2B Allocation factor - Dynamic allocation,CL11
+DEL,BOM,1128,D,08/22/2023,B2B Allocation factor - Dynamic allocation with 5% skips,CL11
+DEL,BOM,1128,D,08/23/2023,B2B Allocation factor - Dynamic allocation with 10% skips,CL11
+DEL,BOM,1128,D,08/24/2023,"B2B Allocation factor - Normal allocation, B2B Factor - 0.75",CL11
+BOM,JAI,1169,D,08/01/2023,Sector doesn't exist,CL3
+BOM,DEL,1127,D,08/02/2023,Wrong Reference Curve,CL3
+BOM,DEL,1127,D,08/18/2023,"Normal allocation - Matching Minimum, Constrained Time Range, B2C market fare below V9 level; negative offset",CL1
+BOM,DEL,1127,D,09/01/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 1,CL1
+BOM,DEL,1127,D,09/02/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 2,CL1
+BOM,DEL,1127,D,09/03/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 3,CL1
+BOM,DEL,1127,D,09/04/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 4,CL1
+BOM,DEL,1130,D,09/04/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 5,CL1
+BOM,DEL,1130,D,09/05/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 5,CL1
+BOM,DEL,1130,D,09/06/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 6,CL1
+BOM,DEL,1130,D,09/07/2023,Dynamic D1/D2 - Strategy Grid 4 - Case 6,CL1
+BOM,DEL,1227,D,08/02/2023,for NDO 1 plf_threshold lesser than actual plf,CL1
+BOM,DEL,1227,D,08/03/2023,for NDO 1 plf_threshold lesser than actual plf for every flight in marketlist,CL1
+BOM,DEL,1227,D,08/04/2023,for NDO 1 plf_threshold greater than actual plf,CL1
+BOM,DEL,1227,D,08/05/2023,for NDO 2 plf_threshold greater than actual plf,CL1
+BOM,DEL,1227,D,08/06/2023,for NDO 2 plf_threshold less than actual plf,CL1
+BOM,DEL,1228,D,08/07/2023,for NDO 2 plf_threshold greter than actual plf,CL1
+BOM,DEL,1228,D,08/08/2023,for NDO 3 plf_threshold greter than actual plf,CL1
+BOM,DEL,1228,D,08/09/2023,for NDO 3 plf_threshold less than actual plf,CL1
+BOM,DEL,1228,D,08/10/2023,for NDO 3 plf_threshold greater than actual plf,CL1
+BOM,DEL,1228,D,08/11/2023,for NDO 4 plf_threshold less than actual plf,CL1
+BOM,DEL,1127,D,12/11/2023,if market fare is not available but sector booklaod is available,CL1
+DEL,JAI,1170,D,12/12/2023,Sector doesn't exist,CL1
+DEL,JAI,1170,D,12/13/2023,if market fare is not available and sector booklaod also available,CL1
+BOM,DEL,1127,D,12/14/2023,"if market fare is not available but sector booklaod is available, B2B -99",CL1
+BOM,DEL,1127,D,12/15/2023,"if market fare is not available but sector booklaod is available, B2C -99",CL1
+BOM,DEL,1127,D,12/16/2023,"if market fare is not available but sector booklaod is available, both B2B and B2C -99",CL1
+BOM,DEL,1227,D,08/08/2023,"Normal Allocation, Full time range",CL1
+BOM,DEL,1227,D,08/09/2023,"Normal Allocation, Constraint time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/10/2023,"Dynemic Allocation -99, Full time range",CL1
+BOM,DEL,1227,D,08/11/2023,"Dynemic Allocation -99, Full time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/12/2023,"Dynemic Allocation -3, Constraint time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/13/2023,"Dynemic Allocation -3, Full time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/14/2023,"Dynemic Allocation -99, Constraint time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/15/2023,"Normal Allocation, Full time range, MINO_MAXO Strategy",CL1
+BOM,DEL,1227,D,08/16/2023,"Dynemic Allocation -99, Skipping 5%",CL1
+BOM,DEL,1227,D,08/17/2023,"Dynemic Allocation -99, Skipping 0%",CL1
+BOM,DEL,1327,D,08/01/2023,"OwnFareFlag ""YES"", Strategy refernce is OWNF, but fares are -99, FR >>Inconsistent inputs recheck-N Flag/OWNF",CL1
+BOM,DEL,1327,D,08/02/2023,"OwnFareFlag ""YES"", Strategy refernce is MAXO, TR",CL1
+BOM,DEL,1327,D,08/03/2023,"OwnFareFlag ""YES"", Strategy refernce is OWNF, Fares are available ",CL1
+BOM,DEL,1327,D,08/04/2023,"OwnFareFlag ""YES"", Strategy refernce is OWNF, Fares are available ",CL1
+BOM,DEL,1327,D,08/05/2023,"OwnFareFlag ""YES"", Strategy refernce is OWNF, Fares are available ",CL1
+BOM,DEL,1327,D,08/06/2023,"OwnFareFlag ""YES"", Strategy refernce is OWNF, Fares are available ",CL1
+BOM,DEL,1327,D,08/07/2023,"OwnFareFlag ""NO"",  Strategy refernce is MAXO",CL1
+BOM,DEL,1327,D,08/08/2023,"OwnFareFlag ""NO"",  Strategy refernce is OWNF >>Inconsistent inputs recheck-N Flag/OWNF",CL1
+BOM,DEL,1327,D,08/09/2023,"OwnFareFlag ""NO"",  Strategy refernce is OWNF >>Inconsistent inputs recheck-N Flag/OWNF",CL1
+BOM,DEL,1327,D,08/10/2023,"OwnFareFlag ""NO"",  Strategy refernce is OWNF >>Inconsistent inputs recheck-N Flag/OWNF",CL1
+BOM,DEL,1327,D,08/11/2023,"OwnFareFlag ""NO"",  Strategy refernce is MAXO",CL1
+BOM,DEL,1327,D,08/12/2023,"OwnFareFlag ""NO"",  Strategy refernce is OWNF >>Inconsistent inputs recheck-N Flag/OWNF",CL1
+BOM,DEL,1327,D,08/13/2023,"Normal Allocation , FR, MIN, day -1",CL1
+BOM,DEL,1327,D,08/14/2023,"Normal Allocation , FR, MAX, day -1",CL1
+BOM,DEL,1327,D,08/15/2023,"Normal Allocation , TR, MINO, day 1",CL1
+BOM,DEL,1327,D,08/16/2023,"Normal Allocation , TR, MAXO, day 1",CL1
+BOM,DEL,1327,D,08/17/2023,"Normal Allocation , TR, MIN, day 1",CL1
+BOM,DEL,1327,D,08/18/2023,"Normal Allocation , TR, MAXO, day -1",CL1
+BOM,DEL,1327,D,08/19/2023,"Normal Allocation , Strategy_4, day -1",CL1
+BOM,DEL,1327,D,08/20/2023,"Normal Allocation , Strategy_5, day -1",CL1
+BOM,DEL,1327,D,08/21/2023,"OwnFareFlag ""yes"", B2C MAXO, B2B OWNF",CL1
+BOM,DEL,1327,D,08/22/2023,"OwnFareFlag ""yes"", B2C MINO, B2B OWNF",CL1
+BOM,DEL,1327,D,08/23/2023,"OwnFareFlag ""No"", B2C MAXO, B2B OWNF",CL1
+BOM,DEL,1327,D,08/24/2023,"OwnFareFlag ""No"", B2C MINO, B2B OWNF",CL1
+BOM,DEL,1327,D,08/25/2023,"OwnFareFlag ""No"", B2C MINO, B2B OWNF, day -1",CL1
+BOM,DEL,1427,D,08/01/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3+ & end of the day 3+",CL1
+BOM,DEL,1427,D,08/02/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3+ & end of the day 3-",CL1
+BOM,DEL,1427,D,08/03/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3+",CL1
+BOM,DEL,1427,D,08/04/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3-",CL1
+BOM,DEL,1427,D,08/05/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3+ & end of the day 3+",CL1
+BOM,DEL,1427,D,08/06/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3+ & end of the day 3-",CL1
+BOM,DEL,1427,D,08/07/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3- & end of the day 3+",CL1
+BOM,DEL,1427,D,08/08/2023,"Booking_velocity_flag 1, 10+ Am, dplf band start of day 3- & end of the day 3-",CL1
+BOM,DEL,1428,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure pre noon 12pm, LF <95% ",CL1
+BOM,DEL,1429,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure pre noon 12pm, LF >=95% ",CL1
+BOM,DEL,1430,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure post noon 12pm, LF <95% ",CL1
+BOM,DEL,1431,D,08/01/2023,"Booking_velocity_flag 1, NDO =0, Departure post noon 12pm, LF >=95% ",CL1
+BOM,DEL,1432,D,08/01/2023,"Booking_velocity_flag 1, 0-10 Am, dplf band start of day 3- & end of the day 3+ >>For a date range",CL1

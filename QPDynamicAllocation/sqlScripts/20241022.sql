@@ -1,0 +1,4 @@
+-- Alter Run Summary
+ALTER TABLE `run_summary`
+ADD COLUMN `recommended_actions` VARCHAR(10) NULL AFTER `overBookingCount`;
+UPDATE QP_DW_RMALLOC.config_column_names SET columns="Origin,Destin,FltNum,DepDate,DATE_FORMAT(STR_TO_DATE(DepDate, '%m/%d/%Y'), '%a') AS Day,BookedLoad,TgtLoad as StartOfDayTgtLoad,bookedPlf,actualbookedPlf,Variance,currentTgtLoad,currentLoadFactor,endOfDayTgtLoad,bookingToday,bookingInHour,historicOwnFare,strategyFare,lastSellingFare,profileFare,upsell,fareAnchor,OpenRBD,SellingFare,Channel,HowDetermined,RunId,CreatedAt,MktFare_Min,FlightNumber_Min,MktFare_Max,FlightNumber_Max,criteria,fareOffset,TimeRange,startTime,endTime,Backstop,StrategyReference,dlfBand as startOfDayDplfBand,endOfDaydlfBand as currentDplfBand,ndoBand,overBookingCount,recommendedActions,marketFaresSummary,status,analystName" where tableName = 'run_summary'

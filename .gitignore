@@ -1,0 +1,8 @@
+package
+*.pyc
+
+\venv
+
+.vscode/
+.idea/
+local.env

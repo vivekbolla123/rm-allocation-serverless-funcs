@@ -1,0 +1,2 @@
+Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,strategyFlag,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusion,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,OwnFareFlag,DaySpan,analystName,AutoTimeRangeFlag,openingFares,OverBooking
+BOM,DEL,1127,D,08/02/2024,08/02/2024,1111111,0,0:00,23:59,C18946,**,MIN,0,5,10,0,5000,1,1,N,1,test,1,1,Y

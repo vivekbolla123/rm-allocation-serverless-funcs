@@ -1,0 +1,7 @@
+sqlalchemy==1.4.39
+pandas==1.4.3
+mysqlclient==2.1.1
+boto3
+redis==5.0.1
+numpy==1.26.4
+pymssql==2.2.5

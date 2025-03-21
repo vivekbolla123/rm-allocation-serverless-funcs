@@ -1,0 +1,15 @@
+flask
+flask_cors
+flask_caching
+requests
+numpy
+pandas==1.4.3
+sqlalchemy==1.4.39
+mysql
+PyMySQL
+mysqlclient
+mysql-connector-python
+pymssql
+waitress
+python-dotenv
+testcontainers.mysql

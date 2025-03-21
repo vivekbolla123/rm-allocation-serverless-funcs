@@ -1,0 +1,1 @@
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('TIME_BEFORE_DEPARTURE', '30');

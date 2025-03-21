@@ -1,0 +1,10 @@
+Sector1,Flight1,Perstart,Sector2,Flight2,PerStart,Pertype,Scenario,Inventory Allocation logic ,Mapped Epic,Status
+BLRAMD,1331,08/01/2023,AMDDEL,1606,08/01/2023,L,Both A-B and B-C are V9 in B2C,Normal allocation,COM-173,
+BLRAMD,1331,08/02/2023,AMDDEL,1606,08/02/2023,L,Both A-B and B-C above Y  in B2C,,COM-173,
+BLRAMD,1331,08/03/2023,AMDDEL,1606,08/03/2023,L,Both A-B at low and B-C at highest fare,,COM-173,
+BLRAMD,1331,08/04/2023,AMDDEL,1606,08/04/2023,L,with flat discount 2000,,COM-173,
+BLRAMD,1331,08/05/2023,AMDDEL,1606,08/05/2023,L,flat discount 8500 both sectors at highest fare,,COM-173,
+BLRAMD,1331,08/06/2023,AMDDEL,1606,08/06/2023,L,"Sector1- B2C-high, B2B-low Sector2- B2C-high, B2B-low ",,COM-173,
+BLRAMD,1331,08/07/2023,AMDDEL,1606,08/07/2023,L,"Sector1- B2C-low, B2B-low Sector2- B2C-high, B2B-low ",,COM-173,
+BLRAMD,1331,08/08/2023,AMDDEL,1606,08/08/2023,L,"Sector1- B2C-low, B2B-low Sector2- B2C-high, B2B-low ",,COM-173,
+BLRAMD,1331,08/09/2023,AMDDEL,1606,08/09/2023,L,one of the sector flight doesn't exist,,COM-173,

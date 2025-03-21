@@ -1,0 +1,42 @@
+from Constants import *
+class MarketListConnectiosnsRow:
+    
+    def __init__(self,currParams):
+        self.sector1 = currParams.get('Sector1',CONST_NA)
+        self.sector2 = currParams.get('Sector2',CONST_NA)
+        self.flight1 = currParams.get('Flight1',CONST_NA)
+        self.flight2 = currParams.get('Flight2',CONST_NA)
+        self.per_start =currParams.get('PerStart',CONST_NA)
+        self.per_end = currParams.get('PerEnd',CONST_NA)
+        self.dow = currParams.get('DOW',CONST_NA)
+        self.outboundstop=currParams.get('Outbound_stop',CONST_NA)
+        self.pricestartegy=currParams.get('Price_Strategy',CONST_NA)
+        self.discountvalue=currParams.get('Discount_Value',CONST_NA)
+        self.first_rbd_alloc = currParams.get("FirstRBDAlloc",CONST_NA)
+        self.other_rbd_alloc = currParams.get("OtherRBDAlloc",CONST_NA)
+        self.b2b_backstop = currParams.get("B2BBackstop",CONST_NA)
+        self.b2c_backstop = currParams.get("B2CBackstop",CONST_NA)
+        self.b2b_factor = currParams.get("B2BFactor",CONST_NA)
+        self.skipping_factor = currParams.get("SkippingFactor",CONST_NA)
+        self.outbound_duration = currParams.get("Outbound_duration",CONST_NA)
+        self.currency = currParams.get("Currency",CONST_NA)
+        self.fareAnchor = currParams.get("fareAnchor",CONST_NA)
+        self.offset = currParams.get("Offset",CONST_NA)
+        self.discountflag = currParams.get("DiscountFlag",CONST_NA)
+        self.analyst_name = currParams.get("analystName", CONST_NA)
+        self.time_logger = currParams.get("timelogger", CONST_NA) 
+        
+        self.run_id = currParams.get("runId",CONST_NA)
+        self.update_navitaire_method = currParams.get("update_navitaire_method",CONST_NA)
+        self.run_time = currParams.get("runTime",CONST_NA)
+        self.navitaire_connection = currParams.get("NavitaireConnection",CONST_NA)
+        self.dbconn = currParams.get("dbconn",CONST_NA)
+        self.wrconn = currParams.get("wrconn",CONST_NA)
+        self.sqs = currParams.get("sqs",CONST_NA)
+        self.run_single_market = currParams.get("runSingleMarket",CONST_NA)
+        self.s3 = currParams.get("s3",CONST_NA)
+        self.cache_client = currParams.get("cache_client",CONST_NA)
+        self.navitaire_update_method = currParams.get
+        ("NavitaireUpdateMethod",CONST_NA)
+        self.route_type=currParams.get("route_type",CONST_NA)
+        self.strategy=CONST_NA
