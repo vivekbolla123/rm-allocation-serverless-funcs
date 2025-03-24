@@ -28,6 +28,7 @@ from noShowProb import NoShowProbs
 from qcTableGen import QCProcess
 from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
+from noShowExtract import ExpectedNoShows
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -35,6 +36,8 @@ logger.setLevel(logging.INFO)
 RM_ALLOC_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 RM_REPORTS_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 ESB_DB = f"mysql+mysqldb://{configsettings.ESB_DB_USERNAME}:{configsettings.ESB_DB_PASSWORD}@{configsettings.ESB_DB_WR_APPUSER_URL}/{configsettings.ESB_NAV_SCHEMA_NAME}"
+DB_DW_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
+
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -46,6 +49,7 @@ try:
     rm_rd_conn = create_engine(RM_ALLOC_DB)
     rm_wr_conn = create_engine(RM_REPORTS_DB)
     rm_rd_esb_conn = create_engine(ESB_DB)
+    dw_conn =  create_engine(DB_DW_WR_CONN_STRING)
 
 
     NavitaireConnection = pymssql.connect(
@@ -80,7 +84,8 @@ module_map = {
     "run_adhocs_queue":SchedulerHandler,
     "gen_qc_fares_table": QCProcess,
     "qc_fares_check": QCCheck,
-    "update_calendar": CalendarUpdate
+    "update_calendar": CalendarUpdate,
+    "expected_no_shows": ExpectedNoShows
 }
 
 
@@ -109,6 +114,7 @@ def lambda_handler(event, context):
         overrides = data["overrides"]
 
     for module_key in modules.keys():
+        params["dwconn"] = dw_conn
         params["rdEsbConn"] = rm_rd_esb_conn
         params['rdconn'] = rm_rd_conn
         params['wrconn'] = rm_wr_conn
@@ -159,7 +165,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"update_calendar\": 1}}"
+#   "body": "{\"modules\":{\"expected_no_shows\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
