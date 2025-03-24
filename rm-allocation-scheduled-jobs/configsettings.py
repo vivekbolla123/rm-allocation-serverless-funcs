@@ -1,15 +1,45 @@
 from os import getenv
 from boto3 import client
 
-
-def get_credentials(parameter_name):
+def get_multiple_credentials(parameter_names):
     ssm_client = client('ssm', region_name='ap-south-1')
-    response = ssm_client.get_parameter(Name=parameter_name, WithDecryption=True)
-    parameter_value = response['Parameter']['Value']
-    return parameter_value
-
+    
+    try:
+        # Get multiple parameters at once
+        response = ssm_client.get_parameters(
+            Names=parameter_names,
+            WithDecryption=True
+        )
+        
+        # Process the results into a dictionary
+        parameters = {}
+        for param in response['Parameters']:
+            parameters[param['Name']] = param['Value']
+            
+        # Check if any parameters were not found
+        if response['InvalidParameters']:
+            print(f"Parameters not found: {response['InvalidParameters']}")
+            
+    except Exception as e:
+        print(f"Error fetching parameters: {e}")
+        return {}
+        
+    return parameters
 
 env = getenv('env', default='uat')
+
+# List all parameter names you need to fetch
+param_names = [
+    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD',
+    f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD',
+    f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
+    f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD',
+    f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY'
+]
+
+# Get all credentials at once
+credentials = get_multiple_credentials(param_names)
 
 if env == 'prod':
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-scheduled-jobs"
@@ -33,7 +63,6 @@ if env == 'prod':
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
     NAV_DB_USER = "0KODSUSER2"
     
-
 if env == 'uat':
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -57,17 +86,17 @@ if env == 'uat':
     CALCULATE_COMPONENTS_QUEUE_URL = 'rm-allocation-queues_test-rm-allocation-scheduled-jobs'
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
     NAV_DB_USER = "0KODSUSER"
-    
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379
 
-NAV_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD')
-ESB_DB_PASSWORD = get_credentials("/rm/" + env + "/rm-allocation/ESB_DB_PASSWORD")
-RM_CACHE_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD')
-RM_DB_APPUSER_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
-RM_GW_API_KEY = get_credentials('/rm/' + env + '/rm-allocation/RM_GW_APIKEY')
-FETCH_INPUTS_ACCESS_KEY = get_credentials('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY')
+# Set credentials from the dictionary
+NAV_DB_PASSWORD = credentials.get(f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD', '')
+ESB_DB_PASSWORD = credentials.get(f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD', '')
+RM_CACHE_PASSWORD = credentials.get(f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD', '')
+RM_DB_APPUSER_PASSWORD = credentials.get(f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
+RM_GW_API_KEY = credentials.get(f'/rm/{env}/rm-allocation/RM_GW_APIKEY', '')
+FETCH_INPUTS_ACCESS_KEY = credentials.get(f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY', '')
 
 RM_DB_SCHEMA_NAME = "QP_DW_RMALLOC"
 RM_REPORTS_SCHEMA_NAME = "QP_RM_REPORTS"
