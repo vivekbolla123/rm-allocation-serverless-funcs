@@ -2,6 +2,7 @@ package com.akasaair.queues;
 
 import com.akasaair.queues.common.Validations.CurvesValidator;
 import com.akasaair.queues.common.Validations.FaresValidator;
+import com.akasaair.queues.common.Validations.ProfileValidator;
 import com.akasaair.queues.common.Validations.Validator;
 import com.akasaair.queues.common.aws.DependencyFactory;
 import com.akasaair.queues.common.aws.S3FileStorageDao;
@@ -796,6 +797,7 @@ public class App implements RequestHandler<S3Event, Object> {
         switch (tableName) {
             case CURVES_TABLE_NAME -> validator = new CurvesValidator();
             case QP_FARES_TABLE_NAME -> validator = new FaresValidator();
+            case PROFILE_FARES_TABLE_NAME -> validator = new ProfileValidator();
             default -> validator = null;
         }
         return validator;

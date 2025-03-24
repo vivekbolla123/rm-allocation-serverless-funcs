@@ -107,11 +107,11 @@ class ConstantsUtils:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:
                 self.LAST_N_AVG_FARE = int(parameter_value)
-            elif parameter_key == MFMIN0:
+            elif parameter_key == MFMIN0_KEY:
                 self.MFMIN0 = int(parameter_value)
-            elif parameter_key == MFMIN1:
+            elif parameter_key == MFMIN1_KEY:
                 self.MFMIN1 = int(parameter_value)
-            elif parameter_key == CHECK_THRESHOLD_PROCESS_INPUTS:
+            elif parameter_key == CHECK_THRESHOLD_PROCESS_INPUTS_KEY:
                 self.CHECK_THRESHOLD_PROCESS_INPUTS = int(parameter_value)
             elif parameter_key == GROUP_DIFF_FARE_KEY:
                 self.GROUP_DIFF_FARE = int(parameter_value)
@@ -119,7 +119,8 @@ class ConstantsUtils:
                 self.TBF_DIFF_FARE = int(parameter_value)
             elif parameter_key == B2B_DISCOUNT_MAP_KEY:
                 self.B2B_DISCOUNT_MAP = parameter_value
-            elif parameter_key == OVERBOOKING_MANUAL_LF:
+            elif parameter_key == OVERBOOKING_MANUAL_LF_KEY:
                 self.OVERBOOKING_MANUAL_LF = int(parameter_value)
             elif parameter_key == PROF_OPEN_COUNT_KEY:
                 self.PROF_OPEN_COUNT = int(parameter_value)
+
