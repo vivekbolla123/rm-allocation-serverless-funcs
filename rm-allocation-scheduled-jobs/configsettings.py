@@ -35,7 +35,9 @@ param_names = [
     f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
     f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD',
     f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY'
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
+    f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
+    f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD'
 ]
 
 # Get all credentials at once
@@ -63,6 +65,12 @@ if env == 'prod':
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
     NAV_DB_USER = "0KODSUSER2"
     
+    DW_DB_HOST="prod-qp-dw.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    DW_DB_PORT='3306'
+    DW_DB_USER=credentials.get(f'/glue_job/{env}/DW_DB_APPUSER_USERNAME', '')
+    DW_DB_PASSWORD= credentials.get(f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD', '')
+    DW_DB_WRITE_SCHEMA='RM_DW_DATA'
+
 if env == 'uat':
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -86,6 +94,12 @@ if env == 'uat':
     CALCULATE_COMPONENTS_QUEUE_URL = 'rm-allocation-queues_test-rm-allocation-scheduled-jobs'
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
     NAV_DB_USER = "0KODSUSER"
+    
+    DW_DB_HOST='uat-qp-dw.cfwwkweqog18.ap-south-1.rds.amazonaws.com'
+    DW_DB_PORT='3306'
+    DW_DB_USER=credentials.get(f'/glue_job/{env}/DW_DB_APPUSER_USERNAME', '')
+    DW_DB_PASSWORD= credentials.get(f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD', '')
+    DW_DB_WRITE_SCHEMA='RM_DW_DATA'
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379
