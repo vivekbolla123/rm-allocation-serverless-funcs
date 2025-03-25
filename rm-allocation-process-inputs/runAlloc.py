@@ -1028,7 +1028,7 @@ class DynAlloc:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
+		self.constantsUtils = ConstantsUtils(self.conn)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)

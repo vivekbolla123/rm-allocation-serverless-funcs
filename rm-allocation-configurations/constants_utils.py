@@ -5,8 +5,7 @@ import configsettings
 from sqlalchemy import create_engine
 
 class ConstantsUtils:
-    def __init__(self):
-        self.DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
+    def __init__(self, conn):
         self.MIN_D3_D4_VALUE = MIN_D3_D4_VALUE
         self.LINEAR_JUMP_VALUE = LINEAR_JUMP_VALUE
         self.PLF_CURVE_VALUE = PLF_CURVE_VALUE
@@ -52,12 +51,7 @@ class ConstantsUtils:
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
-        try:
-            self.conn = create_engine(self.DB_RD_CONN_STRING)
-        except Exception as e:
-            self.logger.error(e)
-            sys.exit()
-
+        self.conn = conn
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
