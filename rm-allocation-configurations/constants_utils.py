@@ -1,8 +1,6 @@
 import logging
 import pandas as pd
 from Constants import *
-import configsettings
-from sqlalchemy import create_engine
 
 class ConstantsUtils:
     def __init__(self, conn):
