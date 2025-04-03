@@ -45,6 +45,7 @@ class Schema:
         self.load_generic_table("connections_details","connections_details.csv")
         self.load_generic_table("market_list_international","Marketlist_international.csv")
         self.load_generic_table("tbf_discount_grid","tbf_discount_grid.csv")
+        self.load_generic_table("expected_no_shows","expected_no_shows.csv")
         
         
         self.alterTables()

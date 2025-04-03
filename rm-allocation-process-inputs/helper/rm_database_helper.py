@@ -661,7 +661,7 @@ class RMDatabaseHelper:
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()	
 
         query=f'''
-            select DepartureTime,Origin,Destination,FlightNumber from bookload where DepartureDate = '{currFltDate}' AND Origin = '{currParams.origin}' AND Destination = '{currParams.destin}' order by DepartureTime ASC
+            select DepartureTime,Origin,Destination,FlightNumber from bookload where DepartureDate = '{currFltDate}' AND Origin = '{currParams.origin}' AND Destination = '{currParams.destin}' order by STR_TO_DATE(DepartureTime, '%%H:%%i:%%s') ASC
         '''
         conn=self.conn
         df = pd.read_sql(query, conn)
@@ -934,3 +934,19 @@ LIMIT 1
         
         df = pd.read_sql(query, self.conn)
         return df
+    
+    def getOverbookedSeats(self, origin, destin, FltNumber, currFltDate):
+        sector = origin + destin
+        query = f"""SELECT ExpectedNoShows from expected_no_shows
+                    WHERE DepartureDate = '{str(currFltDate)}'
+                    AND Sector = '{sector}' AND FlightNumber={FltNumber}"""
+        seats = pd.read_sql(query, self.conn)
+
+        if self.debugMode:
+            self.logger.info(query)
+
+        # Check if the query result is empty
+        if not seats.empty:
+            return seats["ExpectedNoShows"].iloc[0]
+        else:
+            return 0
