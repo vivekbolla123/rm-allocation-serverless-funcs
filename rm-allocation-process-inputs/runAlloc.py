@@ -553,12 +553,13 @@ class DynAlloc:
 
 				# Ends statsusInd == 0
     
-				self.pl_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
+				self.l_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
+				self.p_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 							
 
-				brd_counter = self.s_w8_rbd_allocation(plf, currRec, brd_counter)
+				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
-				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice)
+				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
 				
     
 
@@ -641,72 +642,91 @@ class DynAlloc:
 				self.redishelper.updateRunAudit()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def s_w8_rbd_allocation(self, plf, currRec, brd_counter):
-		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'S')
-		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W8')
-		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W6')
-		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W5')
-		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W4')
-  
-		if plf > self.constantsUtils.S_CLASS_PLF_THRESHOLD:
+	def w_rbd_allocation(self, plf, currRec, brd_counter):
+		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'W9')
+		currRec.set_class_attribute(brd_counter+3, 'class_of_service', 'W8')
+		currRec.set_class_attribute(brd_counter+4, 'class_of_service', 'W7')
+		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'W6')
+		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W5')
+		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W4')
+		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W3')
+		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W2')
+		currRec.set_class_attribute(brd_counter+10, 'class_of_service', 'W1')
+	
+		if self.w9_thresholdflag:
+			currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
+		
+		if self.w8_thresholdflag:
+			currRec.set_class_attribute(brd_counter+3, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+3, 'class_au', -1)
+	
+		if self.w7_thresholdflag:
+			currRec.set_class_attribute(brd_counter+4, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+4, 'class_au', -1)
+	
+		if self.w6_thresholdflag:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
-		
-		if self.w8_thresholdflag:
+
+		if self.w5_thresholdflag:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
-   
-		if self.w6_thresholdflag:
+
+		if self.w4_thresholdflag:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', 0)
-			currRec.set_class_attribute(brd_counter+8, 'class_au', 0)
-			currRec.set_class_attribute(brd_counter+9, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', -1)
+
+		if self.w3_thresholdflag:
+			currRec.set_class_attribute(brd_counter+8, 'class_au', 0)
+		else:
 			currRec.set_class_attribute(brd_counter+8, 'class_au', -1)
+
+		if self.w2_thresholdflag:
+			currRec.set_class_attribute(brd_counter+9, 'class_au', 0)
+		else:
 			currRec.set_class_attribute(brd_counter+9, 'class_au', -1)
 
-		return brd_counter+9
-			
+		if self.w1_thresholdflag:
+			currRec.set_class_attribute(brd_counter+10, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+10, 'class_au', -1)
 
-	def pl_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
-		currRec.set_class_attribute(brd_counter + 2, 'class_au', -1)
-		currRec.set_class_attribute(brd_counter + 2, 'class_of_service', 'G7')
-		if self.w8_thresholdflag:
-			self.set_default_class_attributes(currRec, brd_counter)
+		return brd_counter+10
+
+	def p_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
+		currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
+		if self.p_thresholdflag:
+			currRec.set_class_attribute(brd_counter + 1, 'class_au', 0)
 		elif int(self.currParams.distressInventoryFlag) == 1:
 			self.allocate_distress_inventory(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 		else:
-			currRec.set_class_attribute(brd_counter, 'class_au', -1)
-			currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
 			currRec.set_class_attribute(brd_counter + 1, 'class_au', -1)
-			currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
-			currRec.set_class_attribute(brd_counter + 3, 'class_au', -1)
-			currRec.set_class_attribute(brd_counter + 3, 'class_of_service', 'G8')
-			currRec.set_class_attribute(brd_counter + 4, 'class_au', -1)
-			currRec.set_class_attribute(brd_counter + 4, 'class_of_service', 'G9')
 
-	def set_default_class_attributes(self, currRec, brd_counter):
-		currRec.set_class_attribute(brd_counter, 'class_au', 0)
+	def l_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter, 'class_of_service', 'L')
-		currRec.set_class_attribute(brd_counter + 1, 'class_au', 0)
-		currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
-		currRec.set_class_attribute(brd_counter + 2, 'class_au', 0)
-		currRec.set_class_attribute(brd_counter + 2, 'class_of_service', 'G7')
-		currRec.set_class_attribute(brd_counter + 3, 'class_au', 0)
-		currRec.set_class_attribute(brd_counter + 3, 'class_of_service', 'G8')
-		currRec.set_class_attribute(brd_counter + 4, 'class_au', 0)
-		currRec.set_class_attribute(brd_counter + 4, 'class_of_service', 'G9')
+		if self.l_thresholdflag:
+			currRec.set_class_attribute(brd_counter, 'class_au', 0)
+		elif int(self.currParams.distressInventoryFlag) == 1:
+			self.allocate_distress_inventory(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
+		else:
+			currRec.set_class_attribute(brd_counter , 'class_au', -1)
+
 
 	def allocate_distress_inventory(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		default_au, au_cap = self.rmdatabasehelper.getDefaultAu(dateFormatted)
 		distress_au = self.rmdatabasehelper.getDistressAu(ndoBand, dplfBand)
-		l_class_seats_sold, p_class_seats_sold, G8_class_seats_sold, G9_class_seats_sold = self.get_seats_sold(dateFormatted)
-		l_class_rbd, p_class_rbd, G8_class_rbd, G9_class_rbd = self.get_current_rbds(dateFormatted)
+		l_class_seats_sold, p_class_seats_sold= self.get_seats_sold(dateFormatted)
+		l_class_rbd, p_class_rbd= self.get_current_rbds(dateFormatted)
 
 		self.allocate_class_inventory(currRec, brd_counter, default_au, au_cap, distress_au,
-									l_class_seats_sold, p_class_seats_sold,G8_class_seats_sold, G9_class_seats_sold, l_class_rbd, p_class_rbd,G8_class_rbd, G9_class_rbd)
+									l_class_seats_sold, p_class_seats_sold,l_class_rbd, p_class_rbd)
 
 	def get_seats_sold(self, dateFormatted):
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
@@ -729,15 +749,11 @@ class DynAlloc:
 															self.currParams.origin + self.currParams.destin)
 
 	def allocate_class_inventory(self, currRec, brd_counter, default_au, au_cap, distress_au,
-									l_class_seats_sold, p_class_seats_sold,G8_class_seats_sold, G9_class_seats_sold, l_class_rbd, p_class_rbd,G8_class_rbd, G9_class_rbd):
+									l_class_seats_sold, p_class_seats_sold, l_class_rbd, p_class_rbd):
 		self.allocate_individual_class(currRec, brd_counter, default_au, au_cap, distress_au,
 										l_class_seats_sold, l_class_rbd, 'L')
 		self.allocate_individual_class(currRec, brd_counter + 1, default_au, au_cap, distress_au,
 										p_class_seats_sold, p_class_rbd, 'P')
-		self.allocate_individual_class(currRec, brd_counter + 3, default_au, au_cap, distress_au,
-										G8_class_seats_sold, G8_class_rbd, 'G8')
-		self.allocate_individual_class(currRec, brd_counter + 4, default_au, au_cap, distress_au,
-										G9_class_seats_sold, G9_class_rbd, 'G9')
 
 	def allocate_individual_class(self, currRec, brd_counter, default_au, au_cap, distress_au,
 								class_seats_sold, class_rbd, class_of_service):
@@ -826,19 +842,76 @@ class DynAlloc:
 		return DaySpan, input_time_str
 
 	def checkTreshold(self, currFlt, ndocounter, plf):
-		w8_thresholdValue,w6_thresholdValue,B2B_threshold = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		w9_thresholdValue, w8_thresholdValue, w7_thresholdValue, w6_thresholdValue, w5_thresholdValue, w4_thresholdValue, w3_thresholdValue, w2_thresholdValue, w1_thresholdValue, p_thresholdValue, l_thresholdValue, B2B_threshold = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		
+		self.w9_thresholdflag = False
 		self.w8_thresholdflag = False
+		self.w7_thresholdflag = False
 		self.w6_thresholdflag = False
-		self.B2B_threshold  = False
+		self.w5_thresholdflag = False
+		self.w4_thresholdflag = False
+		self.w3_thresholdflag = False
+		self.w2_thresholdflag = False
+		self.w1_thresholdflag = False
+		self.p_thresholdflag = False
+		self.l_thresholdflag = False
+		self.B2B_threshold = False
+		
+		if len(w9_thresholdValue) != 0:
+			if w9_thresholdValue[0] is not None and w9_thresholdValue[0]!='':
+				if plf > w9_thresholdValue[0]:
+					self.w9_thresholdflag = True
+		
 		if len(w8_thresholdValue) != 0:
 			if w8_thresholdValue[0] is not None and w8_thresholdValue[0]!='':
 				if plf > w8_thresholdValue[0]:
 					self.w8_thresholdflag = True
-    
+					
+		if len(w7_thresholdValue) != 0:
+			if w7_thresholdValue[0] is not None and w7_thresholdValue[0]!='':
+				if plf > w7_thresholdValue[0]:
+					self.w7_thresholdflag = True
+					
 		if len(w6_thresholdValue) != 0:
 			if w6_thresholdValue[0] is not None and w6_thresholdValue[0]!='':
 				if plf > w6_thresholdValue[0]:
 					self.w6_thresholdflag = True
+					
+		if len(w5_thresholdValue) != 0:
+			if w5_thresholdValue[0] is not None and w5_thresholdValue[0]!='':
+				if plf > w5_thresholdValue[0]:
+					self.w5_thresholdflag = True
+					
+		if len(w4_thresholdValue) != 0:
+			if w4_thresholdValue[0] is not None and w4_thresholdValue[0]!='':
+				if plf > w4_thresholdValue[0]:
+					self.w4_thresholdflag = True
+					
+		if len(w3_thresholdValue) != 0:
+			if w3_thresholdValue[0] is not None and w3_thresholdValue[0]!='':
+				if plf > w3_thresholdValue[0]:
+					self.w3_thresholdflag = True
+					
+		if len(w2_thresholdValue) != 0:
+			if w2_thresholdValue[0] is not None and w2_thresholdValue[0]!='':
+				if plf > w2_thresholdValue[0]:
+					self.w2_thresholdflag = True
+					
+		if len(w1_thresholdValue) != 0:
+			if w1_thresholdValue[0] is not None and w1_thresholdValue[0]!='':
+				if plf > w1_thresholdValue[0]:
+					self.w1_thresholdflag = True
+					
+		if len(p_thresholdValue) != 0:
+			if p_thresholdValue[0] is not None and p_thresholdValue[0]!='':
+				if plf > p_thresholdValue[0]:
+					self.p_thresholdflag = True
+					
+		if len(l_thresholdValue) != 0:
+			if l_thresholdValue[0] is not None and l_thresholdValue[0]!='':
+				if plf > l_thresholdValue[0]:
+					self.l_thresholdflag = True
+					
 		if len(B2B_threshold) != 0:
 			if B2B_threshold[0] is not None and B2B_threshold[0]!='':
 				if plf > B2B_threshold[0]:
