@@ -2,7 +2,7 @@ aws ecr get-login-password --region ap-south-1 | docker login --username AWS --p
 
 cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
-cp -r ../rm-allocation-configurations/constant_utils.py ./constant_utils.py
+cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 
 docker image build --no-cache -t test-rm-allocation-process-inputs-image --build-arg ENVN=uat .
 
@@ -20,4 +20,4 @@ echo ""
 
 rm -f ./configsettings.py
 rm -f ./Constants.py
-rm -f ./constant_utils.py
+rm -f ./constants_utils.py

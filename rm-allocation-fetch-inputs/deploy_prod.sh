@@ -37,7 +37,7 @@ case $User_Input in
               aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Image_URL
               cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
               cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
-              cp -r ../rm-allocation-configurations/constant_utils.py ./constant_utils.py
+              cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
               docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
@@ -50,7 +50,7 @@ case $User_Input in
               echo ""
               rm -f ./configsettings.py
               rm -f ./Constants.py
-              rm -f ./constant_utils.py
+              rm -f ./constants_utils.py
               break;;
         no ) echo Exiting...;
               exit;;
