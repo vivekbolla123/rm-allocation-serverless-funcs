@@ -67,19 +67,24 @@ class ExpectedNoShows:
 
     def fetch_current_bookings_from_esb(self):
         """
-        Fetch bookings from ESB database from 7:30 AM today to 9:30 AM tomorrow
+        Fetch bookings from ESB database from 2:00 AM today to 4:00 AM tomorrow in IST
         """
-        self.logger.info("Fetching bookings from 7:30 AM today to 9:30 AM tomorrow from ESB")
+        self.logger.info("Fetching bookings from 2:00 AM today to 4:00 AM tomorrow from ESB")
         
-        # Get current date and timestamps for the query
-        current_date = datetime.now()
-        start_time = current_date.replace(hour=0, minute=10, second=0, microsecond=0)
+        # Define IST timezone
+        ist = pytz.timezone('Asia/Kolkata')
+        
+        # Get current date and timestamps for the query in IST
+        current_date = datetime.now(ist)
+        start_time = current_date.replace(hour=2, minute=0, second=0, microsecond=0)
         next_day = current_date + timedelta(days=1)
         end_time = next_day.replace(hour=4, minute=0, second=0, microsecond=0)
         
         # Format the timestamps for SQL query
         start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
         end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
+        
+        self.logger.info(f"Querying bookings from {start_time_str} to {end_time_str}")
         
         query = f"""
         WITH QP_DL_BOOKEDDATAPAX_CTE AS
@@ -340,7 +345,7 @@ class ExpectedNoShows:
                                 FROM 
                                     {self.nav_db_name}rez.Booking B 
                                     INNER JOIN {self.nav_db_name}rez.BookingPassenger BP ON BP.BookingID=B.BookingID 
-                                    INNER JOIN {self.nav_db_name}rez.PassengerJourneySegment PJS ON PJS.PassengerID=BP.PassengerID --AND PJS.BookingStatus='HK' 
+                                    INNER JOIN {self.nav_db_name}rez.PassengerJourneySegment PJS ON PJS.PassengerID=BP.PassengerID AND PJS.BookingStatus='HK' 
                                     INNER JOIN {self.nav_db_name}rez.PassengerJourneyLeg PJL ON PJL.PassengerID=PJS.PassengerID AND PJL.SegmentID=PJS.SegmentID 
                                     INNER JOIN {self.nav_db_name}rez.InventoryLeg IL ON IL.InventoryLegId=PJL.InventoryLegID and IL.CarrierCode='QP'
                                     INNER JOIN {self.nav_db_dw_name}dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation AND CP.ArrivalStation = IL.ArrivalStation 
@@ -370,7 +375,7 @@ class ExpectedNoShows:
                                 ( 
                                     Select Distinct B.BookingID from {self.nav_db_name}rez.Booking B 
                                         inner join {self.nav_db_name}rez.BookingPassenger BP on BP.BookingID=B.BookingID
-                                        inner join {self.nav_db_name}rez.PassengerJourneySegment PJS on PJS.PassengerId=BP.PassengerID --and PJS.BookingStatus='HK'
+                                        inner join {self.nav_db_name}rez.PassengerJourneySegment PJS on PJS.PassengerId=BP.PassengerID and PJS.BookingStatus='HK'
                                         inner join {self.nav_db_name}rez.PassengerJourneyLeg PJL on PJS.PassengerId=PJL.PassengerID and PJS.SegmentID=PJL.SegmentID
                                         inner join {self.nav_db_name}rez.InventoryLeg IL on IL.InventoryLegID=PJL.InventoryLegID and IL.CarrierCode='QP'
                                     /*Where statement goes here*/
@@ -457,13 +462,13 @@ class ExpectedNoShows:
                 -- Calculate average fare per booking and classify into fare ranges
                 CASE
                     WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) = 0 THEN '1. 0-1000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 0.001 AND 1000 THEN '1. 0-1000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 1000.001 AND 3000 THEN '2. 1000-3000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 3000.001 AND 4000 THEN '3. 3000-4000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 4000.001 AND 5000 THEN '4. 4000-5000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 5000.001 AND 8000 THEN '5. 5000-8000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 8000.001 AND 10000 THEN '6. 8000-10000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 10000.001 AND 15000 THEN '7. 10000-15000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 0.0001 AND 1000 THEN '1. 0-1000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 1000.0001 AND 3000 THEN '2. 1000-3000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 3000.0001 AND 4000 THEN '3. 3000-4000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 4000.0001 AND 5000 THEN '4. 4000-5000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 5000.0001 AND 8000 THEN '5. 5000-8000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 8000.0001 AND 10000 THEN '6. 8000-10000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 10000.0001 AND 15000 THEN '7. 10000-15000'
                     WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) > 15000 THEN '8. 15000+'
                     ELSE 'Unknown'
                 END AS FareRange,
@@ -480,6 +485,7 @@ class ExpectedNoShows:
                 IL.Lid > 0
                 AND IL.STD >= '{start_time_str}' AND IL.STD <= '{end_time_str}'
                 AND BP.BookingID IS NOT NULL
+                AND PX.FareBasis NOT LIKE '%%SOL'
                 AND CONCAT(PX.Origin, PX.Destination) IS NOT NULL
                 AND PX.DepartureDate IS NOT NULL
                 AND PX.FlightNumber IS NOT NULL
@@ -521,13 +527,13 @@ class ExpectedNoShows:
                 END,
                 CASE
                     WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) = 0 THEN '1. 0-1000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 0.001 AND 1000 THEN '1. 0-1000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 1000.001 AND 3000 THEN '2. 1000-3000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 3000.001 AND 4000 THEN '3. 3000-4000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 4000.001 AND 5000 THEN '4. 4000-5000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 5000.001 AND 8000 THEN '5. 5000-8000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 8000.001 AND 10000 THEN '6. 8000-10000'
-                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 10000.001 AND 15000 THEN '7. 10000-15000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 0.0001 AND 1000 THEN '1. 0-1000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 1000.0001 AND 3000 THEN '2. 1000-3000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 3000.0001 AND 4000 THEN '3. 3000-4000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 4000.0001 AND 5000 THEN '4. 4000-5000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 5000.0001 AND 8000 THEN '5. 5000-8000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 8000.0001 AND 10000 THEN '6. 8000-10000'
+                    WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) BETWEEN 10000.0001 AND 15000 THEN '7. 10000-15000'
                     WHEN (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) > 15000 THEN '8. 15000+'
                     ELSE 'Unknown'
                 END
@@ -622,7 +628,7 @@ class ExpectedNoShows:
                         delete_query = f"""
                         DELETE FROM QP_DW_RMALLOC.expected_no_shows 
                         WHERE DepartureDate = '{record['DepartureDate']}' 
-                        AND FlightNumber = '{record['FlightNumber']}' 
+                        AND FlightNumber = {record['FlightNumber']}
                         AND Sector = '{record['Sector']}'
                         """
                         connection.execute(delete_query)

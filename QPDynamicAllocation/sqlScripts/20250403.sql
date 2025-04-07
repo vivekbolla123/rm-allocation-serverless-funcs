@@ -1,0 +1,2 @@
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('OVERBOOKING_CAP', '4');
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('OVERBOOKING_MAX_COUNT', '2');

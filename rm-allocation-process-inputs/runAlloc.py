@@ -173,6 +173,7 @@ class DynAlloc:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
 					TBFExist = self.rmdatabasehelper.get_TBF_fares(origin, destination)
+					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
 						if not qpFares.empty:
@@ -183,7 +184,7 @@ class DynAlloc:
 								self.outputSummaryRow_b2c.Origin = origin
 								self.outputSummaryRow_b2c.Destin = destination
 								self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-								self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+								self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 								self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 								self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 								self.outputSummaryRow_b2c.HowDetermined = HD_NO_TBF_FARES
@@ -210,7 +211,7 @@ class DynAlloc:
 							self.outputSummaryRow_b2c.Origin = origin
 							self.outputSummaryRow_b2c.Destin = destination
 							self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-							self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+							self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 							self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 							self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 							self.outputSummaryRow_b2c.HowDetermined = HD_NO_QP_FARES
@@ -235,7 +236,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2c.Origin = origin
 						self.outputSummaryRow_b2c.Destin = destination
 						self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+						self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 						self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
@@ -349,7 +350,9 @@ class DynAlloc:
 			if totalCapacity < adjustedCapacity:
 				plf = (currBookedLoad / totalCapacity) * 100
 			self.logger.info("PLF is: "+ str(plf))
-			totalCapacity, b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad)
+			self.b2boverbookingflag = False
+			if int(self.currParams.over_booking) == 1:
+				totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
 			self.logger.info("Total capacity/Lid after ob(if applicable) is: "+ str(totalCapacity))
 			overBookingCount = float(totalCapacity-adjustedCapacity)
 			self.logger.info("variance is " + str(variance))
@@ -543,7 +546,7 @@ class DynAlloc:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation zero Overbooking'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 				# Now add all the Z RBDs
-				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(orgBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
+				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(orgBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, self.b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
 
 				if isUpsellFlag:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - Flight in upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
@@ -917,16 +920,20 @@ class DynAlloc:
 				if plf > B2B_threshold[0]:
 					self.B2B_threshold = True
 
-	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad):
-		b2boverbookingflag = False
+	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
 			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
 		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
 			nextFlight = self.navdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
 		if self.currParams.obSeats == '' and self.currParams.obFare == '' or self.currParams.obSeats == None and self.currParams.obFare == None:
 			self.logger.info("Entered system overbooking loop runalloc")
-			overBookingCount = self.rmdatabasehelper.checkNowShowProb(self.currParams.origin+self.currParams.destin, self.constantsUtils.OVERBOOKING_PROB, month,deptTime)
-			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight,overBookingCount):
+			overBookingCount = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
+			if(overBookingCount > OVERBOOKING_CAP):
+				overBookingCount = OVERBOOKING_CAP
+			if nextFlight == False and overBookingCount > OVERBOOKING_MAX_COUNT:
+				self.logger.info("Reducing overbooking to max 2 seats")
+				overBookingCount = OVERBOOKING_MAX_COUNT
+			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
 				totalCapacity = totalCapacity+overBookingCount
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
@@ -934,10 +941,10 @@ class DynAlloc:
 						self.navapihelper.update_leg(leg_key, lid=totalCapacity)
 					if not totalCapacity == nest_lid:
 						self.navapihelper.update_leg_nest(leg_key, nest_key, totalCapacity)
-				b2boverbookingflag = True
+				self.b2boverbookingflag = True
 		else:
 			self.logger.info("Entered manual overbooking loop runalloc")
-			if self.canOverbookManual( ndocounter, totalCapacity, adjustedCapacity, plf, self.currParams.obSeats):
+			if self.canOverbook( ndocounter, totalCapacity, adjustedCapacity, plf, float(self.currParams.obSeats)):
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
 					self.logger.info("Lid from nav is: "+ str(lid))
@@ -952,14 +959,11 @@ class DynAlloc:
 					bookload = self.rmdatabasehelper.getLid(self.currParams.origin, self.currParams.destin, start_date, end_date, self.currParams.flight_number)
 					lid = bookload["Lid"][0] + int(self.currParams.obSeats)
 					totalCapacity = lid
-				b2boverbookingflag =True
-		return totalCapacity, b2boverbookingflag
+				self.b2boverbookingflag =True
+		return totalCapacity, self.b2boverbookingflag
 
-	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight,overBookingCount):
-		return int(self.currParams.over_booking) == 1 and nextFlight and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
-	
-	def canOverbookManual(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
-		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and float(overBookingCount)>0
+	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
+		return plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
 
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")
