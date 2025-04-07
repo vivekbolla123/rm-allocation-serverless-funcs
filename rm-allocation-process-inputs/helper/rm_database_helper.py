@@ -392,7 +392,7 @@ class RMDatabaseHelper:
         try:
             rbddata = pd.read_sql(query, self.conn)
             is_valid = (
-                len(rbddata) == TBF_COUNT 
+                len(rbddata) >= TBF_COUNT 
                 and not (rbddata['TOTAL'] <= 0).any() 
                 and not rbddata['TOTAL'].isnull().any()
             )
