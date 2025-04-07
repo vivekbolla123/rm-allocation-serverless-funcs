@@ -1,4 +1,4 @@
-Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,FlightExclusionB2C,FlightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BTolerance,B2CTolerance,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,DaySpan,analystName,AutoTimeRangeFlag,openingFares,OverBooking,ProfileFares,rbdPushFlag,distressInventoryFlag,seriesBlock,AutoGroup,Autobackstopflag,TbfFlag,ob_seats,ob_fare
+Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,FlightExclusionB2C,FlightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BTolerance,B2CTolerance,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,DaySpan,analystName,AutoTimeRangeFlag,openingFares,OverBooking,ProfileFares,rbdPushFlag,distressInventoryFlag,seriesBlock,AutoGroup,Autobackstopflag,TbfFlag,obSeats,obFare
 BOM,DEL,1127,D,08/01/2023,08/01/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MIN,6.291005291,0,5,10,0,0,0,0,1,0,0,test,0,0,0,0,0,0,0,0,0,0,,
 BOM,DEL,1127,D,08/02/2023,08/02/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MAX,6.291005291,0,6,11,0,0,0,0,1,0,0,test,0,0,0,0,0,0,0,0,0,0,,
 DEL,BOM,1128,D,08/20/2023,08/20/2023,1111111,10:00,17:00,C18946,**,**,,,Strategy_1,MIN,26,2,5,10,0,0,0,0,0.5,0,0,test,0,0,0,0,0,0,0,0,0,0,,
@@ -465,10 +465,3 @@ BOM,DEL,5310,D,08/01/2023,08/01/2023,1111111,10:00,17:00,C18946,**,**,,,Strategy
 BOM,DEL,5310,D,08/17/2023,08/17/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MAXO,40.65517241,0,-99,0,0,0,0,0,1,0,0,test,0,0,0,0,0,0,0,0,0,0,,
 JAI,BOM,5310,D,08/17/2023,08/17/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MAXO,83.18390805,0,15,10,0,0,0,0,0.5,0,0,test,1,1,0,0,0,0,0,0,0,0,,
 JAI,BOM,5325,D,08/01/2023,08/01/2023,1111111,10:00,17:00,C18946,**,**,,,Strategy_5,,,,5,10,0,0,0,0,0.5,0,-1,test,0,1,1,0,0,0,0,0,0,0,4,12000
-BLR,DEL,5326,D,08/01/2023,08/01/2023,1111111,10:00,17:00,C18946,**,**,,,Strategy_5,,,,5,10,0,0,0,0,0.5,0,-1,test,0,1,1,0,0,0,0,0,0,0,4,5000
-JAI,BOM,5325,D,08/02/2023,08/02/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MINO,98.70114943,0,15,10,0,0,0,0,0.5,0,0,test,0,0,1,0,0,0,0,0,0,0,4,15000
-JAI,BOM,5326,D,08/02/2023,08/02/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MINO,98.70114943,0,15,10,0,0,0,0,0.5,0,0,test,0,0,1,0,0,0,0,0,0,0,4,7000
-JAI,BOM,5325,D,08/03/2023,08/03/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MIN,97.55172414,0,15,10,0,0,0,0,0.5,0,0,test,0,0,1,0,0,0,0,0,0,0,4,150
-BLR,DEL,5325,D,08/03/2023,08/03/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_1,MIN,97.55172414,0,15,10,0,0,0,0,0.5,0,0,test,0,0,1,0,0,0,0,0,0,0,4,70000
-BLR,DEL,5325,D,08/01/2023,08/01/2023,1111111,0:00,23:59,C18946,**,**,,,Strategy_5,,,,5,10,,,,,1,0,0,test,0,0,1,0,0,0,0,0,0,0,4,15000
-JAI,BOM,5326,D,08/01/2023,08/01/2023,1111111,10:00,17:00,C18946,**,**,,,Strategy_2,,,,9,10,0,0,0,0,0.5,0,0,test,0,1,1,0,0,0,0,0,0,0,4,15000

@@ -421,25 +421,12 @@ class DetermineRBD:
             howDetermined = 'AllocationN'
             anchorFare =  0
         
-        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None and pd.isna(obfare)==True and obfare == CONST_NA and obfare == '' and pd.isnull(obfare)==True):
-            self.logger.info("Entered System OB since plf between 96 - 100")
-            lastSoldFare=float(lastSoldFare)
-            howDetermined = "Overbooking Calculated Fare"
-            upsell = CONST_NA
-            calculatedFare = strategyFare
-            if lastSoldFare != CONST_NA and lastSoldFare != 0:
-                fare1 = lastSoldFare + self.constantsutils.OVERBOOKING_FARE_PERCENT_VALUE*lastSoldFare
-                fare2 = lastSoldFare+self.constantsutils.OVERBOOKING_FARE_ABSOLUTE_VALUE
-                calculatedFare = max(fare1,fare2)
-                self.logger.info("Calculated fare is: " + str(calculatedFare))
-            if calculatedFare < strategyFare:
-                anchorFare = (calculatedFare+strategyFare)/2
-            else:
-                anchorFare = calculatedFare 
-        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and obfare is not None and pd.isna(obfare)==False and obfare != CONST_NA and obfare != '' and pd.isnull(obfare)==False and 1 >= ndocounter >= 0:
-            self.logger.info("Entered Manual OB since plf > 100")
-            anchorFare=float(obfare)
-            howDetermined="Overbook_fare_(V1)"
+        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and (obfare is None or pd.isna(obfare)==True or obfare == CONST_NA or obfare == '' or pd.isnull(obfare)==True):
+            self.logger.info("Entered System OB since ob fare is NA")
+            howDetermined = "System Overbooked Fare"
+        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and (obfare is not None or pd.isna(obfare)==False or obfare != CONST_NA or obfare != '' or pd.isnull(obfare)==False) and 1 >= ndocounter >= 0:
+            self.logger.info("Entered Manual OB since ob fare is present")
+            howDetermined="Manual Overbook_fare_(V1)"
             upsell=CONST_NA
         if last7avg:
             howDetermined+="_last7bkgsAvg"
