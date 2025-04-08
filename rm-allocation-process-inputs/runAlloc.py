@@ -108,7 +108,7 @@ class DynAlloc:
 		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
 			bookedLoad = self.rmdatabasehelper.getCurrentBookedLoads(origin, destination, startDate, endDate)
 		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			bookedLoad = self.navdatabasehelper.getCurrentBookedLoads(origin, destination, startDate, endDate)
+			bookedLoad = self.currParams.bookedPax
 
 		try:
 			# For each NDO
@@ -117,7 +117,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
-				if bookedLoad.shape[0] == 0:
+				if bookedLoad == '':
 					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -139,15 +139,15 @@ class DynAlloc:
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
 					break
-				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
-				if FlightNumber == '*':
-					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
-				else:
-					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber) & (bookedLoad['Origin'] == origin) & (bookedLoad['Destination'] == destination)]
+				# bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
+				# if FlightNumber == '*':
+				# 	bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
+				# else:
+				# 	bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber) & (bookedLoad['Origin'] == origin) & (bookedLoad['Destination'] == destination)]
 				# Fetch the current booked load from Navitaire
 				# If for whatever reason - unable to get the booked Load - Abort
 				tgtBookedLoad = None
-				if bookedLoadSingleRow.shape[0] == 0:
+				if bookedLoad == '':
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -184,7 +184,7 @@ class DynAlloc:
 								self.outputSummaryRow_b2c.Destin = destination
 								self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 								self.outputSummaryRow_b2c.DepDate = str(tgtDate)
-								self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+								self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 								self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 								self.outputSummaryRow_b2c.HowDetermined = HD_NO_TBF_FARES
 								self.outputSummaryRow_b2c.analystName = analystName
@@ -202,7 +202,7 @@ class DynAlloc:
 								self.redishelper.updateRunAudit()
 							else:
 								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
-								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoadPercent)
+								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoadPercent)
 						else:
 							self.logger.info("Unable to get QP Fares - Check the fares table")
 							self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -211,7 +211,7 @@ class DynAlloc:
 							self.outputSummaryRow_b2c.Destin = destination
 							self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 							self.outputSummaryRow_b2c.DepDate = str(tgtDate)
-							self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+							self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 							self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 							self.outputSummaryRow_b2c.HowDetermined = HD_NO_QP_FARES
 							self.outputSummaryRow_b2c.analystName = analystName
@@ -236,7 +236,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2c.Destin = destination
 						self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
 						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
-						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+						self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 						self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
 						self.outputSummaryRow_b2c.analystName = analystName
@@ -268,21 +268,21 @@ class DynAlloc:
 
 		self.logger.info("Determining pricing for NDO " + str(ndocounter) + " on  " + str(tgtDate))
 		self.logger.info("Target Pax Load Percent is :" + str(tgtBookedLoadPercent))
-		ndoBookedLoad = bookedLoad[bookedLoad['DepartureDate'].astype(str).str.contains(str(tgtDate))].reset_index(drop=True)
+		ndoBookedLoad = bookedLoad
 
-		numFlts = ndoBookedLoad.shape[0]
+		numFlts = 1
 		if self.debugMode:
 			self.logger.info("Found " + str(numFlts) + " Flights")
 			self.logger.info(ndoBookedLoad)
 
 		for fltCounter in range(numFlts):
-			currFlt = ndoBookedLoad['FlightNumber'][fltCounter]
-			currBookedLoad = ndoBookedLoad["bookedPax"][fltCounter]
-			currLid = ndoBookedLoad['capacity'][fltCounter]
-			currAdjustedCapacity = ndoBookedLoad['adjustedCapacity'][fltCounter]
-			currtbfBookedLoad = ndoBookedLoad['tbf_bookings'][fltCounter]
-			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter], DATE_FORMAT)
-			currFltDepartureTime = ndoBookedLoad["DepartureTime"][fltCounter]
+			currFlt = self.currParams.flight_number
+			currBookedLoad = ndoBookedLoad
+			currLid = self.currParams.capacity
+			currAdjustedCapacity = self.currParams.adjustedCapacity
+			currtbfBookedLoad = self.currParams.tbf_bookings
+			currFltDate = self.currParams.per_start
+			currFltDepartureTime = self.currParams.DepartureTime
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
@@ -722,8 +722,8 @@ class DynAlloc:
 	def allocate_distress_inventory(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		default_au, au_cap = self.rmdatabasehelper.getDefaultAu(dateFormatted)
 		distress_au = self.rmdatabasehelper.getDistressAu(ndoBand, dplfBand)
-		l_class_seats_sold, p_class_seats_sold= self.get_seats_sold(dateFormatted)
-		l_class_rbd, p_class_rbd= self.get_current_rbds(dateFormatted)
+		l_class_seats_sold, p_class_seats_sold= self.currParams.seats_sold_L, self.currParams.seats_sold_P
+		l_class_rbd, p_class_rbd= self.currParams.current_rbd_L, self.currParams.current_rbd_P
 
 		self.allocate_class_inventory(currRec, brd_counter, default_au, au_cap, distress_au,
 									l_class_seats_sold, p_class_seats_sold,l_class_rbd, p_class_rbd)
@@ -771,16 +771,16 @@ class DynAlloc:
 		bookings = []
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 			bookings = self.rmdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
+		# if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
+		# 	bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
 
 		lastBookloadTillMidnight = 0
 		bookingToday = 0
 		bookingLastHour = 0
-		if bookings.shape[0] != 0:
-			lastBookloadTillMidnight = bookings["BookingsCount"][0]
-			bookingToday = bookings["BookingToday"][0]
-			bookingLastHour = bookings["BookingsInHour"][0]
+		# if bookings.shape[0] != 0:
+		lastBookloadTillMidnight = self.currParams.BookingsCount
+		bookingToday = self.currParams.BookingToday
+		bookingLastHour = self.currParams.BookingsInHour
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -922,7 +922,7 @@ class DynAlloc:
 		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
 			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
 		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			nextFlight = self.navdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
+			nextFlight = self.currParams.NextFlight
 		if self.currParams.obSeats == '' and self.currParams.obFare == '' or self.currParams.obSeats == None and self.currParams.obFare == None:
 			self.logger.info("Entered system overbooking loop runalloc")
 			overBookingCount = self.rmdatabasehelper.checkNowShowProb(self.currParams.origin+self.currParams.destin, self.constantsUtils.OVERBOOKING_PROB, month,deptTime)
@@ -956,7 +956,7 @@ class DynAlloc:
 		return totalCapacity, b2boverbookingflag
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, nextFlight,overBookingCount):
-		return int(self.currParams.over_booking) == 1 and nextFlight and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
+		return int(self.currParams.over_booking) == 1 and int(nextFlight)==1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
 	
 	def canOverbookManual(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
 		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and float(overBookingCount)>0
@@ -1146,7 +1146,7 @@ class DynAlloc:
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
 			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
 		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			booked_seats = self.navdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
+			booked_seats = self.currParams.total_series_seats
 		if not booked_seats.empty:
 			booked_seats['DepartureDate'] = booked_seats['DepartureDate'].astype(str)
 			merged_df=pd.merge(blocked_seats, booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
