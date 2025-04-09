@@ -1085,6 +1085,9 @@ class DynAlloc:
 		self.conn = self.currParams.dbconn
 		self.wrconn = self.currParams.wrconn
 		self.w0Flag = self.currParams.w0Flag
+		if np.isnan(self.currParams.w0Flag):
+			self.w0Flag = 0
+		
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()
 		self.NavitaireConnection = self.currParams.navitaire_connection
