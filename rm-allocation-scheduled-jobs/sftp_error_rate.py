@@ -3,8 +3,6 @@ import traceback
 import pandas as pd
 import requests
 import configsettings
-import pandas as pd
-import traceback
 
 from allocation_summary import AllocationSummaryReport
 
@@ -15,8 +13,8 @@ class SFTPErrorRate:
         self.rm_rd_conn = params['rdconn']
         self.rm_wr_conn = params['wrconn']
         self.navconn = params['navconn']
-        self.context=context
-        self.isconnections=False
+        self.context = context
+        self.isconnections = False
 
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 
@@ -67,40 +65,62 @@ class SFTPErrorRate:
             self.logger.warning("No Records Updated in allocation_run_audit!")
     
     def compute_error(self, rm_rbd, nav_rbd, rm_dept_date, nav_dept_date):
-        """Calculte Error rate and Total RBD's"""
+        """Calculate Error rate and Total RBD's"""
 
         error = 0
         total = 0
         if rm_dept_date == nav_dept_date:
-            # for key, value in nav_rbd.items():
             if nav_rbd['ClassOfService'] in rm_rbd:
                 ClassOfService = nav_rbd['ClassOfService']
                 if rm_rbd[ClassOfService] >= 0:
                     # Calculating total RBD's from RM DB
-                    total+= 1
+                    total += 1
                     if nav_rbd['ClassAU'] != rm_rbd[ClassOfService]:
                         # Calculating error_rate if AU's of Navitare ODS doesn't match with RM DB
-                        error+=1
+                        error += 1
         
         return {"error_rate": error, "total_classes": total}
     
-    def get_navitaire_rbd(self, flight_num, min_date, max_date, origin, destination):
-        """Fetch RBD's from Navitaire ODS"""
-        query = f'''
-            SELECT ClassOfService, ClassAU, CONVERT(VARCHAR(10), DepartureDate, 120) as DepartureDate
+    
+    def get_all_navitaire_rbd(self, flight_data):
+        """Fetch all RBD's from Navitaire ODS at once for all flights in date range"""
+        # Find global min and max dates across all flights
+        min_global_date = min([flight_info['min_date'] for flight_info in flight_data.values()])
+        max_global_date = max([flight_info['max_date'] for flight_info in flight_data.values()])
+        
+        # Query for regular flights - fetch ALL flights in the date range
+        regular_query = f'''
+            SELECT 
+                ClassOfService, 
+                ClassAU, 
+                CONVERT(VARCHAR(10), IL.DepartureDate, 120) as DepartureDate,
+                IL.FlightNumber,
+                IL.DepartureStation as Origin,
+                IL.ArrivalStation as Destination
             FROM {configsettings.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
             JOIN {configsettings.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
-            where IL.DepartureDate >= '{min_date}' and IL.DepartureDate <= '{max_date}'
-            and IL.FlightNumber = '{flight_num}' and IL.DepartureStation='{origin}' and IL.ArrivalStation='{destination}'
-            order by DepartureDate
+            WHERE IL.DepartureDate >= '{min_global_date}' 
+            AND IL.DepartureDate <= '{max_global_date}'
+            ORDER BY IL.DepartureDate
         '''
-        if "/" in flight_num:
-            self.isconnections=True
-            flightnums=flight_num.split("/")
-            query=f'''SELECT  ClassOfService,ClassAU ,CONVERT(VARCHAR(10), DepartureDate, 120) as DepartureDate FROM {configsettings.NAV_DB_NAME}[Rez].[InventoryJourneyClassStatus] where DepartureDate>='{min_date}' and DepartureDate <= '{max_date}' and InventoryJourneyKey LIKE '%{flightnums[0]}%%{flightnums[1]}%'  order by DepartureDate'''
-        response=pd.read_sql(query,self.navconn)
-        return response
-    
+        regular_flights_df = pd.read_sql(regular_query, self.navconn)
+        
+        # Query for connection flights - fetch ALL connections in the date range
+        connection_query = f'''
+            SELECT 
+                ClassOfService,
+                ClassAU,
+                CONVERT(VARCHAR(10), DepartureDate, 120) as DepartureDate,
+                InventoryJourneyKey as FlightInfo
+            FROM {configsettings.NAV_DB_NAME}[Rez].[InventoryJourneyClassStatus] 
+            WHERE DepartureDate >= '{min_global_date}' 
+            AND DepartureDate <= '{max_global_date}'
+            ORDER BY DepartureDate
+        '''
+        connection_flights_df = pd.read_sql(connection_query, self.navconn)
+        
+        return regular_flights_df, connection_flights_df
+
     def get_flight_date_range(self, flight_audit_result):
         """Get min date and max date for flight number"""
         flights = {}
@@ -109,7 +129,7 @@ class SFTPErrorRate:
             try:
                 result = json.loads(res[2])
                 sector = result['sector1']
-                origin, destination = sector[:2] , sector[2:]
+                origin, destination = sector[:2], sector[2:]
                 flight_num = res[0]
                 flight_key = origin + destination + flight_num
                 flight_date = res[1]
@@ -118,10 +138,10 @@ class SFTPErrorRate:
                 continue
             
             if not flight_key in flights:
-                # Initalize key as flightNumber & value as min_date & min_date as dict key value pair.
+                # Initialize key as flightNumber & value as min_date & min_date as dict key value pair.
                 flights[flight_key] = {"min_date": flight_date, 'max_date': flight_date, 'dates': {}}
             else:
-                # Initalize Min & Max Flight Date for each Flight Number
+                # Initialize Min & Max Flight Date for each Flight Number
                 if flight_date < flights[flight_key]['min_date']:
                     flights[flight_key]['min_date'] = flight_date
                 
@@ -157,6 +177,53 @@ class SFTPErrorRate:
         delete_query = """TRUNCATE error_audit_process"""
         self.rm_wr_conn.execute(delete_query)
     
+    def process_flight_data(self, run_id, flights, regular_flights_df, connection_flights_df):
+        """Process flight data and compute error rates"""
+        for flight_key in flights.keys():
+            flight_num = flight_key[6:]
+            origin = flight_key[:3]
+            destination = flight_key[3:6]
+            
+            if self.check_run_in_error_audit_process(run_id, flight_num):
+                continue
+                
+            flight_details = flights[flight_key]
+            
+            # Process the data for this flight
+            error_rate, total_class = 0, 0
+            
+            if "/" in flight_num:  # Connection flight
+                # Filter connection flights data
+                flightnums = flight_num.split("/")
+                # flight_filter = f"%{flightnums[0]}%%{flightnums[1]}%"
+                # filtered_data = connection_flights_df[connection_flights_df['FlightInfo'].str.contains(flight_filter, regex=False)]
+                flight_filter = lambda x: all(fn in x for fn in flightnums)
+                filtered_data = connection_flights_df[connection_flights_df['FlightInfo'].apply(flight_filter)]
+            else:  # Regular flight
+                # Filter regular flights data
+                filtered_data = regular_flights_df[
+                    (regular_flights_df['FlightNumber'] == flight_num) & 
+                    (regular_flights_df['Origin'] == origin) & 
+                    (regular_flights_df['Destination'] == destination)
+                ]
+            
+            # Process the filtered data
+            for _, nav_rbd in filtered_data.iterrows():
+                nav_dept_date = nav_rbd['DepartureDate']
+                if nav_dept_date not in flight_details["dates"]:
+                    continue
+                
+                if not flight_details["dates"][nav_dept_date]:
+                    continue
+                    
+                flight_result = flight_details["dates"][nav_dept_date]
+                rm_dept_date = flight_result['departureDate']
+                rbd = flight_result['auClasses']
+                compute_data = self.compute_error(rbd, nav_rbd, rm_dept_date, nav_dept_date)
+                error_rate += compute_data['error_rate']
+                total_class += compute_data['total_classes']
+            
+            self.insert_into_error_audit_process(run_id, flight_key, error_rate, total_class)
     
     def run(self):
         """Compares the AU from Navitaire ODS & RM DB and computes the error_rate and total RBD's from RM DB.
@@ -200,47 +267,12 @@ class SFTPErrorRate:
                         continue
 
                     flights = self.get_flight_date_range(flight_audit_result)
-                    for flight_key in flights.keys():
-                        
-                        # Gets time left for the lambda function to die, if it is less than the configured time than terminate. 
-                        # m_sec = self.context.get_remaining_time_in_millis()
                     
-                        # if m_sec < configsettings.EXP_TIME:
-                        #     self.logger.warning("Lambda function about to timeout! Terminating..")
-                        #     return False
-
-                        flight_num = flight_key[6:]
-                        origin = flight_key[:3]
-                        destination = flight_key[3:6]
-                        
-                        if self.check_run_in_error_audit_process(run_id, flight_num):
-                            continue
-                        
-                        flight_details = flights[flight_key]
-                        min_date, max_date = flight_details['min_date'] , flight_details['max_date']
-                        nav_rbds = self.get_navitaire_rbd(flight_num, min_date, max_date, origin, destination)
-                        # No nav_rbds found !
-                        if nav_rbds.empty:
-                            continue
-
-                        error_rate , total_class = 0, 0
-                        for i,nav_rbd in nav_rbds.iterrows():
-                            
-                            nav_dept_date = nav_rbd['DepartureDate']
-                            if nav_dept_date not in flight_details["dates"]:
-                                continue
-                            
-                            if not flight_details["dates"][nav_dept_date]:
-                                continue
-                            flight_result = flight_details["dates"][nav_dept_date]
-
-                            rm_dept_date = flight_result['departureDate']
-                            rbd = flight_result['auClasses']
-                            compute_data = self.compute_error( rbd, nav_rbd, rm_dept_date, nav_dept_date)
-                            error_rate += compute_data['error_rate']
-                            total_class += compute_data['total_classes']
-                        
-                        self.insert_into_error_audit_process(run_id, flight_key, error_rate, total_class)
+                    # Get all flight data at once
+                    regular_flights_df, connection_flights_df = self.get_all_navitaire_rbd(flights)
+                    
+                    # Process flight data
+                    self.process_flight_data(run_id, flights, regular_flights_df, connection_flights_df)
                     
                     run_failure, run_total = self.aggregate_compute_data(run_id)
 
@@ -248,11 +280,10 @@ class SFTPErrorRate:
                     
                     if index < total_sftp_push:
                         sftp_push_run_id = sftp_pushed_run_ids[index]
-                        index +=1
+                        index += 1
                         self.add_allocation_summary_report(run_failure, run_total, sftp_push_run_id)
 
                     self.logger.info(f"Run id: {run_id} :: END")
         except Exception as err:
             self.logger.error(f"ERROR: {err}")
             traceback.print_exc()
-    
