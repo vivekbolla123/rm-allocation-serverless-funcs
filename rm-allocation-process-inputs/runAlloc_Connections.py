@@ -336,8 +336,8 @@ class DynAllocConnections:
                 self.currParams.Capacity1,self.currParams.Capacity2)
             bookload = max(
                 bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
-            print("Combined Booked Load for " + bookedLoadSingleRowSector1['FlightNumber'].values[0]+" "+str(
-                bookedLoadSingleRowSector2['FlightNumber'].values[0]) + " on " + str(current_date1) + " is :" + str(bookload))
+            print("Combined Booked Load for " + flight1+" "+str(
+                flight2) + " on " + str(current_date1) + " is :" + str(bookload))
             if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
                 b2b_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
                     current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1)

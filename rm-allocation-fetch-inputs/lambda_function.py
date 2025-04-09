@@ -439,6 +439,8 @@ def lambda_handler(event, context):
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'capacity': 'Capacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+        mkt_list = mkt_list.drop(
+            columns=['DepartureDate'], errors='ignore')
         markets_count = mkt_list.shape[0]
     
 
@@ -846,17 +848,17 @@ def clean_markets_optimized(market_list_df, w0_df):
         return market_list_df, 0
 
 
-if __name__ == "__main__":
-    # For local testing; adjust event as needed
-    event = {
-        "body": json.dumps({
-            "start_interval": 0,
-            "end_interval": 2,
-            "market_list_table_name": "market_list",
-            "route_type": "direct",
-            "run_type": "Scheduled",
-        })
-    }
-    context = {}
-    result = lambda_handler(event, context)
-    print(result)
+# if __name__ == "__main__":
+#     # For local testing; adjust event as needed
+#     event = {
+#         "body": json.dumps({
+#             "start_interval": 0,
+#             "end_interval": 2,
+#             "market_list_table_name": "market_list",
+#             "route_type": "direct",
+#             "run_type": "Scheduled",
+#         })
+#     }
+#     context = {}
+#     result = lambda_handler(event, context)
+#     print(result)
