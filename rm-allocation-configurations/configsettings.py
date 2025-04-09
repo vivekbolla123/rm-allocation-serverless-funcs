@@ -32,15 +32,15 @@ env = getenv('env', default='uat')
 
 # List all parameter names you need to fetch
 param_names = [
-    f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD'
-    f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD'
-    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD'
-    f'/rm/{env}/rm-allocation/NAV_API_PASSWORD'
-    f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY'
-    f'/rm/{env}/rm-allocation/RM_GW_APIKEY'
-    f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD'
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY'
-    f'/glue_job/{env}/DW_DB_APPUSER_USERNAME'
+    f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD',
+    f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
+    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD',
+    f'/rm/{env}/rm-allocation/NAV_API_PASSWORD',
+    f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY',
+    f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
+    f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD',
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
+    f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD'
 ]
 
