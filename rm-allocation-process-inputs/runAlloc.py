@@ -1149,7 +1149,7 @@ class DynAlloc:
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
 		booked_seats = self.currParams.total_series_seats
 		total_count = 0
-		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None):
+		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not np.isnan(booked_seats)):
 			total_count = blocked_seats['blocked'][0]-booked_seats
 		elif (blocked_seats['blocked'][0] is not None):
 			total_count = blocked_seats['blocked'][0]
