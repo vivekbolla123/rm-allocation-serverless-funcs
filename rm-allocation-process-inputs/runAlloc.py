@@ -173,6 +173,7 @@ class DynAlloc:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
 					TBFExist = self.rmdatabasehelper.get_TBF_fares(origin, destination)
+					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
 						if not qpFares.empty:
@@ -183,7 +184,7 @@ class DynAlloc:
 								self.outputSummaryRow_b2c.Origin = origin
 								self.outputSummaryRow_b2c.Destin = destination
 								self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-								self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+								self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 								self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 								self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 								self.outputSummaryRow_b2c.HowDetermined = HD_NO_TBF_FARES
@@ -210,7 +211,7 @@ class DynAlloc:
 							self.outputSummaryRow_b2c.Origin = origin
 							self.outputSummaryRow_b2c.Destin = destination
 							self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-							self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+							self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 							self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 							self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 							self.outputSummaryRow_b2c.HowDetermined = HD_NO_QP_FARES
@@ -235,7 +236,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2c.Origin = origin
 						self.outputSummaryRow_b2c.Destin = destination
 						self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+						self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
 						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
 						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 						self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
