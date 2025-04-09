@@ -25,8 +25,10 @@ class MarketListConnectiosnsRow:
         self.discountflag = currParams.get("DiscountFlag",CONST_NA)
         self.analyst_name = currParams.get("analystName", CONST_NA)
         self.time_logger = currParams.get("timelogger", CONST_NA) 
-        self.time_logger = currParams.get("BookedPax1", CONST_NA) 
-        self.time_logger = currParams.get("BookedPax2", CONST_NA) 
+        self.BookedPax1 = currParams.get("BookedPax1", CONST_NA) 
+        self.BookedPax2 = currParams.get("BookedPax2", CONST_NA)
+        self.Capacity1 = currParams.get("Capacity1", CONST_NA) 
+        self.Capacity2 = currParams.get("Capacity2", CONST_NA)  
         
         self.run_id = currParams.get("runId",CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method",CONST_NA)

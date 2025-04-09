@@ -417,6 +417,13 @@ def lambda_handler(event, context):
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'bookedPax': 'BookedPax1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+        mkt_list = mkt_list.merge(
+            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+        ).rename(columns={'capacity': 'Capacity1'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
         # Map BookedPax for Sector2
         mkt_list = mkt_list.merge(
@@ -425,6 +432,13 @@ def lambda_handler(event, context):
             left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+        mkt_list = mkt_list.merge(
+            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+            how='left',
+            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+        ).rename(columns={'capacity': 'Capacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
         markets_count = mkt_list.shape[0]
     

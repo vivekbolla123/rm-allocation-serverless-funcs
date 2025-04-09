@@ -104,11 +104,7 @@ class DynAlloc:
 		self.logger.info("Allocation for " + origin + destination + " from " + str(startDate) + " to " + str(endDate))
 
 		self.wait_for_inputs()
-		bookedLoad = []
-		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-			bookedLoad = self.rmdatabasehelper.getCurrentBookedLoads(origin, destination, startDate, endDate)
-		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			bookedLoad = self.currParams.bookedPax
+		bookedLoad = self.currParams.bookedPax
 
 		try:
 			# For each NDO
@@ -117,7 +113,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
-				if bookedLoad == '':
+				if np.isnan(bookedLoad):
 					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -146,8 +142,9 @@ class DynAlloc:
 				# 	bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber) & (bookedLoad['Origin'] == origin) & (bookedLoad['Destination'] == destination)]
 				# Fetch the current booked load from Navitaire
 				# If for whatever reason - unable to get the booked Load - Abort
+    
 				tgtBookedLoad = None
-				if bookedLoad == '':
+				if np.isnan(bookedLoad):
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -768,19 +765,15 @@ class DynAlloc:
 
 
 	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity,currFltDepartureTime):
-		bookings = []
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			bookings = self.rmdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
-		# if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-		# 	bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
+
 
 		lastBookloadTillMidnight = 0
 		bookingToday = 0
 		bookingLastHour = 0
 		# if bookings.shape[0] != 0:
-		lastBookloadTillMidnight = self.currParams.BookingsCount
-		bookingToday = self.currParams.BookingToday
-		bookingLastHour = self.currParams.BookingsInHour
+		lastBookloadTillMidnight = int(self.currParams.BookingsCount)
+		bookingToday = int(self.currParams.BookingToday)
+		bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -919,10 +912,7 @@ class DynAlloc:
 
 	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad):
 		b2boverbookingflag = False
-		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
-		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			nextFlight = self.currParams.NextFlight
+		nextFlight = self.currParams.NextFlight
 		if self.currParams.obSeats == '' and self.currParams.obFare == '' or self.currParams.obSeats == None and self.currParams.obFare == None:
 			self.logger.info("Entered system overbooking loop runalloc")
 			overBookingCount = self.rmdatabasehelper.checkNowShowProb(self.currParams.origin+self.currParams.destin, self.constantsUtils.OVERBOOKING_PROB, month,deptTime)
@@ -1143,23 +1133,12 @@ class DynAlloc:
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			booked_seats = self.currParams.total_series_seats
-		if not booked_seats.empty:
-			booked_seats['DepartureDate'] = booked_seats['DepartureDate'].astype(str)
-			merged_df=pd.merge(blocked_seats, booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
-			merged_df['bookedPax'].fillna(0, inplace=True)
-			first_row_values = booked_seats.iloc[0]
-			for column in ['Origin', 'Destination', 'FlightNumber']:
-				merged_df[column].fillna(first_row_values[column], inplace=True)
-			merged_df['SeatsBlocked'] = merged_df['SeatsBlocked'].astype(int)
-			merged_df['count'] = np.maximum(merged_df['SeatsBlocked'] - merged_df['bookedPax'], 0)
-			total_count = merged_df['count'].sum()
-		else:
-			blocked_seats['SeatsBlocked'] = blocked_seats['SeatsBlocked'].astype(int)
-			total_count = blocked_seats['SeatsBlocked'].sum()
+		booked_seats = self.currParams.total_series_seats
+		total_count = 0
+		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None):
+			total_count = blocked_seats['blocked'][0]-booked_seats
+		elif (blocked_seats['blocked'][0] is not None):
+			total_count = blocked_seats['blocked'][0]
 		return currBookedLoad+total_count
 
 	def recommend_action(self, row):

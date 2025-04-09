@@ -1,6 +1,8 @@
 import copy
 import json
 import traceback
+
+import numpy as np
 import Constants
 import os
 import warnings
@@ -145,16 +147,9 @@ class DynAllocConnections:
             return
         startDate2=datetime.strptime(startDate2Str,DATE_FORMAT_2).date()
         endDate2=datetime.strptime(endDate2Str,DATE_FORMAT_2).date()
-        if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-            bookedLoad_sector1 = self.rmdatabasehelper.getCurrentBookedLoads(
-                sector1[:3], sector1[-3:], startDate, endDate)
-            bookedLoad_sector2 = self.rmdatabasehelper.getCurrentBookedLoads(
-                sector2[:3], sector2[-3:], startDate2, endDate2)
-        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-            bookedLoad_sector1 = self.navdatabasehelper.getCurrentBookedLoads(
-                sector1[:3], sector1[-3:], startDate, endDate)
-            bookedLoad_sector2 = self.navdatabasehelper.getCurrentBookedLoads(
-                sector2[:3], sector2[-3:], startDate2, endDate2)
+        bookedLoad_sector1 = self.currParams.BookedPax1
+        bookedLoad_sector2 = self.currParams.BookedPax2
+        
 
         try:
             for ndocounter in range(startNDO, endNDO+1):
@@ -163,16 +158,7 @@ class DynAllocConnections:
                 tgtDate = datetime.strftime(
                     currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
 
-                bookedLoad_sector1['DepartureDate'] = pd.to_datetime(
-                    bookedLoad_sector1['DepartureDate']).dt.strftime('%Y-%m-%d')
-
-                bookedLoad_sector2['DepartureDate'] = pd.to_datetime(
-                    bookedLoad_sector2['DepartureDate']).dt.strftime('%Y-%m-%d')
-
-                c1 = bookedLoad_sector1['DepartureDate'].eq(str(tgtDate))
-                c2 = bookedLoad_sector1['FlightNumber'].eq(str(flightNo1))
-
-                bookedLoadSingleRowSector1 = bookedLoad_sector1[c1 & c2]
+                bookedLoadSingleRowSector1 = bookedLoad_sector1
                 if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
                     tgdDate2 = self.navapihelper.get_second_flight_dep(
                         self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
@@ -180,8 +166,6 @@ class DynAllocConnections:
                     tgdDate2 = self.rmdatabasehelper.get_second_flight_dep(
                         self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
 
-                c1 = bookedLoad_sector2['DepartureDate'].eq(str(tgdDate2))
-                c2 = bookedLoad_sector2['FlightNumber'].eq(str(flightNo2))
 
                 cdf = self.rmdatabasehelper.get_curveids(
                     self.currParams.sector1, self.currParams.sector2, self.currParams.flight1, self.currParams.flight2, tgtDate, tgdDate2)
@@ -260,9 +244,9 @@ class DynAllocConnections:
                         tgtBookedLoad1 = float(tgtBookedLoad1['LF'][0])
                         tgtBookedLoad2 = float(tgtBookedLoad2['LF'][0])
 
-                bookedLoadSingleRowSector2 = bookedLoad_sector2[c1 & c2]
+                bookedLoadSingleRowSector2 = bookedLoad_sector2
 
-                if (bookedLoadSingleRowSector1.shape[0] == 0 or bookedLoadSingleRowSector2.shape[0] == 0):
+                if (np.isnan(bookedLoadSingleRowSector1) or np.isnan(bookedLoadSingleRowSector2) ):
                     dateFormatted1 = datetime.strptime(
                         str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
                     dateFormatted2 = datetime.strptime(
@@ -314,14 +298,14 @@ class DynAllocConnections:
     def allocateAUforflights(self, current_date1,current_date2, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2):
         self.outputSummaryRow_b2b = OutputSummaryConnections()
         self.outputSummaryRow_b2c = OutputSummaryConnections()
-        self.outputSummaryRow_b2c.Bookedload1 = bookedLoadSingleRowSector1["bookedPax"].values[0]
-        self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2["bookedPax"].values[0]
-        self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1["bookedPax"].values[0]
-        self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2["bookedPax"].values[0]
+        self.outputSummaryRow_b2c.Bookedload1 = bookedLoadSingleRowSector1
+        self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2
+        self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
+        self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
         tgtBookedLoad1 = tgtBookedLoad1 * \
-            bookedLoadSingleRowSector1["capacity"].values[0]
+            self.currParams.Capacity1
         tgtBookedLoad2 = tgtBookedLoad2 * \
-            bookedLoadSingleRowSector2["capacity"].values[0]
+            self.currParams.Capacity2
         sector1 = self.currParams.sector1
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
@@ -345,33 +329,33 @@ class DynAllocConnections:
         dow = int(datetime.strftime(datetime.strptime(
             current_date1, '%Y-%m-%d') + timedelta(days=ndocounter), "%w"))
 
-        if (str(self.currParams.dow)[dow:(dow+1)] == "1" and bookedLoadSingleRowSector1['FlightNumber'].values[0] == str(flight1) and bookedLoadSingleRowSector2['FlightNumber'].values[0] == str(flight2)):
-            bookload1 = bookedLoadSingleRowSector1['bookedPax'].values[0]
-            bookload2 = bookedLoadSingleRowSector2['bookedPax'].values[0]
+        if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
+            bookload1 = bookedLoadSingleRowSector1
+            bookload2 = bookedLoadSingleRowSector2
             capacity = min(
-                bookedLoadSingleRowSector1['capacity'].values[0], bookedLoadSingleRowSector2['capacity'].values[0])
+                self.currParams.Capacity1,self.currParams.Capacity2)
             bookload = max(
-                bookedLoadSingleRowSector1['bookedPax'].values[0], bookedLoadSingleRowSector2['bookedPax'].values[0])
+                bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
             print("Combined Booked Load for " + bookedLoadSingleRowSector1['FlightNumber'].values[0]+" "+str(
                 bookedLoadSingleRowSector2['FlightNumber'].values[0]) + " on " + str(current_date1) + " is :" + str(bookload))
             if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
                 b2b_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1)
                 b2c_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1)
                 b2b_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2)
                 b2c_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2)
             if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
                 b2b_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1)
                 b2c_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1['bookedPax'].values[0])
+                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1)
                 b2b_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2)
                 b2c_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2['bookedPax'].values[0])
+                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2)
 
             if (b2c_rbd_sector1.shape[0] == 0 or b2c_rbd_sector2.shape[0] == 0):
                 # unable to get bookload aborting
@@ -445,10 +429,10 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
-                self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
-                self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/bookedLoadSingleRowSector1["capacity"].values[0]
-                self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/bookedLoadSingleRowSector2["capacity"].values[0]
+                self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Capacity1
+                self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Capacity2
+                self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Capacity1
+                self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Capacity2
                 offset=self.currParams.offset
                 if self.qpcurrency!='INR':
                     B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
