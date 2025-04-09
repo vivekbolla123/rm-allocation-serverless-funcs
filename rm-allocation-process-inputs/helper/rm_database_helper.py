@@ -134,27 +134,26 @@ GROUP BY
     bl.adjustedCapacity,
     bl.tbf_bookings"""
             else:
-                marketListQuery = """"
-                SELECT 
-    mlc.*,
-    bl1.bookedPax AS BookedPax1,
-    bl1.Lid AS Capacity1,
-    bl2.bookedPax AS BookedPax2,
-    bl2.Lid AS Capacity2
-FROM 
-    market_list_connections mlc
-LEFT JOIN 
-    Bookload bl1 ON 
-    LEFT(mlc.Sector1, 3) = bl1.Origin AND
-    RIGHT(mlc.Sector1, 3) = bl1.Destination AND
-    mlc.Flight1 = bl1.FlightNumber AND
-    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
-LEFT JOIN 
-    Bookload bl2 ON 
-    LEFT(mlc.Sector2, 3) = bl2.Origin AND
-    RIGHT(mlc.Sector2, 3) = bl2.Destination AND
-    mlc.Flight2 = bl2.FlightNumber AND
-    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
+                marketListQuery = """SELECT 
+                mlc.*,
+                bl1.bookedPax AS BookedPax1,
+                bl1.Lid AS Capacity1,
+                bl2.bookedPax AS BookedPax2,
+                bl2.Lid AS Capacity2
+            FROM 
+                market_list_connections mlc
+            LEFT JOIN 
+                Bookload bl1 ON 
+                LEFT(mlc.Sector1, 3) = bl1.Origin AND
+                RIGHT(mlc.Sector1, 3) = bl1.Destination AND
+                mlc.Flight1 = bl1.FlightNumber AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
+            LEFT JOIN 
+                Bookload bl2 ON 
+                LEFT(mlc.Sector2, 3) = bl2.Origin AND
+                RIGHT(mlc.Sector2, 3) = bl2.Destination AND
+                mlc.Flight2 = bl2.FlightNumber AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
                 """
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
