@@ -335,12 +335,11 @@ def lambda_handler(event, context):
     
     # Fetch market list
     if route_type == "direct":
-        market_list_query = getMarketListQuery(
-            start_period, end_period, market_list_table)
-        w0_df = get_w0_rbd(start_period, end_period)
+        market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
+        w0_df= get_w0_rbd(start_period,end_period)
         mkt_list = read_sql(market_list_query, conn)
         logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df)
+        mkt_list, failCount = clean_markets_optimized(mkt_list,w0_df)
         logger.info(f"Filtered Market List {mkt_list}")
         mkt_list = mkt_list.reset_index()
         markets_count = mkt_list.shape[0]

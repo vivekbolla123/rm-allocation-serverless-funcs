@@ -421,16 +421,17 @@ class DetermineRBD:
             howDetermined = 'AllocationN'
             anchorFare =  0
         
-        if plf >= self.constantsutils.OVERBOOKING_FARE_LF and plf < self.constantsutils.OVERBOOKING_MANUAL_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None and pd.isna(obfare)==True and obfare == CONST_NA and obfare == '' and pd.isnull(obfare)==True):
-            self.logger.info("Entered System OB since plf between 98 - 100")
+        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None and pd.isna(obfare)==True and obfare == CONST_NA and obfare == '' and pd.isnull(obfare)==True):
+            self.logger.info("Entered System OB since plf between 96 - 100")
             lastSoldFare=float(lastSoldFare)
             howDetermined = "Overbooking Calculated Fare"
             upsell = CONST_NA
             calculatedFare = strategyFare
             if lastSoldFare != CONST_NA and lastSoldFare != 0:
-                fare1 = self.constantsutils.OVERBOOKING_FARE_PERCENT_VALUE*lastSoldFare
+                fare1 = lastSoldFare + self.constantsutils.OVERBOOKING_FARE_PERCENT_VALUE*lastSoldFare
                 fare2 = lastSoldFare+self.constantsutils.OVERBOOKING_FARE_ABSOLUTE_VALUE
                 calculatedFare = max(fare1,fare2)
+                self.logger.info("Calculated fare is: " + str(calculatedFare))
             if calculatedFare < strategyFare:
                 anchorFare = (calculatedFare+strategyFare)/2
             else:
