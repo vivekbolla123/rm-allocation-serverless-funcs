@@ -913,7 +913,7 @@ class DynAlloc:
 				if plf > B2B_threshold[0]:
 					self.B2B_threshold = True
 
-	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad):
+	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		b2boverbookingflag = False
 		nextFlight = self.currParams.NextFlight
 		if self.currParams.obSeats == '' and self.currParams.obFare == '' or self.currParams.obSeats == None and self.currParams.obFare == None:
