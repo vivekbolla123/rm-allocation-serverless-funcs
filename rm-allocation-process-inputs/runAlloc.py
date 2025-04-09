@@ -774,9 +774,12 @@ class DynAlloc:
 		bookingToday = 0
 		bookingLastHour = 0
 		# if bookings.shape[0] != 0:
-		lastBookloadTillMidnight = int(self.currParams.BookingsCount)
-		bookingToday = int(self.currParams.BookingToday)
-		bookingLastHour = int(self.currParams.BookingsInHour)
+		if not np.isnan(self.currParams.BookingsCount):
+			lastBookloadTillMidnight = int(self.currParams.BookingsCount)
+		if not np.isnan(self.currParams.BookingToday):
+			bookingToday = int(self.currParams.BookingToday)
+		if not np.isnan(self.currParams.BookingsInHour):
+			bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
