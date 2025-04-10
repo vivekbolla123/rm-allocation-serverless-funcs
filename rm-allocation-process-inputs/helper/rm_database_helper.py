@@ -37,9 +37,124 @@ class RMDatabaseHelper:
                 self.mktList = pd.read_csv(CONST_MARKET_LIST_CONNECTIONS_FILE_PATH)
         else:
             if self.currParams.route_type=="direct":
-                marketListQuery = "SELECT Origin,Destin,FlightNumber,PerType,PerStart,PerEnd,DOW,plfthreshold,hardAnchor,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,fareOffset,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,analystName,DaySpan,AutoTimeRangeFlag, openingFares,OverBooking,profileFares,rbdPushFlag,B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,autoGroup,tbfFlag,autoBackstopFlag FROM market_list "
+                marketListQuery = """SELECT 
+    ml.*,
+    bfd.BookingsCount,
+    bfd.BookingToday,
+    bfd.BookingsInHour,
+    bl.bookedPax,
+    bl.DepartureTime,
+    bl.Lid AS capacity,
+    bl.adjustedCapacity,
+    bl.tbf_bookings,
+    SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
+    SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
+    SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
+    SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassAu ELSE 0 END) AS current_rbd_P,
+    SUM(sb.bookedPax) AS total_series_seats,
+    IFNULL((
+        SELECT 1
+        FROM Bookload bl_next
+        WHERE bl_next.Origin = bl.Origin
+        AND bl_next.Destination = bl.Destination
+        AND bl_next.DepartureDate = bl.DepartureDate
+        AND bl_next.DepartureTime > bl.DepartureTime
+        LIMIT 1
+    ), 0) AS NextFlight
+FROM 
+    market_list ml
+LEFT JOIN 
+    booking_fare_data bfd ON ml.Origin = bfd.Origin 
+    AND ml.Destin = bfd.Destin 
+    AND ml.FlightNumber = bfd.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = bfd.FlightDate
+LEFT JOIN 
+    Bookload bl ON ml.Origin = bl.Origin 
+    AND ml.Destin = bl.Destination 
+    AND ml.FlightNumber = bl.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = bl.DepartureDate
+LEFT JOIN 
+    current_rbd cr ON ml.Origin = cr.Origin 
+    AND ml.Destin = cr.Destin 
+    AND ml.FlightNumber = cr.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = cr.DepartureDate
+LEFT JOIN 
+    series_booked sb ON ml.Origin = sb.Origin 
+    AND ml.Destin = sb.Destination 
+    AND ml.FlightNumber = sb.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = sb.DepartureDate
+GROUP BY
+    ml.Origin,
+    ml.Destin,
+    ml.FlightNumber,
+    ml.PerType,
+    ml.PerStart,
+    ml.PerEnd,
+    ml.DOW,
+    ml.plfthreshold,
+    ml.hardAnchor,
+    ml.TimeWindowStart,
+    ml.TimeWindowEnd,
+    ml.CurveID,
+    ml.CarrExlusionB2C,
+    ml.CarrExlusionB2B,
+    ml.flightExclusionB2C,
+    ml.flightExclusionB2B,
+    ml.fareAnchor,
+    ml.fareOffset,
+    ml.FirstRBDAlloc,
+    ml.OtherRBDAlloc,
+    ml.B2BBackstop,
+    ml.B2CBackstop,
+    ml.B2BFactor,
+    ml.obSeats,
+    ml.obFare,
+    ml.SkippingFactor,
+    ml.analystName,
+    ml.DaySpan,
+    ml.AutoTimeRangeFlag,
+    ml.openingFares,
+    ml.OverBooking,
+    ml.profileFares,
+    ml.rbdPushFlag,
+    ml.B2BTolerance,
+    ml.B2CTolerance,
+    ml.distressInventoryFlag,
+    ml.seriesBlock,
+    ml.autoGroup,
+    ml.tbfFlag,
+    ml.autoBackstopFlag,
+    bfd.BookingsCount,
+    bfd.BookingToday, 
+    bfd.BookingsInHour,
+    bl.bookedPax,
+    bl.DepartureTime,
+    bl.DepartureDate,
+    bl.Lid,
+    bl.adjustedCapacity,
+    bl.tbf_bookings"""
             else:
-                marketListQuery = "SELECT Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag, analystName FROM market_list_connections "
+                marketListQuery = """SELECT 
+                mlc.*,
+                bl1.bookedPax AS BookedPax1,
+                bl1.Lid AS Capacity1,
+                bl2.bookedPax AS BookedPax2,
+                bl2.Lid AS Capacity2
+            FROM 
+                market_list_connections mlc
+            LEFT JOIN 
+                Bookload bl1 ON 
+                LEFT(mlc.Sector1, 3) = bl1.Origin AND
+                RIGHT(mlc.Sector1, 3) = bl1.Destination AND
+                mlc.Flight1 = bl1.FlightNumber AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
+            LEFT JOIN 
+                Bookload bl2 ON 
+                LEFT(mlc.Sector2, 3) = bl2.Origin AND
+                RIGHT(mlc.Sector2, 3) = bl2.Destination AND
+                mlc.Flight2 = bl2.FlightNumber AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
+                """
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
             except Exception as e:
@@ -886,7 +1001,7 @@ class RMDatabaseHelper:
         return l_class_rbd, p_class_rbd
     
     def getSeriesBlockedSeats(self,departure_date):
-        query=f"""select * from series_blocking where DepartureDate = '{departure_date}'"""
+        query=f"""select sum(seatsblocked) as blocked from series_blocking where DepartureDate = '{departure_date}'"""
         df = pd.read_sql(query, self.conn)
         return df
     def get_series_seats(self,departure_date, flight_number, sector):
