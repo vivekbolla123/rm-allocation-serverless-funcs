@@ -9,7 +9,7 @@ import pytz
 import time
 import pandas as pd
 from uuid import uuid4
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from pandas import read_sql,Timestamp
 from datetime import datetime, timedelta, date, timezone
 from redis import Redis
@@ -350,21 +350,21 @@ def allocation_run_batch_audit(run_id, batch_id):
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
     
-    select_query = "SELECT available FROM adhoc_run_queue"
-    count_avaiable_slot = conn.execute(select_query).fetchone()[0]
-    logger.info(f"Slot Avaiable: {count_avaiable_slot}")
+    select_query = text("SELECT available FROM adhoc_run_queue")
+    count_available_slot = conn.execute(select_query).fetchone()[0]
+    logger.info(f"Slot Available: {count_available_slot}")
   
-    if count_avaiable_slot == 0:
-        logger.info("No Slot Avaiable !")
+    if count_available_slot == 0:
+        logger.info("No Slot Available!")
         return False
     
-    new_avaiable_slot = count_avaiable_slot - 1
-    update_query = f"UPDATE adhoc_run_queue SET available={new_avaiable_slot}"
+    new_available_slot = count_available_slot - 1
+    update_query = text("UPDATE adhoc_run_queue SET available = :new_available_slot")
     try:
-        wrconn.execute(update_query)
+        wrconn.execute(update_query, {"new_available_slot": new_available_slot})
     except Exception as e:
         logger.info(e)
-    logger.info(f"Slot Avaiable after Adhoc run started: {new_avaiable_slot}")
+    logger.info(f"Slot Available after Adhoc run started: {new_available_slot}")
     return True
 
 def getMarketListQuery(start_period, end_period, market_list_table):

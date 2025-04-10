@@ -1,6 +1,7 @@
 import json
 import configsettings
 import pandas as pd
+from sqlalchemy import text
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
 KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
@@ -43,14 +44,12 @@ class PushRBDtoSFTP:
             is_complete = False
         
         if is_complete:
-                # All flights are ready, push run_id to the update_rbd_ftp
+            # All flights are ready, push run_id to the update_rbd_ftp
             self.sqs.send_message(
-                    QueueUrl=configsettings.SFTP_RBD_QUEUE_URL,
-                    MessageBody=json.dumps(
-                        {
-                            'run_id': run_id
-                        }),
-                )
+                QueueUrl=configsettings.SFTP_RBD_QUEUE_URL,
+                MessageBody=json.dumps({'run_id': run_id}),
+            )
             self.logger.info(f"{run_id} is pushed into queue for sftp")
-            query = f"UPDATE allocation_run_audit SET is_sftp_started = '1' WHERE run_id='{run_id}'"
-            self.rm_wr_conn.execute(query)
+            
+            update_query = text("UPDATE allocation_run_audit SET is_sftp_started = '1' WHERE run_id = :run_id")
+            self.rm_wr_conn.execute(update_query, {"run_id": run_id})

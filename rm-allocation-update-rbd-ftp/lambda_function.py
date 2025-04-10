@@ -9,7 +9,7 @@ import time
 import logging
 import configsettings
 from datetime import datetime 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine,text
 import pandas as pd
 from redis import Redis
 
@@ -84,9 +84,9 @@ class DataProcessor:
         self.timeout = configData["timeout"]
         self.userName = configData["userName"]
 
-    def upload_to_sftp(self,local_file,runid):
+    def upload_to_sftp(self, local_file, runid):
         logger.info("Started SFTP upload.....")
-        start=datetime.now()
+        start = datetime.now()
         transport = paramiko.Transport((self.sftp_host, self.sftp_port))
         transport.connect(username=self.sftp_username, password=self.sftp_password)
         sftp = paramiko.SFTPClient.from_transport(transport)
@@ -94,43 +94,52 @@ class DataProcessor:
         
         timeout = 0
         while timeout < self.timeout:
-                # Poll the SQS queue for messages
+            try:
+                # Check if the target file already exists on the SFTP server
                 try:
-                    # Check if the target file already exists on the SFTP server
-                    try:
-                        sftp.stat(remote_file_path)
-                        print("File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
-                        logger.info(
-                            f"File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
-                        # Wait for 30 seconds before checking again
-                        time.sleep(self.refresh_time)
-                        timeout = timeout + self.refresh_time
-                        continue
-                    except FileNotFoundError:
-                        pass
-                    sftp.put(local_file, remote_file_path)
-                    sftp.chdir(self.sftp_destination_dir)
-                    sftp.open("AUUPDATE.TAG", 'w').close()
-                    elapsed_time = datetime.now() - start
-                    minutes, remainder = divmod(elapsed_time.seconds, 60)
-                    seconds = remainder
+                    sftp.stat(remote_file_path)
+                    print("File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
+                    logger.info("File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
+                    # Wait for 30 seconds before checking again
+                    time.sleep(self.refresh_time)
+                    timeout += self.refresh_time
+                    continue
+                except FileNotFoundError:
+                    pass
+                
+                sftp.put(local_file, remote_file_path)
+                sftp.chdir(self.sftp_destination_dir)
+                sftp.open("AUUPDATE.TAG", 'w').close()
+                elapsed_time = datetime.now() - start
+                minutes, remainder = divmod(elapsed_time.seconds, 60)
+                seconds = remainder
 
-                    print(f"It took {minutes} minutes and {seconds} seconds. to upload file to SFTP")
-                    all_done = self.is_all_allocation_done(runid)
-                    
-                    if(all_done == True):
-                        actual_end_time = datetime.now()
-                        conn.execute(f"UPDATE allocation_run_audit SET is_sftp_pushed = '1', actual_end_time ='{actual_end_time.strftime('%Y-%m-%d %H:%M:%S')}' WHERE run_id = '{runid}'")
-                    sftp.close()
-                    transport.close()
-                    print(f"{local_file} successfully uploaded")
-                    logger.info(f"{local_file} successfully uploaded")
-                    break
-                except Exception as e:
-                    # Handle any exceptions or errors
-                    traceback.print_exc()
-                    logger.info(f"Error processing message: {str(e)}")
-                    break
+                print(f"It took {minutes} minutes and {seconds} seconds to upload file to SFTP")
+                all_done = self.is_all_allocation_done(runid)
+                
+                if all_done:
+                    actual_end_time = datetime.now()
+                    update_query = text("""
+                        UPDATE allocation_run_audit 
+                        SET is_sftp_pushed = '1', actual_end_time = :actual_end_time 
+                        WHERE run_id = :runid
+                    """)
+                    conn.execute(update_query, {
+                        "actual_end_time": actual_end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                        "runid": runid
+                    })
+                
+                sftp.close()
+                transport.close()
+                print(f"{local_file} successfully uploaded")
+                logger.info(f"{local_file} successfully uploaded")
+                break
+            except Exception as e:
+                # Handle any exceptions or errors
+                traceback.print_exc()
+                logger.info(f"Error processing message: {str(e)}")
+                break
+        
         if timeout == 900:
             logger.info("Time limit exceeded 13 minutes")
     # Check if the remote file already exists
@@ -168,20 +177,22 @@ class DataProcessor:
                 line += f"C {rbd}{' ' * (9 - len(rbd))}{rbd_value} {rbd_value}\n"
                 file_content += line
         return file_content
+    
     # Function to upload the file to SFTP
     def push_message_back_to_sqs(self, runid):
         # Check current retry count
-        retry_query = f"SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = '{runid}'"
-        retry_count_result = pd.read_sql(retry_query, conn)
+        retry_query = text("SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = :runid")
+        retry_count_result = pd.read_sql(retry_query, conn, params={"runid": runid})
         
         # Only push back to SQS if retry count is less than 2
         if int(retry_count_result['sftp_retry_count'].iloc[0]) < 2:
             # Increment retry count
-            conn.execute(f"""
+            update_query = text("""
                 UPDATE allocation_run_audit 
                 SET sftp_retry_count = sftp_retry_count + 1 
-                WHERE run_id = '{runid}'
+                WHERE run_id = :runid
             """)
+            conn.execute(update_query, {"runid": runid})
             
             sqs_client = boto3.client('sqs')
             message_body = {
@@ -191,50 +202,70 @@ class DataProcessor:
                 QueueUrl=configsettings.AWS_SQS_QUEUE_URL,
                 MessageBody=json.dumps(message_body)
             )
-            logger.info(f"message with runid: {runid} sent back to Queue Successfully")
+            logger.info(f"Message with runid: {runid} sent back to Queue Successfully")
         else:
             logger.info(f"Maximum retry attempts reached for run_id: {runid}")
         
-    def fetch_data(self,runid):
-        retry_query = f"SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = '{runid}'"
-        retry_count_result = pd.read_sql(retry_query, conn)
+    def fetch_data(self, runid):
+        retry_query = text("SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = :runid")
+        retry_count_result = pd.read_sql(retry_query, conn, params={"runid": runid})
         
         # If retry count is already 2 or more, stop processing
         if int(retry_count_result['sftp_retry_count'].iloc[0]) >= 2:
             logger.info(f"Maximum retry attempts reached for run_id: {runid}")
             return
-        data = conn.execute(f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and (b2cstatus != 'Done' OR b2bstatus != 'Done')")
+        
+        data_query = text("""
+            SELECT result, flightNumber, flightDate 
+            FROM run_flight_date_audit 
+            WHERE runId = :runid 
+            AND (b2cstatus != 'Done' OR b2bstatus != 'Done')
+        """)
+        data = conn.execute(data_query, {"runid": runid})
+        
         # Generate and write data to the AUUPDATE file
         file_name = configsettings.TEMP_FILE_NAME  # Use Lambda's /tmp directory
         with open(file_name, 'w') as file:
             for row in data:
                 file_size = os.path.getsize(file_name)
-                if (self.context.get_remaining_time_in_millis() < configsettings.EXP_TIME or file_size>configsettings.MAX_FILE_SIZE):
+                if (self.context.get_remaining_time_in_millis() < configsettings.EXP_TIME or file_size > configsettings.MAX_FILE_SIZE):
                     logger.error("Lambda is about to time out, message pushed back to SQS.")
-                    self.upload_to_sftp(file_name,runid)
+                    self.upload_to_sftp(file_name, runid)
                     self.push_message_back_to_sqs(runid)
                     return
                 
-                conn.execute(f"UPDATE run_flight_date_audit SET b2cstatus = 'Done', b2bstatus = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'")
+                update_query = text("""
+                    UPDATE run_flight_date_audit 
+                    SET b2cstatus = 'Done', b2bstatus = 'Done' 
+                    WHERE runId = :runid 
+                    AND flightNumber = :flightNumber 
+                    AND flightDate = :flightDate
+                """)
+                conn.execute(update_query, {
+                    "runid": runid,
+                    "flightNumber": row['flightNumber'],
+                    "flightDate": row['flightDate']
+                })
+                
                 cache_client.incr(KEY_B2B_DONE_COUNT + runid, 1)
                 cache_client.incr(KEY_B2C_DONE_COUNT + runid, 1)
 
-                if(row["result"] is not None):
+                if row["result"] is not None:
                     data = json.loads(row["result"])
-                    if data["type"]=="R":
-                        departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"],data["sector1"], data["flightNo2"], data["sector2"]
-                        rbds=data["auClasses"]
-                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2} ,{rbds}")
+                    if data["type"] == "R":
+                        departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"], data["sector1"], data["flightNo2"], data["sector2"]
+                        rbds = data["auClasses"]
+                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2}, {rbds}")
                         file_content = self.generate_file_content_conn(departurdate, flightno1, sector1, flightno2, sector2, rbds)
                     else:
-                        departurdate, flightno, sector=data["departureDate"],data["flightNo1"],data["sector1"]
-                        rbds=data["auClasses"]
+                        departurdate, flightno, sector = data["departureDate"], data["flightNo1"], data["sector1"]
+                        rbds = data["auClasses"]
                         logger.info(f"started upload for {departurdate}, {flightno}, {sector}, {rbds}")
-                        file_content=self.generate_file_content_direct(departurdate,flightno,sector,rbds)
+                        file_content = self.generate_file_content_direct(departurdate, flightno, sector, rbds)
                     file.write(file_content)
 
         # Periodically check if the remote file exists (every 15 seconds)
-        self.upload_to_sftp(file_name,runid)
+        self.upload_to_sftp(file_name, runid)
 
     def is_all_allocation_done(self, run_id):
         # b2b_pending_count = cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
