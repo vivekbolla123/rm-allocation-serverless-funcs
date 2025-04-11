@@ -13,6 +13,10 @@ class RedisHelper:
             self.cache_client.incr(KEY_B2C_DONE_COUNT + self.runId)
             self.cache_client.incr(KEY_B2B_READY_COUNT + self.runId)
             self.cache_client.incr(KEY_B2B_READY_COUNT + self.runId)
+    def updateRunAuditReady(self):
+        if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+            self.cache_client.incr(KEY_B2B_READY_COUNT + self.runId)
+            self.cache_client.incr(KEY_B2B_READY_COUNT + self.runId)
             
     def setAllRunStatus2Ready(self):
         b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + self.runId)
