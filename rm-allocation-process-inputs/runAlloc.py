@@ -259,8 +259,8 @@ class DynAlloc:
 		if not self.inputSource.isUpdateNavitaire:
 			self.outputResults()
 
-		if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP or self.NavitaireUpdateMethod == S3):
-			self.redishelper.setAllRunStatus2Ready()
+		# if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP or self.NavitaireUpdateMethod == S3):
+		# 	self.redishelper.setAllRunStatus2Ready()
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoadPercent):
 		currDate = self.timeutils.getCurrentDate()
