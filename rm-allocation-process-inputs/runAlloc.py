@@ -619,7 +619,6 @@ class DynAlloc:
 			
 			self.allocResults.append(self.outputSummaryRow_b2c)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
-			self.redishelper.updateRunAuditReady()
 			self.outputSummaryRow_b2b.RunId = self.runId
 			self.outputSummaryRow_b2b.Origin = self.currParams.origin
 			self.outputSummaryRow_b2b.Destin = self.currParams.destin
