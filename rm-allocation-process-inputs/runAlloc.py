@@ -138,6 +138,7 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
+					self.redishelper.updateRunAuditReady()
 					break
 				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
 				if FlightNumber == '*':
@@ -169,6 +170,7 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
+					self.redishelper.updateRunAuditReady()
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
@@ -201,6 +203,7 @@ class DynAlloc:
 								self.allocResults.append(self.outputSummaryRow_b2b)
 								self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 								self.redishelper.updateRunAudit()
+								self.redishelper.updateRunAuditReady()
 							else:
 								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
 								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoadPercent)
@@ -228,6 +231,7 @@ class DynAlloc:
 							self.allocResults.append(self.outputSummaryRow_b2b)
 							self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 							self.redishelper.updateRunAudit()
+							self.redishelper.updateRunAuditReady()
 					else:
 						# Cannot get a reference curve - Abort
 						self.logger.info("Unable to get a Target - Check the booking curves")
@@ -250,7 +254,8 @@ class DynAlloc:
 						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 						self.allocResults.append(self.outputSummaryRow_b2b)
 						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
-						self.redishelper.updateRunAudit()		
+						self.redishelper.updateRunAudit()	
+						self.redishelper.updateRunAuditReady()
 		except Exception as e:
 			self.logger.info("Exception occurred")
 			traceback.print_exc()
@@ -259,8 +264,8 @@ class DynAlloc:
 		if not self.inputSource.isUpdateNavitaire:
 			self.outputResults()
 
-		if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP or self.NavitaireUpdateMethod == S3):
-			self.redishelper.setAllRunStatus2Ready()
+		# if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP or self.NavitaireUpdateMethod == S3):
+		# 	self.redishelper.setAllRunStatus2Ready()
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoadPercent):
 		currDate = self.timeutils.getCurrentDate()
@@ -501,6 +506,7 @@ class DynAlloc:
 				openDataB2C = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [0]}
 				openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 				self.redishelper.updateRunAudit()
+				self.redishelper.updateRunAuditReady()
 
 			# statusInd
 			# 0 - Allocation went as planned
@@ -613,7 +619,6 @@ class DynAlloc:
 			
 			self.allocResults.append(self.outputSummaryRow_b2c)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
-
 			self.outputSummaryRow_b2b.RunId = self.runId
 			self.outputSummaryRow_b2b.Origin = self.currParams.origin
 			self.outputSummaryRow_b2b.Destin = self.currParams.destin
@@ -639,10 +644,11 @@ class DynAlloc:
 
 			self.allocResults.append(self.outputSummaryRow_b2b)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
-
+			self.redishelper.updateRunAuditReady()
 		else:
 			if str(self.currParams.dow)[dow:(dow + 1)] == "9":
 				self.redishelper.updateRunAudit()
+				self.redishelper.updateRunAuditReady()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
 	def w_rbd_allocation(self, plf, currRec, brd_counter):
