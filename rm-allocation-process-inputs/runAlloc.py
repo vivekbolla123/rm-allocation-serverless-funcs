@@ -1,6 +1,7 @@
 import ast
 import copy
 from decimal import Decimal
+import math
 import traceback
 import os
 import json
@@ -931,7 +932,7 @@ class DynAlloc:
 			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
 		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
 			nextFlight = self.navdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
-		if self.currParams.obSeats == '' and self.currParams.obFare == '' or self.currParams.obSeats == None and self.currParams.obFare == None:
+		if (self.currParams.obSeats == '' or self.currParams.obSeats is None or (hasattr(self.currParams.obSeats, 'dtype') and math.isnan(self.currParams.obSeats))) and (self.currParams.obFare == '' or self.currParams.obFare is None or (hasattr(self.currParams.obFare, 'dtype') and math.isnan(self.currParams.obFare))):
 			self.logger.info("Entered system overbooking loop runalloc")
 			overBookingCount = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
 			if(overBookingCount > OVERBOOKING_CAP):
