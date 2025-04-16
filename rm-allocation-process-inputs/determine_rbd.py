@@ -38,7 +38,7 @@ class DetermineRBD:
             hardAnchorFare=hardopenResult['Fare'][0]
             
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, offset
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
@@ -64,9 +64,9 @@ class DetermineRBD:
             openResult['RBD']=['NA']
             openResult['Fare']=['NA']
             
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, offset
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, offset
 
         self.logger.info("totalCapacity: " + str(totalCapacity))
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -122,7 +122,7 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, offset
 
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter):
         anchorFare = 0
