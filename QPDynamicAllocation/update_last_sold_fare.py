@@ -187,6 +187,7 @@ class LastSoldFare:
                   WHERE
                     BookingUTC >= {whereCondition}
                     AND SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
+                    AND LEFT(FareBasis, 1) = 'G' THEN 'GROUP'
                   GROUP BY
                     B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator
