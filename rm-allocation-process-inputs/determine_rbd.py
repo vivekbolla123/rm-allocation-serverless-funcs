@@ -24,6 +24,7 @@ class DetermineRBD:
         profileFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
+        overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
 
@@ -37,7 +38,7 @@ class DetermineRBD:
             hardAnchorFare=hardopenResult['Fare'][0]
             
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
@@ -63,9 +64,9 @@ class DetermineRBD:
             openResult['RBD']=['NA']
             openResult['Fare']=['NA']
             
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
 
         self.logger.info("totalCapacity: " + str(totalCapacity))
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -96,7 +97,7 @@ class DetermineRBD:
         self.logger.info("Profile Fare: " + str(profileFare))
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
-        anchorFare, howDetermined, upsell = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFare, obfare, ndocounter)
+        anchorFare, howDetermined, upsell, overBookingFare = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFare, obfare, ndocounter)
 
         
             
@@ -121,13 +122,14 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare
 
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
         upsell = 0
+        overBookingFare = 0
         if value == 'A':
             faresList = []
             max_value = 0
@@ -421,10 +423,9 @@ class DetermineRBD:
             howDetermined = 'AllocationN'
             anchorFare =  0
         
-        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None and pd.isna(obfare)==True and obfare == CONST_NA and obfare == '' and pd.isnull(obfare)==True):
-            self.logger.info("Entered System OB since plf between 96 - 100")
+        if plf >= self.constantsutils.OVERBOOKING_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None or pd.isna(obfare)==True or obfare == CONST_NA or obfare == '' or pd.isnull(obfare)==True):
+            self.logger.info("Entered System OB since manual obFare is not present. Setting System Overbooking Fare")
             lastSoldFare=float(lastSoldFare)
-            howDetermined = "Overbooking Calculated Fare"
             upsell = CONST_NA
             calculatedFare = strategyFare
             if lastSoldFare != CONST_NA and lastSoldFare != 0:
@@ -433,20 +434,23 @@ class DetermineRBD:
                 calculatedFare = max(fare1,fare2)
                 self.logger.info("Calculated fare is: " + str(calculatedFare))
             if calculatedFare < strategyFare:
-                anchorFare = (calculatedFare+strategyFare)/2
+                overBookingFare = (calculatedFare+strategyFare)/2
             else:
-                anchorFare = calculatedFare 
-        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and obfare is not None and pd.isna(obfare)==False and obfare != CONST_NA and obfare != '' and pd.isnull(obfare)==False and 1 >= ndocounter >= 0:
-            self.logger.info("Entered Manual OB since plf > 100")
-            anchorFare=float(obfare)
-            howDetermined="Overbook_fare_(V1)"
+                overBookingFare = calculatedFare 
+        if plf >= self.constantsutils.OVERBOOKING_LF and obfare is not None and pd.isna(obfare)==False and obfare != CONST_NA and obfare != '' and pd.isnull(obfare)==False and 1 >= ndocounter >= 0:
+            self.logger.info("Entered Manual OB since obFare is present")
+            overBookingFare=float(obfare)
             upsell=CONST_NA
+        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and obfare is not None and pd.isna(obfare)==False and obfare != CONST_NA and obfare != '' and pd.isnull(obfare)==False and 1 >= ndocounter >= 0:
+            howDetermined="Manual Overbooking Fare"
+        if plf >= self.constantsutils.OVERBOOKING_MANUAL_LF and overBookingCount>0 and lastSoldFare != CONST_NA and (obfare is None or pd.isna(obfare)==True or obfare == CONST_NA or obfare == '' or pd.isnull(obfare)==True):
+            howDetermined = "System Overbooking Fare"
         if last7avg:
             howDetermined+="_last7bkgsAvg"
         if b2b_discount_fare:
             anchorFare = anchorFareDiscounted
             upsell = CONST_NA
-        return anchorFare, howDetermined, upsell
+        return anchorFare, howDetermined, upsell, overBookingFare
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
         self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")
