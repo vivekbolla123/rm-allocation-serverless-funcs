@@ -151,7 +151,11 @@ class LastSoldFare:
         query = f"""
         Select 
             BookingID, BookingUTC, PassengerID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, 
-            SUBSTRING(FareBasis, 5, 1) as FareBasis, Fare
+            CASE 
+                WHEN LEFT(FareBasis, 1) = 'G' THEN 'G' 
+                ELSE SUBSTRING(FareBasis, 5, 1) 
+            END as FareBasis, 
+            Fare
             from 
             (
               Select
@@ -177,7 +181,7 @@ class LastSoldFare:
                   FROM
                     REZ0KWB01.rez.Booking B
                     INNER JOIN REZ0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-                    INNER JOIN REZ0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('G', 'S') 
+                    INNER JOIN REZ0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('S') 
                     INNER JOIN REZ0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
                     INNER JOIN REZ0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
                     LEFT JOIN REZ0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
@@ -186,8 +190,8 @@ class LastSoldFare:
                     inner join REZ0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
-                    AND SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
-                    AND LEFT(FareBasis, 1) = 'G'
+                    AND (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
+		            OR LEFT(FareBasis, 1) = 'G')
                   GROUP BY
                     B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator

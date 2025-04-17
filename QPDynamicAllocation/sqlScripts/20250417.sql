@@ -1,0 +1,2 @@
+UPDATE `QP_DW_RMALLOC`.`rm_parameter_values` SET `parameterValue` = '96' WHERE (`parameterKey` = 'OVERBOOKING_FARE_LF');
+UPDATE `QP_DW_RMALLOC`.`rm_parameter_values` SET `parameterValue` = '0.1' WHERE (`parameterKey` = 'OVERBOOKING_FARE_PERCENT_VALUE');
