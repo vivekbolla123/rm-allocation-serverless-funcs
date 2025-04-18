@@ -492,8 +492,7 @@ class RBDAllocations:
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector):
-        max_au = currBookedLoad-currtbfBookedLoad+30
-        max_au = min(max_au,adjustedCapacity-20)
+        max_au = currBookedLoad-currtbfBookedLoad+int(self.constantsutils.TBF_SEATS)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
         tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         

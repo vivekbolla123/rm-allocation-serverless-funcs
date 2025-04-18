@@ -42,6 +42,7 @@ class ConstantsUtils:
         self.TBF_DIFF_FARE = TBF_DIFF_FARE
         self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
+        self.TBF_SEATS = TBF_SEATS
         
         # Generate constants from database values
         self.generateConstantValues()
@@ -129,4 +130,6 @@ class ConstantsUtils:
                 self.OVERBOOKING_CAP = int(parameter_value)
             elif parameter_key == PROF_OPEN_COUNT_KEY:
                 self.PROF_OPEN_COUNT = int(parameter_value)
+            elif parameter_key == TBF_SEATS_KEY:
+                self.TBF_SEATS = int(parameter_value)
 
