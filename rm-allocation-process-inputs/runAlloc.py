@@ -353,7 +353,7 @@ class DynAlloc:
 			if totalCapacity < adjustedCapacity:
 				plf = (currBookedLoad / totalCapacity) * 100
 			self.logger.info("PLF is: "+ str(plf))
-			totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad)
+			totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
 			self.logger.info("Total capacity/Lid after ob(if applicable) is: "+ str(totalCapacity))
 			overBookingCount = float(totalCapacity-adjustedCapacity)
 			self.logger.info("variance is " + str(variance))
