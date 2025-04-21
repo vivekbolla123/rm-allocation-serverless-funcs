@@ -44,6 +44,7 @@ def testCase1():
         "NavitaireConnection": None,
         "dbconn": conn,
         "wrconn": conn,
+        "dwconn":conn,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,

@@ -24,7 +24,6 @@ from determine_rbd import DetermineRBD
 from helper.redis_helper import RedisHelper
 from helper.nav_api_helper import NavAPIHelper
 from helper.rm_database_helper import RMDatabaseHelper
-from helper.nav_database_helper import NavDatabaseHelper
 
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
@@ -113,7 +112,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
-				if np.isnan(bookedLoad):
+				if pd.isna(bookedLoad):
 					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -144,7 +143,7 @@ class DynAlloc:
 				# If for whatever reason - unable to get the booked Load - Abort
     
 				tgtBookedLoad = None
-				if np.isnan(bookedLoad):
+				if pd.isna(bookedLoad):
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -728,25 +727,7 @@ class DynAlloc:
 		self.allocate_class_inventory(currRec, brd_counter, default_au, au_cap, distress_au,
 									l_class_seats_sold, p_class_seats_sold,l_class_rbd, p_class_rbd)
 
-	def get_seats_sold(self, dateFormatted):
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			return self.rmdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
-																self.currParams.origin, self.currParams.destin,
-																dateFormatted)
-		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			return self.navdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
-																self.currParams.origin, self.currParams.destin,
-																dateFormatted)
 
-	def get_current_rbds(self, dateFormatted):
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			return self.rmdatabasehelper.get_current_rbds_by_class(dateFormatted,
-															str(self.currParams.flight_number),
-															self.currParams.origin + self.currParams.destin)
-		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			return self.navdatabasehelper.get_current_rbds_by_class(dateFormatted,
-															str(self.currParams.flight_number),
-															self.currParams.origin + self.currParams.destin)
 
 	def allocate_class_inventory(self, currRec, brd_counter, default_au, au_cap, distress_au,
 									l_class_seats_sold, p_class_seats_sold, l_class_rbd, p_class_rbd):
@@ -774,11 +755,11 @@ class DynAlloc:
 		bookingToday = 0
 		bookingLastHour = 0
 		# if bookings.shape[0] != 0:
-		if not np.isnan(self.currParams.BookingsCount):
+		if not pd.isna(self.currParams.BookingsCount):
 			lastBookloadTillMidnight = int(self.currParams.BookingsCount)
-		if not np.isnan(self.currParams.BookingToday):
+		if not pd.isna(self.currParams.BookingToday):
 			bookingToday = int(self.currParams.BookingToday)
-		if not np.isnan(self.currParams.BookingsInHour):
+		if not pd.isna(self.currParams.BookingsInHour):
 			bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
@@ -1087,13 +1068,13 @@ class DynAlloc:
 		self.sqs = self.currParams.sqs
 		self.conn = self.currParams.dbconn
 		self.wrconn = self.currParams.wrconn
+		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
-		if np.isnan(self.currParams.w0Flag):
+		if pd.isna(self.currParams.w0Flag):
 			self.w0Flag = 0
 		
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()
-		self.NavitaireConnection = self.currParams.navitaire_connection
 		self.allocResults = []
 		self.AUFileData = []
 		if self.currParams.run_id:
@@ -1104,18 +1085,18 @@ class DynAlloc:
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
+		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
 		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
-		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
+		# self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
 		self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
-		self.marketfaresservice = MarketFareService(self.rmdatabasehelper, self.navdatabasehelper,self.constantsUtils,self.timeutils)
-		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.navdatabasehelper, self.mathutils, self.cache_client)
+		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils)
+		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
 
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
@@ -1149,7 +1130,7 @@ class DynAlloc:
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
 		booked_seats = self.currParams.total_series_seats
 		total_count = 0
-		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not np.isnan(booked_seats)):
+		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)):
 			total_count = blocked_seats['blocked'][0]-booked_seats
 		elif (blocked_seats['blocked'][0] is not None):
 			total_count = blocked_seats['blocked'][0]

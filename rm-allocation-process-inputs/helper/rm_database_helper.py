@@ -8,10 +8,11 @@ from utilities.time_utils import TimeUtils
 from helper.redis_helper import RedisHelper
 
 class RMDatabaseHelper:
-    def __init__(self,conn,wrconn,runId,inputSource,debugmode,cache_client,currParams):
+    def __init__(self,conn,wrconn,dwconn,runId,inputSource,debugmode,cache_client,currParams):
         self.conn=conn
         self.wrconn=wrconn
         self.runId=runId
+        self.dwconn = dwconn
         self.logger= OwnLogger(runId, inputSource)
         self.currParams=currParams
         self.inputSource=inputSource
@@ -139,7 +140,11 @@ GROUP BY
                 bl1.bookedPax AS BookedPax1,
                 bl1.Lid AS Capacity1,
                 bl2.bookedPax AS BookedPax2,
-                bl2.Lid AS Capacity2
+                bl2.Lid AS Capacity2,
+                crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
+                crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
+                crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
+                crb2_b2c.OpeningRBD AS OpeningRBDB2C2
             FROM 
                 market_list_connections mlc
             LEFT JOIN 
@@ -154,6 +159,34 @@ GROUP BY
                 RIGHT(mlc.Sector2, 3) = bl2.Destination AND
                 mlc.Flight2 = bl2.FlightNumber AND
                 STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
+            LEFT JOIN 
+                current_opening_rbd crb1_b2b ON 
+                LEFT(mlc.Sector1, 3) = crb1_b2b.Origin AND
+                RIGHT(mlc.Sector1, 3) = crb1_b2b.Destination AND
+                mlc.Flight1 = crb1_b2b.flightno AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2b.DepartureDate AND
+                crb1_b2b.Channel = 'B2B'
+            LEFT JOIN 
+                current_opening_rbd crb1_b2c ON 
+                LEFT(mlc.Sector1, 3) = crb1_b2c.Origin AND
+                RIGHT(mlc.Sector1, 3) = crb1_b2c.Destination AND
+                mlc.Flight1 = crb1_b2c.flightno AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2c.DepartureDate AND
+                crb1_b2c.Channel = 'B2C'
+            LEFT JOIN 
+                current_opening_rbd crb2_b2b ON 
+                LEFT(mlc.Sector2, 3) = crb2_b2b.Origin AND
+                RIGHT(mlc.Sector2, 3) = crb2_b2b.Destination AND
+                mlc.Flight2 = crb2_b2b.flightno AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2b.DepartureDate AND
+                crb2_b2b.Channel = 'B2B'
+            LEFT JOIN 
+                current_opening_rbd crb2_b2c ON 
+                LEFT(mlc.Sector2, 3) = crb2_b2c.Origin AND
+                RIGHT(mlc.Sector2, 3) = crb2_b2c.Destination AND
+                mlc.Flight2 = crb2_b2c.flightno AND
+                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2c.DepartureDate AND
+                crb2_b2c.Channel = 'B2C'
                 """
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
@@ -835,8 +868,8 @@ GROUP BY
         if channel == 'B2B':
             condition = " and LEFT(RBD,1) = 'Z'"
 
-        sector1_RBDquery = f"select Total ,currency from Fares where sector = '{sector1}' and RBD = '{rbd_sector1['ClassOfService'][0]}' and route = 'L' {condition}"
-        sector2_RBDquery = f"select Total ,currency from Fares where sector = '{sector2}' and RBD = '{rbd_sector2['ClassOfService'][0]}' and route = 'L' {condition}"
+        sector1_RBDquery = f"select Total ,currency from Fares where sector = '{sector1}' and RBD = '{rbd_sector1}' and route = 'L' {condition}"
+        sector2_RBDquery = f"select Total ,currency from Fares where sector = '{sector2}' and RBD = '{rbd_sector2}' and route = 'L' {condition}"
 
         sector1_result = pd.read_sql(sector1_RBDquery, self.conn)
         sector2_result = pd.read_sql(sector2_RBDquery, self.conn)
@@ -1010,8 +1043,8 @@ GROUP BY
         return df
     
     def fetch_all_conversion_data(self):
-        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM config_conversion_rate"
-        df = pd.read_sql(query, self.conn)
+        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
+        df = pd.read_sql(query, self.dwconn)
         return df
     
     def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):

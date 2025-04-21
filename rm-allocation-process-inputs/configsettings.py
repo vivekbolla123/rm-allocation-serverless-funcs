@@ -35,7 +35,9 @@ param_names = [
     f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD',
     f'/rm/{env}/rm-allocation/NAV_API_PASSWORD',
     f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY',
-    f'/rm/{env}/rm-allocation/RM_GW_APIKEY'
+    f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
+    f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
+    f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD'
 ]
 
 
@@ -47,6 +49,11 @@ if env == 'prod':
     RM_DB_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_USERNAME_READ = "rmappuser"
     RM_DB_APPUSER_URL_READ = "prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    DW_DB_HOST="prod-qp-dw.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+    DW_DB_PORT='3306' 
+    DW_DB_USER=credentials.get('/glue_job/prod/DW_DB_APPUSER_USERNAME')
+    DW_DB_PASSWORD= credentials.get('/glue_job/prod/DW_DB_APPUSER_PASSWORD')
+    DW_DB_WRITE_SCHEMA='RM_DW_DATA'
     RM_DB_APPUSER_PASSWORD_READ = credentials.get('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     NAV_DB_HOST = "10.154.12.13:52900"
     NAV_DB_NAME = "[REZ0KOD01]."
@@ -68,6 +75,11 @@ if env == 'uat':
     RM_DB_APPUSER_USERNAME_READ = "rm-user"
     RM_DB_APPUSER_URL_READ = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
     RM_DB_APPUSER_PASSWORD_READ = credentials.get(f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
+    DW_DB_HOST='uat-qp-dw.cfwwkweqog18.ap-south-1.rds.amazonaws.com' 
+    DW_DB_PORT='3306' 
+    DW_DB_USER=credentials.get('/glue_job/uat/DW_DB_APPUSER_USERNAME')
+    DW_DB_PASSWORD= credentials.get('/glue_job/uat/DW_DB_APPUSER_PASSWORD')
+    DW_DB_WRITE_SCHEMA='RM_DW_DATA'
     NAV_DB_HOST = "10.154.12.19:52900"
     NAV_DB_NAME = "[TST0KOD01]."
     NAV_DB_DW_NAME = "[TST0KDW01]."

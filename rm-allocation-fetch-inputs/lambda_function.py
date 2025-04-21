@@ -190,6 +190,58 @@ class NavDatabaseHelper:
         df.columns = ['Origin', 'Destination', 'FlightNumber', 
                      'DepartureDate', 'NextFlight']
         return df
+        
+    def get_opening_rbds(self, min_date, max_date):
+        """
+        Get opening RBDs for both B2B and B2C customers
+        """
+        query = f"""
+        WITH RankedInventory AS (
+            SELECT 
+                IL.FlightNumber,
+                IL.DepartureStation AS Origin,
+                IL.ArrivalStation AS Destination,
+                IL.DepartureDate,
+                ILC.ClassOfService,
+                ROW_NUMBER() OVER (
+                    PARTITION BY IL.FlightNumber, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate,
+                                CASE WHEN Substring(ILC.ClassOfService,1,1) = 'Z' THEN 'B2B' ELSE 'B2C' END
+                    ORDER BY ILC.ClassRank, ILC.ModifiedUTC DESC
+                ) AS RowNum,
+                CASE WHEN Substring(ILC.ClassOfService,1,1) = 'Z' THEN 'B2B' ELSE 'B2C' END AS CustomerType
+            FROM 
+                {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC 
+            JOIN 
+                {self.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
+            WHERE 
+                IL.DepartureDate BETWEEN '{min_date}' AND '{max_date}'
+                AND ILC.ClassType = ''
+                AND ILC.ClassAu != '0'
+        )
+        SELECT 
+            FlightNumber,
+            Origin,
+            Destination,
+            DepartureDate,
+            MAX(CASE WHEN CustomerType = 'B2B' AND RowNum = 1 THEN ClassOfService ELSE NULL END) AS OpeningRBDB2B,
+            MAX(CASE WHEN CustomerType = 'B2C' AND RowNum = 1 THEN ClassOfService ELSE NULL END) AS OpeningRBDB2C
+        FROM 
+            RankedInventory
+        GROUP BY 
+            FlightNumber,
+            Origin,
+            Destination,
+            DepartureDate
+        ORDER BY 
+            DepartureDate,
+            Origin,
+            Destination,
+            FlightNumber
+        """
+        df = pd.read_sql(query, self.NavitaireConnection)
+        print("get_opening_rbds")
+        return df
+
 # Utility functions
 
 
@@ -367,6 +419,7 @@ def lambda_handler(event, context):
         rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
         series_seats_data = nav_helper.get_series_seats(min_date, max_date)
         daily_flights = nav_helper.get_daily_flights(min_date, max_date)
+        opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
         bookings_count = nav_helper.get_last_bookings_count(
             departure_start_date=min_date,
             departure_end_date=max_date,
@@ -379,6 +432,7 @@ def lambda_handler(event, context):
         mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
         mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
         mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
+        mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
     elif route_type == "connections":
         update_navitaire_method = "sftp"
@@ -404,6 +458,10 @@ def lambda_handler(event, context):
         mkt_list['Sector1Dest'] = mkt_list['Sector1'].str[3:]
         mkt_list['Sector2Origin'] = mkt_list['Sector2'].str[:3]
         mkt_list['Sector2Dest'] = mkt_list['Sector2'].str[3:]
+
+        # Get opening RBDs for B2B and B2C
+        opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
+        opening_rbds['FlightNumber'] = opening_rbds['FlightNumber'].astype('int64')
 
         # Prepare booked loads for mapping
         booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
@@ -439,6 +497,25 @@ def lambda_handler(event, context):
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'capacity': 'Capacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector1
+        mkt_list = mkt_list.merge(
+            opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+        ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector2
+        mkt_list = mkt_list.merge(
+            opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
+            how='left',
+            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+        ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            
         mkt_list = mkt_list.drop(
             columns=['DepartureDate'], errors='ignore')
         markets_count = mkt_list.shape[0]
