@@ -7,10 +7,9 @@ import random
 
 class DetermineRBD:
     
-    def __init__(self, rmdatabasehelper, logger, inputsource, constantsutils, navdatabasehelper, mathutils, redisHelper):
+    def __init__(self, rmdatabasehelper, logger, inputsource, constantsutils, mathutils, redisHelper):
         self.inputSource = inputsource
         self.rmdatabasehelper = rmdatabasehelper
-        self.navdatabasehelper = navdatabasehelper
         self.logger = logger
         self.constantsutils = constantsutils
         self.mathutils = mathutils

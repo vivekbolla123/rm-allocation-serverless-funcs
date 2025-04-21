@@ -15,7 +15,6 @@ from Constants import *
 from helper.nav_api_helper import NavAPIHelper
 from helper.redis_helper import RedisHelper
 from helper.rm_database_helper import RMDatabaseHelper
-from helper.nav_database_helper import NavDatabaseHelper
 
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
@@ -76,10 +75,7 @@ class DynAllocConnections:
 
     def runDynamicAllocationSingleMarket(self, mtkIndex):
         self.qpcurrency="INR"
-        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-            self.conversion_data = self.navdatabasehelper.fetch_all_conversion_data()
-        if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-            self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
+        self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
         print("**********************************************")
         print("Starting Allocation for row : " + str(mtkIndex))
 
@@ -220,8 +216,8 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2c.Sector2 = sector2
                         self.outputSummaryRow_b2c.FltNum1 = str(flightNo1)
                         self.outputSummaryRow_b2c.FltNum2 = str(flightNo2)
-                        self.outputSummaryRow_b2c.DepDate = str(dateFormatted1)
-                        self.outputSummaryRow_b2c.DepDate = str(dateFormatted2)
+                        self.outputSummaryRow_b2c.DepDate1 = str(dateFormatted1)
+                        self.outputSummaryRow_b2c.DepDate2 = str(dateFormatted2)
                         self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
                         self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
                         self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
@@ -246,7 +242,7 @@ class DynAllocConnections:
 
                 bookedLoadSingleRowSector2 = bookedLoad_sector2
 
-                if (np.isnan(bookedLoadSingleRowSector1) or np.isnan(bookedLoadSingleRowSector2) ):
+                if (pd.isna(bookedLoadSingleRowSector1) or pd.isna(bookedLoadSingleRowSector2) ):
                     dateFormatted1 = datetime.strptime(
                         str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
                     dateFormatted2 = datetime.strptime(
@@ -338,26 +334,14 @@ class DynAllocConnections:
                 bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
             print("Combined Booked Load for " + str(flight1)+" "+str(
                 flight2) + " on " + str(current_date1) + " is :" + str(bookload))
-            if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-                b2b_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1)
-                b2c_rbd_sector1 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1)
-                b2b_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2)
-                b2c_rbd_sector2 = self.rmdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2)
-            if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-                b2b_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2B", sector1, bookedLoadSingleRowSector1)
-                b2c_rbd_sector1 = self.navdatabasehelper.getcurrentRBD(
-                    current_date1, flight1, "B2C", sector1, bookedLoadSingleRowSector1)
-                b2b_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2B", sector2, bookedLoadSingleRowSector2)
-                b2c_rbd_sector2 = self.navdatabasehelper.getcurrentRBD(
-                    current_date2, flight2, "B2C", sector2, bookedLoadSingleRowSector2)
+            
+            b2b_rbd_sector1 = self.currParams.OpeningRBDB2B1
+            b2c_rbd_sector1 = self.currParams.OpeningRBDB2C1
+            b2b_rbd_sector2 = self.currParams.OpeningRBDB2B2
+            b2c_rbd_sector2 = self.currParams.OpeningRBDB2C2
+            
 
-            if (b2c_rbd_sector1.shape[0] == 0 or b2c_rbd_sector2.shape[0] == 0):
+            if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2)):
                 # unable to get bookload aborting
                 lowFare="NA"
                 lowAirlineCode="NA"
@@ -371,27 +355,27 @@ class DynAllocConnections:
                     'BaseLeg B2C SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                     'BaseLeg B2B SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
-                if b2c_rbd_sector1.shape[0] != 0:
-                    self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1["ClassOfService"].values[0]
+                if b2c_rbd_sector1 != CONST_NA:
+                    self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
                     SellingFare1,currency1 = self.rmdatabasehelper.getSellingPrice(
-                        b2c_rbd_sector1["ClassOfService"].values[0], sector1, "B2C", "L")
+                        b2c_rbd_sector1, sector1, "B2C", "L")
                     if currency1!='INR':
                         SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                     self.outputSummaryRow_b2c.SellingFare1 = SellingFare1
                     if self.outputSummaryRow_b2c.SellingFare1 == 0:
                         openDataB2C['FareResult'] = "QP Fares Not Available"
-                if b2c_rbd_sector2.shape[0] != 0:
-                    self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2["ClassOfService"].values[0]
+                if b2c_rbd_sector2 != CONST_NA:
+                    self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                     SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
-                        b2c_rbd_sector2["ClassOfService"].values[0], sector2, "B2C", "L")
+                        b2c_rbd_sector2, sector2, "B2C", "L")
                     if currency1!='INR':
                         SellingFare2=self.convert_currency(currency1,'INR',SellingFare2)
                     self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                     if self.outputSummaryRow_b2c.SellingFare2 == 0:
                         openDataB2C['FareResult'] = "QP Fares Not Available"
             else:
-                self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1["ClassOfService"].values[0]
-                self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2["ClassOfService"].values[0]
+                self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
+                self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                 b2cSectorTotal,SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
                     b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, "B2C")
                 if currency1!='INR':
@@ -472,31 +456,31 @@ class DynAllocConnections:
                     openDataB2C = self.determineRBDToOpen(
                     b2cTotal, origin, destin, "B2C", B2CBackstop,0)
                 
-                if (b2b_rbd_sector1.shape[0] == 0 or b2b_rbd_sector2.shape[0] == 0):
+                if (b2b_rbd_sector1 == CONST_NA or pd.isna(b2b_rbd_sector1) or b2b_rbd_sector2 == CONST_NA or pd.isna(b2b_rbd_sector2)):
                     # unable to get bookload aborting
                     openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                         'BaseLeg B2B SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
-                    if b2b_rbd_sector1.shape[0] != 0:
-                        self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1["ClassOfService"].values[0]
+                    if b2b_rbd_sector1 != CONST_NA and not pd.isna(b2b_rbd_sector1):
+                        self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                         SellingFare1,currency1 = self.rmdatabasehelper.getSellingPrice(
-                            b2b_rbd_sector1["ClassOfService"].values[0], sector1, "B2B", "L")
+                            b2b_rbd_sector1, sector1, "B2B", "L")
                         if currency1!='INR':
                             SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
                         if self.outputSummaryRow_b2b.SellingFare1 == 0:
                             openDataB2B['FareResult'] = "QP Fares Not Available"
-                    if b2b_rbd_sector2.shape[0] != 0:
-                        self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2["ClassOfService"].values[0]
+                    if b2b_rbd_sector2 != CONST_NA and not pd.isna(b2b_rbd_sector2):
+                        self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
                         SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
-                            b2b_rbd_sector2["ClassOfService"].values[0], sector2, "B2B", "L")
+                            b2b_rbd_sector2, sector2, "B2B", "L")
                         if currency2!='INR':
                             SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
                         if self.outputSummaryRow_b2b.SellingFare2 == 0:
                             openDataB2B['FareResult'] = "QP Fares Not Available"
                 else:
-                    self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1["ClassOfService"].values[0]
-                    self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2["ClassOfService"].values[0]
+                    self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
+                    self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
                     if (b2cTotal == 0):
                         openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2C Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
@@ -777,7 +761,7 @@ class DynAllocConnections:
         self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
         self.conn = self.currParams.dbconn
         self.wrconn = self.currParams.wrconn
-        self.NavitaireConnection = self.currParams.navitaire_connection
+        self.dwconn = self.currParams.dwconn
         self.starttime = datetime.now()
         self.allocResults = []
         self.AUFileData = []
@@ -789,20 +773,20 @@ class DynAllocConnections:
             self.runId, self.cache_client, self.inputSource)
         self.logger = OwnLogger(self.runId, self.inputSource)
         self.rmdatabasehelper = RMDatabaseHelper(
-            self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
-        self.constantsUtils = ConstantsUtils(self.conn)
+            self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
+        self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
         self.utils = Utils(self.inputSource)
         self.mathutils = MathUtils(self.inputSource)
         if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
             self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY,
                                              self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
         self.timeutils = TimeUtils(self.inputSource)
-        self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
-                                                   self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
+        # self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
+        #                                            self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
         self.marketfaresservice = MarketFareService(
-            self.rmdatabasehelper, self.navdatabasehelper, self.constantsUtils, self.timeutils)
+            self.rmdatabasehelper, self.constantsUtils, self.timeutils)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,
-                                         self.constantsUtils, self.navdatabasehelper, self.mathutils, self.redishelper)
+                                         self.constantsUtils, self.mathutils, self.redishelper)
         self.allocations = RBDAllocations(
             self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
         self.AU_COLUMN_LENGTH_CONNECTIONS = self.constantsUtils.AU_COLUMN_LENGTH_CONNECTIONS

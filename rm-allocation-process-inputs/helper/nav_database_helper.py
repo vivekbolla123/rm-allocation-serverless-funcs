@@ -1,28 +1,28 @@
-from datetime import datetime,timedelta
-import pandas as pd
-from Constants import *
-from ownlogger import OwnLogger
-import logging
-from utilities.time_utils import TimeUtils
-from time_logger import TimeLogger
+# from datetime import datetime,timedelta
+# import pandas as pd
+# from Constants import *
+# from ownlogger import OwnLogger
+# import logging
+# from utilities.time_utils import TimeUtils
+# from time_logger import TimeLogger
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# logger = logging.getLogger()
+# logger.setLevel(logging.INFO)
 
-class NavDatabaseHelper:
-    def __init__(self,navconn,conn,inputSource,nav_db_name,nav_db_ref_name,runId,debugMode,nav_db_wb_name,CurrParams, log_time):   
-       self.NavitaireConnection = navconn
-       self.conn = conn
-       self.runId = runId
-       self.logger = OwnLogger(runId, inputSource)
-       self.inputSource = inputSource
-       self.NAV_DB_NAME = nav_db_name
-       self.NAV_DB_WB_NAME = nav_db_wb_name
-       self.NAV_DB_REF_NAME = nav_db_ref_name
-       self.debugMode = debugMode
-       self.timeutils=TimeUtils(inputSource)
-       self.currParams=CurrParams
-       self.log_time = log_time
+# class NavDatabaseHelper:
+#     def __init__(self,navconn,conn,inputSource,nav_db_name,nav_db_ref_name,runId,debugMode,nav_db_wb_name,CurrParams, log_time):   
+#        self.NavitaireConnection = navconn
+#        self.conn = conn
+#        self.runId = runId
+#        self.logger = OwnLogger(runId, inputSource)
+#        self.inputSource = inputSource
+#        self.NAV_DB_NAME = nav_db_name
+#        self.NAV_DB_WB_NAME = nav_db_wb_name
+#        self.NAV_DB_REF_NAME = nav_db_ref_name
+#        self.debugMode = debugMode
+#        self.timeutils=TimeUtils(inputSource)
+#        self.currParams=CurrParams
+#        self.log_time = log_time
         
     # def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
     #     self.log_time.start()
@@ -92,30 +92,30 @@ class NavDatabaseHelper:
     #     self.log_time.end("getNumberOfBookings")
     #     return farePrice
     
-    def getcurrentRBD(self, departuredate, flightnumber, channel, sector,bookload):
-        self.log_time.start()
-        if channel == 'B2C':
-            RBDQuery = "Substring(ClassOfService,1,1) != 'Z'"
-        if channel == 'B2B':
-            RBDQuery = "Substring(ClassOfService,1,1) = 'Z'"
-        query = f'''
-            SELECT top 1 ILC.ClassOfService, IL.STD
-FROM {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
-JOIN {self.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
-where IL.DepartureDate = '{departuredate}'
-and trim(IL.FlightNumber) ='{flightnumber}'
-and IL.DepartureStation + IL.ArrivalStation ='{sector}'
-and ClassType = ''
-and ClassAu != '0'
-and (ClassAU-{str(bookload)})>0
-and {RBDQuery}
-order by ILC.ModifiedUTC desc, ILC.ClassRank
-        '''
+#     def getcurrentRBD(self, departuredate, flightnumber, channel, sector,bookload):
+#         self.log_time.start()
+#         if channel == 'B2C':
+#             RBDQuery = "Substring(ClassOfService,1,1) != 'Z'"
+#         if channel == 'B2B':
+#             RBDQuery = "Substring(ClassOfService,1,1) = 'Z'"
+#         query = f'''
+#             SELECT top 1 ILC.ClassOfService, IL.STD
+# FROM {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC
+# JOIN {self.NAV_DB_NAME}[Rez].[InventoryLeg] IL ON IL.[InventoryLegID] = ILC.[InventoryLegID]
+# where IL.DepartureDate = '{departuredate}'
+# and trim(IL.FlightNumber) ='{flightnumber}'
+# and IL.DepartureStation + IL.ArrivalStation ='{sector}'
+# and ClassType = ''
+# and ClassAu != '0'
+# and (ClassAU-{str(bookload)})>0
+# and {RBDQuery}
+# order by ILC.ModifiedUTC desc, ILC.ClassRank
+#         '''
         
         
-        rbdsallocated = pd.read_sql(query,self.NavitaireConnection)
-        self.log_time.end("getcurrentRBD")
-        return rbdsallocated
+#         rbdsallocated = pd.read_sql(query,self.NavitaireConnection)
+#         self.log_time.end("getcurrentRBD")
+#         return rbdsallocated
     
     # def get_seats_sold_by_class(self, flight_number, origin, destination, departure_date):
     #     self.log_time.start()
@@ -206,9 +206,9 @@ order by ILC.ModifiedUTC desc, ILC.ClassRank
     #     self.log_time.end("get_series_seats")
     #     return df
     
-    def fetch_all_conversion_data(self):
-        self.log_time.start()
-        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM {self.NAV_DB_REF_NAME}[Reference].CurrencyConversion"
-        df = pd.read_sql(query, self.NavitaireConnection)
-        self.log_time.end("fetch_all_conversion_data")
-        return df
+    # def fetch_all_conversion_data(self):
+    #     self.log_time.start()
+    #     query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM {self.NAV_DB_REF_NAME}[Reference].CurrencyConversion"
+    #     df = pd.read_sql(query, self.NavitaireConnection)
+    #     self.log_time.end("fetch_all_conversion_data")
+    #     return df

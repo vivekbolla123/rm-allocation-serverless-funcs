@@ -13,10 +13,8 @@ from runAlloc_Connections import DynAllocConnections
 
 
 def testCase1():
-    mysql_container = MySqlContainer('mysql:latest')
-    mysql_container.get_container_host_ip = lambda: 'localhost'
-    mysql_container.start()
-    conn = create_engine(mysql_container.get_connection_url())
+    DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
+    conn = create_engine(DB_WR_CONN_STRING)
 
     inputData = {
         "debugMode": False,
@@ -49,13 +47,15 @@ def testCase1():
         "NavitaireConnection": None,
         "dbconn": conn,
         "wrconn": conn,
+        "dwconn":conn,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
         "runTime":None,
         "cache_client":None,
         "route_type":"direct",
-        "timelogger":None
+        "timelogger":None,
+        "w0_value":0
     }
     outputData = {}
 

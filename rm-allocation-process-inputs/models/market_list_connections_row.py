@@ -28,14 +28,20 @@ class MarketListConnectiosnsRow:
         self.BookedPax1 = currParams.get("BookedPax1", CONST_NA) 
         self.BookedPax2 = currParams.get("BookedPax2", CONST_NA)
         self.Capacity1 = currParams.get("Capacity1", CONST_NA) 
-        self.Capacity2 = currParams.get("Capacity2", CONST_NA)  
+        self.Capacity2 = currParams.get("Capacity2", CONST_NA) 
+        
+        self.OpeningRBDB2B1 = currParams.get("OpeningRBDB2B1", CONST_NA)  
+        self.OpeningRBDB2C1 = currParams.get("OpeningRBDB2C1", CONST_NA)  
+        self.OpeningRBDB2B2 = currParams.get("OpeningRBDB2B2", CONST_NA)  
+        self.OpeningRBDB2C2 = currParams.get("OpeningRBDB2C2", CONST_NA)  
+         
         
         self.run_id = currParams.get("runId",CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method",CONST_NA)
         self.run_time = currParams.get("runTime",CONST_NA)
-        self.navitaire_connection = currParams.get("NavitaireConnection",CONST_NA)
         self.dbconn = currParams.get("dbconn",CONST_NA)
         self.wrconn = currParams.get("wrconn",CONST_NA)
+        self.dwconn = currParams.get("dwconn",CONST_NA)
         self.sqs = currParams.get("sqs",CONST_NA)
         self.run_single_market = currParams.get("runSingleMarket",CONST_NA)
         self.s3 = currParams.get("s3",CONST_NA)
