@@ -1,6 +1,7 @@
 import sys,os
 
 path = os.path.abspath("rm-allocation-process-inputs")
+sys.path.append('./rm-allocation-configurations')
 sys.path.insert(1,path)
 import Constants
 import datetime
@@ -13,7 +14,7 @@ from runAlloc_Connections import DynAllocConnections
 
 
 def testCase1():
-    DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
+    DB_WR_CONN_STRING = f"mysql+mysqldb://root:12345678@localhost/localtest"
     conn = create_engine(DB_WR_CONN_STRING)
 
     inputData = {

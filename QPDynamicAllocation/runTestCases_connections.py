@@ -1,5 +1,6 @@
 import sys,os
 path = os.path.abspath("rm-allocation-process-inputs")
+sys.path.append('./rm-allocation-configurations')
 sys.path.insert(1,path)
 import Constants
 import datetime
