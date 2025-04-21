@@ -42,6 +42,7 @@ class ConstantsUtils:
         self.TBF_DIFF_FARE = TBF_DIFF_FARE
         self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
+        self.TBF_SEATS = TBF_SEATS
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
@@ -139,6 +140,8 @@ class ConstantsUtils:
                 self.OVERBOOKING_CAP = int(parameter_value)
             elif parameter_key == PROF_OPEN_COUNT_KEY:
                 self.PROF_OPEN_COUNT = int(parameter_value)
+            elif parameter_key == TBF_SEATS_KEY:
+                self.TBF_SEATS = int(parameter_value)
             elif parameter_key == ADHOC_BATCH_SIZE_KEY:
                 self.ADHOC_BATCH_SIZE = int(parameter_value)
             elif parameter_key == CHECK_THRESHOLD_FETCH_INPUTS_KEY:

@@ -16,7 +16,13 @@ class RBDAllocations:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue):
+    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare=None, adjustedCapacity=None):
+        # If adjustedCapacity is None, use totalCapacity as the base
+        baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
+        
+        # Calculate overbooking seats (if any)
+        overBookingSeats = totalCapacity - baseCapacity if adjustedCapacity is not None else 0
+        
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
         fullRbds=B2CRBDs
@@ -46,6 +52,18 @@ class RBDAllocations:
         incremental_list = []
         rbdlabel_list=[]
         price_list=[]
+        
+        # Determine the overbooking RBD index if overBookingFare is provided
+        obRBDIndex = -1
+        if overBookingFare is not None and overBookingFare > 0 and overBookingSeats > 0:
+            # Find the closest RBD to the overbooking fare
+            B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - overBookingFare)
+            obRBDIndex = B2CRBDs['FareDiff'].idxmin()
+            closestRBD = B2CRBDs.loc[obRBDIndex, 'RBD']
+            closestFare = B2CRBDs.loc[obRBDIndex, 'Total']
+            self.logger.info(f"Overbooking fare: {overBookingFare}, Closest RBD index: {obRBDIndex}, RBD: {closestRBD}, Fare: {closestFare}")
+            self.logger.info(f"Overbooking seats: {overBookingSeats}, Base capacity: {baseCapacity}, Total capacity: {totalCapacity}")
+            B2CRBDs = B2CRBDs.drop('FareDiff', axis=1)
         
         if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
             upsellValue = 0
@@ -82,32 +100,54 @@ class RBDAllocations:
 
             # Allocation
             if openbuketFlag:
-                # Valid B2C Allocation
-                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile = self.getIncrementalValue(currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile)
+                # Step 1: Normal allocation using baseCapacity
+                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile = self.getIncrementalValue(
+                    currBookedLoad, baseCapacity, bookedDeficit, dPLF, 
+                    remainingCapacity, ndocounter, currParams, profileFare, 
+                    maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, 
+                    incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, 
+                    jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, 
+                    price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile
+                )
 
-                if incremental >= totalCapacity:
-                    incremental = totalCapacity
+                # Ensure we don't exceed base capacity in the normal allocation
+                if incremental > baseCapacity:
+                    incremental = baseCapacity
 
-                if incrementalb2b >= totalCapacity:
-                    incrementalb2b = totalCapacity
+                if incrementalb2b > baseCapacity:
+                    incrementalb2b = baseCapacity
+
+                # Step 2: Apply overbooking for RBDs at or above the threshold
+                if obRBDIndex != -1 and b2cctr >= obRBDIndex and overBookingSeats > 0:
+                    # Add overbooking seats to allocation for RBDs at or above the threshold
+                    incremental += overBookingSeats
+                    incrementalb2b += overBookingSeats
+                    status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
+                    self.logger.info(f"Applied overbooking to RBD {RBDLabel}: Base allocation {incremental - overBookingSeats} + {overBookingSeats} overbooking seats = {incremental}")
 
                 if RBDLabel == self.constantsutils.HIGHEST_B2C_RBD_VALUE:
                     incremental = totalCapacity
+                
                 if currRec.get_class_attribute(b2cctr,'class_au') is not None:
                     if incremental<currRec.get_class_attribute(b2cctr,'class_au'):
                         incremental=currRec.get_class_attribute(b2cctr,'class_au')
+                
                 if b2cctr < B2CRBDs.shape[0]:
                     currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
+                
                 b2cAllocationsUnits.append(incrementalb2b)
                 b2bctr = b2bctr + 1
             else:
                 currRec.set_class_attribute(b2cctr + 1, 'class_au', 0)
+            
             if b2cctr < B2CRBDs.shape[0]:
                 b2cctr = b2cctr + 1
+            
             jumpingRBDPrice_list.append(jumpingRBDPrice)
             incremental_list.append(incremental)
             rbdlabel_list.append(RBDLabel)
             price_list.append(price)
+        
         data = {
         'jumpingRBDPrice': jumpingRBDPrice_list,
         'incremental': incremental_list,
@@ -120,47 +160,42 @@ class RBDAllocations:
         df_unique = df_filtered.sort_values(['price', 'price_diff']).drop_duplicates('RBD')
         df_unique = df_unique.drop(columns='price_diff')
 
-        return b2cAllocationsUnits, b2cctr + 1, status,df_unique,fullRbds,openingRBDPrice
-    
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue,openingRBDPrice):
+        return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice
+
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, overBookingFare=None, adjustedCapacity=None):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
-        
         currRec_copy = copy.deepcopy(currRec)
-        
         
         # First allocation with rbdPushFlag = 0
         currParams.rbdPushFlag = 0
-        _, _, _, df_unique_0, _,_ = self.b2CAllocation(
+        _, _, _, df_unique_0, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue
+            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
         )
-        
         
         currRec_copy = copy.deepcopy(currRec)
         
-        
-        
         # Second allocation with rbdPushFlag = 1
         currParams.rbdPushFlag = 1
-        _, _, _, df_unique_1, _,_ = self.b2CAllocation(
+        _, _, _, df_unique_1, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue
+            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
         )
         
         df_unique_1_modified = df_unique_1.copy()
-    
+
         # Set incremental to 0 where price difference condition is not met
         price_diff_mask = abs(openingRBDPrice-df_unique_1_modified['price']) >= self.constantsutils.TBF_DIFF_FARE
         df_unique_1_modified.loc[price_diff_mask, 'incremental'] = 0
         merged_df = pd.concat([df_unique_0, df_unique_1_modified], ignore_index=True)
-    
+
         # Select row with higher incremental value for each unique RBD
         final_df = merged_df.sort_values('incremental', ascending=False).drop_duplicates('RBD', keep='first')
-    
+
         # Sort the final DataFrame by price to maintain original order
         final_df = final_df.sort_values('price')
         if int(currParams.rbdPushFlag)==1:
@@ -457,8 +492,7 @@ class RBDAllocations:
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector):
-        max_au = currBookedLoad-currtbfBookedLoad+30
-        max_au = min(max_au,adjustedCapacity-20)
+        max_au = currBookedLoad-currtbfBookedLoad+int(self.constantsutils.TBF_SEATS)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
         tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         
