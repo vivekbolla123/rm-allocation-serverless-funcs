@@ -176,10 +176,10 @@ CONST_AU_GRID = "AUGrid"
 
 CONST_MARKET_LIST_FILE_PATH = f"{sys.path[0]}/params/MarketList.csv"
 CONST_MARKET_LIST_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/params/MarketList_Connections.csv"
-CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/output/AUGrid.csv"
-CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/output/summary.csv"
-CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/output/AUGrid_Connections.csv"
-CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/output/summary_Connections.csv"
+CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/AUGrid.csv"
+CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary.csv"
+CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/testcases/output/generated_output/AUGrid_Connections.csv"
+CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_Connections.csv"
 
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'

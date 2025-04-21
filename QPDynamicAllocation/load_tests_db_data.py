@@ -52,7 +52,7 @@ class Schema:
 
     def load_generic_table(self, tableName, dataFile):
         # This will load a csv file into a DB Table
-        rawdata = pd.read_csv(f"{sys.path[0]}/params/data/" + dataFile)
+        rawdata = pd.read_csv(f"{sys.path[0]}/testcases/input/" + dataFile)
 
         self.dropTable(tableName)
         rawdata.to_sql(name=tableName, con=self.conn,
