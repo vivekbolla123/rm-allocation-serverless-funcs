@@ -936,7 +936,7 @@ class DynAlloc:
 			if nextFlight == False and overBookingCount > OVERBOOKING_MAX_COUNT:
 				self.logger.info("Reducing overbooking to max 2 seats")
 				overBookingCount = OVERBOOKING_MAX_COUNT
-			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf,self.currParams.NextFlight, overBookingCount):
+			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
 				totalCapacity = totalCapacity+overBookingCount
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
@@ -947,7 +947,7 @@ class DynAlloc:
 				self.b2boverbookingflag = True
 		else:
 			self.logger.info("Entered manual overbooking loop runalloc")
-			if self.canOverbook( ndocounter, totalCapacity, adjustedCapacity, plf,self.currParams.NextFlight, float(self.currParams.obSeats)):
+			if self.canOverbook( ndocounter, totalCapacity, adjustedCapacity, plf, float(self.currParams.obSeats)):
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
 					self.logger.info("Lid from nav is: "+ str(lid))
