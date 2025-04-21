@@ -921,13 +921,9 @@ class DynAlloc:
 				if plf > B2B_threshold[0]:
 					self.B2B_threshold = True
 
-	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad):
+	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		self.b2boverbookingflag = False
-		overBookingFare = 0
-		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
-		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			nextFlight = self.navdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
+		nextFlight = self.currParams.NextFlight
 		if (self.currParams.obSeats == '' or self.currParams.obSeats is None or (hasattr(self.currParams.obSeats, 'dtype') and math.isnan(self.currParams.obSeats))) and (self.currParams.obFare == '' or self.currParams.obFare is None or (hasattr(self.currParams.obFare, 'dtype') and math.isnan(self.currParams.obFare))):
 			self.logger.info("Entered system overbooking loop runalloc")
 			overBookingCount = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
