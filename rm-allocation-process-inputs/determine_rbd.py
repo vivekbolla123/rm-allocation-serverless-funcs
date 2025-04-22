@@ -27,8 +27,6 @@ class DetermineRBD:
         overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        if last7avg:
-            offset = 0
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
         if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
             hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
@@ -39,7 +37,7 @@ class DetermineRBD:
             hardAnchorFare=hardopenResult['Fare'][0]
             
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare, offset
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
@@ -65,9 +63,9 @@ class DetermineRBD:
             openResult['RBD']=['NA']
             openResult['Fare']=['NA']
             
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare, offset
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare, offset
+            return openResult, lastSoldFare, strategyFare, profileFare, upsell,hardAnchorFare, overBookingFare
 
         self.logger.info("totalCapacity: " + str(totalCapacity))
         self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -123,7 +121,7 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare, offset
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare
 
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter):
         anchorFare = 0
