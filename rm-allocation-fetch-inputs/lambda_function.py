@@ -428,12 +428,19 @@ def lambda_handler(event, context):
         )
 
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
+        print(len(mkt_list)," booked_loads")
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
+        print(len(mkt_list)," seats_sold_pivot")
         mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
+        print(len(mkt_list)," rbd_pivot")
         mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
+        print(len(mkt_list)," series_seats_data")
         mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
+        print(len(mkt_list)," daily_flights")
         mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
+        print(len(mkt_list)," opening_rbds")
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
+        print(len(mkt_list)," bookings_count")
     elif route_type == "connections":
         update_navitaire_method = "sftp"
         is_connections_required = "0"
@@ -857,20 +864,15 @@ def filter_market_list(market_list_df, ndo0_map):
 
                     if departure_time > cutoff_time:
                         keep_mask[idx] = True
-                        logger.info(
-                            f"Keeping today's flight {flight_number} {origin}-{destination} as departure time {departure_time} is after cutoff {cutoff_time}")
+                        
                     else:
                         skip_mask[idx] = True
-                        logger.info(
-                            f"Skipping today's flight {flight_number} due to departure time {departure_time} before cutoff {cutoff_time}")
+                        
                 else:
-                    logger.info(
-                        f"Today's flight {flight_number} not found in Navitaire data - skipping")
+                    
                     skip_mask[idx] = True
             else:
                 keep_mask[idx] = True
-                logger.info(
-                    f"Keeping future flight {flight_number} for date {market_date}")
 
         except Exception as e:
             logger.error(f"Error processing market {market}: {str(e)}")
