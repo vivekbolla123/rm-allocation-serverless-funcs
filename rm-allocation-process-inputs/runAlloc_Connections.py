@@ -355,7 +355,7 @@ class DynAllocConnections:
                     'BaseLeg B2C SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                     'BaseLeg B2B SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
-                if b2c_rbd_sector1 != CONST_NA:
+                if b2c_rbd_sector1 != CONST_NA and not pd.isna(b2c_rbd_sector1):
                     self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
                     SellingFare1,currency1 = self.rmdatabasehelper.getSellingPrice(
                         b2c_rbd_sector1, sector1, "B2C", "L")
@@ -364,7 +364,7 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2c.SellingFare1 = SellingFare1
                     if self.outputSummaryRow_b2c.SellingFare1 == 0:
                         openDataB2C['FareResult'] = "QP Fares Not Available"
-                if b2c_rbd_sector2 != CONST_NA:
+                if b2c_rbd_sector2 != CONST_NA and not pd.isna(b2c_rbd_sector2):
                     self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                     SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
                         b2c_rbd_sector2, sector2, "B2C", "L")

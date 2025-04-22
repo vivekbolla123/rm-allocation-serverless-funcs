@@ -143,7 +143,7 @@ class NavAPIHelper:
         trip_info_simple_url = f"{self.base_url}/nsk/v4/availability/search/simple"
         response = self.session.post(trip_info_simple_url, json=data, verify=False)
         departure=""
-        if response.status_code!=400:
+        if response.status_code==200:
             data = response.json()
             if data["data"] is not None and  not pd.isna(data["data"]) and not pd.isnull(data["data"]):
                 for result in data["data"]["results"]:
