@@ -144,7 +144,7 @@ class NavAPIHelper:
         response = self.session.post(trip_info_simple_url, json=data, verify=False)
         data = response.json()
         departure=""
-        if data is not None and  not pd.isna(data) and not pd.isnull(data):
+        if data["data"] is not None and  not pd.isna(data["data"]) and not pd.isnull(data["data"]):
             for result in data["data"]["results"]:
                 for trip in result["trips"]:
                     for journey in trip["journeysAvailableByMarket"].values():
