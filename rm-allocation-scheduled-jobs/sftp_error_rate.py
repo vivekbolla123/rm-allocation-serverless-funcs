@@ -193,6 +193,7 @@ class SFTPErrorRate:
             error_rate, total_class = 0, 0
             
             if "/" in flight_num:  # Connection flight
+                self.isconnections=True
                 # Filter connection flights data
                 flightnums = flight_num.split("/")
                 # flight_filter = f"%{flightnums[0]}%%{flightnums[1]}%"
