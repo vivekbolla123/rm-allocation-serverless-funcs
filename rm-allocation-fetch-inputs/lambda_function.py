@@ -79,7 +79,7 @@ class NavDatabaseHelper:
 
     def getCurrentBookedLoads(self, startDate, endDate):
 
-        NavitaireQuery = f""" EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata2]
+        NavitaireQuery = f""" EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
                                 @DepartureDate_from = N'{str(startDate)}',
                                 @DepartureDate_to = N'{str(endDate)}'
                             """
@@ -91,7 +91,7 @@ class NavDatabaseHelper:
         Execute SP_LastBookingsCount2 stored procedure to get booking counts
         """
         query = f"""
-                EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastBookingsCount2]
+                EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastBookingsCount]
                     @DepartureStartDate = N'{departure_start_date}',
                     @DepartureEndDate = N'{departure_end_date}',
                     @ComparisonDate = N'{comparison_date}',
@@ -181,7 +181,7 @@ class NavDatabaseHelper:
         """
         Execute SP_DailyFlights2 stored procedure to get daily flight information
         """
-        query = f"""EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_DailyFlights2]
+        query = f"""EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_DailyFlights]
                     @StartDate = N'{str(start_date)}',
                     @EndDate = N'{str(end_date)}'
                  """
