@@ -37,6 +37,7 @@ param_names = [
     f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD',
     f'/rm/{env}/rm-allocation/NAV_API_PASSWORD',
     f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY',
+    f'/rm/{env}/rm-allocation/NAV_SFTP_PASSWORD',
     f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
     f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
