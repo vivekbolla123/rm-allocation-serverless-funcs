@@ -450,6 +450,7 @@ class DynAlloc:
 			b2b_discount_fare = False
 			discount_amount = 0
 			if isB2CMarketFareAvailable or last_seven_avg!=CONST_NA:
+				self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
 				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
@@ -458,7 +459,6 @@ class DynAlloc:
 				
 				last7avg = False
 				if not isB2CMarketFareAvailable:
-					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
 					self.outputSummaryRow_b2c.anchorFare = last_seven_avg
 					last7avg = True
 				if last7avg:
