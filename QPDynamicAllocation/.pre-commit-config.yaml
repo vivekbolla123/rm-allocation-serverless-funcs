@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: prevent protected branch and run test cases
+        name: Test Cases
+        entry: QPDynamicAllocation/pre-commit-hook.sh
+        language: script
+        pass_filenames: false
+        stages: [pre-commit]
