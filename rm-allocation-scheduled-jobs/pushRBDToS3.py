@@ -4,6 +4,7 @@ import pandas as pd
 from io import StringIO
 from boto3 import client
 from datetime import datetime
+from sqlalchemy import text
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
 KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
@@ -50,9 +51,15 @@ class pushRBDToS3:
                 self.cache_client.set(KEY_B2C_READY_COUNT + run_id, int(b2cPendingCount))
 
                 actual_end_time = datetime.now()
-                self.rm_rd_conn.execute(
-                    f"UPDATE allocation_run_audit SET is_s3_pushed = '1', actual_end_time ='{actual_end_time.strftime('%Y-%m-%d %H:%M:%S')}' WHERE run_id = '{run_id}'"
-                )
+                update_query = text("""
+                    UPDATE allocation_run_audit 
+                    SET is_s3_pushed = '1', actual_end_time = :actual_end_time 
+                    WHERE run_id = :run_id
+                """)
+                self.rm_rd_conn.execute(update_query, {
+                    "actual_end_time": actual_end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                    "run_id": run_id
+                })
                 self.logger.info(f"Records updated successfully for run_id: {run_id}")
         except Exception as e:
             self.logger.error(f"An error occurred in updateRecords: {str(e)}")
@@ -60,19 +67,35 @@ class pushRBDToS3:
     def fetch_data_AUGrid(self, runid):
         try:
             self.logger.debug(f"Fetching AU Grid data for run_id: {runid}")
-            data = self.rm_rd_conn.execute(
-                f"SELECT result,flightNumber,flightDate FROM run_flight_date_audit WHERE runId = '{runid}' and (b2cstatus != 'Done' OR b2bstatus != 'Done')"
-            )
+            
+            select_query = text("""
+                SELECT result, flightNumber, flightDate 
+                FROM run_flight_date_audit 
+                WHERE runId = :runid 
+                AND (b2cstatus != 'Done' OR b2bstatus != 'Done')
+            """)
+            data = self.rm_rd_conn.execute(select_query, {"runid": runid})
+            
             AUFrame = []
             AUHeaders = self.generateAUHeaders()
 
             for row in data:
                 AUFrame.append(eval(row['result']))
-                self.rm_rd_conn.execute(
-                    f"UPDATE run_flight_date_audit SET b2cstatus = 'Done', b2bstatus = 'Done' WHERE runId = '{runid}' and flightNumber='{row['flightNumber']}' and flightDate='{row['flightDate']}'"
-                )
+                
+                update_query = text("""
+                    UPDATE run_flight_date_audit 
+                    SET b2cstatus = 'Done', b2bstatus = 'Done' 
+                    WHERE runId = :runid 
+                    AND flightNumber = :flightNumber 
+                    AND flightDate = :flightDate
+                """)
+                self.rm_rd_conn.execute(update_query, {
+                    "runid": runid,
+                    "flightNumber": row['flightNumber'],
+                    "flightDate": row['flightDate']
+                })
 
-            if not len(AUFrame) == 0:
+            if AUFrame:
                 AUFrame = pd.DataFrame(AUFrame, columns=AUHeaders)
                 self.appendToS3(AUFrame, runid, 'AUGrid')
                 self.logger.info(f"AUGrid data fetched and uploaded to S3 for run_id: {runid}")

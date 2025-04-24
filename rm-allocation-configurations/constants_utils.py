@@ -1,9 +1,9 @@
+import logging
+import pandas as pd
 from Constants import *
+
 class ConstantsUtils:
-    def __init__(self, rmdatabasehelper):
-        self.rmdatabasehelper = rmdatabasehelper
-        
-        # Initialize all possible parameters with default values or None
+    def __init__(self, conn):
         self.MIN_D3_D4_VALUE = MIN_D3_D4_VALUE
         self.LINEAR_JUMP_VALUE = LINEAR_JUMP_VALUE
         self.PLF_CURVE_VALUE = PLF_CURVE_VALUE
@@ -43,12 +43,22 @@ class ConstantsUtils:
         self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         self.TBF_SEATS = TBF_SEATS
-        
+        self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
+        self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
+        self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
+        self.THRESHOLD_TIME = THRESHOLD_TIME
+        self.PF_UPSELL_VALUE = PF_UPSELL_VALUE
+        self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
+
+        self.logger = logging.getLogger()
+        self.logger.setLevel(logging.INFO)
+        self.conn = conn
+        self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
 
     def generateConstantValues(self):
-        parameterValue = self.rmdatabasehelper.get_parameters()
+        parameterValue = self.get_parameters()
         
         for index, val in parameterValue.iterrows():
             parameter_key = val['parameterKey']
@@ -132,4 +142,24 @@ class ConstantsUtils:
                 self.PROF_OPEN_COUNT = int(parameter_value)
             elif parameter_key == TBF_SEATS_KEY:
                 self.TBF_SEATS = int(parameter_value)
+            elif parameter_key == ADHOC_BATCH_SIZE_KEY:
+                self.ADHOC_BATCH_SIZE = int(parameter_value)
+            elif parameter_key == CHECK_THRESHOLD_FETCH_INPUTS_KEY:
+                self.CHECK_THRESHOLD_FETCH_INPUTS = int(parameter_value)
+            elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
+                self.TIME_BEFORE_DEPARTURE = int(parameter_value)
+            elif parameter_key == THRESHOLD_TIME_KEY:
+                self.THRESHOLD_TIME = int(parameter_value)   
+            elif parameter_key == PF_UPSELL_VALUE_KEY:
+                self.PF_UPSELL_VALUE = int(parameter_value)
+            elif parameter_key == CHECK_THRESHOLD_UPDATE_RBD_KEY:
+                self.CHECK_THRESHOLD_UPDATE_RBD = int(parameter_value)
+                
+    def get_parameters(self):
+        parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
+        try:
+            parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+        except Exception as e:
+            self.logger.error(e)
 
+        return parameterValue

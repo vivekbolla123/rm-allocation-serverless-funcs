@@ -28,6 +28,7 @@ LOGS_ON = False
 # DB_CONN_STRING = "mysql+mysqldb://root:root@localhost/QP_DW_RMALLOC"
 DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
+DW_DB_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -48,12 +49,7 @@ logger.setLevel(logging.INFO)
 try:
     wrconn = create_engine(DB_WR_CONN_STRING)
     rdconn = create_engine(DB_RD_CONN_STRING)
-
-    NavitaireConnection = pymssql.connect(
-        host=configsettings.NAV_DB_HOST,
-        user=configsettings.NAV_DB_USER,
-        password=configsettings.NAV_DB_PASSWORD
-    )
+    dwconn = create_engine(DW_DB_CONN_STRING)
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -97,10 +93,10 @@ def lambda_handler(event, context):
         content = record['body']
 #        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
-        data["NavitaireConnection"] = NavitaireConnection
         data["timelogger"] = log_time
         data["dbconn"] = rdconn
         data["wrconn"] = wrconn
+        data["dwconn"] = dwconn
         data["sqs"] = sqs
         data["runSingleMarket"] = True
         data["s3"]=s3

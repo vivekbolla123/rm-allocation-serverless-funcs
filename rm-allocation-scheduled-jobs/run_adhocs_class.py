@@ -203,13 +203,13 @@ class SchedulerHandler:
 
         return req_run_id
 
-    def can_a_batch_run(self,next_run_time):
-        if(next_run_time>=self.threshold_time):
+    def can_a_batch_run(self, next_run_time):
+        if next_run_time >= self.threshold_time:
 
             smallest_batch_id = self.get_shortest_run()
-            start_time =datetime.now()
-            required_batch_id=self.get_required_batch(smallest_batch_id)
-            print("Processing batch: ",required_batch_id)
+            start_time = datetime.now()
+            required_batch_id = self.get_required_batch(smallest_batch_id)
+            print("Processing batch: ", required_batch_id)
             temp_list_of_values = self.cache_client.get(required_batch_id)
             list_of_values = json.loads(temp_list_of_values)
 
@@ -217,18 +217,25 @@ class SchedulerHandler:
             queue_name = data_dict["queue"]
             for record in list_of_values:
                 self.sqs.send_message(
-                QueueUrl=queue_name,
-                MessageBody=json.dumps(record))
+                    QueueUrl=queue_name,
+                    MessageBody=json.dumps(record)
+                )
 
             self.update_allocation_run_batch_audit(start_time, required_batch_id)
             self.cache_client.delete(required_batch_id)
-            if smallest_batch_id[2] == smallest_batch_id[1]+1:
+            if smallest_batch_id[2] == smallest_batch_id[1] + 1:
                 self.update_run_end(smallest_batch_id[0])
             else:
                 self.update_run_with_batches(smallest_batch_id[0])
             print("SENT")
-            update_query = f"UPDATE allocation_run_audit SET  adhoc_run_status = 'DONE' WHERE run_id = '{smallest_batch_id[0]}' and total_batch_size=batch_completed"
-            self.wrconn.execute(update_query)
+
+            update_query = text("""
+                UPDATE allocation_run_audit 
+                SET adhoc_run_status = 'DONE' 
+                WHERE run_id = :run_id 
+                AND total_batch_size = batch_completed
+            """)
+            self.wrconn.execute(update_query, {"run_id": smallest_batch_id[0]})
 
     # def does_redis_list_exist(self):
     #     if self.cache_client.exists("list_of_scheduler_names"):

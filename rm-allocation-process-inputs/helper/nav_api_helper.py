@@ -1,4 +1,5 @@
 from datetime import datetime
+import pandas as pd
 import requests
 from ownlogger import OwnLogger
 from Constants import *
@@ -141,18 +142,20 @@ class NavAPIHelper:
 
         trip_info_simple_url = f"{self.base_url}/nsk/v4/availability/search/simple"
         response = self.session.post(trip_info_simple_url, json=data, verify=False)
-        data = response.json()
         departure=""
-        for result in data["data"]["results"]:
-            for trip in result["trips"]:
-                for journey in trip["journeysAvailableByMarket"].values():
-                    for j in journey:
-                        for segment in j["segments"]:
-                            identifier = segment["identifier"]["identifier"]
-                            if identifier == str(flightno2):  # Check if identifier is '2312'
-                                # origin = segment["designator"]["origin"]
-                                # destination = segment["designator"]["destination"]
-                                departure = segment["designator"]["departure"]
-                                departure=datetime.fromisoformat(departure)
-                                departure=departure.date().isoformat()
+        if response.status_code==200:
+            data = response.json()
+            if data["data"] is not None and  not pd.isna(data["data"]) and not pd.isnull(data["data"]):
+                for result in data["data"]["results"]:
+                    for trip in result["trips"]:
+                        for journey in trip["journeysAvailableByMarket"].values():
+                            for j in journey:
+                                for segment in j["segments"]:
+                                    identifier = segment["identifier"]["identifier"]
+                                    if identifier == str(flightno2):  # Check if identifier is '2312'
+                                        # origin = segment["designator"]["origin"]
+                                        # destination = segment["designator"]["destination"]
+                                        departure = segment["designator"]["departure"]
+                                        departure=datetime.fromisoformat(departure)
+                                        departure=departure.date().isoformat()
         return departure
