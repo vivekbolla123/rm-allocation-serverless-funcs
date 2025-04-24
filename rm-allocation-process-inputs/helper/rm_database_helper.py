@@ -49,6 +49,11 @@ class RMDatabaseHelper:
     bl.Lid AS capacity,
     bl.adjustedCapacity,
     bl.tbf_bookings,
+    bl.WJ_bookings,
+    bl.WI_bookings,
+    bl.WH_bookings,
+    bl.WG_bookings,
+    bl.WF_bookings,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
     SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
@@ -134,7 +139,13 @@ GROUP BY
     bl.DepartureDate,
     bl.Lid,
     bl.adjustedCapacity,
-    bl.tbf_bookings"""
+    bl.tbf_bookings,
+    bl.WJ_bookings,
+    bl.WI_bookings,
+    bl.WH_bookings,
+    bl.WG_bookings,
+    bl.WF_bookings
+    """
             else:
                 marketListQuery = """SELECT 
                 mlc.*,
@@ -569,7 +580,7 @@ GROUP BY
             openResult = {'RBD':[CONST_NA], 'Fare':[CONST_NA], 'FareResult':['QP Fares not available'],'anchorFare': [anchorFare],'statusInd':[1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
             return openResult, rbddata
-        exclude_rbd_list = TBF_RBD.split(',')
+        exclude_rbd_list = TBF_RBD.split(',')+CUG_RBD.split(',')
         exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
     # Convert the list of RBDs to a comma-separated string for the SQL query
@@ -606,7 +617,7 @@ GROUP BY
         return openResult, rbddata
 
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop,route):
-        exclude_rbd_list = TBF_RBD.split(',')
+        exclude_rbd_list = TBF_RBD.split(',')+CUG_RBD.split(',')
         exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
     # Convert the list of RBDs to a comma-separated string for the SQL query
         exclude_rbd_str = ",".join(["'{}'".format(rbd) for rbd in exclude_rbd_list])
@@ -1115,3 +1126,45 @@ LIMIT 1
             return seats["ExpectedNoShows"].iloc[0]
         else:
             return 0
+        
+    def get_CUG_fares(self, origin, destin):
+        is_valid = False     
+        query = f"""
+            SELECT TOTAL 
+            FROM Fares 
+            WHERE Org = '{origin}' 
+            AND Dst = '{destin}'
+            AND RBD IN ({CUG_RBD_QUERY})
+        """
+
+        try:
+            rbddata = pd.read_sql(query, self.conn)
+            is_valid = (
+                len(rbddata) >= CUG_COUNT 
+                and not (rbddata['TOTAL'] <= 0).any() 
+                and not rbddata['TOTAL'].isnull().any()
+            )
+
+        except Exception as e:
+            self.logger.error(e)
+
+        return is_valid
+    
+
+    def get_forecast_results(self, origin, destin, flight_number, departure_date):
+        query = f"""
+        SELECT 
+            ForecastPLF
+        FROM 
+            forecast_results
+        WHERE 
+            Origin = '{origin}'
+            AND Destination = '{destin}'
+            AND FlightNumber = '{flight_number}'
+            AND DepartureDate = '{departure_date}'
+        """ 
+        df = pd.read_sql(query, self.dwconn)
+        if df.empty or pd.isna(df['ForecastPLF'].iloc[0]):
+            return 0
+        else:
+            return df['ForecastPLF'].iloc[0]

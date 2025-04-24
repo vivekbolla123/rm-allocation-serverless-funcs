@@ -33,6 +33,9 @@ class ConstantsUtils:
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
+        self.CUG_RBD = CUG_RBD
+        self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
+        self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
         self.LAST_SOLD_FARE_THRESHOLD = LAST_SOLD_FARE_THRESHOLD
         self.LAST_N_AVG_FARE = LAST_N_AVG_FARE
         self.MFMIN0 = MFMIN0
@@ -116,6 +119,12 @@ class ConstantsUtils:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
                 self.TBF_RBD = parameter_value
+            elif parameter_key == CUG_RBD_KEY:
+                self.CUG_RBD = parameter_value
+            elif parameter_key == CUG_B2C_OPENING_THRESHOLD_KEY:
+                self.CUG_RBD = float(parameter_value)
+            elif parameter_key == CUG_SEATS_PERCENT_KEY:
+                self.CUG_RBD = float(parameter_value)
             elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:

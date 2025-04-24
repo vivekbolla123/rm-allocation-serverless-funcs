@@ -286,6 +286,13 @@ class DynAlloc:
 			currtbfBookedLoad = self.currParams.tbf_bookings
 			currFltDate = self.currParams.per_start
 			currFltDepartureTime = self.currParams.DepartureTime
+			self.w_bookings = {
+							'WI': self.currParams.WI_bookings,
+							'WH': self.currParams.WH_bookings,
+							'WG': self.currParams.WG_bookings,
+							'WF': self.currParams.WF_bookings,
+							'WJ': self.currParams.WJ_bookings
+						}
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
@@ -562,6 +569,8 @@ class DynAlloc:
 							
 
 				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
+				# Call the w_series_allocation method for WJ, WI, WH, WG, WF RBDs
+				brd_counter = self.allocations.w_series_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.w_bookings,self.currParams.cug_flag)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
 				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
 				

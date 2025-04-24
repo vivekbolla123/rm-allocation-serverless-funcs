@@ -54,7 +54,8 @@ def testCase1():
         "cache_client":None,
         "route_type":"direct",
         "timelogger":None,
-        "w0_value":0
+        "w0_value":0,
+        "cug_alloc":1
     }
     outputData = {}
 

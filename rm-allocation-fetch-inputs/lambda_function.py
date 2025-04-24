@@ -276,7 +276,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
         logger.error(f"Failed to send {len(response['Failed'])} messages")
 
 
-def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, batch_size=10, max_workers=5):
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc, batch_size=10, max_workers=5):
     records = df.to_dict('records')
     batches = [records[i:i+batch_size]
                for i in range(0, len(records), batch_size)]
@@ -286,7 +286,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
         'update_navitaire_method': update_navitaire_method,
         'start_time': start_time,
         'route_type': route_type,
-        'queue_name': queue_name
+        'queue_name': queue_name,
+        'cug_alloc':cug_alloc
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         executor.map(lambda batch: send_batch_to_sqs(
@@ -322,6 +323,7 @@ def lambda_handler(event, context):
     route_type_key = "route_type"
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
+    cug_alloc_key = "cug_alloc"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
     body = event['body']
@@ -339,6 +341,7 @@ def lambda_handler(event, context):
     is_connections_required = "0"
     region = "Domestic"
     unique_key_value = ""
+    cug_alloc = "0"
 
     # Overrides
     if route_type_key in data:
@@ -365,6 +368,8 @@ def lambda_handler(event, context):
         is_connections_required = data[is_connections_required_key]
     if unique_key in data:
         unique_key_value = data[unique_key]
+    if cug_alloc_key in data:
+        cug_alloc = data[cug_alloc_key]
 
     # Start program
     if type == "Adhoc":
@@ -546,7 +551,7 @@ def lambda_handler(event, context):
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name)
+                              update_navitaire_method, route_type, queue_name,cug_alloc)
     else:
         batches_required = number_of_batches_required(
             markets_count, adhoc_batch_size)
@@ -559,6 +564,7 @@ def lambda_handler(event, context):
             batch_df['runTime'] = start_time
             batch_df['route_type'] = route_type
             batch_df['queue'] = queue_name
+            batch_df['cug_alloc'] = cug_alloc
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
             data_to_serialize = batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -574,6 +580,7 @@ def lambda_handler(event, context):
             last_batch_df['runTime'] = start_time
             last_batch_df['route_type'] = route_type
             last_batch_df['queue'] = queue_name
+            last_batch_df['cug_alloc'] = cug_alloc
             temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
             data_to_serialize = last_batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
