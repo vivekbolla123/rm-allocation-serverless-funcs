@@ -3,24 +3,25 @@ from boto3 import client
 
 def get_multiple_credentials(parameter_names):
     ssm_client = client('ssm', region_name='ap-south-1')
+    parameters = {}
 
     try:
-        # Get multiple parameters at once
-        response = ssm_client.get_parameters(
-            Names=parameter_names,
-            WithDecryption=True
-        )
+        # Split the parameter names into chunks of 10
+        for i in range(0, len(parameter_names), 10):
+            chunk = parameter_names[i:i+10]
+            response = ssm_client.get_parameters(
+                Names=chunk,
+                WithDecryption=True
+            )
 
-        # Process the results into a dictionary
-        parameters = {}
-        for param in response['Parameters']:
-            # You can use the full name or extract just the final part
-            param_name = param['Name']
-            parameters[param_name] = param['Value']
+            # Process the results into a dictionary
+            for param in response['Parameters']:
+                param_name = param['Name']
+                parameters[param_name] = param['Value']
 
-        # Check if any parameters were not found
-        if response['InvalidParameters']:
-            print(f"Parameters not found: {response['InvalidParameters']}")
+            # Check if any parameters were not found
+            if response['InvalidParameters']:
+                print(f"Parameters not found: {response['InvalidParameters']}")
 
     except Exception as e:
         print(f"Error fetching parameters: {e}")
