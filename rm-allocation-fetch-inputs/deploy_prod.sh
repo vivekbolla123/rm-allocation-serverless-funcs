@@ -35,6 +35,9 @@ read -p "Do you want to proceed? (yes/no) " User_Input
 case $User_Input in
         yes ) echo Proceeding with deployment;
               aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Image_URL
+              cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
+              cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
+              cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
               docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
@@ -45,6 +48,9 @@ case $User_Input in
               aws lambda get-function --region $AWS_Region --function-name $Lmd_Func | egrep -e "State" -e "LastModified"
               echo ""
               echo ""
+              rm -f ./configsettings.py
+              rm -f ./Constants.py
+              rm -f ./constants_utils.py
               break;;
         no ) echo Exiting...;
               exit;;

@@ -1,4 +1,5 @@
 import pandas as pd
+from sqlalchemy import text
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
 KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
@@ -55,12 +56,12 @@ class MarkRunCompleted:
     def add_available_slot(self):
         """Add slot when run is completed & run_id is Adhoc"""
 
-        select_query = "SELECT available FROM adhoc_run_queue"
+        select_query = text("SELECT available FROM adhoc_run_queue")
         available_slot = self.rm_rd_conn.execute(select_query).fetchone()[0]
 
         add_slot = available_slot + 1
-    
-        update_query = f"UPDATE adhoc_run_queue SET available={add_slot}"
-        self.rm_wr_conn.execute(update_query)
         
-        self.logger.info(f"Slot Avaiable after Adhoc run is completed: {add_slot}")
+        update_query = text("UPDATE adhoc_run_queue SET available = :add_slot")
+        self.rm_wr_conn.execute(update_query, {"add_slot": add_slot})
+        
+        self.logger.info(f"Slot Available after Adhoc run is completed: {add_slot}")

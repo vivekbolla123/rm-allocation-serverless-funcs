@@ -25,12 +25,11 @@ from determine_rbd import DetermineRBD
 from helper.redis_helper import RedisHelper
 from helper.nav_api_helper import NavAPIHelper
 from helper.rm_database_helper import RMDatabaseHelper
-from helper.nav_database_helper import NavDatabaseHelper
 
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
 from utilities.time_utils import TimeUtils
-from utilities.constants_utils import ConstantsUtils
+from constants_utils import ConstantsUtils
 
 from models.market_list_row import MarketListRow
 from models.input_source import InputSource
@@ -105,11 +104,7 @@ class DynAlloc:
 		self.logger.info("Allocation for " + origin + destination + " from " + str(startDate) + " to " + str(endDate))
 
 		self.wait_for_inputs()
-		bookedLoad = []
-		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-			bookedLoad = self.rmdatabasehelper.getCurrentBookedLoads(origin, destination, startDate, endDate)
-		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			bookedLoad = self.navdatabasehelper.getCurrentBookedLoads(origin, destination, startDate, endDate)
+		bookedLoad = self.currParams.bookedPax
 
 		try:
 			# For each NDO
@@ -118,7 +113,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
-				if bookedLoad.shape[0] == 0:
+				if pd.isna(bookedLoad):
 					dateFormatted = datetime.strptime(str(startDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -141,15 +136,16 @@ class DynAlloc:
 					self.redishelper.updateRunAudit()
 					self.redishelper.updateRunAuditReady()
 					break
-				bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
-				if FlightNumber == '*':
-					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
-				else:
-					bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber) & (bookedLoad['Origin'] == origin) & (bookedLoad['Destination'] == destination)]
+				# bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
+				# if FlightNumber == '*':
+				# 	bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate)]
+				# else:
+				# 	bookedLoadSingleRow = bookedLoad[(bookedLoad['DepartureDate'] == tgtDate) & (bookedLoad['FlightNumber'] == FlightNumber) & (bookedLoad['Origin'] == origin) & (bookedLoad['Destination'] == destination)]
 				# Fetch the current booked load from Navitaire
 				# If for whatever reason - unable to get the booked Load - Abort
+    
 				tgtBookedLoad = None
-				if bookedLoadSingleRow.shape[0] == 0:
+				if pd.isna(bookedLoad):
 					dateFormatted = datetime.strptime(str(tgtDate), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
 					self.logger.info("Unable to get the Booked Load - Aborting")
 					self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -187,8 +183,8 @@ class DynAlloc:
 								self.outputSummaryRow_b2c.Origin = origin
 								self.outputSummaryRow_b2c.Destin = destination
 								self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-								self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
-								self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+								self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+								self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 								self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 								self.outputSummaryRow_b2c.HowDetermined = HD_NO_TBF_FARES
 								self.outputSummaryRow_b2c.analystName = analystName
@@ -207,7 +203,7 @@ class DynAlloc:
 								self.redishelper.updateRunAuditReady()
 							else:
 								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
-								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoadSingleRow, tgtBookedLoadPercent)
+								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoadPercent)
 						else:
 							self.logger.info("Unable to get QP Fares - Check the fares table")
 							self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
@@ -215,8 +211,8 @@ class DynAlloc:
 							self.outputSummaryRow_b2c.Origin = origin
 							self.outputSummaryRow_b2c.Destin = destination
 							self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-							self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
-							self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+							self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+							self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 							self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 							self.outputSummaryRow_b2c.HowDetermined = HD_NO_QP_FARES
 							self.outputSummaryRow_b2c.analystName = analystName
@@ -241,8 +237,8 @@ class DynAlloc:
 						self.outputSummaryRow_b2c.Origin = origin
 						self.outputSummaryRow_b2c.Destin = destination
 						self.outputSummaryRow_b2c.FltNum = str(FlightNumber)
-						self.outputSummaryRow_b2c.DepDate = str(dateFormatted)
-						self.outputSummaryRow_b2c.BookedLoad = bookedLoadSingleRow["bookedPax"].values[0]
+						self.outputSummaryRow_b2c.DepDate = str(tgtDate)
+						self.outputSummaryRow_b2c.BookedLoad = bookedLoad
 						self.outputSummaryRow_b2c.TgtLoad = str(tgtBookedLoad)
 						self.outputSummaryRow_b2c.HowDetermined = HD_NO_REF_CURVE
 						self.outputSummaryRow_b2c.analystName = analystName
@@ -275,21 +271,21 @@ class DynAlloc:
 
 		self.logger.info("Determining pricing for NDO " + str(ndocounter) + " on  " + str(tgtDate))
 		self.logger.info("Target Pax Load Percent is :" + str(tgtBookedLoadPercent))
-		ndoBookedLoad = bookedLoad[bookedLoad['DepartureDate'].astype(str).str.contains(str(tgtDate))].reset_index(drop=True)
+		ndoBookedLoad = bookedLoad
 
-		numFlts = ndoBookedLoad.shape[0]
+		numFlts = 1
 		if self.debugMode:
 			self.logger.info("Found " + str(numFlts) + " Flights")
 			self.logger.info(ndoBookedLoad)
 
 		for fltCounter in range(numFlts):
-			currFlt = ndoBookedLoad['FlightNumber'][fltCounter]
-			currBookedLoad = ndoBookedLoad["bookedPax"][fltCounter]
-			currLid = ndoBookedLoad['capacity'][fltCounter]
-			currAdjustedCapacity = ndoBookedLoad['adjustedCapacity'][fltCounter]
-			currtbfBookedLoad = ndoBookedLoad['tbf_bookings'][fltCounter]
-			currFltDate = datetime.strftime(ndoBookedLoad['DepartureDate'][fltCounter], DATE_FORMAT)
-			currFltDepartureTime = ndoBookedLoad["DepartureTime"][fltCounter]
+			currFlt = self.currParams.flight_number
+			currBookedLoad = ndoBookedLoad
+			currLid = self.currParams.capacity
+			currAdjustedCapacity = self.currParams.adjustedCapacity
+			currtbfBookedLoad = self.currParams.tbf_bookings
+			currFltDate = self.currParams.per_start
+			currFltDepartureTime = self.currParams.DepartureTime
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
@@ -318,7 +314,6 @@ class DynAlloc:
 			totalCapacity = currLid
 			adjustedCapacity = currAdjustedCapacity
 			bookedDeficit = round(tgtBookedLoad - currBookedLoad)
-			b2cOverBookingFare = 0
 			remainingCapacity = totalCapacity - currBookedLoad
 
 			# plf = (currBookedLoad/adjustedCapacity) * 100
@@ -356,7 +351,7 @@ class DynAlloc:
 			if totalCapacity < adjustedCapacity:
 				plf = (currBookedLoad / totalCapacity) * 100
 			self.logger.info("PLF is: "+ str(plf))
-			totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad)
+			totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
 			self.logger.info("Total capacity/Lid after ob(if applicable) is: "+ str(totalCapacity))
 			overBookingCount = float(totalCapacity-adjustedCapacity)
 			self.logger.info("variance is " + str(variance))
@@ -455,6 +450,7 @@ class DynAlloc:
 			b2b_discount_fare = False
 			discount_amount = 0
 			if isB2CMarketFareAvailable or last_seven_avg!=CONST_NA:
+				self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
 				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
@@ -463,12 +459,12 @@ class DynAlloc:
 				
 				last7avg = False
 				if not isB2CMarketFareAvailable:
-					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
 					self.outputSummaryRow_b2c.anchorFare = last_seven_avg
 					last7avg = True
-
+				if last7avg:
+						self.outputSummaryRow_b2c.fareOffset = 0
 				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(self.outputSummaryRow_b2c.MktFare_Min) + " to " + str(self.outputSummaryRow_b2c.MktFare_Max))
-				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare,self.outputSummaryRow_b2c.upsell, b2cOverBookingFare = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2c,hardoffset,BookingsInHour,lastSoldFareb2c,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
+				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare,self.outputSummaryRow_b2c.upsell, overBookingFare = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2c,hardoffset,BookingsInHour,lastSoldFareb2c,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
 
 				B2CRBDs = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
 				if openDataB2C['Fare'][0] != CONST_NA:
@@ -483,7 +479,7 @@ class DynAlloc:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, overBookingFare = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
+					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
 				elif B2CopeningPrice is not None and not self.B2B_threshold and dplfBand>=0 and dplfBand<=3:
 					b2b_discount_fare = True
 					last7avg = False
@@ -498,7 +494,7 @@ class DynAlloc:
 					
 					self.outputSummaryRow_b2b.anchorFare = B2CopeningPrice - discount_amount
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, overBookingFare = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare) 
+					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare) 
 				else:
 					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else:
@@ -531,8 +527,8 @@ class DynAlloc:
 				profileExtract = profileExtract.values.flatten()
 				profileExtract = sorted(profileExtract)
 				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status,_,B2CRBDs,openingRBDPrice = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue, b2cOverBookingFare, adjustedCapacity)
-				alloc_df = self.allocations.b2CAllocations(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue,openingRBDPrice, b2cOverBookingFare, adjustedCapacity)
+				b2cAllocationsUnits, brd_counter, status,_,B2CRBDs,openingRBDPrice = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity)
+				alloc_df = self.allocations.b2CAllocations(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue,openingRBDPrice, overBookingFare, adjustedCapacity)
 
 				self.outputSummaryRow_b2c.status = status
 				self.outputSummaryRow_b2b.status = status
@@ -730,31 +726,13 @@ class DynAlloc:
 	def allocate_distress_inventory(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		default_au, au_cap = self.rmdatabasehelper.getDefaultAu(dateFormatted)
 		distress_au = self.rmdatabasehelper.getDistressAu(ndoBand, dplfBand)
-		l_class_seats_sold, p_class_seats_sold= self.get_seats_sold(dateFormatted)
-		l_class_rbd, p_class_rbd= self.get_current_rbds(dateFormatted)
+		l_class_seats_sold, p_class_seats_sold= self.currParams.seats_sold_L, self.currParams.seats_sold_P
+		l_class_rbd, p_class_rbd= self.currParams.current_rbd_L, self.currParams.current_rbd_P
 
 		self.allocate_class_inventory(currRec, brd_counter, default_au, au_cap, distress_au,
 									l_class_seats_sold, p_class_seats_sold,l_class_rbd, p_class_rbd)
 
-	def get_seats_sold(self, dateFormatted):
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			return self.rmdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
-																self.currParams.origin, self.currParams.destin,
-																dateFormatted)
-		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			return self.navdatabasehelper.get_seats_sold_by_class(str(self.currParams.flight_number),
-																self.currParams.origin, self.currParams.destin,
-																dateFormatted)
 
-	def get_current_rbds(self, dateFormatted):
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			return self.rmdatabasehelper.get_current_rbds_by_class(dateFormatted,
-															str(self.currParams.flight_number),
-															self.currParams.origin + self.currParams.destin)
-		elif self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			return self.navdatabasehelper.get_current_rbds_by_class(dateFormatted,
-															str(self.currParams.flight_number),
-															self.currParams.origin + self.currParams.destin)
 
 	def allocate_class_inventory(self, currRec, brd_counter, default_au, au_cap, distress_au,
 									l_class_seats_sold, p_class_seats_sold, l_class_rbd, p_class_rbd):
@@ -776,19 +754,18 @@ class DynAlloc:
 
 
 	def getStartOfDayValues(self, currBookedLoad, currFltDate, ndocounter, tgtBookloadFactor, totalCapacity,currFltDepartureTime):
-		bookings = []
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			bookings = self.rmdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			bookings = self.navdatabasehelper.getNumberOfBookings(currFltDate, self.currParams)
+
 
 		lastBookloadTillMidnight = 0
 		bookingToday = 0
 		bookingLastHour = 0
-		if bookings.shape[0] != 0:
-			lastBookloadTillMidnight = bookings["BookingsCount"][0]
-			bookingToday = bookings["BookingToday"][0]
-			bookingLastHour = bookings["BookingsInHour"][0]
+		# if bookings.shape[0] != 0:
+		if not pd.isna(self.currParams.BookingsCount):
+			lastBookloadTillMidnight = int(self.currParams.BookingsCount)
+		if not pd.isna(self.currParams.BookingToday):
+			bookingToday = int(self.currParams.BookingToday)
+		if not pd.isna(self.currParams.BookingsInHour):
+			bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -925,13 +902,9 @@ class DynAlloc:
 				if plf > B2B_threshold[0]:
 					self.B2B_threshold = True
 
-	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, month, deptTime, currBookedLoad):
+	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		self.b2boverbookingflag = False
-		overBookingFare = 0
-		if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-			nextFlight = self.rmdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
-		if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-			nextFlight = self.navdatabasehelper.checkForNextFLight(currFltDate, self.currParams)
+		nextFlight = self.currParams.NextFlight
 		if (self.currParams.obSeats == '' or self.currParams.obSeats is None or (hasattr(self.currParams.obSeats, 'dtype') and math.isnan(self.currParams.obSeats))) and (self.currParams.obFare == '' or self.currParams.obFare is None or (hasattr(self.currParams.obFare, 'dtype') and math.isnan(self.currParams.obFare))):
 			self.logger.info("Entered system overbooking loop runalloc")
 			overBookingCount = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
@@ -1097,10 +1070,13 @@ class DynAlloc:
 		self.sqs = self.currParams.sqs
 		self.conn = self.currParams.dbconn
 		self.wrconn = self.currParams.wrconn
+		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
+		if pd.isna(self.currParams.w0Flag):
+			self.w0Flag = 0
+		
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()
-		self.NavitaireConnection = self.currParams.navitaire_connection
 		self.allocResults = []
 		self.AUFileData = []
 		if self.currParams.run_id:
@@ -1111,18 +1087,18 @@ class DynAlloc:
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.constantsUtils = ConstantsUtils(self.rmdatabasehelper)
+		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
+		self.constantsUtils = ConstantsUtils(self.conn)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
-		self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
+		# self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
 		self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
-		self.marketfaresservice = MarketFareService(self.rmdatabasehelper, self.navdatabasehelper,self.constantsUtils,self.timeutils)
-		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.navdatabasehelper, self.mathutils, self.cache_client)
+		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils)
+		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
 
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
@@ -1154,23 +1130,12 @@ class DynAlloc:
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-			booked_seats = self.rmdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
-		if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-			booked_seats = self.navdatabasehelper.get_series_seats(dep_date,self.currParams.flight_number,self.currParams.origin+self.currParams.destin)
-		if not booked_seats.empty:
-			booked_seats['DepartureDate'] = booked_seats['DepartureDate'].astype(str)
-			merged_df=pd.merge(blocked_seats, booked_seats, on=['DepartureDate', 'OrgCode'], how='left')
-			merged_df['bookedPax'].fillna(0, inplace=True)
-			first_row_values = booked_seats.iloc[0]
-			for column in ['Origin', 'Destination', 'FlightNumber']:
-				merged_df[column].fillna(first_row_values[column], inplace=True)
-			merged_df['SeatsBlocked'] = merged_df['SeatsBlocked'].astype(int)
-			merged_df['count'] = np.maximum(merged_df['SeatsBlocked'] - merged_df['bookedPax'], 0)
-			total_count = merged_df['count'].sum()
-		else:
-			blocked_seats['SeatsBlocked'] = blocked_seats['SeatsBlocked'].astype(int)
-			total_count = blocked_seats['SeatsBlocked'].sum()
+		booked_seats = self.currParams.total_series_seats
+		total_count = 0
+		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)):
+			total_count = blocked_seats['blocked'][0]-booked_seats
+		elif (blocked_seats['blocked'][0] is not None):
+			total_count = blocked_seats['blocked'][0]
 		return currBookedLoad+total_count
 
 	def recommend_action(self, row):

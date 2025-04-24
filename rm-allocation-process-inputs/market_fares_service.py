@@ -8,9 +8,8 @@ import logging
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,nav_database_helper,constantsutils,timeutils):
+    def __init__(self,rm_database_helper,constantsutils,timeutils):
         self.rmdatabasehelper=rm_database_helper
-        self.navdatabasehelper=nav_database_helper
         self.constantsutils=constantsutils
         self.timeutils=timeutils
     
