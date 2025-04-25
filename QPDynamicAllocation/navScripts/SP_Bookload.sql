@@ -1,12 +1,13 @@
 USE [REZ0KWB01]
 GO
-/****** Object:  StoredProcedure [dbo].[SP_Bookeddata]    
-Script Date: 20-03-2024 11.29.28 AM ******/
 
+/****** Object:  StoredProcedure [dbo].[SP_Bookeddata2]    Script Date: 24/04/2025 15:00:10 ******/
 SET ANSI_NULLS ON
 GO
+
 SET QUOTED_IDENTIFIER ON
 GO
+
 -- =============================================
 -- Author:    <Author,,Name>
 -- Create date: <Create Date,,>
@@ -16,9 +17,7 @@ GO
 
 ALTER PROCEDURE [dbo].[SP_Bookeddata]
     @DepartureDate_from DATE,
-	@DepartureDate_to DATE,
-    @DepartureStation CHAR(3),
-    @ArrivalStation CHAR(3)
+	@DepartureDate_to DATE
 AS
 BEGIN
 
@@ -31,7 +30,8 @@ select
     count(PassengerID) as bookedPax,
     max(Lid) as capacity,
     AdjustedCapacity as adjustedCapacity,
-    SUM(CASE WHEN ClassOfService IN ('TF', 'TE', 'TD', 'TC', 'TB', 'TY') THEN 1 ELSE 0 END) AS tbf_bookings
+	FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC,
+	SUM(CASE WHEN ClassOfService LIKE '%T%' THEN 1 ELSE 0 END) as tbf_bookings
 from
     (
         select
@@ -43,7 +43,8 @@ from
             IL.AdjustedCapacity,
             IL.Lid,
             IL.STD,
-            PJS.ClassOfService
+			IL.STDUTC,
+			PJS.ClassOfService
         from
             [rez].InventoryLeg IL
             left outer join [rez].PassengerJourneyLeg PJL on PJL.InventoryLegID = IL.InventoryLegID
@@ -54,12 +55,13 @@ from
             and IL.Status NOT IN (2)
             and IL.DepartureDate >= @DepartureDate_from
             and IL.DepartureDate <= @DepartureDate_to
-            and IL.DepartureStation = @DepartureStation
-            and IL.ArrivalStation = @ArrivalStation
     ) A
 group by
-    Origin, Destination, FlightNumber, DepartureDate, STD, AdjustedCapacity
+    Origin, Destination, FlightNumber, DepartureDate, STD, STDUTC, AdjustedCapacity
 order by
     Origin, Destination, DepartureDate
 
 END;
+GO
+
+

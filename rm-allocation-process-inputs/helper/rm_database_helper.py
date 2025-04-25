@@ -475,7 +475,7 @@ GROUP BY
 
         if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
             mktLowestQuery = mktLowestQuery + f" AND created_at > NOW() - INTERVAL {hrs} HOUR "
-        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
+        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC, outbound_flight ASC"
         try:
             mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
         except Exception as e:
