@@ -122,9 +122,9 @@ class ConstantsUtils:
             elif parameter_key == CUG_RBD_KEY:
                 self.CUG_RBD = parameter_value
             elif parameter_key == CUG_B2C_OPENING_THRESHOLD_KEY:
-                self.CUG_RBD = float(parameter_value)
+                self.CUG_B2C_OPENING_THRESHOLD = float(parameter_value)
             elif parameter_key == CUG_SEATS_PERCENT_KEY:
-                self.CUG_RBD = float(parameter_value)
+                self.CUG_SEATS_PERCENT = float(parameter_value)
             elif parameter_key == LAST_SOLD_FARE_THRESHOLD_KEY:
                 self.LAST_SOLD_FARE_THRESHOLD = int(parameter_value)
             elif parameter_key == LAST_N_AVG_FARE_KEY:

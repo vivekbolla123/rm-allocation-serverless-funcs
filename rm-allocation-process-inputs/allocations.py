@@ -632,7 +632,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
 
-    def w_series_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,w_bookings_dict,cug_flag):
+    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag):
         """
         Simplified W-series RBD allocation:
         - Allocates only if forecastedPLF < 90 and 8 <= ndo <= 30
@@ -673,7 +673,7 @@ class RBDAllocations:
                 # If both conditions pass, calculate allocation
                 if open_rbd:
                     try:
-                        open_rbd_bookings = w_bookings_dict.get(open_rbd, 0) if w_bookings_dict else 0
+                        open_rbd_bookings = cug_bookings_dict.get(open_rbd, 0) if cug_bookings_dict else 0
                     except Exception as e:
                         self.logger.error(f"Error getting bookings for {open_rbd}: {str(e)}")
                         open_rbd_bookings = 0
