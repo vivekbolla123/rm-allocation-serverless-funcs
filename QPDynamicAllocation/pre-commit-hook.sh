@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
 
 BRANCH=$(git symbolic-ref HEAD | sed -e 's,.*/\(.*\),\1,')
 PROTECTED_BRANCHES="^(master|develop)$"
