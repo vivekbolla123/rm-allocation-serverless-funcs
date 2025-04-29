@@ -1164,7 +1164,7 @@ public class App implements RequestHandler<S3Event, Object> {
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
             String dateKey = csvData.get(i).get(dateHeader);
-            for (int j = startColumn; j < inputRow.size(); j++) {
+            for (int j = startColumn; j < inputRow.size()-1; j++) {
                 String value = csvData.get(i).get(j);
                 String stationKey = csvData.get(0).get(j);
                 String keyVal = dateKey + stationKey;
