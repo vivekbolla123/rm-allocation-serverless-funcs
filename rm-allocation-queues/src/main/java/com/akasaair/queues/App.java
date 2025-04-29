@@ -293,13 +293,13 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         // Deleting the object from S3
-        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
-            s3Client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(finalKey)
-                    .build())
-                    .join();
-        }
+        // if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
+        //     s3Client.deleteObject(DeleteObjectRequest.builder()
+        //             .bucket(bucketName)
+        //             .key(finalKey)
+        //             .build())
+        //             .join();
+        // }
 
     }
 
