@@ -265,16 +265,19 @@ def add_additional_fields(record, run_id, update_navitaire_method, start_time, r
 
 
 def send_batch_to_sqs(batch, queue_url, additional_fields):
-    entries = [
-        {
-            'Id': str(i),
-            'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
-        } for i, record in enumerate(batch)
-    ]
-    logger.info(entries)
-    response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
-    if 'Failed' in response:
-        logger.error(f"Failed to send {len(response['Failed'])} messages")
+    try:
+        entries = [
+            {
+                'Id': str(i),
+                'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
+            } for i, record in enumerate(batch)
+        ]
+        logger.info(entries)
+        response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        if 'Failed' in response:
+            logger.error(f"Failed to send {len(response['Failed'])} messages")
+    except Exception as e:
+        print(e)
 
 
 def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc, batch_size=10, max_workers=5):
@@ -529,10 +532,10 @@ def lambda_handler(event, context):
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
             
-        mkt_list = mkt_list.drop(
-            columns=['DepartureDate'], errors='ignore')
+        
         markets_count = mkt_list.shape[0]
-    
+    mkt_list = mkt_list.drop(
+            columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS
     start_time = datetime.now()
     run_id = str(uuid4())
@@ -944,6 +947,7 @@ def clean_markets_optimized(market_list_df, w0_df):
 #             "market_list_table_name": "market_list",
 #             "route_type": "direct",
 #             "run_type": "Scheduled",
+#             "cug_alloc":0
 #         })
 #     }
 #     context = {}
