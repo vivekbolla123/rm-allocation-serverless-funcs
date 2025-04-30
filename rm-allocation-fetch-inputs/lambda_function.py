@@ -533,8 +533,6 @@ def lambda_handler(event, context):
             columns=['DepartureDate'], errors='ignore')
         markets_count = mkt_list.shape[0]
     
-    mkt_list = mkt_list.drop(
-            columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS
     start_time = datetime.now()
     run_id = str(uuid4())
