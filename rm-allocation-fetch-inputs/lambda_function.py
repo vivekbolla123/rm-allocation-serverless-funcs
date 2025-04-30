@@ -254,12 +254,13 @@ def number_of_batches_required(total_records, adhoc_batch_size):
         return [total_records // adhoc_batch_size, 0]
 
 
-def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name):
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
     record["runTime"] = start_time
     record["route_type"] = route_type
     record["queue"] = queue_name
+    record['cug_alloc'] = cug_alloc
     return record
 
 
