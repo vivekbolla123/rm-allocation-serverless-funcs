@@ -89,6 +89,8 @@ def lambda_handler(event, context):
         "currentTime": False
     }
 
+    allocation_instances = []  # Keep track of allocation instances
+
     for record in records:
         content = record['body']
 #        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
@@ -104,10 +106,20 @@ def lambda_handler(event, context):
         data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
         data["runTime"]=data["runTime"]
         route_type = data["route_type"]
+        
+        # Create and store the allocation instance
         if route_type == 'connections':
-            DynAllocConnections(input_data, data)
+            alloc_instance = DynAllocConnections(input_data, data)
+            allocation_instances.append(alloc_instance)
         if route_type == 'direct':
-            DynAlloc(input_data, data)
+            alloc_instance = DynAlloc(input_data, data)
+            allocation_instances.append(alloc_instance)
+    
+    # Log performance statistics for database caching
+    for instance in allocation_instances:
+        if hasattr(instance, 'rmdatabasehelper') and hasattr(instance.rmdatabasehelper, 'table_cache'):
+            logger.info(f"Performance stats for allocation run {instance.runId}:")
+            instance.rmdatabasehelper.table_cache.log_performance_report()
     
     log_time.send_time_log_db()
     return {

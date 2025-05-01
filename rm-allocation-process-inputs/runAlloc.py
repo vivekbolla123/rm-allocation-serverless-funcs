@@ -76,6 +76,10 @@ class DynAlloc:
 		self.rmdatabasehelper.updateRunEnd(endTime)
 		runTime = (endTime - startTime).total_seconds()
 		self.logger.info("Allocation Completed in " + str(runTime) + " seconds")
+		
+		# Log table cache performance stats
+		if hasattr(self.rmdatabasehelper, 'table_cache'):
+			self.rmdatabasehelper.table_cache.log_performance_report()
 
 	def runDynamicAllocationSingleMarket(self, mtkIndex):
 
@@ -640,6 +644,8 @@ class DynAlloc:
 			self.allocResults.append(self.outputSummaryRow_b2b)
 			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 			self.redishelper.updateRunAuditReady()
+			if hasattr(self.rmdatabasehelper, 'table_cache'):
+				self.rmdatabasehelper.table_cache.log_performance_report()
 		else:
 			if str(self.currParams.dow)[dow:(dow + 1)] == "9":
 				self.redishelper.updateRunAudit()
