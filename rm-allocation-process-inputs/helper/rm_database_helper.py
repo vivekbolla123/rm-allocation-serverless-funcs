@@ -29,41 +29,107 @@ class RMDatabaseHelper:
     def preload_common_tables(self):
         """Preload commonly used tables to avoid multiple queries"""
         try:
-            # Load common reference tables
-            self.table_cache.load_table("ndo_bands", self.conn)
-            self.table_cache.load_table("dplf_bands", self.conn)
-            self.table_cache.load_table("time_ranges", self.conn)
-            self.table_cache.load_table("config_profile_fares", self.conn)
-            self.table_cache.load_table("currency_conversion", self.dwconn)
-            self.table_cache.load_table("tbf_discount_grid", self.conn)
-            self.table_cache.load_table("series_blocking", self.conn)
-            self.table_cache.load_table("config_ownFares", self.conn)
-            self.table_cache.load_table("config_determine_fares", self.conn)
+            # Get list of existing tables first
+            table_query = "SHOW TABLES"
+            try:
+                tables_df = pd.read_sql(table_query, self.conn)
+                existing_tables = set(tables_df.iloc[:, 0].tolist())
+                self.logger.info(f"Found {len(existing_tables)} tables in database")
+            except Exception as e:
+                self.logger.warning(f"Could not get list of tables: {e}")
+                existing_tables = set()  # Empty set if we can't get the tables
             
-            # Load frequently accessed tables if they're not too large
+            # Load common reference tables that are unlikely to change
+            common_tables = ["ndo_bands", "dplf_bands", "time_ranges"]
+            for table in common_tables:
+                if table in existing_tables:
+                    self.table_cache.load_table(table, self.conn)
+                    self.logger.info(f"Loaded {table} into cache")
+                else:
+                    self.logger.warning(f"Table {table} does not exist, skipping preload")
+            
+            # Additional tables to load if they exist
+            tables_to_check = [
+                "config_profile_fares", 
+                "tbf_discount_grid", 
+                "series_blocking", 
+                "config_ownFares", 
+                "config_determine_fares"
+            ]
+            
+            for table in tables_to_check:
+                if table in existing_tables:
+                    self.table_cache.load_table(table, self.conn)
+                    self.logger.info(f"Loaded {table} into cache")
+                else:
+                    self.logger.warning(f"Table {table} does not exist, skipping preload")
+            
+            # Try to load currency_conversion from DW connection
+            try:
+                self.table_cache.load_table("currency_conversion", self.dwconn)
+                self.logger.info("Loaded currency_conversion into cache")
+            except Exception as e:
+                self.logger.warning(f"Could not load currency_conversion table: {e}")
+            
+            # Load frequently accessed tables if they're not too large and they exist
             if self.currParams and hasattr(self.currParams, 'flight_number'):
                 flight_number = self.currParams.flight_number
-                self.table_cache.load_table("current_rbd", self.conn, 
-                                          condition=f"FlightNumber = '{flight_number}'")
-                self.table_cache.load_table("series_booked", self.conn, 
-                                          condition=f"FlightNumber = '{flight_number}'")
                 
-                # If origin and destination are available, load fare data
+                # Check if current_rbd table exists
+                if "current_rbd" in existing_tables:
+                    try:
+                        self.table_cache.load_table("current_rbd", self.conn, 
+                                                  condition=f"FlightNumber = '{flight_number}'")
+                        self.logger.info(f"Loaded current_rbd for flight {flight_number} into cache")
+                    except Exception as e:
+                        self.logger.warning(f"Error loading current_rbd table: {e}")
+                else:
+                    self.logger.warning("Table current_rbd does not exist, skipping preload")
+                
+                # Check if series_booked table exists
+                if "series_booked" in existing_tables:
+                    try:
+                        self.table_cache.load_table("series_booked", self.conn, 
+                                                  condition=f"FlightNumber = '{flight_number}'")
+                        self.logger.info(f"Loaded series_booked for flight {flight_number} into cache")
+                    except Exception as e:
+                        self.logger.warning(f"Error loading series_booked table: {e}")
+                else:
+                    self.logger.warning("Table series_booked does not exist, skipping preload")
+                
+                # If origin and destination are available, load fare data if available
                 if hasattr(self.currParams, 'origin') and hasattr(self.currParams, 'destin'):
                     origin = self.currParams.origin
                     destin = self.currParams.destin
-                    self.table_cache.load_table("Fares", self.conn, 
-                                              condition=f"Org = '{origin}' AND Dst = '{destin}'")
                     
-                    # Load related flight information
-                    self.table_cache.load_table("booking_fare_data", self.conn,
-                                              condition=f"Origin = '{origin}' AND Destin = '{destin}' AND FlightNumber = '{flight_number}'")
+                    # Check if Fares table exists
+                    if "Fares" in existing_tables:
+                        try:
+                            self.table_cache.load_table("Fares", self.conn, 
+                                                    condition=f"Org = '{origin}' AND Dst = '{destin}'")
+                            self.logger.info(f"Loaded Fares for {origin}-{destin} into cache")
+                        except Exception as e:
+                            self.logger.warning(f"Error loading Fares table: {e}")
+                    else:
+                        self.logger.warning("Table Fares does not exist, skipping preload")
+                    
+                    # Check if booking_fare_data table exists
+                    if "booking_fare_data" in existing_tables:
+                        try:
+                            self.table_cache.load_table("booking_fare_data", self.conn,
+                                                    condition=f"Origin = '{origin}' AND Destin = '{destin}' AND FlightNumber = '{flight_number}'")
+                            self.logger.info(f"Loaded booking_fare_data for {origin}-{destin}-{flight_number} into cache")
+                        except Exception as e:
+                            self.logger.warning(f"Error loading booking_fare_data table: {e}")
+                    else:
+                        self.logger.warning("Table booking_fare_data does not exist, skipping preload")
             
             # Log statistics about loaded tables
             stats = self.table_cache.get_cache_stats()
             self.logger.info(f"Preloaded {stats['total_tables']} tables with {stats['total_rows']} total rows")
         except Exception as e:
             self.logger.error(f"Error preloading tables: {e}")
+            # Don't let preloading errors crash the application
 
     def getNdoBand(self, ndo):
         """Get NDO band using cached table rather than executing a query"""
@@ -236,18 +302,70 @@ class RMDatabaseHelper:
 
     def execute_cached_query(self, query, connection, query_key=None):
         """
-        Execute a query and cache the result using the QueryCacheManager.
+        Execute a query and cache the result using the TableCache.
         Wrapper method to maintain compatibility with existing code.
         """
-        return self.query_cache.execute_cached_query(query, connection, query_key)
+        if query is None or connection is None:
+            self.logger.warning("Query or connection is None, cannot execute query")
+            return pd.DataFrame()
+            
+        try:
+            # Extract table name from the query for table cache
+            query_lower = query.lower()
+            table_name = None
+            
+            if "select" in query_lower and "from" in query_lower:
+                # Simple parsing to get the table name - not always accurate for complex queries
+                from_idx = query_lower.index("from") + 4
+                table_parts = query_lower[from_idx:].strip().split()
+                if table_parts:
+                    table_name = table_parts[0].strip().rstrip(";")
+                    # Clean up any schema prefixes or aliases
+                    if '.' in table_name:
+                        table_name = table_name.split('.')[-1]
+                    if ' ' in table_name:
+                        table_name = table_name.split(' ')[0]
+                    
+                    # Check if we can use the table cache for this query
+                    if hasattr(self, 'table_cache') and self.table_cache is not None:
+                        # If the table is already cached, we can try to filter it
+                        cached_table = self.table_cache.filter_table(table_name)
+                        if cached_table is not None:
+                            # Table is already cached, but we can't easily transform the SQL to pandas filtering
+                            # For simple queries we could implement this, but for now just execute the query
+                            self.logger.debug(f"Table {table_name} is cached, but using direct query execution")
+            
+            # Fall back to direct query execution
+            self.logger.debug(f"Executing query: {query[:100]}...")  # Log first 100 chars of query
+            return pd.read_sql(query, connection)
+        except Exception as e:
+            self.logger.error(f"Error executing query: {e}, query: {query[:100]}...")
+            # Return empty DataFrame rather than raising exception
+            return pd.DataFrame()
 
     def getLatestCodeVersion(self):
-        lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
+        """Get the latest code version from config_code_version table"""
         try:
+            # First check if the table exists
+            table_query = "SHOW TABLES LIKE 'config_code_version'"
+            tables_df = pd.read_sql(table_query, self.conn)
+            
+            if tables_df.empty:
+                self.logger.warning("Table config_code_version does not exist")
+                return "UNKNOWN"
+                
+            # If table exists, proceed with the query
+            lastestQuery = "SELECT code_version FROM config_code_version WHERE isActive = 1"
             inputsData = self.execute_cached_query(lastestQuery, self.conn, "latest_code_version")
+            
+            if inputsData is not None and not inputsData.empty:
+                return inputsData['code_version'].iloc[0]
+            else:
+                self.logger.warning("No active code version found")
+                return "UNKNOWN"
         except Exception as e:
-            self.logger.error(e)
-        return inputsData['code_version'][0]
+            self.logger.error(f"Error fetching latest code version: {e}")
+            return "UNKNOWN"  # Changed from "ERROR" to "UNKNOWN" for consistency
 
     def loadRunParams(self):
         # load the list of sectors

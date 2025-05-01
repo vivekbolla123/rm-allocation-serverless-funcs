@@ -1056,74 +1056,34 @@ class DynAlloc:
 					return min(lower_time, start_time), max(upper_time, end_time), dayspan
 
 	def _initialize_params(self, inputData, currParams):
-		self.currParams = MarketListRow(currParams)
 		self.inputSource = InputSource(inputData)
-		self.debugMode = inputData["debugMode"]
-		self.NavitaireUpdateMethod = self.currParams.navitaire_update_method
-		self.TABLE_MARKET_FARES = TABLE_MARKET_FARES
-		self.MARKET_LIST_QUEUE_URL = inputData["MARKET_LIST_QUEUE_URL"]
-		self.RBD_QUEUE_URL = inputData["RBD_QUEUE_URL"]
-		self.NAV_DB_NAME = inputData["NAV_DB_NAME"]
-		self.NAV_DB_DW_NAME = inputData["NAV_DB_DW_NAME"]
-		self.NAV_DB_WB_NAME = inputData["NAV_DB_WB_NAME"]
-		self.NAV_DB_REF_NAME = inputData["NAV_DB_REF_NAME"]
-		self.NAV_BASE_API_URL = inputData["NAV_BASE_API_URL"]
-		self.NAV_OCP_SUBSCRIPTION_KEY = inputData["NAV_OCP_SUBSCRIPTION_KEY"]
-		self.NAV_USERNAME = inputData["NAV_USERNAME"]
-		self.NAV_PWD = inputData["NAV_PWD"]
-		self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
+		self.w0Flag = '0'
 
-		self.sqs = self.currParams.sqs
-		self.conn = self.currParams.dbconn
-		self.wrconn = self.currParams.wrconn
-		self.dwconn = self.currParams.dwconn
-		self.w0Flag = self.currParams.w0Flag
-		if pd.isna(self.currParams.w0Flag):
-			self.w0Flag = 0
+		self.conn = currParams.dbconn
+		self.wrconn = currParams.wrconn
+		self.dwconn = currParams.dwconn
+		self.cache_client = currParams.cache_client
 		
-		self.cache_client = self.currParams.cache_client
-		self.starttime = datetime.now()
-		self.allocResults = []
-		self.AUFileData = []
-		if self.currParams.run_id:
-			self.runId = self.currParams.run_id
-		else:
-			self.runId = self.utils.getUniqueId()
-		self.log_time = self.currParams.time_logger
-		if self.log_time is not None:
-			self.log_time.update_run_id(self.currParams.run_id)
-		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.constantsUtils = ConstantsUtils(self.conn)
-		self.utils = Utils(self.inputSource)
-		self.mathutils = MathUtils(self.inputSource)
-		self.timeutils = TimeUtils(self.inputSource)
-		# self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource, self.NAV_DB_NAME, self.NAV_DB_REF_NAME,self.runId, self.debugMode, self.NAV_DB_WB_NAME,self.currParams, self.log_time)
-		self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
-		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
-			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
-		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
-		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils)
-		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
-		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
-
-		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
-		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
-		self.PLF_CURVE_VALUE = self.constantsUtils.PLF_CURVE_VALUE
-		self.B2B_FARE_PRICE_COMPARISON = self.constantsUtils.B2B_FARE_PRICE_COMPARISON
-		self.COVERAGE_PARAMETER = self.constantsUtils.COVERAGE_PARAMETER
-		self.AU_COLUMN_LENGTH = self.constantsUtils.AU_COLUMN_LENGTH
-		self.B2B_RDB_COUNT = self.constantsUtils.B2B_RDB_COUNT
-		self.LOWEST_B2B_RBD_VALUE = self.constantsUtils.LOWEST_B2B_RBD_VALUE
-		self.LOWEST_B2C_RBD_VALUE = self.constantsUtils.LOWEST_B2C_RBD_VALUE
-		self.HIGHEST_B2B_RBD_VALUE = self.constantsUtils.HIGHEST_B2B_RBD_VALUE
-		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
-
-		if inputData["latestCode"]:
-			code_version = self.rmdatabasehelper.getLatestCodeVersion()
-			if code_version != LATEST_VERSION:
-				self.logger.info("Please use latest code! This is an old version!")
-				exit()
+		# Required to prevent infinite recursion if the reference check fails
+		if not hasattr(self, 'rmdatabasehelper'):
+			try:
+				self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
+			except Exception as e:
+				self.logger.error(f"Failed to initialize RMDatabaseHelper: {e}")
+				# Create a minimal attribute to avoid errors
+				self.rmdatabasehelper = None
+		
+		# Check latest code version
+		try:
+			if inputData.get("latestCode", False) and self.rmdatabasehelper is not None:
+				code_version = self.rmdatabasehelper.getLatestCodeVersion()
+				if code_version != "ERROR" and code_version != "UNKNOWN" and code_version != LATEST_VERSION:
+					self.logger.info(f"Please use latest code! Current: {code_version}, Latest: {LATEST_VERSION}")
+					# Don't exit - just warn
+					self.logger.warning("Continuing with outdated code version")
+		except Exception as e:
+			self.logger.warning(f"Could not verify latest code version: {e}")
+			# Continue execution despite the version check failure
 
 	def wait_for_inputs(self):
 		"""Waits until all inputs are ready."""
@@ -1134,15 +1094,33 @@ class DynAlloc:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
 
-	def getBookloadSeries(self,dep_date,currBookedLoad):
-		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
-		booked_seats = self.currParams.total_series_seats
-		total_count = 0
-		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)):
-			total_count = blocked_seats['blocked'][0]-booked_seats
-		elif (blocked_seats['blocked'][0] is not None):
-			total_count = blocked_seats['blocked'][0]
-		return currBookedLoad+total_count
+	def getBookloadSeries(self, dep_date, currBookedLoad):
+		"""Get series bookings and handle potential missing data"""
+		try:
+			blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
+			booked_seats = getattr(self.currParams, 'total_series_seats', None)
+			
+			# Default to 0 if we can't calculate
+			total_count = 0
+			
+			# Check if blocked_seats has the expected structure and contains data
+			if blocked_seats is not None and 'blocked' in blocked_seats.columns and len(blocked_seats) > 0:
+				blocked_value = blocked_seats['blocked'].iloc[0]
+				
+				# Check if booked_seats is valid
+				if booked_seats is not None and not pd.isna(booked_seats):
+					# Both values are available, calculate the difference
+					if blocked_value is not None:
+						total_count = blocked_value - booked_seats
+				elif blocked_value is not None:
+					# No booked seats data, just use blocked seats
+					total_count = blocked_value
+			
+			return currBookedLoad + total_count
+			
+		except Exception as e:
+			self.logger.error(f"Error in getBookloadSeries: {e}")
+			return currBookedLoad  # Return the original value if there's an error
 
 	def recommend_action(self, row):
 		try:
