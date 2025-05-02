@@ -1059,6 +1059,686 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
+
+    public void uploadPartialDateEvent(Reader file, String userName, String obj_id) throws RuntimeException {
+        String uuid = obj_id;
+        try {
+            // Initialize temporary table names
+            String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
+            String profileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
+
+            // Create audit entries
+            insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
+            insertAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), userName, uuid);
+            
+            // Create temporary tables
+            createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
+            createTable(profileFareStationUpsellTempTableName, CONFIG_PROFILE_FARE_STATION_UPSELL);
+            
+            // Update input status tables
+            insertInputStatusTable(DATE_EVENT_TABLE_NAME);
+            insertInputStatusTable(CONFIG_PROFILE_FARE_STATION_UPSELL);
+
+            // Parse the CSV file
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            
+            // Validate the uploaded file
+            validatePartialUpdateFile(csvData);
+            
+            // Extract headers to identify which sectors need updating
+            List<String> headers = csvData.get(0);
+            Set<String> sectorColumns = extractSectorColumns(headers);
+            
+            // Process date event data (only for included dates)
+            List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
+            List<Map<String, String>> dateEventData = createListOfMapDateEvent(csvData, dateEventHeaders);
+            
+            // Process upsell data (only for included sectors and dates)
+            Map<String, Map<String, String>> upsellMap = getPartialDateEvent(csvData, sectorColumns);
+            List<String> upsellHeaders = Arrays.asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
+            
+            // Extract dates for targeted changes
+            Set<String> dates = dateEventData.stream()
+                    .map(map -> map.get(DATE_COLUMN_NAME))
+                    .collect(Collectors.toSet());
+            
+            // Backup existing data before making changes
+            backupExistingData(dates, sectorColumns, uuid);
+            
+            // Insert into temp tables
+            insertStatement(dateEventData, dateEventHeaders, dateEventTempTableName);
+            insertStatement(new ArrayList<>(upsellMap.values()), upsellHeaders, profileFareStationUpsellTempTableName);
+            
+            // Track what data is being changed
+            auditPartialUpdate(userName, uuid, sectorColumns, dates);
+            
+            // Delete only relevant data (dates + sectors combination) from main table
+            deleteTargetedCombinations(dates, sectorColumns);
+            
+            // Copy data from temp tables to main tables
+            copyFromTempToMainTable(CONFIG_PROFILE_FARE_STATION_UPSELL, profileFareStationUpsellTempTableName);
+            mergeDateEvents(dateEventData);
+            
+            // Update audit information
+            updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
+            updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
+            
+            // Clean up temporary tables
+            deleteTable(profileFareStationUpsellTempTableName);
+            deleteTable(dateEventTempTableName);
+            
+            
+            error_occurred = 0;
+        } catch (ValidationException ve) {
+            // Handle validation errors specifically
+            logError(uuid, "VALIDATION_ERROR", ve.getMessage());
+            error_occurred = 1;
+            throw new RuntimeException(ve);
+        } catch (Exception e) {
+            // Log the error and set flag
+            logError(uuid, "PROCESSING_ERROR", e.getMessage());
+            error_occurred = 1;
+            throw new RuntimeException(e);
+        } finally {
+            // Update input status to indicate processing is complete
+            updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
+            updateInputStatus(DATE_EVENT_TABLE_NAME);
+        }
+    }
+
+    /**
+     * Extracts sector columns from the CSV header row
+     * 
+     * @param headers The list of column headers
+     * @return A set of sector column names
+     */
+    private Set<String> extractSectorColumns(List<String> headers) {
+        // Skip date, DOW, mappedMonth, event columns (first 4)
+        Set<String> sectors = new HashSet<>();
+        for (int i = 4; i < headers.size(); i++) {
+            String header = headers.get(i);
+            if (header != null && !header.trim().isEmpty()) {
+                sectors.add(header.trim());
+            }
+        }
+        return sectors;
+    }
+
+    /**
+     * Validates a partial update file to ensure it meets the requirements
+     * 
+     * @param csvData The parsed CSV data
+     * @throws ValidationException If validation fails
+     */
+    private void validatePartialUpdateFile(List<List<String>> csvData) throws ValidationException {
+        if (csvData == null || csvData.isEmpty()) {
+            throw new ValidationException("CSV file is empty");
+        }
+        
+        // 1. Check required columns exist
+        List<String> headers = csvData.get(0);
+        validateRequiredColumns(headers);
+        
+        // 2. Validate date format and data for each row
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> row = csvData.get(i);
+            
+            // Skip empty rows
+            if (row.isEmpty()) {
+                continue;
+            }
+            
+            // Ensure row has enough columns
+            if (row.size() < 4) {
+                throw new ValidationException("Row " + (i+1) + " has insufficient columns");
+            }
+            
+            // Validate date format
+            String dateStr = row.get(0);
+            if (dateStr == null || dateStr.trim().isEmpty()) {
+                throw new ValidationException("Missing date in row " + (i+1));
+            }
+            
+            if (!isValidDateFormat(dateStr)) {
+                throw new ValidationException("Invalid date format in row " + (i+1) + ": " + dateStr);
+            }
+        }
+        
+        // 3. Validate sector columns exist in the master list
+        Set<String> sectors = extractSectorColumns(headers);
+        validateSectorsExist(sectors);
+        
+        // 4. Validate percentage values
+        validatePercentageValues(csvData, sectors);
+        
+        // 5. Ensure each date is valid (exists in calendar or within valid range)
+        validateDatesExistInCalendar(csvData);
+    }
+
+    /**
+     * Validate that the required columns exist in the header
+     * 
+     * @param headers The list of column headers
+     * @throws ValidationException If validation fails
+     */
+    private void validateRequiredColumns(List<String> headers) throws ValidationException {
+        if (headers.size() < 5) { // Date, DOW, MappedMonth, Event + at least one sector
+            throw new ValidationException("CSV must contain at least Date, DOW, Mapped Month, Event columns plus at least one sector column");
+        }
+        
+        // Check header column names (case-insensitive check)
+        if (!headers.get(0).equalsIgnoreCase("Date") ||
+            !headers.get(1).equalsIgnoreCase("DOW") ||
+            !headers.get(2).equalsIgnoreCase("Mapped Month") ||
+            !headers.get(3).equalsIgnoreCase("Event")) {
+            throw new ValidationException("CSV must start with Date, DOW, Mapped Month, Event columns in that order");
+        }
+    }
+
+    /**
+     * Validate that all sector codes exist in the master station list
+     * 
+     * @param sectors The set of sector codes to validate
+     * @throws ValidationException If validation fails
+     */
+    private void validateSectorsExist(Set<String> sectors) throws ValidationException {
+        if (sectors.isEmpty()) {
+            throw new ValidationException("No sector columns found in the uploaded file");
+        }
+        
+        // Get the list of valid sectors from the database
+        Set<String> validSectors = getValidSectors();
+        
+        // Check each sector is valid
+        for (String sector : sectors) {
+            if (!validSectors.contains(sector)) {
+                throw new ValidationException("Invalid sector in column: " + sector);
+            }
+        }
+    }
+
+    /**
+     * Retrieves the list of valid sectors from the config_station_master table
+     * 
+     * @return A set of valid sector codes
+     */
+    private Set<String> getValidSectors() {
+        Set<String> validSectors = new HashSet<>();
+        try (Statement stmt = connection.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT station FROM config_station_master")) {
+            while (rs.next()) {
+                validSectors.add(rs.getString("station"));
+            }
+        } catch (SQLException e) {
+            System.out.println("Error retrieving valid sectors: " + e.getMessage());
+        }
+        return validSectors;
+    }
+
+    /**
+     * Validates that the date values in the CSV exist in the calendar or are within a valid range
+     * 
+     * @param csvData The parsed CSV data
+     * @throws ValidationException If validation fails
+     */
+    private void validateDatesExistInCalendar(List<List<String>> csvData) throws ValidationException {
+        // Extract dates from CSV
+        Set<String> dates = new HashSet<>();
+        for (int i = 1; i < csvData.size(); i++) {
+            if (csvData.get(i).size() > 0) {
+                String dateStr = csvData.get(i).get(0);
+                if (dateStr != null && !dateStr.trim().isEmpty()) {
+                    dates.add(dateStr.trim());
+                }
+            }
+        }
+        
+        // Option 1: Check against existing dates in the database
+        Set<String> validDates = getValidDates();
+        
+        // Check if dates are valid
+        for (String date : dates) {
+            if (!validDates.contains(date)) {
+                // Option 2: If not in existing dates, check if within a valid range
+                if (!isDateWithinValidRange(date)) {
+                    throw new ValidationException("Date not found in calendar: " + date);
+                }
+            }
+        }
+    }
+
+    /**
+     * Retrieves the list of valid dates from the config_date_event table
+     * 
+     * @return A set of valid dates
+     */
+    private Set<String> getValidDates() {
+        Set<String> validDates = new HashSet<>();
+        try (Statement stmt = connection.createStatement();
+            ResultSet rs = stmt.executeQuery("SELECT date FROM " + DATE_EVENT_TABLE_NAME)) {
+            while (rs.next()) {
+                validDates.add(rs.getString("date"));
+            }
+        } catch (SQLException e) {
+            System.out.println("Error retrieving valid dates: " + e.getMessage());
+        }
+        return validDates;
+    }
+
+    /**
+     * Checks if a date is within a valid range (e.g., not too far in the past or future)
+     * 
+     * @param dateStr The date string to check
+     * @return true if the date is within a valid range
+     */
+    private boolean isDateWithinValidRange(String dateStr) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+            Date date = sdf.parse(dateStr);
+            
+            // Get current date
+            Calendar cal = Calendar.getInstance();
+            Date now = cal.getTime();
+            
+            // Allow dates from 1 year ago to 2 years in the future
+            cal.add(Calendar.YEAR, -1);
+            Date oneYearAgo = cal.getTime();
+            
+            cal.add(Calendar.YEAR, 3); // -1 + 3 = 2 years from now
+            Date twoYearsFromNow = cal.getTime();
+            
+            return date.after(oneYearAgo) && date.before(twoYearsFromNow);
+        } catch (ParseException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Validates the percentage values in the CSV
+     * 
+     * @param csvData The parsed CSV data
+     * @param sectors The set of sector columns to validate
+     * @throws ValidationException If validation fails
+     */
+    private void validatePercentageValues(List<List<String>> csvData, Set<String> sectors) throws ValidationException {
+        List<String> headers = csvData.get(0);
+        
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> row = csvData.get(i);
+            if (row.size() <= 4) {
+                continue; // Skip rows with insufficient columns
+            }
+            
+            String dateKey = row.get(0);
+            
+            for (String sector : sectors) {
+                int colIndex = headers.indexOf(sector);
+                if (colIndex >= 0 && colIndex < row.size()) {
+                    String value = row.get(colIndex);
+                    if (value != null && !value.trim().isEmpty() && !isValidPercentageFormat(value.trim())) {
+                        throw new ValidationException("Invalid percentage format for date " + dateKey + 
+                            ", sector " + sector + ": " + value);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks if a string is in a valid percentage format
+     * 
+     * @param value The string to check
+     * @return true if the string is a valid percentage
+     */
+    private boolean isValidPercentageFormat(String value) {
+        // Accept formats like "5%", "-10%", "0%", etc.
+        return value.matches("-?\\d+(\\.\\d+)?%");
+    }
+
+    /**
+     * Checks if a string is in a valid date format (MM/dd/yyyy)
+     * 
+     * @param dateStr The date string to check
+     * @return true if the string is a valid date
+     */
+    private boolean isValidDateFormat(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) {
+            return false;
+        }
+        
+        SimpleDateFormat sdf = new SimpleDateFormat("MM/dd/yyyy");
+        sdf.setLenient(false);
+        
+        try {
+            sdf.parse(dateStr.trim());
+            return true;
+        } catch (ParseException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Process the CSV data to extract upsell values for specific sectors and dates
+     * 
+     * @param csvData The parsed CSV data
+     * @param sectorsToUpdate The set of sectors to update
+     * @return A map of date+sector keys to upsell values
+     */
+    public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData, Set<String> sectorsToUpdate) {
+        Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
+        int dateHeader = 0;
+        List<String> headers = csvData.get(0);
+        
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            if (inputRow.size() <= dateHeader) {
+                continue; // Skip rows with insufficient columns
+            }
+            
+            String dateKey = inputRow.get(dateHeader);
+            if (dateKey == null || dateKey.trim().isEmpty()) {
+                continue; // Skip rows with no date
+            }
+            
+            // Only process selected sectors
+            for (String sector : sectorsToUpdate) {
+                int columnIndex = headers.indexOf(sector);
+                if (columnIndex >= 0 && columnIndex < inputRow.size()) {
+                    String value = inputRow.get(columnIndex);
+                    String keyVal = dateKey + sector;
+                    
+                    // Create entry even if value is empty (to support clearing values)
+                    Map<String, String> map = new HashMap<>();
+                    map.put(DATE_COLUMN_NAME, dateKey);
+                    map.put(SECTOR_COLUMN_NAME.toLowerCase(), sector);
+                    map.put(VALUE_COLUMN_NAME, value == null || value.trim().isEmpty() ? null : value.trim());
+                    strategyMap.put(keyVal, map);
+                }
+            }
+        }
+        return strategyMap;
+    }
+
+    /**
+     * Delete specific date-sector combinations from the upsell table
+     * 
+     * @param dates The set of dates to target
+     * @param sectors The set of sectors to target
+     */
+    private void deleteTargetedCombinations(Set<String> dates, Set<String> sectors) {
+        // Build the placeholder strings
+        String datePlaceholders = dates.stream().map(v -> "?").collect(Collectors.joining(", "));
+        String sectorPlaceholders = sectors.stream().map(v -> "?").collect(Collectors.joining(", "));
+        
+        // Build the delete SQL query
+        String deleteQuery = "DELETE FROM " + CONFIG_PROFILE_FARE_STATION_UPSELL + 
+                            " WHERE date IN (" + datePlaceholders + ") AND sector IN (" + sectorPlaceholders + ")";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+            // Set date parameters
+            int index = 1;
+            for (String date : dates) {
+                pstmt.setString(index++, date);
+            }
+            
+            // Set sector parameters
+            for (String sector : sectors) {
+                pstmt.setString(index++, sector);
+            }
+            
+            // Execute the update
+            int deletedRows = pstmt.executeUpdate();
+            System.out.println("Deleted " + deletedRows + " rows from upsell table");
+        } catch (SQLException e) {
+            System.out.println("Error deleting targeted combinations: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Merge date events data (update if exists, insert if not)
+     * 
+     * @param dateEvents The list of date events to merge
+     */
+    private void mergeDateEvents(List<Map<String, String>> dateEvents) {
+        for (Map<String, String> event : dateEvents) {
+            String date = event.get(DATE_COLUMN_NAME);
+            if (date == null || date.trim().isEmpty()) {
+                continue;
+            }
+            
+            // Check if date exists
+            boolean exists = checkDateExists(date);
+            
+            if (exists) {
+                // Update existing record
+                updateDateEvent(event);
+            } else {
+                // Insert new record
+                insertDateEvent(event);
+            }
+        }
+    }
+
+    /**
+     * Check if a date exists in the config_date_event table
+     * 
+     * @param date The date to check
+     * @return true if the date exists
+     */
+    private boolean checkDateExists(String date) {
+        String query = "SELECT COUNT(*) AS count FROM " + DATE_EVENT_TABLE_NAME + " WHERE date = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, date);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("count") > 0;
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Error checking if date exists: " + e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Update an existing date event record
+     * 
+     * @param event The date event data
+     */
+    private void updateDateEvent(Map<String, String> event) {
+        StringBuilder setClauses = new StringBuilder();
+        List<String> params = new ArrayList<>();
+        
+        // Build SET clauses for all fields except date
+        for (Map.Entry<String, String> entry : event.entrySet()) {
+            if (!entry.getKey().equals(DATE_COLUMN_NAME)) {
+                setClauses.append(entry.getKey()).append(" = ?, ");
+                params.add(entry.getValue());
+            }
+        }
+        
+        // Remove trailing comma and space
+        String setClause = setClauses.toString();
+        if (setClause.endsWith(", ")) {
+            setClause = setClause.substring(0, setClause.length() - 2);
+        }
+        
+        String updateQuery = "UPDATE " + DATE_EVENT_TABLE_NAME + " SET " + setClause + " WHERE date = ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(updateQuery)) {
+            // Set parameters for SET clause
+            int index = 1;
+            for (String param : params) {
+                pstmt.setString(index++, param);
+            }
+            
+            // Set parameter for WHERE clause
+            pstmt.setString(index, event.get(DATE_COLUMN_NAME));
+            
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Error updating date event: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Insert a new date event record
+     * 
+     * @param event The date event data
+     */
+    private void insertDateEvent(Map<String, String> event) {
+        StringBuilder columns = new StringBuilder();
+        StringBuilder placeholders = new StringBuilder();
+        List<String> values = new ArrayList<>();
+        
+        // Build columns and placeholders
+        for (Map.Entry<String, String> entry : event.entrySet()) {
+            columns.append(entry.getKey()).append(", ");
+            placeholders.append("?, ");
+            values.add(entry.getValue());
+        }
+        
+        // Remove trailing commas and spaces
+        String columnsStr = columns.toString();
+        String placeholdersStr = placeholders.toString();
+        if (columnsStr.endsWith(", ")) {
+            columnsStr = columnsStr.substring(0, columnsStr.length() - 2);
+        }
+        if (placeholdersStr.endsWith(", ")) {
+            placeholdersStr = placeholdersStr.substring(0, placeholdersStr.length() - 2);
+        }
+        
+        String insertQuery = "INSERT INTO " + DATE_EVENT_TABLE_NAME + " (" + columnsStr + ") VALUES (" + placeholdersStr + ")";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(insertQuery)) {
+            // Set parameters
+            int index = 1;
+            for (String value : values) {
+                pstmt.setString(index++, value);
+            }
+            
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Error inserting date event: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Record the partial update details in the audit log
+     * 
+     * @param userName The username of the person making the update
+     * @param uuid The unique identifier for this operation
+     * @param updatedSectors The set of sectors being updated
+     * @param updatedDates The set of dates being updated
+     */
+    private void auditPartialUpdate(String userName, String uuid, Set<String> updatedSectors, Set<String> updatedDates) {
+        try {
+            // Convert sets to strings for storage
+            String sectorsStr = String.join(",", updatedSectors);
+            String datesStr = String.join(",", updatedDates);
+            
+            // Record in detailed audit log
+            try (PreparedStatement pstmt = connection.prepareStatement(
+                "INSERT INTO audit_detail_log (audit_id, table_name, update_type, sectors, dates, updated_by) VALUES (?, ?, ?, ?, ?, ?)")) {
+                pstmt.setString(1, uuid);
+                pstmt.setString(2, CONFIG_PROFILE_FARE_STATION_UPSELL);
+                pstmt.setString(3, "PARTIAL_UPDATE");
+                pstmt.setString(4, sectorsStr);
+                pstmt.setString(5, datesStr);
+                pstmt.setString(6, userName);
+                pstmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            System.out.println("Failed to log audit details: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Create a backup of existing data before making changes
+     * 
+     * @param dates The set of dates being updated
+     * @param sectors The set of sectors being updated
+     * @param uuid The unique identifier for this operation
+     */
+    private void backupExistingData(Set<String> dates, Set<String> sectors, String uuid) {
+        // Build the placeholder strings
+        String datePlaceholders = dates.stream().map(v -> "?").collect(Collectors.joining(", "));
+        String sectorPlaceholders = sectors.stream().map(v -> "?").collect(Collectors.joining(", "));
+        
+        // Build the query to select data for backup
+        String selectQuery = "SELECT * FROM " + CONFIG_PROFILE_FARE_STATION_UPSELL + 
+                            " WHERE date IN (" + datePlaceholders + ") AND sector IN (" + sectorPlaceholders + ")";
+        
+        try {
+            // Create backup table if not exists
+            try (Statement stmt = connection.createStatement()) {
+                stmt.executeUpdate("CREATE TABLE IF NOT EXISTS data_backup_log (" +
+                                "id INT AUTO_INCREMENT PRIMARY KEY, " +
+                                "audit_id VARCHAR(50), " +
+                                "table_name VARCHAR(100), " +
+                                "date VARCHAR(20), " +
+                                "sector VARCHAR(20), " +
+                                "old_value VARCHAR(50), " +
+                                "backup_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+            }
+            
+            // Select data for backup
+            try (PreparedStatement pstmt = connection.prepareStatement(selectQuery)) {
+                // Set parameters
+                int index = 1;
+                for (String date : dates) {
+                    pstmt.setString(index++, date);
+                }
+                for (String sector : sectors) {
+                    pstmt.setString(index++, sector);
+                }
+                
+                // Execute query and process results
+                try (ResultSet rs = pstmt.executeQuery()) {
+                    while (rs.next()) {
+                        // Insert into backup table
+                        try (PreparedStatement insertStmt = connection.prepareStatement(
+                            "INSERT INTO data_backup_log (audit_id, table_name, date, sector, old_value) VALUES (?, ?, ?, ?, ?)")) {
+                            insertStmt.setString(1, uuid);
+                            insertStmt.setString(2, CONFIG_PROFILE_FARE_STATION_UPSELL);
+                            insertStmt.setString(3, rs.getString("date"));
+                            insertStmt.setString(4, rs.getString("sector"));
+                            insertStmt.setString(5, rs.getString("value"));
+                            insertStmt.executeUpdate();
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println("Error backing up data: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Log errors that occur during processing
+     * 
+     * @param uuid The unique identifier for this operation
+     * @param errorType The type of error
+     * @param errorMessage The error message
+     */
+    private void logError(String uuid, String errorType, String errorMessage) {
+        try (PreparedStatement pstmt = connection.prepareStatement(
+            "INSERT INTO error_log (audit_id, error_type, error_message, error_time) VALUES (?, ?, ?, CURRENT_TIMESTAMP)")) {
+            pstmt.setString(1, uuid);
+            pstmt.setString(2, errorType);
+            pstmt.setString(3, errorMessage);
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Error logging error: " + e.getMessage());
+        }
+    }
+
+    public static class ValidationException extends Exception {
+        public ValidationException(String message) {
+            super(message);
+        }
+    }
+
     public void uploadDateEventFile(Reader file, String userName, String obj_id) throws RuntimeException {
         String uuid = obj_id;
         try {
