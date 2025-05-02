@@ -413,7 +413,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                         .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadDateEventFile(reader, userName, obj_id);
+                                    uploadPartialDateEvent(reader, userName, obj_id);
                                 } catch (Exception e) {
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
