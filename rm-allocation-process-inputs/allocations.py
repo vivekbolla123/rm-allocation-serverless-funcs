@@ -1,5 +1,6 @@
 import ast
 import copy
+from datetime import datetime
 import json
 import math
 
@@ -630,6 +631,8 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
+                
+        return brd_counter
 
     
 
@@ -725,3 +728,95 @@ class RBDAllocations:
 
             brd_counter = brd_counter+1
         return brd_counter, currRec
+
+    def sales_inv_allocation(self, distress_pax_count, brd_counter, currRec, rbd_list,ndocounter,dateFormatted,origin,destin):
+        # Get sales inventory allocation based on distress pax count
+
+        # If no distress passengers, set all allocations to 0
+        if distress_pax_count <= 0:
+            for rbd in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                brd_counter += 1
+            return brd_counter
+
+        # Get inventory value based on pax count and NDO
+        ndo = ndocounter
+        pax_range = self._get_pax_range(distress_pax_count)
+        ndo_range = self._get_ndo_range(ndo)
+        # Get departure date in mm/dd/yyyy format
+        dep_date = datetime.strptime(dateFormatted, '%Y-%m-%d').strftime('%m/%d/%Y')
+        
+        # Check distress calendar value for departure date and sector
+        distress_calendar_df = self.rmdatabasehelper.get_distress_calendar_value(
+            dep_date,
+            origin + destin
+        )
+        distress_calendar_value = 0 if distress_calendar_df.empty else distress_calendar_df['value'].iloc[0]
+        
+        # If distress calendar value is 1, set all allocations to 0 and return
+        if distress_calendar_value == 1:
+            for rbd in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                brd_counter += 1
+            return brd_counter
+        # Get inventory value from table based on NDO or month
+        if ndo > 30:
+            # For farther dates, use month from departure date
+            month = datetime.strptime(dateFormatted, '%Y-%m-%d').strftime('%B_%Y')
+            inventory_value = self.rmdatabasehelper.get_farther_inventory_value(pax_range, month)
+            if not inventory_value.empty:
+                inventory_value = inventory_value['value'].iloc[0]
+            else:
+                inventory_value = 0 
+            # Get RBD distribution based on inventory value
+            rbd_dist_df = self.rmdatabasehelper.get_farther_rbd_distribution(inventory_value) 
+            if not rbd_dist_df.empty:
+                rbd_allocations = rbd_dist_df.iloc[0].to_dict()
+            else:
+                rbd_allocations = {}
+        else:
+            # For closer dates, use NDO range
+            inventory_df = self.rmdatabasehelper.get_closer_inventory_value(pax_range, ndo_range)
+            if not inventory_df.empty:
+                inventory_value = inventory_df['value'].iloc[0]
+            else:
+                inventory_value = 0
+
+            rbd_dist_df = self.rmdatabasehelper.get_closer_rbd_distribution(inventory_value) 
+            if not rbd_dist_df.empty:
+                rbd_allocations = {}
+                for _, row in rbd_dist_df.iterrows():
+                    rbd_allocations[row['rbd']] = row['allocation']
+            else:
+                rbd_allocations = {}
+        
+
+        # Set allocations for each RBD
+        for rbd in rbd_list:
+            allocation = rbd_allocations.get(rbd, 0)
+            currRec.set_class_attribute(brd_counter, 'class_au', int(allocation))
+            currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+            brd_counter += 1
+            
+        return brd_counter
+
+    def _get_pax_range(self, pax_count):
+        if pax_count <= 10:
+            return "3-10"
+        elif pax_count <= 20:
+            return "11-20"
+        elif pax_count <= 30:
+            return "21-30"
+        elif pax_count <= 40:
+            return "31-40"
+        else:
+            return "41-400"
+
+    def _get_ndo_range(self, ndo):
+        if ndo <= 1:
+            return "0-1"
+        elif ndo <= 15:
+            return "2-15"
+        else:
+            return "16-30"

@@ -563,8 +563,13 @@ class DynAlloc:
 
 				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
-				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
-				
+				brd_counter=self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
+    
+				# Calculate distress pax count
+				distress_pax_count = startOfDayTgtBookedLoad - currBookedLoad
+
+				# Get sales inventory allocation based on distress pax count
+				self.allocations.sales_inv_allocation(round(distress_pax_count), brd_counter, currRec, ['W7','W6','W5','W4'],ndocounter,dateFormatted,self.currParams.origin,self.currParams.destin)
     
 
 				self.AUFileData.append(currRec)
