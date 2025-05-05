@@ -1142,15 +1142,30 @@ public class App implements RequestHandler<S3Event, Object> {
 
     /**
      * Extract date event data from CSV for partial update
-     * Only processes sectors that are included in the CSV and have non-empty values
+     * Specifically designed to handle case where DOW column might be missing
      */
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
         List<String> headers = csvData.get(0);
         
-        // Debug the headers to see what we're dealing with
+        // Debug the headers
         System.out.println("Headers: " + String.join(", ", headers));
+        
+        // Find sector columns - all columns from position 3 (Event) onwards
+        List<Integer> sectorIndices = new ArrayList<>();
+        for (int i = 3; i < headers.size(); i++) {
+            // Skip the Event column
+            if (i == 3) continue;
+            
+            String header = headers.get(i);
+            if (header != null && !header.trim().isEmpty()) {
+                sectorIndices.add(i);
+            }
+        }
+        
+        // Print sector indices for debugging
+        System.out.println("Sector indices: " + sectorIndices);
         
         // Process each row (skip header row)
         for (int i = 1; i < csvData.size(); i++) {
@@ -1160,10 +1175,9 @@ public class App implements RequestHandler<S3Event, Object> {
             String dateKey = inputRow.get(dateHeader);
             if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
             
-            // Process all columns from index 4 onwards (first sector column)
-            for (int j = 4; j < headers.size(); j++) {
+            // Process all identified sector columns
+            for (int j : sectorIndices) {
                 String sectorKey = headers.get(j);
-                if (sectorKey == null || sectorKey.trim().isEmpty()) continue;
                 
                 // Get value, handle case where row might be shorter than header row
                 String value = "";
