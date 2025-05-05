@@ -1551,7 +1551,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(38, marketListEntity.getAutoGroup());
             pstmt.setString(39, marketListEntity.getAutoBackstopFlag());
             pstmt.setString(40, marketListEntity.getTbfFlag());
-            pstmt.setString(41, marketListEntity.getUuid());
+            pstmt.setString(41, marketListEntity.getCugFlag());
+            pstmt.setString(42, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -1747,6 +1748,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .autoGroup(convertYNToBoolean(record.get(CSV_HEADER_AUTO_GROUP)))
                 .autoBackstopFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG)))
                 .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
+                .cugFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -2103,6 +2105,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_TBF_FLAG))) {
                 listOfErrors.add(lineNum + "TBF Flag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_CUG_FLAG))) {
+                listOfErrors.add(lineNum + "CUG Flag has value other than 'Y' or 'N'");
             }
 
             return user;
