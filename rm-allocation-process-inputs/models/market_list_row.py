@@ -44,6 +44,7 @@ class MarketListRow:
         self.autoBackstopFlag = currParams.get("Autobackstopflag", CONST_NA)
         self.tbfFlag = currParams.get("TbfFlag", CONST_NA)
         self.w0Flag = currParams.get("w0_value",'0')
+        self.cug_mkt_flag = currParams.get("CugFlag",CONST_NA)
         
         self.DepartureTime = currParams.get("DepartureTime",CONST_NA)
         self.bookedPax = currParams.get("bookedPax",CONST_NA)

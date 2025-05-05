@@ -570,7 +570,7 @@ class DynAlloc:
 
 				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
 				# Call the w_series_allocation method for WJ, WI, WH, WG, WF RBDs
-				brd_counter = self.allocations.cug_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.cug_bookings_dict,self.currParams.cug_flag)
+				brd_counter = self.allocations.cug_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.cug_bookings_dict,self.currParams.cug_flag,self.currParams.cug_mkt_flag)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
 				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
 				

@@ -130,6 +130,7 @@ GROUP BY
     ml.seriesBlock,
     ml.autoGroup,
     ml.tbfFlag,
+    ml.CugFlag,
     ml.autoBackstopFlag,
     bfd.BookingsCount,
     bfd.BookingToday, 

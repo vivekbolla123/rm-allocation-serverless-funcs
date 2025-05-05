@@ -632,7 +632,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
 
-    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag):
+    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag):
         """
         Simplified W-series RBD allocation:
         - Allocates only if forecastedPLF < 90 and 8 <= ndo <= 30
@@ -655,7 +655,7 @@ class RBDAllocations:
             forecastedPLF = 0
 
         # Condition 1: Valid range for PLF and NDO
-        is_applicable = 8 <= ndo <= 30 and forecastedPLF < 90 and self.rmdatabasehelper.get_CUG_fares(origin,destin) and profile_fare_value!='NA' and int(cug_flag)==1
+        is_applicable = 8 <= ndo <= 30 and forecastedPLF < 90 and self.rmdatabasehelper.get_CUG_fares(origin,destin) and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
 
         if  is_applicable:
             # Find best RBD with fare <= profile_fare_value
