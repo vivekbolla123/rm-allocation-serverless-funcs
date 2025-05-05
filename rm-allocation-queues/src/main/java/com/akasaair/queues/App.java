@@ -1158,23 +1158,26 @@ public class App implements RequestHandler<S3Event, Object> {
             if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
             
             // Process each sector column
-            for (int j = startColumn; j < inputRow.size(); j++) {
-                // Skip if column header is missing
-                if (j >= csvData.get(0).size()) continue;
-                
+            for (int j = startColumn; j < Math.min(csvData.get(0).size(), inputRow.size() + 1); j++) {
+                // Get the station key from the header row
                 String stationKey = csvData.get(0).get(j);
                 if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
                 
-                // Check if value exists (include even empty values for clearing)
+                // Get the value (if it exists in the row)
                 String value = (j < inputRow.size()) ? inputRow.get(j) : "";
+                
+                // Create a unique key for this date-sector combination
                 String keyVal = dateKey + stationKey;
                 
-                // Create entry regardless of whether value is empty (to support clearing values)
+                // Create entry for every sector, even with empty values (to support clearing values)
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
                 map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
                 map.put(VALUE_COLUMN_NAME, value);
                 strategyMap.put(keyVal, map);
+                
+                // Debug logging to track what's being processed
+                System.out.println("Processing: Date=" + dateKey + ", Sector=" + stationKey + ", Value=" + value);
             }
         }
         return strategyMap;
