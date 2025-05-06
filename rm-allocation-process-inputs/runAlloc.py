@@ -287,12 +287,12 @@ class DynAlloc:
 			currFltDate = self.currParams.per_start
 			currFltDepartureTime = self.currParams.DepartureTime
 			self.cug_bookings_dict = {
-							'G0': self.currParams.G0_bookings,
-							'G1': self.currParams.G1_bookings,
-							'G2': self.currParams.G2_bookings,
-							'G3': self.currParams.G3_bookings,
-							'G4': self.currParams.G4_bookings
-						}
+									'G0': self.currParams.G0_bookings if self.currParams.G0_bookings not in [None, 'NA', 'null'] else 0,
+									'G1': self.currParams.G1_bookings if self.currParams.G1_bookings not in [None, 'NA', 'null'] else 0,
+									'G2': self.currParams.G2_bookings if self.currParams.G2_bookings not in [None, 'NA', 'null'] else 0,
+									'G3': self.currParams.G3_bookings if self.currParams.G3_bookings not in [None, 'NA', 'null'] else 0,
+									'G4': self.currParams.G4_bookings if self.currParams.G4_bookings not in [None, 'NA', 'null'] else 0
+								}
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
