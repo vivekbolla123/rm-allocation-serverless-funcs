@@ -40,6 +40,8 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_AUTO_GROUP = 35;
     int CSV_HEADER_AUTO_BACKSTOP_FLAG = 36;
     int CSV_HEADER_TBF_FLAG = 37;
+    int CSV_HEADER_CUG_FLAG = 38;
+
 
     String CSV_HEADER_TIME = "Time";
     String CSV_HEADER_CRITERIA = "Criteria";

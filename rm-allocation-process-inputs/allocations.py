@@ -26,9 +26,10 @@ class RBDAllocations:
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
         fullRbds=B2CRBDs
-        rbd_list = self.constantsutils.TBF_RBD.split(',')
+        rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
         rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
         B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
+        B2CRBDs['id'] = B2CRBDs.reset_index().index + 1
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['Total'].iloc[-1]
         openingRBD = openDataB2C['RBD'][0]
@@ -631,7 +632,65 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
 
-    
+    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag):
+        """
+        Simplified W-series RBD allocation:
+        - Allocates only if forecastedPLF < 90 and 8 <= ndo <= 30
+        - AND (B2C - opening fare) <= 30% of B2C fare
+        """
+        w_rbd_list = self.constantsutils.CUG_RBD.split(',')
+        w_rbds = B2CRBDs[B2CRBDs['RBD'].isin(w_rbd_list) & B2CRBDs['Total'].notna()].copy()
+
+        open_rbd = None
+        opening_fare = None
+        allocation_value = 0
+
+        # Flight details
+        try:
+            origin, destin, flight_number = currParams.origin, currParams.destin, currParams.flight_number
+            departure_date = currFltDate
+            forecastedPLF = self.rmdatabasehelper.get_forecast_results(origin, destin, flight_number, departure_date) or 0
+        except Exception as e:
+            self.logger.error(f"Error getting flight forecast data: {str(e)}")
+            forecastedPLF = 0
+
+        # Condition 1: Valid range for PLF and NDO
+        is_applicable = 8 <= ndo <= 30 and forecastedPLF < 90 and self.rmdatabasehelper.get_CUG_fares(origin,destin) and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
+
+        if  is_applicable:
+            # Find best RBD with fare <= profile_fare_value
+            valid_rbds = w_rbds[w_rbds['Total'] <= profile_fare_value]
+            if not valid_rbds.empty:
+                closest_idx = (valid_rbds['Total'] - profile_fare_value).abs().idxmin()
+                open_rbd = valid_rbds.loc[closest_idx, 'RBD']
+                opening_fare = valid_rbds.loc[closest_idx, 'Total']
+
+                # Condition 2: Fare gap check
+                if ( b2copeningfare-opening_fare) < (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
+                    self.logger.info(f"Skipping allocation: Opening fare too low. Gap exceeds 30% threshold. Selling: {profile_fare_value}, Opening: {opening_fare}")
+                    open_rbd = None  # Invalidate for allocation
+
+                # If both conditions pass, calculate allocation
+                if open_rbd:
+                    try:
+                        open_rbd_bookings = cug_bookings_dict.get(open_rbd, 0) if cug_bookings_dict else 0
+                    except Exception as e:
+                        self.logger.error(f"Error getting bookings for {open_rbd}: {str(e)}")
+                        open_rbd_bookings = 0
+
+                    plf_gap = 90 - forecastedPLF
+                    allocation_percent = plf_gap * self.constantsutils.CUG_SEATS_PERCENT
+                    allocation_value = int(round(((allocation_percent / 100) * adjustedCapacity) + open_rbd_bookings))
+                    if allocation_value < 1:
+                        allocation_value = 1
+
+        # Final Allocation: only to open_rbd, others get 0
+        for rbd in w_rbd_list:
+            currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+            currRec.set_class_attribute(brd_counter, 'class_au', allocation_value if rbd == open_rbd else 0)
+            brd_counter += 1
+
+        return brd_counter 
 
 
     def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
