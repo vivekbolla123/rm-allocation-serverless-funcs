@@ -1147,25 +1147,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
-        List<String> headers = csvData.get(0);
-        
-        // Debug the headers
-        System.out.println("Headers: " + String.join(", ", headers));
-        
-        // Find sector columns - all columns from position 3 (Event) onwards
-        List<Integer> sectorIndices = new ArrayList<>();
-        for (int i = 3; i < headers.size(); i++) {
-            // Skip the Event column
-            if (i == 3) continue;
-            
-            String header = headers.get(i);
-            if (header != null && !header.trim().isEmpty()) {
-                sectorIndices.add(i);
-            }
-        }
-        
-        // Print sector indices for debugging
-        System.out.println("Sector indices: " + sectorIndices);
+        int startColumn = 4; // Start from column 4 (after Date, DOW, MappedMonth, Event)
         
         // Process each row (skip header row)
         for (int i = 1; i < csvData.size(); i++) {
@@ -1175,26 +1157,24 @@ public class App implements RequestHandler<S3Event, Object> {
             String dateKey = inputRow.get(dateHeader);
             if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
             
-            // Process all identified sector columns
-            for (int j : sectorIndices) {
-                String sectorKey = headers.get(j);
+            // Process each sector column
+            for (int j = startColumn; j < inputRow.size(); j++) {
+                // Skip if column header is missing
+                if (j >= csvData.get(0).size()) continue;
                 
-                // Get value, handle case where row might be shorter than header row
-                String value = "";
-                if (j < inputRow.size()) {
-                    value = inputRow.get(j);
-                }
+                String stationKey = csvData.get(0).get(j);
+                if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
                 
-                // Create entry for this date-sector combination
-                String keyVal = dateKey + sectorKey;
+                // Check if value exists (include even empty values for clearing)
+                String value = (j < inputRow.size()) ? inputRow.get(j) : "";
+                String keyVal = dateKey + stationKey;
+                
+                // Create entry regardless of whether value is empty (to support clearing values)
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
-                map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorKey);
+                map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
                 map.put(VALUE_COLUMN_NAME, value);
                 strategyMap.put(keyVal, map);
-                
-                // Debug log to see what's being processed
-                System.out.println("Processing: Date=" + dateKey + ", Sector=" + sectorKey + ", Value=" + value);
             }
         }
         return strategyMap;
