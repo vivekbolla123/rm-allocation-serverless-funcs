@@ -254,29 +254,33 @@ def number_of_batches_required(total_records, adhoc_batch_size):
         return [total_records // adhoc_batch_size, 0]
 
 
-def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name):
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
     record["runTime"] = start_time
     record["route_type"] = route_type
     record["queue"] = queue_name
+    record['cug_alloc'] = cug_alloc
     return record
 
 
 def send_batch_to_sqs(batch, queue_url, additional_fields):
-    entries = [
-        {
-            'Id': str(i),
-            'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
-        } for i, record in enumerate(batch)
-    ]
-    logger.info(entries)
-    response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
-    if 'Failed' in response:
-        logger.error(f"Failed to send {len(response['Failed'])} messages")
+    try:
+        entries = [
+            {
+                'Id': str(i),
+                'MessageBody': json.dumps(add_additional_fields(record, **additional_fields))
+            } for i, record in enumerate(batch)
+        ]
+        logger.info(entries)
+        response = sqs.send_message_batch(QueueUrl=queue_url, Entries=entries)
+        if 'Failed' in response:
+            logger.error(f"Failed to send {len(response['Failed'])} messages")
+    except Exception as e:
+        print(e)
 
 
-def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, batch_size=10, max_workers=5):
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc, batch_size=10, max_workers=5):
     records = df.to_dict('records')
     batches = [records[i:i+batch_size]
                for i in range(0, len(records), batch_size)]
@@ -286,7 +290,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
         'update_navitaire_method': update_navitaire_method,
         'start_time': start_time,
         'route_type': route_type,
-        'queue_name': queue_name
+        'queue_name': queue_name,
+        'cug_alloc':cug_alloc
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         executor.map(lambda batch: send_batch_to_sqs(
@@ -322,6 +327,7 @@ def lambda_handler(event, context):
     route_type_key = "route_type"
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
+    cug_alloc_key = "cug_alloc"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
     body = event['body']
@@ -339,6 +345,7 @@ def lambda_handler(event, context):
     is_connections_required = "0"
     region = "Domestic"
     unique_key_value = ""
+    cug_alloc = "0"
 
     # Overrides
     if route_type_key in data:
@@ -365,6 +372,8 @@ def lambda_handler(event, context):
         is_connections_required = data[is_connections_required_key]
     if unique_key in data:
         unique_key_value = data[unique_key]
+    if cug_alloc_key in data:
+        cug_alloc = data[cug_alloc_key]
 
     # Start program
     if type == "Adhoc":
@@ -523,10 +532,8 @@ def lambda_handler(event, context):
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
             
-        mkt_list = mkt_list.drop(
-            columns=['DepartureDate'], errors='ignore')
+        
         markets_count = mkt_list.shape[0]
-    
     mkt_list = mkt_list.drop(
             columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS
@@ -546,7 +553,7 @@ def lambda_handler(event, context):
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name)
+                              update_navitaire_method, route_type, queue_name,cug_alloc)
     else:
         batches_required = number_of_batches_required(
             markets_count, adhoc_batch_size)
@@ -559,6 +566,7 @@ def lambda_handler(event, context):
             batch_df['runTime'] = start_time
             batch_df['route_type'] = route_type
             batch_df['queue'] = queue_name
+            batch_df['cug_alloc'] = cug_alloc
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
             data_to_serialize = batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -574,6 +582,7 @@ def lambda_handler(event, context):
             last_batch_df['runTime'] = start_time
             last_batch_df['route_type'] = route_type
             last_batch_df['queue'] = queue_name
+            last_batch_df['cug_alloc'] = cug_alloc
             temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
             data_to_serialize = last_batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -724,7 +733,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,ProfileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,Autobackstopflag,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,Autobackstopflag,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
@@ -938,6 +947,7 @@ def clean_markets_optimized(market_list_df, w0_df):
 #             "market_list_table_name": "market_list",
 #             "route_type": "direct",
 #             "run_type": "Scheduled",
+#             "cug_alloc":0
 #         })
 #     }
 #     context = {}

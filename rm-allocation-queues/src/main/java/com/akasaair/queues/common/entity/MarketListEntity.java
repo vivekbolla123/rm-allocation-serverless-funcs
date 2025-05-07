@@ -100,5 +100,7 @@ public class MarketListEntity {
     public String autoBackstopFlag;
     @Column(name = "tbfFlag")
     public String tbfFlag;
+    @Column(name = "CugFlag")
+    public String cugFlag;
 
 }

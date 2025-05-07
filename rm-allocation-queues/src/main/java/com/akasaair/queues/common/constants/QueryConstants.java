@@ -33,11 +33,11 @@ public class QueryConstants {
                 "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, flightExclusionB2B, flightExclusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, "
                 +
                 "B2BBackstop, B2CBackstop, B2BFactor, obSeats, obFare, SkippingFactor, DaySpan, AutoTimeRangeFlag, " +
-                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, UUID) "
+                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,UUID) "
                 +
 
                 "VALUES " +
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? ,?) ;";
     }
 
     public static String GET_ROLE_PERMISSION_LIST(Object role) {
