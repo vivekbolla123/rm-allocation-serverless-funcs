@@ -1147,7 +1147,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
-        int startColumn = 4; // Start from column 4 (after Date, DOW, MappedMonth, Event)
+        int startColumn = 3; // Start from column 4 (after Date, DOW, MappedMonth, Event)
         
         // Process each row (skip header row)
         for (int i = 1; i < csvData.size(); i++) {
