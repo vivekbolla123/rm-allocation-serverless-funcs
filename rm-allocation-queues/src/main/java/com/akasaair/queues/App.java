@@ -1147,27 +1147,53 @@ public class App implements RequestHandler<S3Event, Object> {
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
-        int startColumn = 3; // Start from column 4 (after Date, DOW, MappedMonth, Event)
+        int startColumn = 4; // Start from column 3 (after Date, DOW, MappedMonth)
+        
+        // Log headers for debugging
+        List<String> headers = csvData.get(0);
+        System.out.println("Raw headers: " + headers);
+        for (int i = 0; i < headers.size(); i++) {
+            System.out.println("Header [" + i + "]: '" + headers.get(i) + "'");
+        }
         
         // Process each row (skip header row)
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= dateHeader) continue; // Skip if row is too short
+            if (inputRow.size() <= dateHeader) {
+                System.out.println("Skipping row " + i + ": too short");
+                continue; // Skip if row is too short
+            }
             
             String dateKey = inputRow.get(dateHeader);
-            if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
+            if (dateKey == null || dateKey.trim().isEmpty()) {
+                System.out.println("Skipping row " + i + ": no date");
+                continue; // Skip if no date
+            }
+            
+            // Log each row for debugging
+            System.out.println("Processing row " + i + ": " + inputRow);
             
             // Process each sector column
             for (int j = startColumn; j < inputRow.size(); j++) {
                 // Skip if column header is missing
-                if (j >= csvData.get(0).size()) continue;
+                if (j >= headers.size()) {
+                    System.out.println("Skipping column " + j + ": header missing");
+                    continue;
+                }
                 
-                String stationKey = csvData.get(0).get(j);
-                if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
+                String stationKey = headers.get(j);
+                if (stationKey == null || stationKey.trim().isEmpty()) {
+                    System.out.println("Skipping column " + j + ": no station code");
+                    continue; // Skip if no station code
+                }
                 
-                // Check if value exists (include even empty values for clearing)
+                // Check if value exists
                 String value = (j < inputRow.size()) ? inputRow.get(j) : "";
                 String keyVal = dateKey + stationKey;
+                
+                // Log sector processing
+                System.out.println("Processing sector: Date=" + dateKey + ", Column=" + j + 
+                                 ", Sector=" + stationKey + ", Value='" + value + "'");
                 
                 // Create entry regardless of whether value is empty (to support clearing values)
                 Map<String, String> map = new HashMap<>();
@@ -1177,6 +1203,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 strategyMap.put(keyVal, map);
             }
         }
+        
+        // Log summary of processed data
+        System.out.println("Total date-sector combinations processed: " + strategyMap.size());
         return strategyMap;
     }
 
