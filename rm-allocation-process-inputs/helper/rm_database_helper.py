@@ -374,8 +374,8 @@ GROUP BY
         return dplfBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
-        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
-        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
+        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
+        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
         pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
@@ -393,8 +393,9 @@ GROUP BY
         p_threshold = pflThresholdList['P_threshold']
         l_threshold = pflThresholdList['L_threshold']
         B2B_threshold = pflThresholdList['B2B_threshold']
+        g8_threshold = pflThresholdList['G8_threshold']
         
-        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold
+        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold,g8_threshold
 
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
