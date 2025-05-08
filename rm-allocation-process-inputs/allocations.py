@@ -124,7 +124,7 @@ class RBDAllocations:
                     incremental += overBookingSeats
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
-                    self.logger.info(f"Applied overbooking to RBD {RBDLabel}: Base allocation {incremental - overBookingSeats} + {overBookingSeats} overbooking seats = {incremental}")
+                    # self.logger.info(f"Applied overbooking to RBD {RBDLabel}: Base allocation {incremental - overBookingSeats} + {overBookingSeats} overbooking seats = {incremental}")
 
                 if RBDLabel == self.constantsutils.HIGHEST_B2C_RBD_VALUE:
                     incremental = totalCapacity
