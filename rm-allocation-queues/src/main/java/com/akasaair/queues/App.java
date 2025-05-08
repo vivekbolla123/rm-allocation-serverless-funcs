@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.text.SimpleDateFormat;
 
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.AU_VALUE_COLUMN_NAME;
@@ -413,7 +414,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                         .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadDateEventFile(reader, userName, obj_id);
+                                    uploadPartialDateEvent(reader, userName, obj_id);
                                 } catch (Exception e) {
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
@@ -1057,6 +1058,157 @@ public class App implements RequestHandler<S3Event, Object> {
                 .discountFlag(record.get(CSV_HEADER_CONNECTIONS_DISCOUNTFLAG))
                 .analystName(analystName)
                 .build());
+    }
+
+    public void uploadPartialDateEvent(Reader file, String userName, String obj_id) throws RuntimeException {
+        String uuid = obj_id;
+        try {
+            // Same initialization steps as the original method
+            String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
+            String ProfileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
+
+            // Step 1: Insert audit statement entries
+            insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
+            insertAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), userName, uuid);
+            
+            // Step 2: Create temporary tables
+            createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
+            createTable(ProfileFareStationUpsellTempTableName, CONFIG_PROFILE_FARE_STATION_UPSELL);
+            
+            // Step 3: Update input status to in-progress
+            insertInputStatusTable(DATE_EVENT_TABLE_NAME);
+            insertInputStatusTable(CONFIG_PROFILE_FARE_STATION_UPSELL);
+
+            // Step 4: Parse CSV file data
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            
+            // Step 5: Process the data specifically for partial update
+            // - Extract only the sectors included in the CSV (columns 4+)
+            // - Process only non-empty values
+            Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
+            
+            // Step 6: Get column headers and prepare date event data
+            List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
+            List<String> upsellHeaders = Arrays.asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
+            List<Map<String, String>> data = createListOfMapDateEvent(csvData, dateEventHeaders);
+
+            // Step 7: Insert data into temporary tables
+            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders, 
+                    ProfileFareStationUpsellTempTableName);
+            insertStatement(data, dateEventHeaders, dateEventTempTableName);
+            
+            // Step 8: Get unique sector values for deletion
+            String columnName = SECTOR_COLUMN_NAME.toLowerCase();
+            Set<String> uniqueValues = dateEventMap.values().stream()
+                    .map(obj -> obj.get(columnName))
+                    .collect(Collectors.toSet());
+            
+            // Step 9: Get unique dates for date event deletion
+            Set<String> uniqueDates = data.stream()
+                    .map(map -> map.get(DATE_COLUMN_NAME))
+                    .collect(Collectors.toSet());
+
+            // Step 10: Delete existing data for these dates and sectors
+            deleteValues(uniqueDates, DATE_EVENT_TABLE_NAME, DATE_COLUMN_NAME);
+            
+            // For each sector, delete only the date+sector combinations that exist in the CSV
+            for (String sector : uniqueValues) {
+                deletePartialSectorValues(uniqueDates, sector, CONFIG_PROFILE_FARE_STATION_UPSELL);
+            }
+
+            // Step 11: Copy from temp tables to main tables
+            copyFromTempToMainTable(CONFIG_PROFILE_FARE_STATION_UPSELL, ProfileFareStationUpsellTempTableName);
+            copyFromTempToMainTable(DATE_EVENT_TABLE_NAME, dateEventTempTableName);
+
+            // Step 12: Update audit statement with end time
+            updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
+            updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
+
+            // Step 13: Clean up temporary tables
+            deleteTable(ProfileFareStationUpsellTempTableName);
+            deleteTable(dateEventTempTableName);
+            
+            error_occurred = 0;
+        } catch (Exception e) {
+            error_occurred = 1;
+            e.printStackTrace();
+            throw new RuntimeException(e);
+        } finally {
+            // Step 14: Update input status back to not running
+            updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
+            updateInputStatus(DATE_EVENT_TABLE_NAME);
+        }
+    }
+
+    /**
+     * Extract date event data from CSV for partial update
+     * Specifically designed to handle case where DOW column might be missing
+     */
+    public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
+        Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
+        int dateHeader = 0;
+        int startColumn = 3; // Start from column 3 (after Date, MappedMonth, Event)
+        
+        // Process each row (skip header row)
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            if (inputRow.size() <= dateHeader) continue; // Skip if row is too short
+            
+            String dateKey = inputRow.get(dateHeader);
+            if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
+            
+            // Process each sector column
+            for (int j = startColumn; j < inputRow.size(); j++) {
+                // Skip if column header is missing
+                if (j >= csvData.get(0).size()) continue;
+                
+                String stationKey = csvData.get(0).get(j);
+                if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
+                
+                // Check if value exists (include even empty values for clearing)
+                String value = (j < inputRow.size()) ? inputRow.get(j) : "";
+                String keyVal = dateKey + stationKey;
+                
+                // Create entry regardless of whether value is empty (to support clearing values)
+                Map<String, String> map = new HashMap<>();
+                map.put(DATE_COLUMN_NAME, dateKey);
+                map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
+                map.put(VALUE_COLUMN_NAME, value);
+                strategyMap.put(keyVal, map);
+            }
+        }
+        return strategyMap;
+    }
+
+    /**
+     * Delete specific date and sector combinations
+     */
+    public void deletePartialSectorValues(Set<String> dates, String sector, String tableName) {
+        if (dates.isEmpty()) return;
+        
+        // Build the placeholder string for dates (?, ?, ?, ...)
+        String placeholders = dates.stream().map(v -> "?").collect(Collectors.joining(", "));
+        
+        // Build the delete SQL query
+        String deleteQuery = "DELETE FROM " + tableName + 
+                            " WHERE " + DATE_COLUMN_NAME + " IN (" + placeholders + ")" +
+                            " AND " + SECTOR_COLUMN_NAME.toLowerCase() + " = ?";
+        
+        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+            // Set date parameters
+            int index = 1;
+            for (String date : dates) {
+                pstmt.setString(index++, date);
+            }
+            
+            // Set sector parameter
+            pstmt.setString(index, sector);
+            
+            // Execute the update
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            System.out.println("Error deleting sector values: " + e.getMessage());
+        }
     }
 
     public void uploadDateEventFile(Reader file, String userName, String obj_id) throws RuntimeException {
