@@ -23,6 +23,11 @@ public interface ColumnNamesConstants {
     String VALUE_COLUMN_NAME = "value";
     String AU_VALUE_COLUMN_NAME = "au_value";
 
+    public static final String SALES_DB_DATE = "date";
+    public static final String SALES_DB_MINVALUE = "minvalue";
+    public static final String SALES_DB_MAXVALUE = "maxvalue";
+    public static final String SALES_DB_SEATSALLOCATION = "seatsallocation";
+
     String NDO_BANDS_COLUMN_NAME = "ndoBand";
     String DISTRESS_NDO_BANDS_COLUMN_NAME = "ndo_band";
 

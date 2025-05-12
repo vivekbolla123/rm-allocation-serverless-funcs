@@ -1116,50 +1116,31 @@ LIMIT 1
         else:
             return 0
         
-    def get_farther_rbd_distribution(self, inventory_value):
+    def get_farther_rbd_distribution(self, seats):
         query = f"""
-        SELECT rbd, allocation   
-        FROM farther_rbd_distribution
-        WHERE value = {inventory_value}
+        SELECT rbd, value
+        FROM salesinv_rbd_distribution  
+        WHERE seats = {seats}
+        AND type = 'farther'
         """
         df = pd.read_sql(query, self.conn)
         return df
     
-    def get_closer_rbd_distribution(self, inventory_value):
+    def get_closer_rbd_distribution(self, seats):
         query = f"""
-        SELECT rbd, allocation   
-        FROM closer_rbd_distribution
-        WHERE value = {inventory_value}
+        SELECT rbd, value
+        FROM salesinv_rbd_distribution
+        WHERE seats = {seats}
+        AND type = 'close' 
         """
-        df = pd.read_sql(query, self.conn)  
+        df = pd.read_sql(query, self.conn)
         return df
     
-    def get_closer_inventory_value(self, pax_count, ndo_range):
+    def get_sales_inventory(self, date):
         query = f"""
-        SELECT value
-        FROM closer_inventory
-        WHERE pax_range = '{pax_count}'
-        AND ndo_range = '{ndo_range}'
+        SELECT minvalue, maxvalue, seatsallocation
+        FROM sales_inventory
+        WHERE date = '{date}'
         """
-        df = pd.read_sql(query, self.conn)  
-        return df
-    
-    def get_farther_inventory_value(self, pax_count, month):
-        query = f"""
-        SELECT value
-        FROM farther_inventory
-        WHERE pax_range = '{pax_count}'
-        AND month = '{month}'
-        """
-        df = pd.read_sql(query, self.conn)  
-        return df
-    
-    def get_distress_calendar_value(self, dep_date, sector):
-        query = f"""
-        SELECT value
-        FROM distress_calendar
-        WHERE date = '{dep_date}'
-        AND sector = '{sector}'     
-        """
-        df = pd.read_sql(query, self.conn)  
+        df = pd.read_sql(query, self.conn)
         return df

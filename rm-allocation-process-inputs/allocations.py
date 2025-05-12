@@ -739,10 +739,9 @@ class RBDAllocations:
                 brd_counter += 1
             return brd_counter
 
-        # Get inventory value based on pax count and NDO
-        ndo = ndocounter
-        pax_range = self._get_pax_range(distress_pax_count)
-        ndo_range = self._get_ndo_range(ndo)
+        # Get inventory value based on pax count and ND
+            
+            
         # Get departure date in mm/dd/yyyy format
         dep_date = datetime.strptime(dateFormatted, '%Y-%m-%d').strftime('%m/%d/%Y')
         
@@ -761,33 +760,43 @@ class RBDAllocations:
                 brd_counter += 1
             return brd_counter
         # Get inventory value from table based on NDO or month
-        if ndo > 30:
-            # For farther dates, use month from departure date
-            month = datetime.strptime(dateFormatted, '%Y-%m-%d').strftime('%B_%Y')
-            inventory_value = self.rmdatabasehelper.get_farther_inventory_value(pax_range, month)
-            if not inventory_value.empty:
-                inventory_value = inventory_value['value'].iloc[0]
+        date_obj = datetime.strptime(dateFormatted, '%Y-%m-%d')
+        if ndocounter > 30:
+            # Convert date format from YYYY-MM-DD to YYMMDD for closer dates
+            # And YYMM00 for farther dates
+            
+            
+            date_farther = date_obj.strftime('%y%m') + '00'
+            # For farther dates
+            sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_farther)
+            if not sales_inventory_df.empty:
+                seats = sales_inventory_df['seatsallocation'].iloc[0]
             else:
-                inventory_value = 0 
-            # Get RBD distribution based on inventory value
-            rbd_dist_df = self.rmdatabasehelper.get_farther_rbd_distribution(inventory_value) 
-            if not rbd_dist_df.empty:
-                rbd_allocations = rbd_dist_df.iloc[0].to_dict()
-            else:
-                rbd_allocations = {}
-        else:
-            # For closer dates, use NDO range
-            inventory_df = self.rmdatabasehelper.get_closer_inventory_value(pax_range, ndo_range)
-            if not inventory_df.empty:
-                inventory_value = inventory_df['value'].iloc[0]
-            else:
-                inventory_value = 0
+                seats = 0
 
-            rbd_dist_df = self.rmdatabasehelper.get_closer_rbd_distribution(inventory_value) 
+            # Get RBD distribution for farther dates
+            rbd_dist_df = self.rmdatabasehelper.get_farther_rbd_distribution(seats)
             if not rbd_dist_df.empty:
                 rbd_allocations = {}
                 for _, row in rbd_dist_df.iterrows():
-                    rbd_allocations[row['rbd']] = row['allocation']
+                    rbd_allocations[row['rbd']] = row['value'] 
+            else:
+                rbd_allocations = {}
+        else:
+            date_closer = date_obj.strftime('%y%m%d')
+            # For closer dates
+            sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_closer) 
+            if not sales_inventory_df.empty:
+                seats = sales_inventory_df['seatsallocation'].iloc[0]
+            else:
+                seats = 0
+
+            # Get RBD distribution for closer dates
+            rbd_dist_df = self.rmdatabasehelper.get_closer_rbd_distribution(seats)
+            if not rbd_dist_df.empty:
+                rbd_allocations = {}
+                for _, row in rbd_dist_df.iterrows():
+                    rbd_allocations[row['rbd']] = row['value']
             else:
                 rbd_allocations = {}
         
@@ -800,23 +809,3 @@ class RBDAllocations:
             brd_counter += 1
             
         return brd_counter
-
-    def _get_pax_range(self, pax_count):
-        if pax_count <= 10:
-            return "3-10"
-        elif pax_count <= 20:
-            return "11-20"
-        elif pax_count <= 30:
-            return "21-30"
-        elif pax_count <= 40:
-            return "31-40"
-        else:
-            return "41-400"
-
-    def _get_ndo_range(self, ndo):
-        if ndo <= 1:
-            return "0-1"
-        elif ndo <= 15:
-            return "2-15"
-        else:
-            return "16-30"

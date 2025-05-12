@@ -24,6 +24,7 @@ public interface TableNamesConstants {
     String PROFILE_FARES_TABLE_NAME = "config_profile_fares";
     String OVERBOOKING_PROBABILITY_TABLE_NAME = "no_show_probabilities";
     String DATE_EVENT_TABLE_NAME = "config_date_event";
+    public static final String SALES_INVENTORY_TABLE_NAME = "sales_inventory";
     String SECTOR_ANALYST_MAP_TABLE_NAME = "config_user_sector_map";
     String STATION_MASTER_TABLE_NAME = "config_station_master";
     String STRATEGY_INPUT_NAME = "strategy_input";

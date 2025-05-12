@@ -9,4 +9,6 @@ public interface DateTimeConstants {
     DateTimeFormatter TIME_OUTPUT_FORMATTER = DateTimeFormatter.ofPattern("[HH:mm][H:mm]");
     SimpleDateFormat SIMPLE_DATE_OUTPUT_FORMATTER_2 = new SimpleDateFormat("MM/dd/yyyy");
     SimpleDateFormat SIMPLE_DAY_FORMATTER = new SimpleDateFormat("E");
+    public static final DateTimeFormatter SALES_DATE_INPUT_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    public static final DateTimeFormatter SALES_DATE_DB_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 }

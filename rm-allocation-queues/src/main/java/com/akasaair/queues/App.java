@@ -13,6 +13,8 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
+
+import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
 
@@ -421,6 +423,52 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join();
                 }
+                case SALES_INVENTORY_TABLE_NAME: { // <<<--- NEW CASE
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                // Estimate initial row count (can be refined after date expansion)
+                                long initialRowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                                // We will set the final row count after expansion inside the upload method
+                                // numOfRows.set(initialRowCount); // Comment out or remove if setting inside the method
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadSalesInventoryFile(reader, tableName, userName, obj_id, numOfRows); // Call new method
+                                } catch (Exception e) {
+                                    // Log or handle specific exceptions from uploadSalesInventoryFile if needed
+                                    error_occurred = 1; // Ensure error is flagged
+                                    if (listOfErrors.isEmpty()) { // Add generic error if specific one wasn't added
+                                        listOfErrors.add("Error processing sales inventory file: " + e.getMessage());
+                                        addErrorsToTable(listOfErrors, obj_id);
+                                    }
+                                    throw new RuntimeException(
+                                            "Error processing sales inventory file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .exceptionally(ex -> {
+                                error_occurred = 1; // Ensure error is flagged
+                                System.err.println("Error during S3 getObject or processing: " + ex.getMessage());
+                                if (listOfErrors.isEmpty()) {
+                                    listOfErrors.add("Failed to retrieve or process file from S3: " + ex.getMessage());
+                                    addErrorsToTable(listOfErrors, obj_id);
+                                }
+                                // Ensure the exception is propagated correctly if needed by framework
+                                // Or handle it gracefully here
+                                return null; // or throw new RuntimeException(ex);
+                            })
+                            .join(); // Make sure processing completes
+                    break; // Don't forget break
+                }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
@@ -695,6 +743,202 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
+    public void uploadSalesInventoryFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
+        String uuid = obj_id; // Use the obj_id as the unique ID for audit
+        List<Map<String, String>> recordsToInsert = new ArrayList<>();
+        LocalDate overallMinDate = null;
+        LocalDate overallMaxDate = null;
+        List<String> currentErrors = new ArrayList<>(); // Use a local error list for this specific upload
+
+        try {
+            // --- Audit and Status Setup ---
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName); // Mark as in progress
+
+            // --- CSV Parsing ---
+            // Assuming CSV has no header row based on example, adjust if it does
+            List<List<String>> csvData = getDataFromCSVFile(file); // Pass false if no header row
+
+            // --- Validation and Date Expansion ---
+            for (int i = 0; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                int currentLineNum = i + 1; // User-friendly line number (1-based)
+                String linePrefix = "Line " + currentLineNum + ": ";
+
+                // Basic structural check
+                if (row.size() < 5) {
+                    currentErrors.add(linePrefix + "Insufficient columns. Expected 5, found " + row.size());
+                    continue; // Skip this row
+                }
+
+                String startDateStr = row.get(CSV_SALES_STARTDATE_IDX);
+                String endDateStr = row.get(CSV_SALES_ENDDATE_IDX);
+                String minPaxStr = row.get(CSV_SALES_MINPAX_IDX);
+                String maxPaxStr = row.get(CSV_SALES_MAXPAX_IDX);
+                String seatsAllocStr = row.get(CSV_SALES_SEATSALLOC_IDX);
+
+                LocalDate startDate = null;
+                LocalDate endDate = null;
+                boolean rowIsValid = true;
+
+                // Validate Dates
+                try {
+                    startDate = LocalDate.parse(startDateStr, SALES_DATE_INPUT_FORMATTER);
+                    endDate = LocalDate.parse(endDateStr, SALES_DATE_INPUT_FORMATTER);
+                    if (endDate.isBefore(startDate)) {
+                        currentErrors.add(linePrefix + INVALID_SALES_DATE_RANGE_ERROR);
+                        rowIsValid = false;
+                    }
+                } catch (DateTimeParseException e) {
+                    currentErrors.add(linePrefix + INVALID_SALES_DATE_FORMAT_ERROR + " (" + e.getMessage() + ")");
+                    rowIsValid = false;
+                }
+
+                // Validate Numeric Fields
+                if (!isNumeric(minPaxStr)) {
+                    currentErrors.add(linePrefix + "'minpax' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + minPaxStr + ")");
+                    rowIsValid = false;
+                }
+                if (!isNumeric(maxPaxStr)) {
+                    currentErrors.add(linePrefix + "'maxpax' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + maxPaxStr + ")");
+                    rowIsValid = false;
+                }
+                if (!isNumeric(seatsAllocStr)) {
+                    currentErrors.add(linePrefix + "'seatsalloc' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + seatsAllocStr + ")");
+                    rowIsValid = false;
+                }
+                // Optional: Add check if minPax <= maxPax if required
+                if(rowIsValid && isNumeric(minPaxStr) && isNumeric(maxPaxStr)){
+                    if(Integer.parseInt(minPaxStr) > Integer.parseInt(maxPaxStr)){
+                        currentErrors.add(linePrefix + "'minpax' cannot be greater than 'maxpax'");
+                        rowIsValid = false;
+                    }
+                }
+
+
+                // If row is valid so far, expand dates and prepare for DB
+                if (rowIsValid) {
+                    // Update overall date range for deletion
+                    if (overallMinDate == null || startDate.isBefore(overallMinDate)) {
+                        overallMinDate = startDate;
+                    }
+                    if (overallMaxDate == null || endDate.isAfter(overallMaxDate)) {
+                        overallMaxDate = endDate;
+                    }
+
+                    // Expand date range
+                    LocalDate currentDate = startDate;
+                    while (!currentDate.isAfter(endDate)) {
+                        Map<String, String> dbRecord = new HashMap<>();
+                        dbRecord.put(SALES_DB_DATE, currentDate.format(SALES_DATE_DB_FORMATTER));
+                        dbRecord.put(SALES_DB_MINVALUE, minPaxStr);
+                        dbRecord.put(SALES_DB_MAXVALUE, maxPaxStr);
+                        dbRecord.put(SALES_DB_SEATSALLOCATION, seatsAllocStr);
+                        recordsToInsert.add(dbRecord);
+                        currentDate = currentDate.plusDays(1);
+                    }
+                }
+            } // End CSV row loop
+
+            // --- Error Handling ---
+            if (!currentErrors.isEmpty()) {
+                error_occurred = 1;
+                listOfErrors.addAll(currentErrors); // Add specific errors to the main list
+                addErrorsToTable(listOfErrors, obj_id);
+                updateInputStatus(tableName); // Mark as failed (or stays in progress until final update)
+                System.err.println(FILE_UPLOAD_ERROR_MESSAGE + " for " + tableName);
+                throw new DataMismatchedException(listOfErrors); // Stop processing
+            }
+
+            // --- Database Operations ---
+            if (!recordsToInsert.isEmpty() && overallMinDate != null && overallMaxDate != null) {
+                System.out.println("Processing sales inventory for date range: " + overallMinDate + " to " + overallMaxDate);
+
+                // 1. Delete existing records in the range
+                deleteSalesInventoryByDateRange(
+                        overallMinDate.format(SALES_DATE_DB_FORMATTER),
+                        overallMaxDate.format(SALES_DATE_DB_FORMATTER),
+                        tableName
+                );
+
+                // 2. Insert new records
+                List<String> dbHeaders = List.of(SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
+                System.out.println("Inserting " + recordsToInsert.size() + " records into " + tableName);
+                insertStatement(recordsToInsert, dbHeaders, tableName);
+
+                // Set the actual number of rows inserted (after date expansion)
+                numOfRows.set(recordsToInsert.size());
+
+            } else if (recordsToInsert.isEmpty() && currentErrors.isEmpty()) {
+                System.out.println("No valid sales inventory data found in the file to process.");
+                numOfRows.set(0);
+            } else {
+                // This case should ideally not be reached if error handling is correct
+                System.err.println("Sales Inventory: No records to insert, but no errors reported. Check logic.");
+                numOfRows.set(0);
+            }
+
+
+            // --- S3 Backup (Optional: Backup the final state) ---
+            // If you want to back up the state *after* update, createCSV needs to read the DB again.
+            // This assumes createCSV reads the current DB state for the table.
+            System.out.println("Creating CSV backup for " + tableName);
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid); // Backup final state
+
+            // --- Audit Update ---
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+            System.out.println("Successfully processed " + tableName + " file.");
+
+        } catch (Exception e) {
+            error_occurred = 1; // Ensure error flag is set
+            System.err.println("Critical error during sales inventory processing: " + e.getMessage());
+            e.printStackTrace();
+            if (listOfErrors.isEmpty()) { // Add generic error if specific one wasn't added
+                listOfErrors.add("Failed to process sales inventory file: " + e.getMessage());
+                addErrorsToTable(listOfErrors, obj_id);
+            }
+            // Re-throw the exception so the main handler knows about the failure
+            throw e;
+        } finally {
+            // --- Final Status Update ---
+            // This runs regardless of success or caught exception within the try block
+            updateInputStatus(tableName); // Mark as completed (or failed if error_occurred is set)
+            System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id);
+        }
+    }
+    private void deleteSalesInventoryByDateRange(String startDate, String endDate, String tableName) {
+        // Ensure table name is safe if necessary, but here it comes from trusted source
+        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " >= ? AND " + SALES_DB_DATE + " <= ?";
+        System.out.println("Executing delete on " + tableName + " from " + startDate + " to " + endDate);
+        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+            pstmt.setString(1, startDate);
+            pstmt.setString(2, endDate);
+            int deletedRows = pstmt.executeUpdate();
+            System.out.println("Deleted " + deletedRows + " existing records from " + tableName + " in the specified date range.");
+        } catch (SQLException e) {
+            // Decide how critical this is. Maybe log and continue, or throw.
+            // For now, log and throw RuntimeException as it might leave inconsistent data.
+            error_occurred = 1; // Flag error
+            String errorMsg = "Failed to delete existing sales inventory data for range " + startDate + "-" + endDate + ": " + e.getMessage();
+            System.err.println(errorMsg);
+            listOfErrors.add(errorMsg); // Add to main error list
+            // Consider if you should add to obj_id table here or rely on the main handler
+            throw new RuntimeException(errorMsg, e);
+        }
+    }
+
+    // Helper method for numeric check (you might already have this)
+    private boolean isNumeric(String str) {
+        if (str == null || str.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Integer.parseInt(str.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
     public ByteArrayInputStream createCSV(String tableName) throws DataMismatchedException {
 
         if (findIfTableExists(tableName) == 0) {
