@@ -7,9 +7,10 @@ import java.sql.*;
 import static com.akasaair.queues.common.constants.QueryConstants.*;
 
 import static com.akasaair.queues.common.constants.Constants.*;
+import com.akasaair.queues.common.helpers.JdbcConnection;
 
 public class CurvesValidator implements Validator {
-
+    final Connection connection = new JdbcConnection().connection();
     @Override
     public boolean isValid(List<Map<String, String>> data, String val,List<String> errors) {
         try {
