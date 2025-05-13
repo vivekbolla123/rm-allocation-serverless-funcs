@@ -30,4 +30,7 @@ public interface TableNamesConstants {
     String STRATEGY_INPUT_NAME = "strategy_input";
     String CONFIG_PROFILE_FARE_STATION_UPSELL = "config_profile_fare_station_upsell";
     String SERIES_BLOCKING_TABLE_NAME = "series_blocking";
+    public static final String SALESINV_RBD_DISTRIBUTION_TABLE_NAME = "salesinv_rbd_distribution";
+    public static final String DISTRESS_CLAENDAR = "distress_calendar";
+
 }

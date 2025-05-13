@@ -14,6 +14,7 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
 
+import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
@@ -72,6 +73,8 @@ import static com.akasaair.queues.common.constants.ColumnNamesConstants.TIME_RAN
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.USER_COLUMN_NAME;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.UUID_COLUMN_NAME;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.VALUE_COLUMN_NAME;
+import static com.akasaair.queues.common.constants.ColumnNamesConstants.*;
+
 import static com.akasaair.queues.common.constants.Constants.*;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_BACKSTOP_FLAG;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_GROUP;
@@ -134,6 +137,8 @@ import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TBF_FLAG;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TIME;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.ROW_START_COUNT;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.*;
+
 import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_OUTPUT_FORMATTER;
 import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_TIME_OUTPUT_FORMATTER;
 import static com.akasaair.queues.common.constants.DateTimeConstants.SIMPLE_DATE_OUTPUT_FORMATTER_2;
@@ -143,6 +148,8 @@ import static com.akasaair.queues.common.constants.ErrorMessagesConstants.FILE_U
 import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_DATA_ERROR_MESSAGE;
 import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE;
 import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_TABLE_NAME_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.ErrorMessagesConstants.*;
+
 import static com.akasaair.queues.common.constants.PermissionsConstants.ADMIN;
 import static com.akasaair.queues.common.constants.PermissionsConstants.MANAGER;
 import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS;
@@ -170,6 +177,7 @@ import static com.akasaair.queues.common.constants.TableNamesConstants.SERIES_BL
 import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_INPUT_NAME;
 import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_TABLE_NAME;
 import static com.akasaair.queues.common.constants.TableNamesConstants.TIME_RANGE_TABLE;
+import static com.akasaair.queues.common.constants.TableNamesConstants.*;
 import static com.akasaair.queues.common.helpers.CsvHelper.convertToCSV;
 import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 
@@ -180,7 +188,12 @@ public class App implements RequestHandler<S3Event, Object> {
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
-
+    // Inside App class
+    private static final Set<String> ALLOWED_SI_RBD_TYPES = Set.of("close", "farther"); // Or your actual allowed values
+    public enum UploadFileType {
+        UPSELL,
+        DISTRESS
+    }
     public App() throws SQLException {
         s3Client = DependencyFactory.s3Client();
     }
@@ -415,7 +428,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                         .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadDateEventFile(reader, userName, obj_id);
+                                    uploadDateEventFile(reader, userName, obj_id,UploadFileType.UPSELL);
                                 } catch (Exception e) {
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
@@ -423,7 +436,7 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join();
                 }
-                case SALES_INVENTORY_TABLE_NAME: { // <<<--- NEW CASE
+                case DISTRESS_CLAENDAR -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
                         pstmt.setObject(2, LocalDateTime.now());
@@ -438,12 +451,40 @@ public class App implements RequestHandler<S3Event, Object> {
                                     AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
+                                        .count();
+                                numOfRows.set(rowCount);
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadDateEventFile(reader, userName, obj_id,UploadFileType.DISTRESS);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(
+                                            "Error processing date event file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .join();
+                }
+                case SALES_INVENTORY_TABLE_NAME-> { // <<<--- NEW CASE
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    String finalTableName1 = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 // Estimate initial row count (can be refined after date expansion)
                                 long initialRowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
                                 // We will set the final row count after expansion inside the upload method
                                 // numOfRows.set(initialRowCount); // Comment out or remove if setting inside the method
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadSalesInventoryFile(reader, tableName, userName, obj_id, numOfRows); // Call new method
+                                    uploadSalesInventoryFile(reader, finalTableName1, userName, obj_id, numOfRows); // Call new method
                                 } catch (Exception e) {
                                     // Log or handle specific exceptions from uploadSalesInventoryFile if needed
                                     error_occurred = 1; // Ensure error is flagged
@@ -468,6 +509,45 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join(); // Make sure processing completes
                     break; // Don't forget break
+                }
+                case SALESINV_RBD_DISTRIBUTION_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+                    String finalTableNameRbd = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadSalesInvRbdDistributionFile(reader, finalTableNameRbd, userName, obj_id, numOfRows);
+                                } catch (Exception e) {
+                                    error_occurred = 1;
+                                    if (listOfErrors.isEmpty()) {
+                                        listOfErrors.add("Error processing Sales RBD Distribution file: " + e.getMessage());
+                                        addErrorsToTable(listOfErrors, obj_id);
+                                    }
+                                    throw new RuntimeException(
+                                            "Error processing Sales RBD Distribution file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .exceptionally(ex -> {
+                                error_occurred = 1;
+                                System.err.println("Error during S3 getObject or processing for Sales RBD Distribution: " + ex.getMessage());
+                                if (listOfErrors.isEmpty()) {
+                                    listOfErrors.add("Failed to retrieve or process Sales RBD Distribution file from S3: " + ex.getMessage());
+                                    addErrorsToTable(listOfErrors, obj_id);
+                                }
+                                return null;
+                            })
+                            .join();
+                    break;
                 }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
@@ -504,6 +584,225 @@ public class App implements RequestHandler<S3Event, Object> {
             System.out.println("Error in insertAndValidatedBasedOnTableName: " + e.getMessage());
             e.printStackTrace();
             throw e; // Rethrow to propagate up the call stack
+        }
+    }
+    public void uploadSalesInvRbdDistributionFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
+        String uuid = obj_id;
+        List<Map<String, String>> recordsToInsert = new ArrayList<>();
+        List<String> currentErrors = new ArrayList<>();
+        Set<String> uniqueSeatTypeCombinationsInCsv = new HashSet<>(); // To track (seats,type) for deletion
+        Set<String> processedPrimaryKeys = new HashSet<>(); // For checking (seats,type,rbd) duplicates within CSV
+
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+
+            if (csvData.isEmpty() || csvData.size() < 2) { // Must have header and at least one data row
+                currentErrors.add("Sales RBD Distribution CSV file is empty or lacks data rows.");
+            } else {
+                List<String> headerRow = csvData.get(0);
+                // Basic Header Validation
+                if (headerRow.size() < 2 ||
+                        !CSV_HEADER_SI_RBD_SEATS.equalsIgnoreCase(headerRow.get(0).trim()) ||
+                        !CSV_HEADER_SI_RBD_TYPE.equalsIgnoreCase(headerRow.get(1).trim())) {
+                    currentErrors.add(MISSING_SI_RBD_HEADERS_ERROR + " Found: " + headerRow);
+                } else if (headerRow.size() < 3) { // Must have at least one RBD column
+                    currentErrors.add(NO_RBD_COLUMNS_FOUND_ERROR + " Found: " + headerRow);
+                }
+
+                if (currentErrors.isEmpty()) {
+                    List<String> rbdColumnHeaders = new ArrayList<>();
+                    for (int hIdx = 2; hIdx < headerRow.size(); hIdx++) {
+                        rbdColumnHeaders.add(headerRow.get(hIdx).trim());
+                    }
+
+                    for (int i = 1; i < csvData.size(); i++) { // Start from 1 to skip header
+                        List<String> row = csvData.get(i);
+                        int currentLineNum = i + 1; // 1-based for user messages
+                        String linePrefix = "Line " + currentLineNum + ": ";
+
+                        if (row.size() < headerRow.size()) {
+                            currentErrors.add(linePrefix + INSUFFICIENT_COLUMNS_ERROR_MESSAGE + " Expected " + headerRow.size() + ", got " + row.size() + ".");
+                            continue; // Skip this malformed row
+                        }
+
+                        String seatsStr = row.get(0).trim();
+                        String typeStr = row.get(1).trim();
+                        boolean currentRowCoreValid = true;
+
+                        // Validate seats (non-negative integer)
+                        if (!isNonNegativeInteger(seatsStr)) {
+                            currentErrors.add(linePrefix + INVALID_SI_RBD_SEATS_ERROR + " (value: '" + seatsStr + "')");
+                            currentRowCoreValid = false;
+                        }
+
+                        // Validate type (not empty and in allowed list)
+                        if (typeStr.isEmpty()) {
+                            currentErrors.add(linePrefix + EMPTY_SI_RBD_TYPE_ERROR);
+                            currentRowCoreValid = false;
+                        } else if (!ALLOWED_SI_RBD_TYPES.contains(typeStr.toLowerCase())) {
+                            currentErrors.add(linePrefix + INVALID_SI_RBD_TYPE_VALUE_ERROR_PREFIX + "'" + typeStr + "'. Allowed: " + ALLOWED_SI_RBD_TYPES);
+                            currentRowCoreValid = false;
+                        }
+
+                        if (!currentRowCoreValid) {
+                            continue; // Skip to next row if core 'seats' or 'type' are invalid
+                        }
+
+                        uniqueSeatTypeCombinationsInCsv.add(seatsStr + "|" + typeStr.toLowerCase());
+
+                        // Process RBD columns for this row
+                        for (int rbdCsvColIdx = 2; rbdCsvColIdx < row.size(); rbdCsvColIdx++) {
+                            String rbdHeaderName = rbdColumnHeaders.get(rbdCsvColIdx - 2);
+                            String rbdValueStr = row.get(rbdCsvColIdx).trim();
+
+                            // Validate RBD value (non-negative integer)
+                            if (!isNonNegativeInteger(rbdValueStr)) {
+                                currentErrors.add(linePrefix + "RBD column '" + rbdHeaderName + "' " + INVALID_SI_RBD_RBD_VALUE_ERROR + " (value: '" + rbdValueStr + "')");
+                                continue; // Skip this RBD, move to next in the row
+                            }
+
+                            String primaryKey = seatsStr + "|" + typeStr.toLowerCase() + "|" + rbdHeaderName;
+                            if (!processedPrimaryKeys.add(primaryKey)) {
+                                currentErrors.add(linePrefix + DUPLICATE_PK_SI_RBD_ERROR_PREFIX + primaryKey + " (for RBD '" + rbdHeaderName + "').");
+                                continue; // Skip duplicate primary key from CSV
+                            }
+
+                            Map<String, String> record = new HashMap<>();
+                            record.put(SI_RBD_SEATS_COLUMN_NAME, seatsStr);
+                            record.put(SI_RBD_TYPE_COLUMN_NAME, typeStr.toLowerCase()); // Store type in consistent case
+                            record.put(SI_RBD_RBD_COLUMN_NAME, rbdHeaderName);
+                            record.put(SI_RBD_VALUE_COLUMN_NAME, rbdValueStr);
+                            recordsToInsert.add(record);
+                        }
+                    }
+                }
+            }
+
+            if (!currentErrors.isEmpty()) {
+                error_occurred = 1;
+                listOfErrors.addAll(currentErrors);
+                addErrorsToTable(listOfErrors, obj_id);
+                updateInputStatus(tableName);
+                System.err.println(FILE_UPLOAD_ERROR_MESSAGE + " for " + tableName + " due to validation errors.");
+                throw new DataMismatchedException(listOfErrors);
+            }
+
+            // Database Operations
+            if (!recordsToInsert.isEmpty()) {
+                // 1. Delete existing records for the (seats, type) combinations found in the CSV
+                deleteSalesInvRbdDistributionBySeatType(uniqueSeatTypeCombinationsInCsv, tableName);
+
+                // 2. Insert new records
+                List<String> dbHeaders = List.of(
+                        SI_RBD_SEATS_COLUMN_NAME,
+                        SI_RBD_TYPE_COLUMN_NAME,
+                        SI_RBD_RBD_COLUMN_NAME,
+                        SI_RBD_VALUE_COLUMN_NAME
+                );
+                System.out.println("Inserting " + recordsToInsert.size() + " records into " + tableName);
+                insertStatement(recordsToInsert, dbHeaders, tableName);
+                numOfRows.set(recordsToInsert.size());
+            } else {
+                // If uniqueSeatTypeCombinationsInCsv is not empty, deletions might still have occurred.
+                // This implies the CSV intended to clear those (seats,type) groups without adding new data.
+                if(!uniqueSeatTypeCombinationsInCsv.isEmpty()){
+                    deleteSalesInvRbdDistributionBySeatType(uniqueSeatTypeCombinationsInCsv, tableName);
+                    System.out.println("Cleared data for (seats,type) combinations from " + tableName + " as per CSV, with no new records to insert.");
+                } else {
+                    System.out.println("No valid records to insert into " + tableName + " and no (seats,type) combinations to clear.");
+                }
+                numOfRows.set(0);
+            }
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+            System.out.println("Successfully processed " + tableName + " file.");
+
+        } catch (DataMismatchedException dme) {
+            System.err.println("Data mismatched, processing halted for " + tableName + ": " + dme.getMessage());
+            throw dme; // Re-throw to be caught by the caller
+        } catch (Exception e) {
+            error_occurred = 1;
+            System.err.println("Critical error during Sales RBD Distribution processing for " + tableName + ": " + e.getMessage());
+            e.printStackTrace();
+            if (listOfErrors.isEmpty()) { // If generic catch and no specific errors logged yet
+                if(!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors); // Add any errors collected during processing
+                else listOfErrors.add("Failed to process Sales RBD Distribution file due to an unexpected error: " + e.getMessage());
+            } else if (!currentErrors.isEmpty() && !listOfErrors.containsAll(currentErrors)){ // Merge if both have errors
+                listOfErrors.addAll(currentErrors);
+            }
+            addErrorsToTable(listOfErrors, obj_id); // Ensure errors are logged
+            throw e; // Re-throw to be caught by the caller
+        } finally {
+            updateInputStatus(tableName); // Sets status to done/failed based on error_occurred
+            System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id + ". Status: " + (error_occurred == 1 ? "FAILED" : "DONE"));
+        }
+    }
+
+    private void deleteSalesInvRbdDistributionBySeatType(Set<String> seatTypeCombinations, String tableName) {
+        if (seatTypeCombinations == null || seatTypeCombinations.isEmpty()) {
+            return;
+        }
+        // Using PreparedStatement for each deletion to handle batching internally if supported by driver,
+        // or at least provide security against SQL injection for the values.
+        // The query targets specific (seats, type) pairs.
+        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SI_RBD_SEATS_COLUMN_NAME + " = ? AND " + SI_RBD_TYPE_COLUMN_NAME + " = ?";
+
+        System.out.println("Preparing to delete from " + tableName + " for " + seatTypeCombinations.size() + " (seats, type) combinations.");
+        int totalDeletedRows = 0;
+
+        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+            connection.setAutoCommit(false); // Manage transaction manually for batch delete
+            for (String combo : seatTypeCombinations) {
+                String[] parts = combo.split("\\|"); // Assuming "|" was used as separator
+                if (parts.length == 2) {
+                    try {
+                        int seats = Integer.parseInt(parts[0]);
+                        String type = parts[1]; // Should be already lowercased when added to the set
+
+                        pstmt.setInt(1, seats);
+                        pstmt.setString(2, type);
+                        pstmt.addBatch(); // Add to batch
+                    } catch (NumberFormatException e) {
+                        System.err.println("Skipping deletion for invalid seat format in combo: " + combo);
+                        // Optionally add to a list of non-critical errors
+                    }
+                } else {
+                    System.err.println("Skipping deletion for malformed (seats,type) combo: " + combo);
+                }
+            }
+            int[] batchResult = pstmt.executeBatch();
+            connection.commit(); // Commit transaction
+
+            for(int count : batchResult) {
+                if (count > 0) totalDeletedRows += count; // Sum up actual deletions
+                else if (count == Statement.SUCCESS_NO_INFO) { /* Can't know for sure, could estimate or ignore */ }
+            }
+            System.out.println("Total deleted approximately " + totalDeletedRows + " records from " + tableName + " based on CSV (seats,type) groups.");
+
+        } catch (SQLException e) {
+            try { connection.rollback(); } catch (SQLException ex) { System.err.println("Rollback failed: " + ex.getMessage());}
+            error_occurred = 1; // Flag error
+            String errorMsg = "Failed to delete existing Sales RBD Distribution data: " + e.getMessage();
+            System.err.println(errorMsg);
+            listOfErrors.add(errorMsg); // Add to main error list to be reported
+            // Depending on business rules, you might throw a RuntimeException here to halt processing
+            // throw new RuntimeException(errorMsg, e);
+        } finally {
+            try { connection.setAutoCommit(true); } catch (SQLException ex) { System.err.println("Failed to reset auto-commit: " + ex.getMessage());}
+        }
+    }
+
+    private boolean isNonNegativeInteger(String s) {
+        if (s == null || s.trim().isEmpty()) return false;
+        try {
+            int val = Integer.parseInt(s.trim());
+            return val >= 0;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
 
@@ -744,186 +1043,331 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadSalesInventoryFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
-        String uuid = obj_id; // Use the obj_id as the unique ID for audit
-        List<Map<String, String>> recordsToInsert = new ArrayList<>();
-        LocalDate overallMinDate = null;
-        LocalDate overallMaxDate = null;
-        List<String> currentErrors = new ArrayList<>(); // Use a local error list for this specific upload
+        String uuid = obj_id;
+        List<Map<String, String>> recordsToProcess = new ArrayList<>();
+        List<String> currentErrors = new ArrayList<>(); // Collects errors throughout processing
+
+        Set<String> monthsToClearYYYYMM00 = new HashSet<>();
+        LocalDate overallMinDateForDailyDeletion = null;
+        LocalDate overallMaxDateForDailyDeletion = null;
 
         try {
-            // --- Audit and Status Setup ---
             insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
-            insertInputStatusTable(tableName); // Mark as in progress
+            insertInputStatusTable(tableName);
 
-            // --- CSV Parsing ---
-            // Assuming CSV has no header row based on example, adjust if it does
-            List<List<String>> csvData = getDataFromCSVFile(file); // Pass false if no header row
+            List<List<String>> csvData = getDataFromCSVFile(file);
 
-            // --- Validation and Date Expansion ---
-            for (int i = 0; i < csvData.size(); i++) {
-                List<String> row = csvData.get(i);
-                int currentLineNum = i + 1; // User-friendly line number (1-based)
-                String linePrefix = "Line " + currentLineNum + ": ";
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                currentErrors.add("Sales Inventory CSV file is empty or lacks data rows.");
+                error_occurred = 1;
+                listOfErrors.addAll(currentErrors);
+                addErrorsToTable(listOfErrors, obj_id);
+                updateInputStatus(tableName);
+                throw new DataMismatchedException(listOfErrors);
+            }
 
-                // Basic structural check
-                if (row.size() < 5) {
-                    currentErrors.add(linePrefix + "Insufficient columns. Expected 5, found " + row.size());
-                    continue; // Skip this row
+            List<String> headerRow = csvData.get(0);
+            Map<String, Integer> headerMap = new HashMap<>();
+            for (int hIdx = 0; hIdx < headerRow.size(); hIdx++) {
+                headerMap.put(headerRow.get(hIdx).trim().toLowerCase(), hIdx);
+            }
+
+            boolean isMonthBasedFormat = headerMap.containsKey(HEADER_TEXT_SALES_MONTH.toLowerCase());
+            boolean isDateRangeBasedFormat = headerMap.containsKey(HEADER_TEXT_SALES_STARTDATE.toLowerCase());
+
+            Integer colIdxMonth = headerMap.get(HEADER_TEXT_SALES_MONTH.toLowerCase());
+            Integer colIdxMinSeats = headerMap.get(HEADER_TEXT_SALES_MINSEATS.toLowerCase());
+            Integer colIdxMaxSeats = headerMap.get(HEADER_TEXT_SALES_MAXSEATS.toLowerCase());
+            Integer colIdxStartDate = headerMap.get(HEADER_TEXT_SALES_STARTDATE.toLowerCase());
+            Integer colIdxEndDate = headerMap.get(HEADER_TEXT_SALES_ENDDATE.toLowerCase());
+            Integer colIdxMinPax = headerMap.get(HEADER_TEXT_SALES_MINPAX.toLowerCase());
+            Integer colIdxMaxPax = headerMap.get(HEADER_TEXT_SALES_MAXPAX.toLowerCase());
+            Integer colIdxSeatsAlloc = headerMap.get(HEADER_TEXT_SALES_SEATSALLOC.toLowerCase());
+
+            // --- Validate headers based on detected format ---
+            if (isMonthBasedFormat) {
+                if (colIdxMonth == null || colIdxMinSeats == null || colIdxMaxSeats == null || colIdxSeatsAlloc == null) {
+                    currentErrors.add(MISSING_SALES_HEADER_ERROR_PREFIX + "Expected for month format: " + HEADER_TEXT_SALES_MONTH + ", " + HEADER_TEXT_SALES_MINSEATS + ", " + HEADER_TEXT_SALES_MAXSEATS + ", " + HEADER_TEXT_SALES_SEATSALLOC + ". Found: " + headerRow);
+                    isMonthBasedFormat = false;
                 }
+            } else if (isDateRangeBasedFormat) {
+                if (colIdxStartDate == null || colIdxEndDate == null || colIdxMinPax == null || colIdxMaxPax == null || colIdxSeatsAlloc == null) {
+                    currentErrors.add(MISSING_SALES_HEADER_ERROR_PREFIX + "Expected for date-range format: " + HEADER_TEXT_SALES_STARTDATE + ", " + HEADER_TEXT_SALES_ENDDATE + ", " + HEADER_TEXT_SALES_MINPAX + ", " + HEADER_TEXT_SALES_MAXPAX + ", " + HEADER_TEXT_SALES_SEATSALLOC + ". Found: " + headerRow);
+                    isDateRangeBasedFormat = false;
+                }
+            } else {
+                currentErrors.add(UNKNOWN_SALES_INVENTORY_CSV_FORMAT_ERROR + " Found headers: " + headerRow);
+            }
 
-                String startDateStr = row.get(CSV_SALES_STARTDATE_IDX);
-                String endDateStr = row.get(CSV_SALES_ENDDATE_IDX);
-                String minPaxStr = row.get(CSV_SALES_MINPAX_IDX);
-                String maxPaxStr = row.get(CSV_SALES_MAXPAX_IDX);
-                String seatsAllocStr = row.get(CSV_SALES_SEATSALLOC_IDX);
+            if (!currentErrors.isEmpty() || (!isMonthBasedFormat && !isDateRangeBasedFormat)) {
+                error_occurred = 1;
+                if (!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors); else if (listOfErrors.isEmpty() && !headerRow.isEmpty()) {
+                    listOfErrors.add(UNKNOWN_SALES_INVENTORY_CSV_FORMAT_ERROR + " Found headers: " + headerRow);
+                } else if (listOfErrors.isEmpty() && headerRow.isEmpty()){
+                    listOfErrors.add(UNKNOWN_SALES_INVENTORY_CSV_FORMAT_ERROR + " CSV header row is empty.");
+                }
+                addErrorsToTable(listOfErrors, obj_id);
+                updateInputStatus(tableName);
+                throw new DataMismatchedException(listOfErrors);
+            }
+            // --- End Header Validation ---
 
-                LocalDate startDate = null;
-                LocalDate endDate = null;
+            // --- Start of CSV row processing loop ---
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                int currentLineNum = i + 1; // 1-based for user messages
+                String linePrefix = "Line " + currentLineNum + ": ";
                 boolean rowIsValid = true;
 
-                // Validate Dates
-                try {
-                    startDate = LocalDate.parse(startDateStr, SALES_DATE_INPUT_FORMATTER);
-                    endDate = LocalDate.parse(endDateStr, SALES_DATE_INPUT_FORMATTER);
-                    if (endDate.isBefore(startDate)) {
-                        currentErrors.add(linePrefix + INVALID_SALES_DATE_RANGE_ERROR);
+                String minValStr = null, maxValStr = null, seatsAllocValStr = null;
+                String minHeaderName = "", maxHeaderName = "";
+                String dbDateValue = null;
+                LocalDate itemStartDateForDailyDeletionCalc = null;
+                LocalDate itemEndDateForDailyDeletionCalc = null;
+
+                if (isMonthBasedFormat) {
+                    minHeaderName = HEADER_TEXT_SALES_MINSEATS;
+                    maxHeaderName = HEADER_TEXT_SALES_MAXSEATS;
+                    int maxIndexRequired = Collections.max(Arrays.asList(colIdxMonth, colIdxMinSeats, colIdxMaxSeats, colIdxSeatsAlloc));
+                    if (row.size() <= maxIndexRequired) {
+                        currentErrors.add(linePrefix + INSUFFICIENT_COLUMNS_ERROR_MESSAGE + " Expected at least " + (maxIndexRequired + 1) + " columns for month format.");
                         rowIsValid = false;
+                    } else {
+                        String monthYearStr = row.get(colIdxMonth);
+                        minValStr = row.get(colIdxMinSeats);
+                        maxValStr = row.get(colIdxMaxSeats);
+                        seatsAllocValStr = row.get(colIdxSeatsAlloc);
+                        try {
+                            YearMonth ym = YearMonth.parse(monthYearStr, SALES_MONTH_YEAR_INPUT_FORMATTER);
+                            dbDateValue = ym.format(DateTimeFormatter.ofPattern("yyyyMM")) + MONTH_DAY_PLACEHOLDER;
+                            monthsToClearYYYYMM00.add(dbDateValue);
+                            itemStartDateForDailyDeletionCalc = ym.atDay(1);
+                            itemEndDateForDailyDeletionCalc = ym.atEndOfMonth();
+                        } catch (DateTimeParseException e) {
+                            currentErrors.add(linePrefix + INVALID_SALES_MONTH_YEAR_FORMAT_ERROR + " (value: " + monthYearStr + ", error: " + e.getMessage() + ")");
+                            rowIsValid = false;
+                        }
                     }
-                } catch (DateTimeParseException e) {
-                    currentErrors.add(linePrefix + INVALID_SALES_DATE_FORMAT_ERROR + " (" + e.getMessage() + ")");
-                    rowIsValid = false;
+                } else { // isDateRangeBasedFormat
+                    minHeaderName = HEADER_TEXT_SALES_MINPAX;
+                    maxHeaderName = HEADER_TEXT_SALES_MAXPAX;
+                    int maxIndexRequired = Collections.max(Arrays.asList(colIdxStartDate, colIdxEndDate, colIdxMinPax, colIdxMaxPax, colIdxSeatsAlloc));
+                    if (row.size() <= maxIndexRequired) {
+                        currentErrors.add(linePrefix + INSUFFICIENT_COLUMNS_ERROR_MESSAGE + " Expected at least " + (maxIndexRequired + 1) + " columns for date-range format.");
+                        rowIsValid = false;
+                    } else {
+                        String startDateStr = row.get(colIdxStartDate);
+                        String endDateStr = row.get(colIdxEndDate);
+                        minValStr = row.get(colIdxMinPax);
+                        maxValStr = row.get(colIdxMaxPax);
+                        seatsAllocValStr = row.get(colIdxSeatsAlloc);
+                        try {
+                            LocalDate parsedStartDate = LocalDate.parse(startDateStr, SALES_DATE_INPUT_FORMATTER);
+                            LocalDate parsedEndDate = LocalDate.parse(endDateStr, SALES_DATE_INPUT_FORMATTER);
+                            if (parsedEndDate.isBefore(parsedStartDate)) {
+                                currentErrors.add(linePrefix + INVALID_SALES_DATE_RANGE_ERROR);
+                                rowIsValid = false;
+                            }
+                            itemStartDateForDailyDeletionCalc = parsedStartDate;
+                            itemEndDateForDailyDeletionCalc = parsedEndDate;
+                        } catch (DateTimeParseException e) {
+                            currentErrors.add(linePrefix + INVALID_SALES_DATE_FORMAT_ERROR + " (value: " + startDateStr + "/" + endDateStr + ", error: " + e.getMessage() + ")");
+                            rowIsValid = false;
+                        }
+                    }
                 }
+
+                if (!rowIsValid) continue; // Skip to next row if basic parsing/column count failed
 
                 // Validate Numeric Fields
-                if (!isNumeric(minPaxStr)) {
-                    currentErrors.add(linePrefix + "'minpax' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + minPaxStr + ")");
+                if (!isNumeric(minValStr)) {
+                    currentErrors.add(linePrefix + "'" + minHeaderName + "' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + minValStr + ")");
                     rowIsValid = false;
                 }
-                if (!isNumeric(maxPaxStr)) {
-                    currentErrors.add(linePrefix + "'maxpax' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + maxPaxStr + ")");
+                if (!isNumeric(maxValStr)) {
+                    currentErrors.add(linePrefix + "'" + maxHeaderName + "' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + maxValStr + ")");
                     rowIsValid = false;
                 }
-                if (!isNumeric(seatsAllocStr)) {
-                    currentErrors.add(linePrefix + "'seatsalloc' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + seatsAllocStr + ")");
+                if (!isNumeric(seatsAllocValStr)) {
+                    currentErrors.add(linePrefix + "'" + HEADER_TEXT_SALES_SEATSALLOC + "' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + seatsAllocValStr + ")");
                     rowIsValid = false;
                 }
-                // Optional: Add check if minPax <= maxPax if required
-                if(rowIsValid && isNumeric(minPaxStr) && isNumeric(maxPaxStr)){
-                    if(Integer.parseInt(minPaxStr) > Integer.parseInt(maxPaxStr)){
-                        currentErrors.add(linePrefix + "'minpax' cannot be greater than 'maxpax'");
+                if (rowIsValid && isNumeric(minValStr) && isNumeric(maxValStr)) { // Check again if still valid
+                    if (Integer.parseInt(minValStr) > Integer.parseInt(maxValStr)) {
+                        currentErrors.add(linePrefix + "'" + minHeaderName + "' (" + minValStr + ") cannot be greater than '" + maxHeaderName + "' (" + maxValStr + ").");
                         rowIsValid = false;
                     }
                 }
 
-
-                // If row is valid so far, expand dates and prepare for DB
                 if (rowIsValid) {
-                    // Update overall date range for deletion
-                    if (overallMinDate == null || startDate.isBefore(overallMinDate)) {
-                        overallMinDate = startDate;
+                    if (overallMinDateForDailyDeletion == null || itemStartDateForDailyDeletionCalc.isBefore(overallMinDateForDailyDeletion)) {
+                        overallMinDateForDailyDeletion = itemStartDateForDailyDeletionCalc;
                     }
-                    if (overallMaxDate == null || endDate.isAfter(overallMaxDate)) {
-                        overallMaxDate = endDate;
+                    if (overallMaxDateForDailyDeletion == null || itemEndDateForDailyDeletionCalc.isAfter(overallMaxDateForDailyDeletion)) {
+                        overallMaxDateForDailyDeletion = itemEndDateForDailyDeletionCalc;
                     }
 
-                    // Expand date range
-                    LocalDate currentDate = startDate;
-                    while (!currentDate.isAfter(endDate)) {
-                        Map<String, String> dbRecord = new HashMap<>();
-                        dbRecord.put(SALES_DB_DATE, currentDate.format(SALES_DATE_DB_FORMATTER));
-                        dbRecord.put(SALES_DB_MINVALUE, minPaxStr);
-                        dbRecord.put(SALES_DB_MAXVALUE, maxPaxStr);
-                        dbRecord.put(SALES_DB_SEATSALLOCATION, seatsAllocStr);
-                        recordsToInsert.add(dbRecord);
-                        currentDate = currentDate.plusDays(1);
+                    if (isMonthBasedFormat) {
+                        Map<String, String> record = new HashMap<>();
+                        record.put(SALES_DB_DATE, dbDateValue);
+                        record.put(SALES_DB_MINVALUE, minValStr);
+                        record.put(SALES_DB_MAXVALUE, maxValStr);
+                        record.put(SALES_DB_SEATSALLOCATION, seatsAllocValStr);
+                        recordsToProcess.add(record);
+                    } else { // isDateRangeBasedFormat - expand dates
+                        LocalDate currentDate = itemStartDateForDailyDeletionCalc;
+                        while (!currentDate.isAfter(itemEndDateForDailyDeletionCalc)) {
+                            Map<String, String> record = new HashMap<>();
+                            record.put(SALES_DB_DATE, currentDate.format(SALES_DATE_DB_FORMATTER));
+                            record.put(SALES_DB_MINVALUE, minValStr);
+                            record.put(SALES_DB_MAXVALUE, maxValStr);
+                            record.put(SALES_DB_SEATSALLOCATION, seatsAllocValStr);
+                            recordsToProcess.add(record);
+                            currentDate = currentDate.plusDays(1);
+                        }
                     }
                 }
-            } // End CSV row loop
+            } // --- End CSV row loop ---
 
-            // --- Error Handling ---
+            // --- Duplicate Date Validation from processed records ---
+            List<Map<String, String>> recordsToInsert = new ArrayList<>(); // Final list for DB
+            Set<String> uniqueDbDates = new HashSet<>();
+
+            for (Map<String, String> record : recordsToProcess) {
+                String dateKey = record.get(SALES_DB_DATE);
+                if (!uniqueDbDates.add(dateKey)) {
+                    String errorMsg = "Duplicate entry generated for date: " + dateKey +
+                            ". This can occur if multiple CSV rows (after processing month/date ranges) resolve to the same date string.";
+                    if (!currentErrors.contains(errorMsg)) { // Add unique error message
+                        currentErrors.add(errorMsg);
+                    }
+                } else {
+                    recordsToInsert.add(record); // Add if unique (first occurrence)
+                }
+            }
+            // --- End Duplicate Date Validation ---
+
+            // If any errors were found during row processing or duplicate checking, fail now
             if (!currentErrors.isEmpty()) {
                 error_occurred = 1;
-                listOfErrors.addAll(currentErrors); // Add specific errors to the main list
+                listOfErrors.addAll(currentErrors);
                 addErrorsToTable(listOfErrors, obj_id);
-                updateInputStatus(tableName); // Mark as failed (or stays in progress until final update)
-                System.err.println(FILE_UPLOAD_ERROR_MESSAGE + " for " + tableName);
-                throw new DataMismatchedException(listOfErrors); // Stop processing
+                updateInputStatus(tableName);
+                System.err.println(FILE_UPLOAD_ERROR_MESSAGE + " for " + tableName + " due to validation errors (see details in error table).");
+                throw new DataMismatchedException(listOfErrors);
             }
 
             // --- Database Operations ---
-            if (!recordsToInsert.isEmpty() && overallMinDate != null && overallMaxDate != null) {
-                System.out.println("Processing sales inventory for date range: " + overallMinDate + " to " + overallMaxDate);
+            // Proceed only if recordsToInsert is not empty AND no errors occurred
+            if (!recordsToInsert.isEmpty()) {
+                // 1. Delete specific "YYYYMM00" records
+                if (!monthsToClearYYYYMM00.isEmpty()) {
+                    deleteSalesInventoryByExactDates(monthsToClearYYYYMM00, tableName);
+                }
 
-                // 1. Delete existing records in the range
-                deleteSalesInventoryByDateRange(
-                        overallMinDate.format(SALES_DATE_DB_FORMATTER),
-                        overallMaxDate.format(SALES_DATE_DB_FORMATTER),
-                        tableName
-                );
+                // 2. Delete daily "YYYYMMDD" records
+                if (overallMinDateForDailyDeletion != null && overallMaxDateForDailyDeletion != null) {
+                    deleteSalesInventoryDailyByDateRange(
+                            overallMinDateForDailyDeletion.format(SALES_DATE_DB_FORMATTER),
+                            overallMaxDateForDailyDeletion.format(SALES_DATE_DB_FORMATTER),
+                            tableName
+                    );
+                }
 
-                // 2. Insert new records
+                // 3. Insert new unique records
                 List<String> dbHeaders = List.of(SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
-                System.out.println("Inserting " + recordsToInsert.size() + " records into " + tableName);
+                System.out.println("Inserting " + recordsToInsert.size() + " unique records into " + tableName);
                 insertStatement(recordsToInsert, dbHeaders, tableName);
-
-                // Set the actual number of rows inserted (after date expansion)
                 numOfRows.set(recordsToInsert.size());
 
-            } else if (recordsToInsert.isEmpty() && currentErrors.isEmpty()) {
-                System.out.println("No valid sales inventory data found in the file to process.");
+            } else { // No records to insert (either file was empty, all rows had errors, or all were duplicates of nothing)
+                System.out.println("No valid, unique sales inventory data to insert for " + tableName + ".");
                 numOfRows.set(0);
-            } else {
-                // This case should ideally not be reached if error handling is correct
-                System.err.println("Sales Inventory: No records to insert, but no errors reported. Check logic.");
-                numOfRows.set(0);
+                // Note: Deletions might still have occurred if monthsToClear or daily deletion range was set
+                // This behavior might need adjustment if deletions should only happen if there's also an insert.
             }
 
-
-            // --- S3 Backup (Optional: Backup the final state) ---
-            // If you want to back up the state *after* update, createCSV needs to read the DB again.
-            // This assumes createCSV reads the current DB state for the table.
             System.out.println("Creating CSV backup for " + tableName);
-            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid); // Backup final state
-
-            // --- Audit Update ---
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
             System.out.println("Successfully processed " + tableName + " file.");
 
+        } catch (DataMismatchedException dme) { // Catch specific exception to avoid double-logging by generic catch
+            // Error already flagged and added to table by the point it's thrown
+            System.err.println("Data mismatched, processing halted for " + tableName + ": " + dme.getMessage());
+            throw dme; // Re-throw
         } catch (Exception e) {
-            error_occurred = 1; // Ensure error flag is set
-            System.err.println("Critical error during sales inventory processing: " + e.getMessage());
+            error_occurred = 1;
+            System.err.println("Critical error during sales inventory processing for " + tableName + ": " + e.getMessage());
             e.printStackTrace();
-            if (listOfErrors.isEmpty()) { // Add generic error if specific one wasn't added
-                listOfErrors.add("Failed to process sales inventory file: " + e.getMessage());
-                addErrorsToTable(listOfErrors, obj_id);
+            if (listOfErrors.isEmpty()) { // If generic catch and no specific errors logged yet
+                if (!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors);
+                else listOfErrors.add("Failed to process sales inventory file due to an unexpected error: " + e.getMessage());
+            } else if (!currentErrors.isEmpty() && !listOfErrors.containsAll(currentErrors)){
+                listOfErrors.addAll(currentErrors);
             }
-            // Re-throw the exception so the main handler knows about the failure
-            throw e;
+            addErrorsToTable(listOfErrors, obj_id); // Ensure errors are logged
+            throw e; // Re-throw
         } finally {
-            // --- Final Status Update ---
-            // This runs regardless of success or caught exception within the try block
-            updateInputStatus(tableName); // Mark as completed (or failed if error_occurred is set)
-            System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id);
+            updateInputStatus(tableName); // Sets status to done/failed based on error_occurred
+            System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id + ". Status: " + (error_occurred == 1 ? "FAILED" : "DONE"));
         }
     }
-    private void deleteSalesInventoryByDateRange(String startDate, String endDate, String tableName) {
-        // Ensure table name is safe if necessary, but here it comes from trusted source
-        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " >= ? AND " + SALES_DB_DATE + " <= ?";
-        System.out.println("Executing delete on " + tableName + " from " + startDate + " to " + endDate);
+
+    // The deleteSalesInventoryByDateRange method likely uses a query like:
+    // "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " >= ? AND " + SALES_DB_DATE + " <= ?"
+    // The parameters passed to it (startDate, endDate) should be in a format comparable by the DB
+    // if SALES_DB_DATE stores different formats (YYYYMMDD vs YYYYMM00).
+    // If SALES_DB_DATE is a proper DATE type, storing "YYYYMM00" is not ideal.
+    // If it's VARCHAR, the comparison might be tricky unless all dates are YYYYMMDD or similar.
+    // For now, I've assumed the deletion is based on the *actual* month's start/end for "month" inputs.
+    private void deleteSalesInventoryByExactDates(Set<String> datesToDelete, String tableName) {
+        if (datesToDelete == null || datesToDelete.isEmpty()) {
+            return;
+        }
+        String placeholders = String.join(",", Collections.nCopies(datesToDelete.size(), "?"));
+        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " IN (" + placeholders + ")";
+        System.out.println("Executing delete on " + tableName + " for exact dates: " + datesToDelete);
         try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            pstmt.setString(1, startDate);
-            pstmt.setString(2, endDate);
+            int i = 1;
+            for (String dateValue : datesToDelete) {
+                pstmt.setString(i++, dateValue);
+            }
             int deletedRows = pstmt.executeUpdate();
-            System.out.println("Deleted " + deletedRows + " existing records from " + tableName + " in the specified date range.");
+            System.out.println("Deleted " + deletedRows + " exact date records from " + tableName + " matching: " + datesToDelete);
         } catch (SQLException e) {
-            // Decide how critical this is. Maybe log and continue, or throw.
-            // For now, log and throw RuntimeException as it might leave inconsistent data.
             error_occurred = 1; // Flag error
-            String errorMsg = "Failed to delete existing sales inventory data for range " + startDate + "-" + endDate + ": " + e.getMessage();
+            String errorMsg = "Failed to delete exact sales inventory data for dates " + datesToDelete + ": " + e.getMessage();
             System.err.println(errorMsg);
-            listOfErrors.add(errorMsg); // Add to main error list
-            // Consider if you should add to obj_id table here or rely on the main handler
-            throw new RuntimeException(errorMsg, e);
+            listOfErrors.add(errorMsg);
+            throw new RuntimeException(errorMsg, e); // Or handle more gracefully
+        }
+    }
+    private void deleteSalesInventoryDailyByDateRange(String startDateYYYYMMDD, String endDateYYYYMMDD, String tableName) {
+        // This query assumes SALES_DB_DATE stores "YYYYMMDD" for daily and "YYYYMM00" for monthly.
+        // It aims to delete only daily records within the range.
+        // Using "NOT LIKE '%00'" is a simple way. A more robust way for MySQL/PostgreSQL:
+        // AND LENGTH(date_col) = 8 AND SUBSTRING(date_col, 7, 2) <> '00'
+        // For SQL Server: AND LEN(date_col) = 8 AND SUBSTRING(date_col, 7, 2) <> '00'
+        // Choose the one appropriate for your DB. '%00' might be too broad if other valid dates end in 00.
+        // If all daily dates are guaranteed to not end in '00' except monthly, then it's okay.
+        String deleteQuery = "DELETE FROM " + tableName + " WHERE " +
+                SALES_DB_DATE + " >= ? AND " +
+                SALES_DB_DATE + " <= ? AND " +
+                SALES_DB_DATE + " NOT LIKE '%00'"; // Be cautious with this condition
+
+        System.out.println("Executing delete for daily records (not ending in '00') on " + tableName + " from " + startDateYYYYMMDD + " to " + endDateYYYYMMDD);
+        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+            pstmt.setString(1, startDateYYYYMMDD);
+            pstmt.setString(2, endDateYYYYMMDD);
+            int deletedRows = pstmt.executeUpdate();
+            System.out.println("Deleted " + deletedRows + " existing daily records (not ending in '00') from " + tableName + " in the range.");
+        } catch (SQLException e) {
+            error_occurred = 1; // Flag error
+            String errorMsg = "Failed to delete existing daily sales inventory data for range " + startDateYYYYMMDD + "-" + endDateYYYYMMDD + ": " + e.getMessage();
+            System.err.println(errorMsg);
+            listOfErrors.add(errorMsg);
+            throw new RuntimeException(errorMsg, e); // Or handle more gracefully
         }
     }
 
@@ -1303,50 +1747,80 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void uploadDateEventFile(Reader file, String userName, String obj_id) throws RuntimeException {
+    public void uploadDateEventFile(Reader file, String userName, String obj_id, UploadFileType fileType) throws RuntimeException {
         String uuid = obj_id;
-        try {
-            String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
-            String ProfileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
+        String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
 
+        // Determine the target table and its temporary counterpart based on fileType
+        String secondaryTableName;
+        String secondaryTempTableName;
+        // String secondaryTableSpecificColumnName = SECTOR_COLUMN_NAME; // If column name also changes
+
+        if (fileType == UploadFileType.DISTRESS) {
+            secondaryTableName = DISTRESS_CLAENDAR;
+            // If distress table uses a different column than SECTOR_COLUMN_NAME for deletion logic:
+            // secondaryTableSpecificColumnName = "DISTRESS_SPECIFIC_COLUMN_NAME";
+        } else { // Default to UPSELL or handle other types
+            secondaryTableName = CONFIG_PROFILE_FARE_STATION_UPSELL;
+        }
+        secondaryTempTableName = secondaryTableName + UNDERSCORE + TEMP;
+
+        try {
             insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
-            insertAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), userName, uuid);
+            insertAuditStatement(secondaryTableName, getCurrentDateTime(), userName, uuid); // Use secondaryTableName
+
             createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
-            createTable(ProfileFareStationUpsellTempTableName, CONFIG_PROFILE_FARE_STATION_UPSELL);
+            createTable(secondaryTempTableName, secondaryTableName); // Use secondaryTempTableName
+
             insertInputStatusTable(DATE_EVENT_TABLE_NAME);
-            insertInputStatusTable(CONFIG_PROFILE_FARE_STATION_UPSELL);
+            insertInputStatusTable(secondaryTableName); // Use secondaryTableName
 
             List<List<String>> csvData = getDataFromCSVFile(file);
-            Map<String, Map<String, String>> dateEventMap = getDateEvent(csvData);
-            List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
-            List<String> upsellHeaders = Arrays
-                    .asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
-            List<Map<String, String>> data = createListOfMapDateEvent(csvData, dateEventHeaders);
+            Map<String, Map<String, String>> dateEventMap = getDateEvent(csvData); // Assumed to contain data for both date_event and (upsell/distress)
 
-            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders,
-                    ProfileFareStationUpsellTempTableName);
-            insertStatement(data, dateEventHeaders, dateEventTempTableName);
-            String columnName = SECTOR_COLUMN_NAME.toLowerCase();
-            Set<String> uniqueValues = dateEventMap.values().stream()
-                    .map(obj -> obj.get(columnName))
+            List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
+            List<String> secondaryTableHeaders = Arrays
+                    .asList(getColumnHeaders(secondaryTableName).split(COMMA)); // Use secondaryTableName
+
+            List<Map<String, String>> dataForDateEventTable = createListOfMapDateEvent(csvData, dateEventHeaders);
+
+            // Assuming dateEventMap.values() directly provides data for upsell/distress table
+            // If transformation is needed for distress data, it should happen here.
+            List<Map<String, String>> dataForSecondaryTable = new ArrayList<>(dateEventMap.values());
+
+            insertStatement(dataForSecondaryTable, secondaryTableHeaders,
+                    secondaryTempTableName); // Use secondaryTempTableName & headers
+            insertStatement(dataForDateEventTable, dateEventHeaders, dateEventTempTableName);
+
+            // Assuming SECTOR_COLUMN_NAME is relevant for both upsell and distress logic
+            // If not, use secondaryTableSpecificColumnName defined above
+            String columnNameForDeletion = SECTOR_COLUMN_NAME.toLowerCase();
+            Set<String> uniqueValuesForSecondaryTableDeletion = dataForSecondaryTable.stream()
+                    .map(obj -> obj.get(columnNameForDeletion)) // or obj.get(secondaryTableSpecificColumnName.toLowerCase())
+                    .filter(java.util.Objects::nonNull) // Avoid NullPointerExceptions
                     .collect(Collectors.toSet());
 
-            deleteValues(Collections.singleton(ZERO), DATE_EVENT_TABLE_NAME, ZERO);
-            deleteValues(uniqueValues, CONFIG_PROFILE_FARE_STATION_UPSELL, columnName);
+            deleteValues(Collections.singleton(ZERO), DATE_EVENT_TABLE_NAME, ZERO); // Standard for date_event
+            if (!uniqueValuesForSecondaryTableDeletion.isEmpty()) {
+                deleteValues(uniqueValuesForSecondaryTableDeletion, secondaryTableName, columnNameForDeletion); // Use secondaryTableName
+            }
 
-            copyFromTempToMainTable(CONFIG_PROFILE_FARE_STATION_UPSELL, ProfileFareStationUpsellTempTableName);
+
+            copyFromTempToMainTable(secondaryTableName, secondaryTempTableName); // Use secondaryTableName
             copyFromTempToMainTable(DATE_EVENT_TABLE_NAME, dateEventTempTableName);
 
-            updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
+            updateAuditStatement(secondaryTableName, getCurrentDateTime(), uuid); // Use secondaryTableName
             updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
 
-            deleteTable(ProfileFareStationUpsellTempTableName);
+            deleteTable(secondaryTempTableName); // Use secondaryTempTableName
             deleteTable(dateEventTempTableName);
             error_occurred = 0;
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            // It's often better to log the exception and rethrow a more specific one,
+            // or at least include the original exception as the cause.
+            throw new RuntimeException("Error during date event file upload: " + e.getMessage(), e);
         } finally {
-            updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
+            updateInputStatus(secondaryTableName); // Use secondaryTableName
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
     }
@@ -1429,7 +1903,7 @@ public class App implements RequestHandler<S3Event, Object> {
         StringBuilder columnNames = new StringBuilder();
         StringBuilder placeholders = new StringBuilder();
         for (String header : columnHeaders) {
-            columnNames.append(header).append(",");
+            columnNames.append("`"+header+"`").append(",");
             placeholders.append("?,");
         }
 
@@ -1474,6 +1948,15 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public String getColumnHeaders(String value) {
         String listObj = null;
+        // Special handling for the new table if its headers are fixed
+        if (SALESINV_RBD_DISTRIBUTION_TABLE_NAME.equalsIgnoreCase(value)) {
+            return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME, SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
+        }
+        // ... (your existing code for SALES_INVENTORY_TABLE_NAME and other tables) ...
+        if (SALES_INVENTORY_TABLE_NAME.equalsIgnoreCase(value)) {
+            return String.join(",", SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
+        }
+
         try (PreparedStatement pstmt = connection.prepareStatement(GET_COLUMN_HEADERS())) {
             pstmt.setString(1, value);
             try (ResultSet resultSet = pstmt.executeQuery()) {
@@ -1484,6 +1967,10 @@ public class App implements RequestHandler<S3Event, Object> {
         } catch (SQLException e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
+        }
+        if (listObj == null) {
+            System.err.println("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
+            return ""; // Or throw an exception if this is critical
         }
         return listObj;
     }
@@ -1648,7 +2135,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
                 "autoGroup", "autoBackstopFlag");
 
-        String headerValues = String.join(",", headers);
+        String headerValues = "`" + String.join("`,`", headers) + "`";
         String limitCondition = (limit > 0) ? " LIMIT " + limit : "";
         String query = "SELECT " + headerValues + " FROM " + tableName + limitCondition;
 

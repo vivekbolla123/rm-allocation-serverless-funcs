@@ -23,10 +23,27 @@ public interface ColumnNamesConstants {
     String VALUE_COLUMN_NAME = "value";
     String AU_VALUE_COLUMN_NAME = "au_value";
 
+    public static final String HEADER_TEXT_SALES_STARTDATE = "startdate";
+    public static final String HEADER_TEXT_SALES_ENDDATE = "enddate";
+    public static final String HEADER_TEXT_SALES_MINPAX = "minpax";
+    public static final String HEADER_TEXT_SALES_MAXPAX = "maxpax";
+
+    public static final String HEADER_TEXT_SALES_MONTH = "month";
+    public static final String HEADER_TEXT_SALES_MINSEATS = "minseats";
+    public static final String HEADER_TEXT_SALES_MAXSEATS = "maxseats";
+
+    // Common header for seats allocation
+    public static final String HEADER_TEXT_SALES_SEATSALLOC = "seatsalloc";
+
     public static final String SALES_DB_DATE = "date";
-    public static final String SALES_DB_MINVALUE = "minvalue";
-    public static final String SALES_DB_MAXVALUE = "maxvalue";
-    public static final String SALES_DB_SEATSALLOCATION = "seatsallocation";
+     public static final String SALES_DB_MINVALUE = "minvalue";
+     public static final String SALES_DB_MAXVALUE = "maxvalue";
+     public static final String SALES_DB_SEATSALLOCATION = "seatsallocation";
+
+    public static final String SI_RBD_SEATS_COLUMN_NAME = "seats";
+    public static final String SI_RBD_TYPE_COLUMN_NAME = "type";
+    public static final String SI_RBD_RBD_COLUMN_NAME = "rbd";
+    public static final String SI_RBD_VALUE_COLUMN_NAME = "value";
 
     String NDO_BANDS_COLUMN_NAME = "ndoBand";
     String DISTRESS_NDO_BANDS_COLUMN_NAME = "ndo_band";
