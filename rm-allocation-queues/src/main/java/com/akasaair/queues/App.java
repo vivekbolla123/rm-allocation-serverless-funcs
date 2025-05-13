@@ -793,10 +793,10 @@ public class App implements RequestHandler<S3Event, Object> {
         return listObj;
     }
 
-    private static Validator getValidator(String tableName) {
+    private  Validator getValidator(String tableName) {
         Validator validator;
         switch (tableName) {
-            case CURVES_TABLE_NAME -> validator = new CurvesValidator();
+            case CURVES_TABLE_NAME -> validator = new CurvesValidator(searchResults(LF_VALUE_KEY));
             case QP_FARES_TABLE_NAME -> validator = new FaresValidator();
             case PROFILE_FARES_TABLE_NAME -> validator = new ProfileValidator();
             default -> validator = null;
