@@ -9,7 +9,7 @@ import static com.akasaair.queues.common.constants.QueryConstants.*;
 import static com.akasaair.queues.common.constants.Constants.*;
 
 public class CurvesValidator implements Validator {
-    
+    private String valueString;
     public CurvesValidator(String valueString) {
             this.valueString = valueString;
     }
