@@ -9,7 +9,6 @@ import configsettings
 import pytz
 import time
 import pandas as pd
-import numpy as np
 from uuid import uuid4
 from sqlalchemy import create_engine, text
 from pandas import read_sql, Timestamp
@@ -690,7 +689,7 @@ def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_
     currVersionValues = read_sql(currVersionQuery, conn)
 
     is_connections_required = 1 if type == 'Scheduled' else 0
-    is_connections_started = 1 if type == 'Scheduled' else np.nan
+    is_connections_started = 1 if type == 'Scheduled' else None
 
     table_versions = {}
     for index, currVersion in currVersionValues.iterrows():
