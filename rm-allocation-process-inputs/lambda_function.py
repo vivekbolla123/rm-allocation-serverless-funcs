@@ -116,23 +116,10 @@ def lambda_handler(event, context):
                     'body': 'stopped'
                 }
             elif (status_df.iloc[0]['run_status'] == 'PAUSED'):
-                logger.info("Pausing run.")
-                redisKey = f"Paused:{run_id}"
-                existing_data = cache_client.get(redisKey)
-                dataArray = []
-                if existing_data:
-                    try:
-                        dataArray = json.loads(existing_data)
-                        if not isinstance(dataArray, list):
-                            dataArray = []
-                    except json.JSONDecodeError:
-                        logger.error(f"Error parsing existing data for key {redisKey}")
-                        dataArray = []
-                
-                dataArray.append(json.loads(content))
-                cache_client.set(redisKey, json.dumps(dataArray), ex=6*60*60)
-
-                logger.info(f"Successfully stored event in Redis under key {redisKey}. Total events: {len(dataArray)}")
+                redis_key = f"Paused:{run_id}"
+                cache_client.rpush(redis_key, content)
+                cache_client.expire(redis_key, 6*60*60)
+                # length = cache_client.llen(redis_key)
                 log_time.send_time_log_db()
                 return {
                     'statusCode': 200,
