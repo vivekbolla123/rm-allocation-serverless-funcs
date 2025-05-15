@@ -614,7 +614,7 @@ class ExpectedNoShows:
         self.logger.info("Upserting flight summary to QP_DW_RMALLOC.expected_no_shows table")
         
         try:
-            # Convert DataFrame to a list of tuples for SQL execution
+            # Convert DataFrame to a list of dictionaries for SQL execution
             records = flight_summary.to_dict('records')
             
             # Use SQLAlchemy to execute an upsert query
@@ -624,31 +624,33 @@ class ExpectedNoShows:
                 try:
                     # First delete any existing records that match the primary key
                     for record in records:
-                        # Delete existing record with matching primary key
-                        delete_query = f"""
+                        delete_query = text("""
                         DELETE FROM QP_DW_RMALLOC.expected_no_shows 
-                        WHERE DepartureDate = '{record['DepartureDate']}' 
-                        AND FlightNumber = {record['FlightNumber']}
-                        AND Sector = '{record['Sector']}'
-                        """
-                        connection.execute(delete_query)
+                        WHERE DepartureDate = :departure_date 
+                        AND FlightNumber = :flight_number
+                        AND Sector = :sector
+                        """)
+                        
+                        connection.execute(delete_query, {
+                            "departure_date": record['DepartureDate'],
+                            "flight_number": record['FlightNumber'],
+                            "sector": record['Sector']
+                        })
                     
                     # Then insert all new records
-                    placeholders = ', '.join(['%s'] * len(flight_summary.columns))
                     columns = ', '.join(flight_summary.columns)
+                    placeholders = ', '.join([f":{col}" for col in flight_summary.columns])
                     
-                    # Build the INSERT query
-                    insert_query = f"""
+                    # Build the INSERT query using text() for parameterization
+                    insert_query = text(f"""
                     INSERT INTO QP_DW_RMALLOC.expected_no_shows 
                     ({columns}) 
                     VALUES ({placeholders})
-                    """
+                    """)
                     
-                    # Convert records to list of tuples for insertion
-                    values = [tuple(record.values()) for record in records]
-                    
-                    # Execute as batch insert
-                    connection.execute(insert_query, values)
+                    # Execute by passing each record as a parameter dictionary
+                    for record in records:
+                        connection.execute(insert_query, record)
                     
                     # Commit the transaction
                     transaction.commit()
