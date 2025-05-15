@@ -699,7 +699,7 @@ def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_
         else:
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
-    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, end_time, actual_end_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, is_connections_started, update_navitaire_method, is_run_completed, region, marketListCount, adhoc_run_status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, end_time, actual_end_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, is_connections_started, update_navitaire_method, is_run_completed, region, marketListCount, run_status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
     try:
         wrconn.execute(insert_query,
                     (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, is_connections_started, update_navitaire_method, '0', region, count, 'DELETED'))

@@ -108,14 +108,14 @@ def lambda_handler(event, context):
         run_id = data["runId"]
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
-            if (status_df.iloc[0]['adhoc_run_status'] == 'DELETED'):
+            if (status_df.iloc[0]['run_status'] == 'DELETED'):
                 logger.info("Skipping run, since run is deleted.")
                 log_time.send_time_log_db()
                 return {
                     'statusCode': 200,
                     'body': 'stopped'
                 }
-            elif (status_df.iloc[0]['adhoc_run_status'] == 'PAUSED'):
+            elif (status_df.iloc[0]['run_status'] == 'PAUSED'):
                 logger.info("Pausing run.")
                 redisKey = f"Paused:{run_id}"
                 existing_data = cache_client.get(redisKey)
@@ -150,7 +150,7 @@ def lambda_handler(event, context):
     }
 
 def getRunStatus(run_id):
-    read_query = "SELECT adhoc_run_status FROM QP_DW_RMALLOC.allocation_run_audit WHERE run_id = '"+ run_id +"'"
+    read_query = "SELECT run_status FROM QP_DW_RMALLOC.allocation_run_audit WHERE run_id = '"+ run_id +"'"
     try:
         df = pd.read_sql(read_query, rdconn)
         return df
