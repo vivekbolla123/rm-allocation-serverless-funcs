@@ -546,7 +546,7 @@ def lambda_handler(event, context):
     if not del_stack_df.empty:
         insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
 
-        logger.info("Found record in allocation_run_operation_log, stopping Lambda execution")
+        logger.info(f"Skipping run: {run_id}")
         log_time.send_time_log_db()
         return {
             'statusCode': 200,

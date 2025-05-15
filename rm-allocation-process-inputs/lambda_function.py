@@ -109,13 +109,14 @@ def lambda_handler(event, context):
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
             if (status_df.iloc[0]['run_status'] == 'DELETED'):
-                logger.info("Skipping run, since run is deleted.")
+                logger.info(f"Skipping run: {run_id}")
                 log_time.send_time_log_db()
                 return {
                     'statusCode': 200,
                     'body': 'stopped'
                 }
             elif (status_df.iloc[0]['run_status'] == 'PAUSED'):
+                logger.info(f"Pausing run: {run_id}")
                 redis_key = f"Paused:{run_id}"
                 cache_client.rpush(redis_key, content)
                 cache_client.expire(redis_key, 6*60*60)
