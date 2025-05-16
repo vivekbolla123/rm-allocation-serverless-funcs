@@ -65,13 +65,14 @@ class AllocationSummaryReport:
         """Get data by joining allocation_run_audit & navitaire_allocation_audit"""
         if len(allocation_run_ids) == 1:
             run_id = allocation_run_ids[0][0]
-            condition = f"WHERE ara.run_id = '{run_id}'"
+            condition_params = {"run_id": run_id}
+            condition = "WHERE ara.run_id = :run_id"
         else:
             extracted_values = [item[0] for item in allocation_run_ids]
-            run_ids = tuple(extracted_values)
-            condition = f"WHERE ara.run_id IN {run_ids}"
+            condition_params = {"run_ids": tuple(extracted_values)}
+            condition = "WHERE ara.run_id IN :run_ids"
 
-        select = f"""SELECT ara.start_time AS report_time_reference,
+        select_query = f"""SELECT ara.start_time AS report_time_reference,
                         ara.run_id AS runId,
                         IFNULL(ara.type, 0) AS type,
                         IFNULL(ara.region, '') AS region,
@@ -97,35 +98,38 @@ class AllocationSummaryReport:
                     {condition} AND ara.type != 'Local Run' AND (ara.total_batch_size-ara.batch_completed=0 or ara.total_batch_size is null)
                     GROUP BY ara.run_id"""
             
-        result = self.rm_rd_conn.execute(select).fetchall()
+        query = text(select_query)
+        result = self.rm_rd_conn.execute(query, condition_params).fetchall()
         return result
 
-    def fetch_how_count_data(self, run_ids,isconnections):
+    def fetch_how_count_data(self, run_ids, isconnections):
         """Get aggregate data of HowCount from run_summary"""
-        table="run_summary"
-        if isconnections:
-            table="run_summary_connections"
+        table = "run_summary_connections" if isconnections else "run_summary"
+        
         if len(run_ids) == 1:
-            run_ids = run_ids[0]
-            condition = f" WHERE rs.RunId = '{run_ids}' "
+            run_id = run_ids[0]
+            condition_params = {"run_id": run_id}
+            condition = "WHERE rs.RunId = :run_id"
         else:
-            condition = f" WHERE rs.RunId IN {run_ids} "
+            condition_params = {"run_ids": tuple(run_ids)}
+            condition = "WHERE rs.RunId IN :run_ids"
             
-        get_how_count = f"""SELECT
-                                SUM(CASE
-                                    WHEN rs.allocationStatus = 1 THEN 1
-                                    ELSE 0
-                                END) AS successfulAllocationCount,
-                                count(1) AS totalAllocationCount,
-                                rs.runId
-                            FROM
-                                QP_DW_RMALLOC.{table} rs
-                                {condition}
-                            GROUP BY rs.RunId"""
+        query_str = f"""SELECT
+                        SUM(CASE
+                            WHEN rs.allocationStatus = 1 THEN 1
+                            ELSE 0
+                        END) AS successfulAllocationCount,
+                        count(1) AS totalAllocationCount,
+                        rs.runId
+                    FROM
+                        QP_DW_RMALLOC.{table} rs
+                        {condition}
+                    GROUP BY rs.RunId"""
             
-        how_counts = self.rm_rd_conn.execute(get_how_count).fetchall()
+        query = text(query_str)
+        how_counts = self.rm_rd_conn.execute(query, condition_params).fetchall()
         return how_counts
-    
+
     def add_allocation_summary_report(self, allocation_summary_data):
         """Inserts allocation summary data into table `allocation_summary_report` """
         columns = ", ".join([f"`{col}`" for col in allocation_summary_data[0].keys()])
@@ -145,25 +149,26 @@ class AllocationSummaryReport:
         """After inserting records in allocation_summary_report set is_audit_completed='1' """
         if len(allocation_run_ids) == 1:
             run_id = allocation_run_ids[0][0]
-            condition = f"run_id = '{run_id}'"
+            query = text("UPDATE QP_DW_RMALLOC.allocation_run_audit SET is_audit_completed='1' WHERE run_id = :run_id")
+            self.rm_wr_conn.execute(query, {"run_id": run_id})
         else:
             extracted_values = [item[0] for item in allocation_run_ids]
-            run_ids = tuple(extracted_values)
-            condition = f"run_id IN {run_ids}"
-
-        self.rm_wr_conn.execute(f"UPDATE QP_DW_RMALLOC.allocation_run_audit SET is_audit_completed='1' WHERE {condition} ")
-        self.logger.info(f"Audit completed for 'API' navitaire update method")
+            query = text("UPDATE QP_DW_RMALLOC.allocation_run_audit SET is_audit_completed='1' WHERE run_id IN :run_ids")
+            self.rm_wr_conn.execute(query, {"run_ids": tuple(extracted_values)})
+        
+        self.logger.info("Audit completed for 'API' navitaire update method")
     
     def delete_run_ids(self, allocation_run_ids):
         if len(allocation_run_ids) == 1:
             run_id = allocation_run_ids[0][0]
-            condition = f"run_id = '{run_id}'"
+            params = {"run_id": run_id}
+            query = text("DELETE FROM QP_RM_REPORTS.allocation_summary_report WHERE run_id = :run_id")
         else:
             extracted_values = [item[0] for item in allocation_run_ids]
-            run_ids = tuple(extracted_values)
-            condition = f"run_id IN {run_ids}"
+            params = {"run_ids": tuple(extracted_values)}
+            query = text("DELETE FROM QP_RM_REPORTS.allocation_summary_report WHERE run_id IN :run_ids")
 
-        result = self.rm_wr_conn.execute(f"DELETE FROM QP_RM_REPORTS.allocation_summary_report WHERE {condition} ")
+        result = self.rm_wr_conn.execute(query, params)
         if result.rowcount > 0:
             self.logger.info(f"{result.rowcount} Records Deleted Successfully!")
             return True
@@ -178,19 +183,24 @@ class AllocationSummaryReport:
         try:
             # Since not being used below code is Commented
             # lastInsertedTime = "2023-08-31 00:00:00"
-            # get_lastInsertedTime = self.rm_rd_conn.execute("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report order by report_time_reference desc limit 1").fetchone()
+            # get_lastInsertedTime_query = text("SELECT report_time_reference FROM QP_RM_REPORTS.allocation_summary_report ORDER BY report_time_reference DESC LIMIT 1")
+            # get_lastInsertedTime = self.rm_rd_conn.execute(get_lastInsertedTime_query).fetchone()
             # if get_lastInsertedTime:
             #     lastInsertedTime = get_lastInsertedTime[0].strftime('%Y-%m-%d %H:%M:%S')
 
             # self.logger.debug(f"Last Inserted Time in allocation_summary_report: {lastInsertedTime}")
             # get latest run_ids with navitaire update method as API
             
-            allocation_run_ids = self.rm_rd_conn.execute(f"""SELECT run_id FROM QP_DW_RMALLOC.allocation_run_audit
-                                                         WHERE update_navitaire_method='api' 
-                                                         AND start_time > NOW() - INTERVAL {self.interval_time}""").fetchall()
-                                                        #  ( start_time > '{lastInsertedTime}' OR 
-                                                        #  (is_run_completed = '0' AND start_time > NOW() - INTERVAL 1 hour ) )""").fetchall()
-                
+            query = text("""
+            SELECT run_id 
+            FROM QP_DW_RMALLOC.allocation_run_audit
+            WHERE update_navitaire_method = 'api' 
+            AND start_time > NOW() - INTERVAL :interval_time HOUR
+            """)
+
+            allocation_run_ids = self.rm_rd_conn.execute(query, {"interval_time": self.interval_time}).fetchall()
+
+                                                        
             self.logger.debug(f"Count of new allocation run_ids: {len(allocation_run_ids)}")
             if allocation_run_ids:
                 allocation_summary_data = self.get_all_allocation_run_summary(allocation_run_ids)

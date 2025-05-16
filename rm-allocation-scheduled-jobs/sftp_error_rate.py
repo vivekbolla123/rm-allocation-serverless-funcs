@@ -3,6 +3,7 @@ import traceback
 import pandas as pd
 import requests
 import configsettings
+from sqlalchemy import text
 
 from allocation_summary import AllocationSummaryReport
 
@@ -159,7 +160,8 @@ class SFTPErrorRate:
         """Checks if total & error is computed for given run_id for all flights in run_flight_date_audit.
             If run_id and flight number found in 'error_audit_process', skip iteration because error_rate & total is already computed"""
         
-        error_audit = self.rm_rd_conn.execute(f"SELECT run_id FROM error_audit_process where run_id='{run_id}' AND flight_number='{flight_num}' ").fetchone()        
+        query = text("SELECT run_id FROM error_audit_process WHERE run_id = :run_id AND flight_number = :flight_num")
+        error_audit = self.rm_rd_conn.execute(query, {"run_id": run_id, "flight_num": flight_num}).fetchone()        
         
         if not error_audit:
             return False
@@ -168,7 +170,8 @@ class SFTPErrorRate:
     
     def aggregate_compute_data(self, run_id):
         """Aggregate sum of error & total."""
-        agg_data = self.rm_rd_conn.execute(f"SELECT SUM(error) AS total_failures, SUM(total) AS total FROM error_audit_process WHERE run_id='{run_id}' ").fetchone()
+        query = text("SELECT SUM(error) AS total_failures, SUM(total) AS total FROM error_audit_process WHERE run_id = :run_id")
+        agg_data = self.rm_rd_conn.execute(query, {"run_id": run_id}).fetchone()
         self.logger.info(f"run_id: {run_id} Total failure: {int(agg_data[0])} & Total RBD count: {int(agg_data[1])} ")
         
         return agg_data[0], agg_data[1]
@@ -261,7 +264,14 @@ class SFTPErrorRate:
                 for data in sftp_pushed_run_ids:
                     run_id = data[1]
                     self.logger.info(f"Run id: {run_id} :: START")
-                    flight_audit_result= self.rm_rd_conn.execute(f"SELECT flightNumber, flightDate, result, runId FROM run_flight_date_audit WHERE runId='{run_id}' AND (b2bstatus = 'Done' OR b2cstatus ='Done') AND result is NOT NULL").fetchall()
+                    
+                    flight_audit_query = text("""SELECT flightNumber, flightDate, result, runId 
+                                            FROM run_flight_date_audit 
+                                            WHERE runId = :run_id 
+                                            AND (b2bstatus = 'Done' OR b2cstatus ='Done') 
+                                            AND result is NOT NULL""")
+                    
+                    flight_audit_result = self.rm_rd_conn.execute(flight_audit_query, {"run_id": run_id}).fetchall()
                     
                     if not flight_audit_result:
                         self.logger.warning(f"No flight date audit for runId: '{run_id}' ")

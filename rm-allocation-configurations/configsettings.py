@@ -83,7 +83,6 @@ if env == 'prod':
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
  
  
-    FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-scheduled-jobs"
     RM_DB_WR_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     SFTP_RBD_QUEUE_URL = "rm-allocation-queues_rm-allocation-rbds-ftp"
     ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
@@ -104,6 +103,8 @@ if env == 'prod':
     SFTP_USERNAME = '0KProdr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
+    
+    FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -169,6 +170,8 @@ if env == 'uat':
     SFTP_USERNAME = '0KTestr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds-ftp"
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
+    
+    FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
 
 
 RM_CACHE_USERNAME = "default"
