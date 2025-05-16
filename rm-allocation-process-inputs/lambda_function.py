@@ -116,8 +116,8 @@ def lambda_handler(event, context):
                     'body': 'stopped'
                 }
             elif (status_df.iloc[0]['run_status'] == 'PAUSED'):
-                logger.info(f"Pausing run: {run_id}")
                 redis_key = f"Paused:{run_id}"
+                logger.info(f"Pausing run: {run_id} with length {cache_client.llen(redis_key)+1}")
                 cache_client.rpush(redis_key, content)
                 cache_client.expire(redis_key, 6*60*60)
                 # length = cache_client.llen(redis_key)
