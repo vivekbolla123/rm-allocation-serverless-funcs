@@ -795,6 +795,7 @@ class RBDAllocations:
         if distress_pax_count <= 0:
             for rbd in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
                 brd_counter += 1
             return brd_counter
 

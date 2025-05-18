@@ -81,3 +81,4 @@ class MarketListRow:
         self.time_logger = currParams.get("timelogger", CONST_NA)        
         self.route_type=currParams.get("route_type",CONST_NA)
         self.strategy = CONST_NA
+        self.saleinvflag = currParams.get("saleinvflag",0)

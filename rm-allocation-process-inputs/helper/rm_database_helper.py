@@ -1150,9 +1150,18 @@ LIMIT 1
     
     def get_sales_inventory(self, date):
         query = f"""
-        SELECT minvalue, maxvalue, seatsallocation
+        SELECT minvalue, `maxvalue`, seatsallocation
         FROM sales_inventory
         WHERE date = '{date}'
+        """
+        df = pd.read_sql(query, self.conn)
+        return df
+    
+    def get_distress_calendar_value(self,dep_date,sector):
+        query = f"""
+        SELECT value
+        FROM distress_calendar
+        WHERE date = '{dep_date}' and sector = '{sector}'
         """
         df = pd.read_sql(query, self.conn)
         return df
