@@ -49,6 +49,7 @@ class Schema:
         self.load_generic_table("sales_inventory","sales_inventory.csv")
         self.load_generic_table("salesinv_rbd_distribution","salesinv_rbd_distribution.csv")
         self.load_generic_table("distress_calendar","distress_calendar.csv")
+        self.load_generic_table("forecast_results","forecast_results.csv")
         
         self.alterTables()
 

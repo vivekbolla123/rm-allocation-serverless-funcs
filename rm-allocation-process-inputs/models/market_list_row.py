@@ -43,7 +43,8 @@ class MarketListRow:
         self.autoGroup = currParams.get("AutoGroup", CONST_NA)
         self.autoBackstopFlag = currParams.get("Autobackstopflag", CONST_NA)
         self.tbfFlag = currParams.get("TbfFlag", CONST_NA)
-        self.w0Flag = currParams.get("w0_value",CONST_NA)
+        self.w0Flag = currParams.get("w0_value",'0')
+        self.cug_mkt_flag = currParams.get("CugFlag",CONST_NA)
         
         self.DepartureTime = currParams.get("DepartureTime",CONST_NA)
         self.bookedPax = currParams.get("bookedPax",CONST_NA)
@@ -59,7 +60,13 @@ class MarketListRow:
         self.BookingsInHour = currParams.get("BookingsInHour",CONST_NA)
         self.BookingsCount = currParams.get("BookingsCount",CONST_NA)
         self.BookingToday = currParams.get("BookingToday",CONST_NA)
-        							
+        self.G0_bookings = currParams.get("G0_bookings",CONST_NA)
+        self.G1_bookings = currParams.get("G1_bookings",CONST_NA)
+        self.G2_bookings = currParams.get("G2_bookings",CONST_NA)
+        self.G3_bookings = currParams.get("G3_bookings",CONST_NA)
+        self.G4_bookings = currParams.get("G4_bookings",CONST_NA)	
+        self.cug_flag = currParams.get("cug_alloc",'1')	
+
         self.run_id = currParams.get("runId", CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method", CONST_NA)
         self.run_time = currParams.get("runTime", CONST_NA)

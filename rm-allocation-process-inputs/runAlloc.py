@@ -286,6 +286,13 @@ class DynAlloc:
 			currtbfBookedLoad = self.currParams.tbf_bookings
 			currFltDate = self.currParams.per_start
 			currFltDepartureTime = self.currParams.DepartureTime
+			self.cug_bookings_dict = {
+									'G0': self.currParams.G0_bookings if self.currParams.G0_bookings not in [None, 'NA', 'null'] else 0,
+									'G1': self.currParams.G1_bookings if self.currParams.G1_bookings not in [None, 'NA', 'null'] else 0,
+									'G2': self.currParams.G2_bookings if self.currParams.G2_bookings not in [None, 'NA', 'null'] else 0,
+									'G3': self.currParams.G3_bookings if self.currParams.G3_bookings not in [None, 'NA', 'null'] else 0,
+									'G4': self.currParams.G4_bookings if self.currParams.G4_bookings not in [None, 'NA', 'null'] else 0
+								}
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
@@ -562,7 +569,8 @@ class DynAlloc:
 							
 
 				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
-				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter+1,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
+				brd_counter = self.allocations.cug_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.cug_bookings_dict,self.currParams.cug_flag,self.currParams.cug_mkt_flag)
+				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
 				brd_counter=self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
     
 				# Calculate distress pax count
@@ -929,7 +937,7 @@ class DynAlloc:
 				self.b2boverbookingflag = True
 		else:
 			self.logger.info("Entered manual overbooking loop runalloc")
-			if self.canOverbook( ndocounter, totalCapacity, adjustedCapacity, plf, float(self.currParams.obSeats)):
+			if self.canOverbookManual( ndocounter, totalCapacity, adjustedCapacity, plf, float(self.currParams.obSeats)):
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
 					self.logger.info("Lid from nav is: "+ str(lid))
@@ -949,6 +957,9 @@ class DynAlloc:
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
 		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
+	
+	def canOverbookManual(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
+		return plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
 	
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")

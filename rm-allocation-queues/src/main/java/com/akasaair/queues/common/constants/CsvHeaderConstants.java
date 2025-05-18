@@ -40,6 +40,8 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_AUTO_GROUP = 35;
     int CSV_HEADER_AUTO_BACKSTOP_FLAG = 36;
     int CSV_HEADER_TBF_FLAG = 37;
+    int CSV_HEADER_CUG_FLAG = 38;
+
 
     public static final int CSV_SALES_STARTDATE_IDX = 0; // Assuming "startdate" is the first column
     public static final int CSV_SALES_ENDDATE_IDX = 1;   // Assuming "enddate" is the second column
