@@ -771,7 +771,7 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     FROM
         (
             SELECT
-                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,
+                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,carrierExclusionB2C,carrierExclusionB2B,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,analystName,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,

@@ -489,10 +489,17 @@ GROUP BY
         currFltDate = currFltDateStr
         origin = currParams.sector1[:3]
         destination = currParams.sector2[3:]
-        
+        if channel==B2B_CHANNEL:
+            carr_exclusion = currParams.carrierExclusionB2B
+        else:
+            carr_exclusion = currParams.carrierExclusionB2C
+    
+        carr_exclusion_str = str(tuple(carr_exclusion.split('/')))  
+        if len(tuple(carr_exclusion.split('/'))) == 1:
+            carr_exclusion_str=carr_exclusion_str.replace(",", "")
         mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
             from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' AND outbound_stop <= '{outBoundStop}' and outbound_duration <= '{outboundDuration}'
+            and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop <= '{outBoundStop}' and outbound_duration <= '{outboundDuration}'
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
         """
         
