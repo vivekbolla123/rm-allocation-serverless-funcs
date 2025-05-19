@@ -753,7 +753,6 @@ class ScheduleThirty:
             # For asynchronous invocation, we only get a submission confirmation
             if response['StatusCode'] == 202:  # 202 = Accepted (for async invocations)
                 self.logger.info(f"Lambda function {lambda_function_name} invoked successfully (async)")
-                print(f"Lambda function {lambda_function_name} invoked successfully (async)")
                 return {"status": "success", "message": "Lambda invoked asynchronously", "statusCode": 202}
             else:
                 # Handle non-202 status codes
