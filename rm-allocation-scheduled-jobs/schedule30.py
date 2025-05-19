@@ -714,15 +714,19 @@ class ScheduleThirty:
 
     def runScheduleThirty(self, run_id):
         """
-        Invoke the FETCH_INPUTS_LAMBDA with the provided run_id and other parameters
+        Invoke the FETCH_INPUTS_LAMBDA asynchronously with the provided run_id and other parameters.
+        Uses asynchronous invocation to avoid timeout issues and prevent duplicate executions.
         """
-        self.logger.info(f"Invoking Lambda function for Schedule Thirty with run_id: {run_id}")
+        self.logger.info(f"Invoking Lambda function asynchronously for Schedule Thirty with run_id: {run_id}")
         
         try:
             # Initialize the Lambda client
             lambda_client = boto3.client('lambda')
             
-            # Prepare the payload in API Gateway format
+            # Get the Lambda function name from config settings
+            lambda_function_name = configsettings.FETCH_INPUTS_LAMBDA
+            
+            # Prepare the payload in the same format as the example
             payload = {
                 "body": json.dumps({
                     "run_id": run_id,
@@ -735,28 +739,30 @@ class ScheduleThirty:
                 })
             }
             
-            # Convert the payload dictionary to a JSON string
-            payload_json = json.dumps(payload)
-            
-            # Get the Lambda function name from config settings
-            lambda_function_name = configsettings.FETCH_INPUTS_LAMBDA
-            
-            # Invoke the Lambda function
-            self.logger.info(f"Invoking Lambda: {lambda_function_name}")
+            # Invoke the Lambda function asynchronously
+            self.logger.info(f"Invoking Lambda asynchronously: {lambda_function_name}")
             response = lambda_client.invoke(
                 FunctionName=lambda_function_name,
-                InvocationType='RequestResponse',  # Synchronous execution
-                Payload=payload_json
+                InvocationType='Event',  # Asynchronous execution
+                Payload=json.dumps(payload)
             )
             
-            # Parse and log the response
-            response_payload = json.loads(response['Payload'].read().decode('utf-8'))
-            self.logger.info(f"Lambda invocation successful: {response_payload}")
+            # Log the response for debugging
+            self.logger.info(f"Lambda async invocation response: {response}")
             
-            return response_payload
+            # For asynchronous invocation, we only get a submission confirmation
+            if response['StatusCode'] == 202:  # 202 = Accepted (for async invocations)
+                self.logger.info(f"Lambda function {lambda_function_name} invoked successfully (async)")
+                print(f"Lambda function {lambda_function_name} invoked successfully (async)")
+                return {"status": "success", "message": "Lambda invoked asynchronously", "statusCode": 202}
+            else:
+                # Handle non-202 status codes
+                error_msg = f"Lambda async invocation failed with status code: {response['StatusCode']}"
+                self.logger.error(error_msg)
+                return {"status": "error", "message": error_msg, "statusCode": response['StatusCode']}
             
         except Exception as e:
-            error_msg = f"Error invoking Lambda function: {str(e)}"
+            error_msg = f"Error invoking Lambda function asynchronously: {str(e)}"
             self.logger.error(error_msg)
             traceback.print_exc()
             raise
