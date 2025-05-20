@@ -42,3 +42,4 @@ class OutputSummaryConnections:
         self.Channel = CONST_NA 
         self.analystName=CONST_NA
         self.allocationStatus=CONST_NA
+        self.mktFile=CONST_NA
