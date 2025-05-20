@@ -52,4 +52,5 @@ class OutputSummary:
         self.allocationStatus = CONST_NA
         self.status = CONST_NA
         self.w0Flag = CONST_NA
+        self.mktFile=CONST_NA
         

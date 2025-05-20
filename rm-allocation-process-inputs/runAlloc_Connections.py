@@ -387,7 +387,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.SellingFare1 = SellingFare1
                 self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                 
-                lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
+                lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
                     B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                 self.outputSummaryRow_b2c.MktFare_Min=lowFare
                 self.outputSummaryRow_b2c.AirlineCode_Min=lowAirlineCode
@@ -395,9 +395,11 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.MktFare_Max=hiFare
                 self.outputSummaryRow_b2c.AirlineCode_Max=hiAirlineCode
                 self.outputSummaryRow_b2c.FlightNumber_Max=hiFilghtNum
+                self.outputSummaryRow_b2c.mktFile=himktFile
                 fare2 = hiFare
                 if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                     fare2 = lowFare
+                    self.outputSummaryRow_b2c.mktFile=lowmktFile
                 b2cdiscount = "NA"
                 b2cTotal = "NA"
                 strategyFare=0
@@ -497,7 +499,7 @@ class DynAllocConnections:
                          
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
-                        lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
+                        lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
                             B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                         self.outputSummaryRow_b2b.MktFare_Min=lowFare
                         self.outputSummaryRow_b2b.AirlineCode_Min=lowAirlineCode
@@ -505,6 +507,7 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2b.MktFare_Max=hiFare
                         self.outputSummaryRow_b2b.AirlineCode_Max=hiAirlineCode
                         self.outputSummaryRow_b2b.FlightNumber_Max=hiFilghtNum
+                        self.outputSummaryRow_b2b.mktFile=himktFile
                         b2bTotal="NA"
                         b2bdiscount="NA"
                         strategyFare=0
@@ -514,6 +517,7 @@ class DynAllocConnections:
                         fare2 = hiFare
                         if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                             fare2 = lowFare
+                            self.outputSummaryRow_b2b.mktFile=lowmktFile
                         self.outputSummaryRow_b2b.discountedFare=b2bdiscountedFare   
                         strfare=fare2
                         if self.qpcurrency!='INR':

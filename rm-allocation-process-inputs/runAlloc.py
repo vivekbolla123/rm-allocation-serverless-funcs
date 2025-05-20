@@ -387,10 +387,10 @@ class DynAlloc:
 			# Get the B2C and B2B Fare ranges
 			self.logger.info("Getting market Fares")
 
-			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
+			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
    
 
-			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
+			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
 
 			
 			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
@@ -461,8 +461,10 @@ class DynAlloc:
 				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
+					self.outputSummaryRow_b2c.mktFile=himktFileb2c
 				if self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
+					self.outputSummaryRow_b2c.mktFile=lowmktFileb2c
 				
 				last7avg = False
 				if not isB2CMarketFareAvailable:
@@ -482,8 +484,10 @@ class DynAlloc:
 				if  isB2BMarketFareAvailable:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
+						self.outputSummaryRow_b2b.mktFile=himktFileb2b
 					if self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
+						self.outputSummaryRow_b2b.mktFile=lowmktFileb2b
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
 					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
