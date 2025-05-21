@@ -144,7 +144,7 @@ class DetermineRBD:
                 if profileFare != CONST_NA and int(currParams.profileFares) == 1:
                     if float(lastSoldFare)<float(profileFare) or float(lastSoldFare)<float(strategyFare):
                         # delta = max(float(profileFare),float(strategyFare))-float(lastSoldFare)
-                        if dplfBand == 3 or dplfBand == 4:
+                        if dplfBand == 3:
                             V2 = (float(lastSoldFare) + max(float(strategyFare), float(profileFare)))/2
                             if toleranceFare is not None and pd.isna(toleranceFare)==False and toleranceFare != CONST_NA and toleranceFare != '' and pd.isnull(toleranceFare)==False:
                                 V1 = float(strategyFare)-float(toleranceFare)
@@ -163,7 +163,7 @@ class DetermineRBD:
                                 else:
                                     anchorFare = V2
                             howDetermined = f'AllocationY_{dec}_UpsellN'
-                        elif dplfBand == 5 or dplfBand == 6:
+                        elif dplfBand == 4 or dplfBand == 5 or dplfBand == 6:
                             if faresList:
                                 upText = "UpsellN"
                                 max_value = max(faresList)
@@ -215,7 +215,7 @@ class DetermineRBD:
                 else:
                     if float(lastSoldFare)<=float(strategyFare):
                         # delta = abs(float(strategyFare) - float(lastSoldFare))
-                        if dplfBand == 3 or dplfBand == 4:
+                        if dplfBand == 3:
                             V2 = (float(lastSoldFare) + float(strategyFare))/2
                             if toleranceFare is not None and pd.isna(toleranceFare)==False and toleranceFare != CONST_NA and toleranceFare != '' and pd.isnull(toleranceFare)==False:
                                 V1 = float(strategyFare)-float(toleranceFare)
@@ -234,7 +234,7 @@ class DetermineRBD:
                                 else:
                                     anchorFare = V2
                             howDetermined = f'AllocationY_{dec}_UpsellN'
-                        elif dplfBand == 5 or dplfBand == 6:
+                        elif dplfBand == 4 or dplfBand == 5 or dplfBand == 6:
                             if faresList:
                                 upText = "UpsellN"
                                 max_value = max(faresList)
