@@ -29,6 +29,7 @@ from qcTableGen import QCProcess
 from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
+from schedule30 import ScheduleThirty
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -85,7 +86,8 @@ module_map = {
     "gen_qc_fares_table": QCProcess,
     "qc_fares_check": QCCheck,
     "update_calendar": CalendarUpdate,
-    "expected_no_shows": ExpectedNoShows
+    "expected_no_shows": ExpectedNoShows,
+    "schedule_thirty": ScheduleThirty
 }
 
 
