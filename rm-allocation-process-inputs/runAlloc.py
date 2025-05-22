@@ -671,7 +671,7 @@ class DynAlloc:
 		currRec.set_class_attribute(brd_counter+10, 'class_of_service', 'W2')
 		currRec.set_class_attribute(brd_counter+11, 'class_of_service', 'W1')
 	
-		if self.g8_thresholdFlag:
+		if self.g8_thresholdflag:
 			currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
@@ -860,7 +860,7 @@ class DynAlloc:
 		self.p_thresholdflag = False
 		self.l_thresholdflag = False
 		self.B2B_threshold = False
-		self.g8_thresholdFlag =False
+		self.g8_thresholdflag =False
 		
 		if len(w9_thresholdValue) != 0:
 			if w9_thresholdValue[0] is not None and w9_thresholdValue[0]!='':
