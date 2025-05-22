@@ -49,11 +49,11 @@ class RMDatabaseHelper:
     bl.Lid AS capacity,
     bl.adjustedCapacity,
     bl.tbf_bookings,
-    bl.G0_bookings,
-    bl.G1_bookings,
-    bl.G2_bookings,
-    bl.G3_bookings,
-    bl.G4_bookings,
+    bl.WA_bookings,
+    bl.WB_bookings,
+    bl.WC_bookings,
+    bl.WD_bookings,
+    bl.WE_bookings,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
     SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
@@ -141,11 +141,11 @@ GROUP BY
     bl.Lid,
     bl.adjustedCapacity,
     bl.tbf_bookings,
-    bl.G0_bookings,
-    bl.G1_bookings,
-    bl.G2_bookings,
-    bl.G3_bookings,
-    bl.G4_bookings
+    bl.WA_bookings,
+    bl.WB_bookings,
+    bl.WC_bookings,
+    bl.WD_bookings,
+    bl.WE_bookings
     """
             else:
                 marketListQuery = """SELECT 
