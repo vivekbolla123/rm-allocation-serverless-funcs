@@ -49,11 +49,11 @@ class RMDatabaseHelper:
     bl.Lid AS capacity,
     bl.adjustedCapacity,
     bl.tbf_bookings,
-    bl.G0_bookings,
-    bl.G1_bookings,
-    bl.G2_bookings,
-    bl.G3_bookings,
-    bl.G4_bookings,
+    bl.WA_bookings,
+    bl.WB_bookings,
+    bl.WC_bookings,
+    bl.WD_bookings,
+    bl.WE_bookings,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
     SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
@@ -141,11 +141,11 @@ GROUP BY
     bl.Lid,
     bl.adjustedCapacity,
     bl.tbf_bookings,
-    bl.G0_bookings,
-    bl.G1_bookings,
-    bl.G2_bookings,
-    bl.G3_bookings,
-    bl.G4_bookings
+    bl.WA_bookings,
+    bl.WB_bookings,
+    bl.WC_bookings,
+    bl.WD_bookings,
+    bl.WE_bookings
     """
             else:
                 marketListQuery = """SELECT 
@@ -257,9 +257,9 @@ GROUP BY
 
             insertQuery = text(""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag,mktFile)  
                 VALUES (
-                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag
+                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag, :mktFile
                 )
             """)
 
@@ -314,7 +314,8 @@ GROUP BY
                 "recommendedActions": str(latest_row.recommendedActions),
                 "profileFare": str(latest_row.profileFare),
                 "status": str(latest_row.status),
-                "w0Flag": str(latest_row.w0Flag)
+                "w0Flag": str(latest_row.w0Flag),
+                "mktFile": str(latest_row.mktFile)
             }
 
             try:
@@ -374,8 +375,8 @@ GROUP BY
         return dplfBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
-        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
-        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
+        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
+        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
         pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
@@ -393,8 +394,9 @@ GROUP BY
         p_threshold = pflThresholdList['P_threshold']
         l_threshold = pflThresholdList['L_threshold']
         B2B_threshold = pflThresholdList['B2B_threshold']
+        g8_threshold = pflThresholdList['G8_threshold']
         
-        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold
+        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold,g8_threshold
 
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
@@ -429,63 +431,128 @@ GROUP BY
             self.logger.error(e)
         return rangeList
 
-    def getMarketFareRange(self, channel, currParams,currFltDateStr, DaySpan, startTime, endtime, Day3Flag,hrs):
+    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
-        updateDate=currFltDate+timedelta(days=int(DaySpan))
+        updateDate = currFltDate + timedelta(days=int(DaySpan))
+
         if Day3Flag == False:
-            startDateTime=f"{currFltDate} {startTime}"
-            enddateTime=f"{currFltDate} {endtime}"
-            updateDate=currFltDate+timedelta(days=int(DaySpan))
-            if currFltDate>updateDate:
-                startDateTime=f"{updateDate} {startTime}"
-                enddateTime=f"{currFltDate} {endtime}"
-            elif currFltDate<updateDate:
-                startDateTime=f"{currFltDate} {startTime}"
-                enddateTime=f"{updateDate} {endtime}"
-        if channel==B2B_CHANNEL:
+            startDateTime = f"{currFltDate} {startTime}"
+            enddateTime = f"{currFltDate} {endtime}"
+            updateDate = currFltDate + timedelta(days=int(DaySpan))
+            if currFltDate > updateDate:
+                startDateTime = f"{updateDate} {startTime}"
+                enddateTime = f"{currFltDate} {endtime}"
+            elif currFltDate < updateDate:
+                startDateTime = f"{currFltDate} {startTime}"
+                enddateTime = f"{updateDate} {endtime}"
+
+        if channel == B2B_CHANNEL:
             carr_exclusion = currParams.carr_exclusion_b2b
             flightExclusion = currParams.flightExclusionB2B
         else:
             carr_exclusion = currParams.carr_exclusion_b2c
             flightExclusion = currParams.flightExclusionB2C
-    
-        carr_exclusion_str = str(tuple(carr_exclusion.split('/')))  
+
+        carr_exclusion_str = str(tuple(carr_exclusion.split('/')))
         if len(tuple(carr_exclusion.split('/'))) == 1:
-            carr_exclusion_str=carr_exclusion_str.replace(",", "")
+            carr_exclusion_str = carr_exclusion_str.replace(",", "")
+
         origin = currParams.origin
         destination = currParams.destin
         routedSector = self.getRoutedDestination(origin, destination)
 
-        if(len(routedSector) > 0):
+        if len(routedSector) > 0:
             origin = routedSector['routedSector'][0][:3]
-            destination = routedSector['routedSector'][0][3:]   
+            destination = routedSector['routedSector'][0][3:]
 
-        mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight 
-            from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
+        # Common query conditions for both tables
+        query_conditions = f"""
+            source_airport = '{origin}' and destination_airport = '{destination}' 
             and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop = 0
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_flight!='{flightExclusion}'
         """
+
+        # Date and time conditions
         if Day3Flag:
-            mktLowestQuery = mktLowestQuery + f""" AND CAST(departure_date AS DATE) >= CAST('{currFltDate}' AS DATE)
+            date_time_conditions = f"""
+                AND CAST(departure_date AS DATE) >= CAST('{currFltDate}' AS DATE)
                 AND CAST(departure_date AS DATE) <= CAST('{updateDate}' AS DATE)
                 AND CAST(outbound_departuretime AS TIME) >= CAST('{startTime}' AS TIME)
-                AND CAST(outbound_departuretime AS TIME) <= CAST('{endtime}' AS TIME) """
+                AND CAST(outbound_departuretime AS TIME) <= CAST('{endtime}' AS TIME)
+            """
         else:
-            mktLowestQuery = mktLowestQuery + f""" AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) <= CAST('{enddateTime}' AS DATETIME) 
-            AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)  """
+            date_time_conditions = f"""
+                AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) <= CAST('{enddateTime}' AS DATETIME) 
+                AND CAST(CONCAT(departure_date, ' ', outbound_departuretime) AS DATETIME) >= CAST('{startDateTime}' AS DATETIME)
+            """
 
-        if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
-            mktLowestQuery = mktLowestQuery + f" AND created_at > NOW() - INTERVAL {hrs} HOUR "
-        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC, outbound_flight ASC"
+        # Create interval condition for non-test data
+        interval_condition = ""
+        if self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA:
+            interval_condition = f"AND created_at > NOW() - INTERVAL {hrs} HOUR"
+
+        # Modified query to handle duplicate flights by using the latest created_at
+        mktLowestQuery = f"""
+            WITH combined_data AS (
+                SELECT 
+                    gross_fare, 
+                    outbound_airline_code, 
+                    outbound_flight,
+                    departure_date,
+                    destination_airport,
+                    source_airport,
+                    channel,
+                    outbound_departuretime,
+                    created_at,
+                    concat(scrape_file_name,"_AG") as mktFile,
+                    'AG' as source_table
+                FROM market_fares_ag
+                WHERE {query_conditions} {date_time_conditions} {interval_condition}
+                
+                UNION ALL
+                
+                SELECT 
+                    gross_fare,  
+                    outbound_airline_code,
+                    outbound_flight,
+                    departure_date,
+                    destination_airport,
+                    source_airport,
+                    channel,
+                    outbound_departuretime,
+                    created_at,
+                    concat(scrape_file_name,"_RG") as mktFile,
+                    'RG' as source_table
+                FROM market_fares_rg
+                WHERE {query_conditions} {date_time_conditions} {interval_condition}
+            ),
+            latest_records AS (
+                SELECT 
+                    *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY channel,departure_date,destination_airport,source_airport, outbound_flight, outbound_departuretime
+                        ORDER BY created_at DESC
+                    ) as row_num
+                FROM combined_data
+            )
+            SELECT 
+                gross_fare, 
+                outbound_airline_code, 
+                outbound_flight, 
+                mktFile
+            FROM latest_records
+            WHERE row_num = 1
+            ORDER BY gross_fare ASC
+        """
+
         try:
             mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
 
         return mktFareRange
-    
-    def getMarketFareRangeConnections(self, channel, currParams,currFltDateStr, outBoundStop,outboundDuration):
-        
+
+    def getMarketFareRangeConnections(self, channel, currParams, currFltDateStr, outBoundStop, outboundDuration):
         currFltDate = currFltDateStr
         origin = currParams.sector1[:3]
         destination = currParams.sector2[3:]
@@ -497,17 +564,77 @@ GROUP BY
         carr_exclusion_str = str(tuple(carr_exclusion.split('/')))  
         if len(tuple(carr_exclusion.split('/'))) == 1:
             carr_exclusion_str=carr_exclusion_str.replace(",", "")
-        mktLowestQuery = f"""Select gross_fare, outbound_airline_code, outbound_flight ,currency
-            from market_fares where source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop <= '{outBoundStop}' and outbound_duration <= '{outboundDuration}'
-            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' 
-        """
-        
-        mktLowestQuery = mktLowestQuery + f""" AND departure_date  = '{currFltDate}' """
 
-        if(self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA):
-            mktLowestQuery = mktLowestQuery + " AND created_at > NOW() - INTERVAL 2 DAY "
-        mktLowestQuery = mktLowestQuery + " ORDER BY gross_fare ASC"
+        # Common query conditions for both tables
+        query_conditions = f"""
+            source_airport = '{origin}' and destination_airport = '{destination}' 
+            and channel = '{channel}' AND outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop <= '{outBoundStop}' and outbound_duration <= '{outboundDuration}'
+            AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8'
+            AND departure_date = '{currFltDate}'
+        """
+
+        # Create interval condition for non-test data
+        interval_condition = ""
+        if self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA:
+            interval_condition = "AND created_at > NOW() - INTERVAL 2 DAY"
+
+        # Modified query to handle duplicate flights by using the latest created_at
+        mktLowestQuery = f"""
+            WITH combined_data AS (
+                SELECT 
+                    gross_fare, 
+                    outbound_airline_code, 
+                    outbound_flight, 
+                    destination_airport,
+                    source_airport,
+                    outbound_departuretime,
+                    channel,
+                    currency,
+                    departure_date,
+                    created_at,
+                    concat(scrape_file_name,"_AG") as mktFile,
+                    'AG' as source_table
+                FROM market_fares_ag
+                WHERE {query_conditions} {interval_condition}
+                
+                UNION ALL
+                
+                SELECT 
+                    gross_fare, 
+                    outbound_airline_code, 
+                    outbound_flight, 
+                    destination_airport,
+                    source_airport,
+                    outbound_departuretime,
+                    channel,
+                    currency,
+                    departure_date,
+                    created_at,
+                    concat(scrape_file_name,"_RG") as mktFile,
+                    'RG' as source_table
+                FROM market_fares_rg
+                WHERE {query_conditions} {interval_condition}
+            ),
+            latest_records AS (
+                SELECT 
+                    *,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY channel,departure_date,destination_airport,source_airport, outbound_flight, outbound_departuretime
+                        ORDER BY created_at DESC
+                    ) as row_num
+                FROM combined_data
+            )
+            SELECT 
+                gross_fare, 
+                outbound_airline_code, 
+                outbound_flight, 
+                currency, 
+                mktFile
+            FROM latest_records
+            WHERE row_num = 1
+            ORDER BY gross_fare ASC
+        """
+
         try:
             mktFareRange = pd.read_sql(mktLowestQuery, self.conn)
         except Exception as e:
@@ -940,9 +1067,9 @@ GROUP BY
             
             insertQuery = text(""" 
                 INSERT INTO run_summary_connections 
-                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate) 
+                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate,mktFile) 
                 VALUES (
-                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate
+                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate,:mktFile
                 )
             """)
 
@@ -987,7 +1114,8 @@ GROUP BY
                 "outboundDuration": str(latest_row.outboundDuration),
                 "DiscountedFare": str(latest_row.discountedFare),
                 "Currency": str(latest_row.currency),
-                "conversionRate": str(latest_row.conversionRate)
+                "conversionRate": str(latest_row.conversionRate),
+                "mktFile": str(latest_row.mktFile)
             }
 
             try:

@@ -287,11 +287,11 @@ class DynAlloc:
 			currFltDate = self.currParams.per_start
 			currFltDepartureTime = self.currParams.DepartureTime
 			self.cug_bookings_dict = {
-									'G0': self.currParams.G0_bookings if self.currParams.G0_bookings not in [None, 'NA', 'null'] else 0,
-									'G1': self.currParams.G1_bookings if self.currParams.G1_bookings not in [None, 'NA', 'null'] else 0,
-									'G2': self.currParams.G2_bookings if self.currParams.G2_bookings not in [None, 'NA', 'null'] else 0,
-									'G3': self.currParams.G3_bookings if self.currParams.G3_bookings not in [None, 'NA', 'null'] else 0,
-									'G4': self.currParams.G4_bookings if self.currParams.G4_bookings not in [None, 'NA', 'null'] else 0
+									'WA': self.currParams.WA_bookings if self.currParams.WA_bookings not in [None, 'NA', 'null'] else 0,
+									'WB': self.currParams.WB_bookings if self.currParams.WB_bookings not in [None, 'NA', 'null'] else 0,
+									'WC': self.currParams.WC_bookings if self.currParams.WC_bookings not in [None, 'NA', 'null'] else 0,
+									'WD': self.currParams.WD_bookings if self.currParams.WD_bookings not in [None, 'NA', 'null'] else 0,
+									'WE': self.currParams.WE_bookings if self.currParams.WE_bookings not in [None, 'NA', 'null'] else 0
 								}
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
@@ -387,10 +387,10 @@ class DynAlloc:
 			# Get the B2C and B2B Fare ranges
 			self.logger.info("Getting market Fares")
 
-			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
+			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
    
 
-			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
+			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
 
 			
 			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
@@ -461,8 +461,10 @@ class DynAlloc:
 				
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
+					self.outputSummaryRow_b2c.mktFile=himktFileb2c
 				if self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
+					self.outputSummaryRow_b2c.mktFile=lowmktFileb2c
 				
 				last7avg = False
 				if not isB2CMarketFareAvailable:
@@ -482,8 +484,10 @@ class DynAlloc:
 				if  isB2BMarketFareAvailable:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
+						self.outputSummaryRow_b2b.mktFile=himktFileb2b
 					if self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
+						self.outputSummaryRow_b2b.mktFile=lowmktFileb2b
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
 					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
@@ -568,7 +572,7 @@ class DynAlloc:
 				self.p_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
 							
 
-				brd_counter = self.w_rbd_allocation(plf, currRec, brd_counter)
+				brd_counter = self.w_rbd_allocation(currRec, brd_counter)
 				# Call the w_series_allocation method for WJ, WI, WH, WG, WF RBDs
 				brd_counter = self.allocations.cug_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.cug_bookings_dict,self.currParams.cug_flag,self.currParams.cug_mkt_flag)
 				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
@@ -655,63 +659,69 @@ class DynAlloc:
 				self.redishelper.updateRunAuditReady()
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
-	def w_rbd_allocation(self, plf, currRec, brd_counter):
-		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'W9')
-		currRec.set_class_attribute(brd_counter+3, 'class_of_service', 'W8')
-		currRec.set_class_attribute(brd_counter+4, 'class_of_service', 'W7')
-		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'W6')
-		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W5')
-		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W4')
-		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W3')
-		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W2')
-		currRec.set_class_attribute(brd_counter+10, 'class_of_service', 'W1')
+	def w_rbd_allocation(self, currRec, brd_counter):
+		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'G8')
+		currRec.set_class_attribute(brd_counter+3, 'class_of_service', 'W9')
+		currRec.set_class_attribute(brd_counter+4, 'class_of_service', 'W8')
+		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'W7')
+		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W6')
+		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W5')
+		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W4')
+		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W3')
+		currRec.set_class_attribute(brd_counter+10, 'class_of_service', 'W2')
+		currRec.set_class_attribute(brd_counter+11, 'class_of_service', 'W1')
 	
-		if self.w9_thresholdflag:
+		if self.g8_thresholdflag:
 			currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
-		
-		if self.w8_thresholdflag:
+	
+		if self.w9_thresholdflag:
 			currRec.set_class_attribute(brd_counter+3, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+3, 'class_au', -1)
-	
-		if self.w7_thresholdflag:
+		
+		if self.w8_thresholdflag:
 			currRec.set_class_attribute(brd_counter+4, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+4, 'class_au', -1)
 	
-		if self.w6_thresholdflag:
+		if self.w7_thresholdflag:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
-
-		if self.w5_thresholdflag:
+	
+		if self.w6_thresholdflag:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
 
-		if self.w4_thresholdflag:
+		if self.w5_thresholdflag:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+7, 'class_au', -1)
 
-		if self.w3_thresholdflag:
+		if self.w4_thresholdflag:
 			currRec.set_class_attribute(brd_counter+8, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+8, 'class_au', -1)
 
-		if self.w2_thresholdflag:
+		if self.w3_thresholdflag:
 			currRec.set_class_attribute(brd_counter+9, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+9, 'class_au', -1)
 
-		if self.w1_thresholdflag:
+		if self.w2_thresholdflag:
 			currRec.set_class_attribute(brd_counter+10, 'class_au', 0)
 		else:
 			currRec.set_class_attribute(brd_counter+10, 'class_au', -1)
 
-		return brd_counter+10
+		if self.w1_thresholdflag:
+			currRec.set_class_attribute(brd_counter+11, 'class_au', 0)
+		else:
+			currRec.set_class_attribute(brd_counter+11, 'class_au', -1)
+
+		return brd_counter+11
 
 	def p_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
@@ -836,7 +846,7 @@ class DynAlloc:
 		return DaySpan, input_time_str
 
 	def checkTreshold(self, currFlt, ndocounter, plf):
-		w9_thresholdValue, w8_thresholdValue, w7_thresholdValue, w6_thresholdValue, w5_thresholdValue, w4_thresholdValue, w3_thresholdValue, w2_thresholdValue, w1_thresholdValue, p_thresholdValue, l_thresholdValue, B2B_threshold = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		w9_thresholdValue, w8_thresholdValue, w7_thresholdValue, w6_thresholdValue, w5_thresholdValue, w4_thresholdValue, w3_thresholdValue, w2_thresholdValue, w1_thresholdValue, p_thresholdValue, l_thresholdValue, B2B_threshold, g8_thresholdValue = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
 		
 		self.w9_thresholdflag = False
 		self.w8_thresholdflag = False
@@ -850,6 +860,7 @@ class DynAlloc:
 		self.p_thresholdflag = False
 		self.l_thresholdflag = False
 		self.B2B_threshold = False
+		self.g8_thresholdflag =False
 		
 		if len(w9_thresholdValue) != 0:
 			if w9_thresholdValue[0] is not None and w9_thresholdValue[0]!='':
@@ -910,6 +921,11 @@ class DynAlloc:
 			if B2B_threshold[0] is not None and B2B_threshold[0]!='':
 				if plf > B2B_threshold[0]:
 					self.B2B_threshold = True
+		
+		if len(g8_thresholdValue) != 0:
+			if g8_thresholdValue[0] is not None and g8_thresholdValue[0]!='':
+				if plf > g8_thresholdValue[0]:
+					self.g8_thresholdflag = True
 
 	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		self.b2boverbookingflag = False

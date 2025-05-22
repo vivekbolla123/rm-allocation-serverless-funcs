@@ -31,6 +31,8 @@ class MarketFareService:
         hiAirlineCode = "Market Fare not found"
         lowFilghtNum = "Market Fare not found"
         hiFilghtNum = "Market Fare not found"
+        lowmktFile = "Market Fare not found"
+        himktFile = "Market Fare not found"
 
         if(len(mktFareRange) > 0):
             lowFare = mktFareRange['gross_fare'][0]
@@ -39,6 +41,8 @@ class MarketFareService:
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
             lowFilghtNum = mktFareRange['outbound_flight'][0]
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
+            lowmktFile = mktFareRange['mktFile'][0]
+            himktFile = mktFareRange['mktFile'].iloc[-1]
             if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
                 lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
                 hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
@@ -46,6 +50,8 @@ class MarketFareService:
                 hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
+                lowmktFile = mktfareRange_minomaxo['lowmktFile'][0]
+                himktFile = mktfareRange_minomaxo['himktFile'][0]
             if hardcriteria !=CONST_NA:
                 if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
                     hardfare = hardmktfareRange_minomaxo['LowFare'][0]
@@ -58,7 +64,7 @@ class MarketFareService:
 
             isMarketFareAvailable = True
         
-        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare,lowmktFile,himktFile
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
         mktFareRange = self.fetchMarketFareRange(
@@ -108,6 +114,8 @@ class MarketFareService:
             min_outbound_flight = min_fare_row["outbound_flight"]
             max_airline_code = max_fare_row["outbound_airline_code"]
             max_outbound_flight = max_fare_row["outbound_flight"]
+            lowmktFile = min_fare_row["mktFile"]
+            himktFile = max_fare_row["mktFile"]
         elif len(fare_list)==0:
             min_fare=0
             max_fare=0
@@ -115,6 +123,8 @@ class MarketFareService:
             min_outbound_flight = 'Market Fare not found'
             max_airline_code = 'Market Fare not found'
             max_outbound_flight = 'Market Fare not found'
+            lowmktFile = "Market Fare not found"
+            himktFile = "Market Fare not found"
         else:
             min_fare=fare_list[0]
             max_fare=fare_list[0]
@@ -124,8 +134,10 @@ class MarketFareService:
             min_outbound_flight = min_fare_row["outbound_flight"]
             max_airline_code = max_fare_row["outbound_airline_code"]
             max_outbound_flight = max_fare_row["outbound_flight"]
+            lowmktFile = min_fare_row["mktFile"]
+            himktFile = max_fare_row["mktFile"]
         mktFareRange = pd.DataFrame(
-            {'LowFare': [min_fare], 'HiFare': [max_fare],'LowFare_airline_code': [min_airline_code], 'LowFare_outbound_flight': [min_outbound_flight], 'HiFare_airline_code': [max_airline_code], 'HiFare_outbound_flight': [max_outbound_flight]})
+            {'LowFare': [min_fare], 'HiFare': [max_fare],'LowFare_airline_code': [min_airline_code], 'LowFare_outbound_flight': [min_outbound_flight], 'HiFare_airline_code': [max_airline_code], 'HiFare_outbound_flight': [max_outbound_flight],'lowmktFile':[lowmktFile],'himktFile':[himktFile]})
         return mktFareRange
 
     def prepareResponse(self, startTime, endTime, criteria, marketFareRange):
@@ -148,6 +160,9 @@ class MarketFareService:
         hiAirlineCode = "Market Fare not found"
         lowFilghtNum = "Market Fare not found"
         hiFilghtNum = "Market Fare not found"
+        lowmktFile = "Market Fare not found"
+        himktFile = "Market Fare not found"
+        
         if len(mktFareRange)!=0:
             isMarketFareAvailable = True
             for index, row in mktFareRange.iterrows():
@@ -163,6 +178,8 @@ class MarketFareService:
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
             lowFilghtNum = mktFareRange['outbound_flight'][0]
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
+            lowmktFile = mktFareRange['mktFile'][0]
+            himktFile = mktFareRange['mktFile'].iloc[-1]
             if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
                 lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
                 hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
@@ -170,8 +187,10 @@ class MarketFareService:
                 hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
                 lowFare = mktfareRange_minomaxo['LowFare'][0]
                 hiFare = mktfareRange_minomaxo['HiFare'][0]
+                lowmktFile = mktfareRange_minomaxo['lowmktFile'][0]
+                himktFile = mktfareRange_minomaxo['himktFile'][0]
         
-        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria
+        return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria,lowmktFile,himktFile
 
 
     def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime, dplfBand):

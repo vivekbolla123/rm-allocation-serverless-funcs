@@ -4,7 +4,7 @@ DYNAMIC_D3_D4 = -99
 DEFICIT_ALLOCATION = -1
 LINEAR_ALLOCATION = -2
 LINEAR_ALLOCATION_WITH_JUMP = -3
-AU_COLUMN_LENGTH = 116
+AU_COLUMN_LENGTH = 117
 AU_COLUMN_LENGTH_CONNECTIONS = 84
 B2B_RDB_COUNT = 20
 PROFILE_FARES_QUARTILE = 20
@@ -16,7 +16,7 @@ B2B_DISCOUNT_MAP = '{ "0": "450", "1": "350", "2": "250", "3": "150" }'
 MARKET_FARES_THRESHOLD = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
-CUG_RBD = "G0,G1,G2,G3,G4"
+CUG_RBD = "WA,WB,WC,WD,WE"
 CUG_B2C_OPENING_THRESHOLD=0.3
 CUG_SEATS_PERCENT = 0.25
 MIN_D3_D4_VALUE = 2
@@ -280,5 +280,5 @@ HD_W0_IS_ONE = "W0 RBD is 1 aborting"
 TBF_RBD_QUERY = "'TF','TE','TD','TC','TB','TY'"
 TBF_COUNT = 6
 
-CUG_RBD_QUERY = "'G0','G1','G2','G3','G4'"
+CUG_RBD_QUERY = "'WA','WB','WC','WD','WE'"
 CUG_COUNT=5
