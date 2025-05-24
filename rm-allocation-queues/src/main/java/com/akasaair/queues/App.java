@@ -1899,7 +1899,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public void uploadDateEventFile(Reader file, String userName, String obj_id) throws RuntimeException {
+    public void uploadDateEventFile(Reader file, String userName, String obj_id,UploadFileType fileType) throws RuntimeException {
         String uuid = obj_id;
         String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
 
