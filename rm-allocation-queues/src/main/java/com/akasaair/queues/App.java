@@ -606,8 +606,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 List<String> headerRow = csvData.get(0);
                 // Basic Header Validation
                 if (headerRow.size() < 2 ||
-                        !CSV_HEADER_SI_RBD_SEATS.equalsIgnoreCase(headerRow.get(0).trim()) ||
-                        !CSV_HEADER_SI_RBD_TYPE.equalsIgnoreCase(headerRow.get(1).trim())) {
+                        !CSV_HEADER_SI_RBD_SEATS.equalsIgnoreCase(headerRow.get(0).replace("\uFEFF", "").trim()) ||
+                        !CSV_HEADER_SI_RBD_TYPE.equalsIgnoreCase(headerRow.get(1).replace("\uFEFF", "").trim())) {
                     currentErrors.add(MISSING_SI_RBD_HEADERS_ERROR + " Found: " + headerRow);
                 } else if (headerRow.size() < 3) { // Must have at least one RBD column
                     currentErrors.add(NO_RBD_COLUMNS_FOUND_ERROR + " Found: " + headerRow);
@@ -616,7 +616,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (currentErrors.isEmpty()) {
                     List<String> rbdColumnHeaders = new ArrayList<>();
                     for (int hIdx = 2; hIdx < headerRow.size(); hIdx++) {
-                        rbdColumnHeaders.add(headerRow.get(hIdx).trim());
+                        rbdColumnHeaders.add(headerRow.get(hIdx).replace("\uFEFF", "").trim());
                     }
 
                     for (int i = 1; i < csvData.size(); i++) { // Start from 1 to skip header
