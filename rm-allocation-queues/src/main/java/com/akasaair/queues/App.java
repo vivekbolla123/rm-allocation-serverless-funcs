@@ -190,7 +190,7 @@ public class App implements RequestHandler<S3Event, Object> {
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
     // Inside App class
-    private static final Set<String> ALLOWED_SI_RBD_TYPES = Set.of("close", "farther"); // Or your actual allowed values
+    private static final Set<String> ALLOWED_SI_RBD_TYPES = Set.of("closer", "farther"); // Or your actual allowed values
     public enum UploadFileType {
         UPSELL,
         DISTRESS
