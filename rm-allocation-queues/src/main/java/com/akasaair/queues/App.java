@@ -1070,7 +1070,7 @@ public class App implements RequestHandler<S3Event, Object> {
             List<String> headerRow = csvData.get(0);
             Map<String, Integer> headerMap = new HashMap<>();
             for (int hIdx = 0; hIdx < headerRow.size(); hIdx++) {
-                headerMap.put(headerRow.get(hIdx).trim().toLowerCase(), hIdx);
+                headerMap.put(headerRow.get(hIdx).replace("\uFEFF", "").trim().toLowerCase(), hIdx);
             }
 
             boolean isMonthBasedFormat = headerMap.containsKey(HEADER_TEXT_SALES_MONTH.toLowerCase());
