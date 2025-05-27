@@ -11,7 +11,7 @@ from load_tests_db_data import Schema
 from runAlloc_Connections import DynAllocConnections
 
 def testCase1():
-    DB_WR_CONN_STRING = f"mysql+mysqldb://root:12345678@localhost/localtest"
+    DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
     conn = create_engine(DB_WR_CONN_STRING)
 
     inputData = {
