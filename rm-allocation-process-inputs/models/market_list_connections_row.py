@@ -33,7 +33,9 @@ class MarketListConnectiosnsRow:
         self.OpeningRBDB2B1 = currParams.get("OpeningRBDB2B1", CONST_NA)  
         self.OpeningRBDB2C1 = currParams.get("OpeningRBDB2C1", CONST_NA)  
         self.OpeningRBDB2B2 = currParams.get("OpeningRBDB2B2", CONST_NA)  
-        self.OpeningRBDB2C2 = currParams.get("OpeningRBDB2C2", CONST_NA)  
+        self.OpeningRBDB2C2 = currParams.get("OpeningRBDB2C2", CONST_NA)
+        self.carrierExclusionB2B = currParams.get("carrierExclusionB2B", CONST_NA)  
+        self.carrierExclusionB2C = currParams.get("carrierExclusionB2C", CONST_NA)  
          
         
         self.run_id = currParams.get("runId",CONST_NA)
