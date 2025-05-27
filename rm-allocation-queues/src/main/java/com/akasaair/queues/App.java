@@ -698,7 +698,7 @@ public class App implements RequestHandler<S3Event, Object> {
             throw new DataMismatchedException(Collections.singletonList(INVALID_TABLE_NAME_ERROR_MESSAGE));
         }
         String tableNameForHeader = tableName;
-        if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME + UNDERSCORE + "connections") || tableNameForHeader.startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME + UNDERSCORE + CONNECTIONS))
+        if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME + UNDERSCORE + CONNECTIONS.toLowerCase()) || tableNameForHeader.startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME + UNDERSCORE + CONNECTIONS))
             tableNameForHeader = MARKET_LIST_CONNECTIONS_TABLE_NAME;
         else if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME))
             tableNameForHeader = MARKET_LIST_TABLE_NAME_S3;
