@@ -174,7 +174,7 @@ class DetermineRBD:
                 
             return calculated_fare, upsell_text
         
-        def process_dplf_bands_3_4(last_sold, strategy_or_profile):
+        def process_dplf_bands_3(last_sold, strategy_or_profile):
             v2 = (float(last_sold) + max(float(strategyFare), float(strategy_or_profile))) / 2
             
             if has_tolerance_fare():
@@ -189,7 +189,7 @@ class DetermineRBD:
                 
             return final_fare, f'AllocationY_{decision}_UpsellN'
         
-        def process_dplf_bands_5_6(fares_list):
+        def process_dplf_bands_4_5_6(fares_list):
             if not fares_list:
                 return 0, "UpsellN"
                 
@@ -222,10 +222,10 @@ class DetermineRBD:
                     
                     # lastSoldFare < profileFare or lastSoldFare < strategyFare
                     if last_sold_val < profile_val or last_sold_val < float(strategyFare):
-                        if dplfBand in [3, 4]:
-                            anchorFare, howDetermined = process_dplf_bands_3_4(lastSoldFare, profileFare)
-                        elif dplfBand in [5, 6]:
-                            anchorFare, howDetermined = process_dplf_bands_5_6(faresList)
+                        if dplfBand in [3]:
+                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, profileFare)
+                        elif dplfBand in [4, 5, 6]:
+                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList)
                         
                         anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
                     
@@ -245,10 +245,10 @@ class DetermineRBD:
                 else:
                     # lastSoldFare <= strategyFare
                     if last_sold_val <= float(strategyFare):
-                        if dplfBand in [3, 4]:
-                            anchorFare, howDetermined = process_dplf_bands_3_4(lastSoldFare, strategyFare)
-                        elif dplfBand in [5, 6]:
-                            anchorFare, howDetermined = process_dplf_bands_5_6(faresList)
+                        if dplfBand in [3]:
+                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, strategyFare)
+                        elif dplfBand in [4, 5, 6]:
+                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList)
                     # lastSoldFare > strategyFare
                     else:
                         if float(BookingsInHour) > 0:
