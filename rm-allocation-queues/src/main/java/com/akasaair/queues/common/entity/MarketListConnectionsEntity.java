@@ -66,6 +66,10 @@ public class MarketListConnectionsEntity {
     private String discountFlag;
     @Column(name = "analystName")
     private String analystName;
+    @Column(name = "carrierExclusionB2B")
+    private String carrierExclusionB2B;
+    @Column(name = "carrierExclusionB2C")// New field
+    private String carrierExclusionB2C;
 
 }
 
