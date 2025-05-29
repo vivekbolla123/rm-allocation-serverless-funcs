@@ -319,7 +319,7 @@ class DynAllocConnections:
         print("Determining pricing for NDO " +
               str(ndocounter) + " on  " + str(current_date1))
         dow = int(datetime.strftime(datetime.strptime(
-            current_date1, '%Y-%m-%d') + timedelta(days=ndocounter), "%w"))
+            current_date1, '%Y-%m-%d') , "%w"))
 
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
             bookload1 = bookedLoadSingleRowSector1
@@ -482,11 +482,14 @@ class DynAllocConnections:
                 else:
                     self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                     self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
-                    if (b2cTotal == 0):
+                    if (b2cTotal == 0 ):
                         openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2C Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
+                    elif  b2b_rbd_sector1=='' or b2b_rbd_sector2=='':
+                        openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
+                            'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
                         b2bSectorTotal, SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
                             b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
