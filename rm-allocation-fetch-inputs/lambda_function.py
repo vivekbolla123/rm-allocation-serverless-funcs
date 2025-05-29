@@ -311,7 +311,32 @@ def left_join_with_destination_mapping(left_df, right_df):
         left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destin'],
         right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
     ).drop(columns=['Destination'], errors='ignore')
-
+    
+def quick_optimize(mkt_list,navapihelper):
+    print(f"Optimizing {len(mkt_list)} rows...")
+    
+    # Create unique parameter combinations only
+    unique_params = mkt_list[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate']].drop_duplicates()
+    print(f"Reduced to {len(unique_params)} unique API calls")
+    
+    # Parallel API calls for unique combinations
+    def api_call(row):
+        return navapihelper.get_second_flight_dep(
+            row['Flight1'], row['Flight2'], 
+            row['Sector1'][:3], row['Sector2'][3:],
+            row['DepartureDate'].strftime('%Y-%m-%d')
+        )
+    
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        results = list(executor.map(api_call, [row for _, row in unique_params.iterrows()]))
+    
+    # Map results back
+    unique_params['api_result'] = results
+    mkt_list = mkt_list.merge(unique_params, on=['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate'])
+    mkt_list['SecondFlightDepartureDate'] = mkt_list['api_result']
+    
+    return mkt_list.drop('api_result', axis=1)
 def lambda_handler(event, context):
     """
     Fetches the market list, integrates Navitaire data, and sends it to SQS.
@@ -472,15 +497,7 @@ def lambda_handler(event, context):
         max_date = mkt_list['DepartureDate'].max()
         
         # Add logic to get second flight departure dates
-        mkt_list['SecondFlightDepartureDate'] = mkt_list.apply(
-            lambda row: navapihelper.get_second_flight_dep(
-                row['Flight1'], 
-                row['Flight2'], 
-                row['Sector1'][:3], 
-                row['Sector2'][3:], 
-                row['DepartureDate'].strftime('%Y-%m-%d')
-            ), axis=1
-        )
+        mkt_list = quick_optimize(mkt_list,navapihelper)
         
         # Filter out rows where SecondFlightDepartureDate is empty
         original_count = len(mkt_list)
@@ -559,10 +576,12 @@ def lambda_handler(event, context):
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
-                    
+        mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
+        mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
         markets_count = mkt_list.shape[0]
+        mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
         mkt_list = mkt_list.drop(
-            columns=['DepartureDate','SecondFlightDepartureDate'], errors='ignore')
+            columns=['DepartureDate'], errors='ignore')
     mkt_list = mkt_list.drop(
             columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS

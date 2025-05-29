@@ -103,11 +103,9 @@ class DynAllocConnections:
                     startDate , DATE_FORMAT_2)
         endDateStr = datetime.strftime(
                     endDate , DATE_FORMAT_2)
-        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-            startDate2Str = self.navapihelper.get_second_flight_dep(
-                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
-            endDate2Str = self.navapihelper.get_second_flight_dep(
-                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+        
+        startDate2Str = self.currParams.SecondFlightDepartureDate
+        endDate2Str = self.currParams.SecondFlightDepartureDate
         if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
             startDate2Str = self.rmdatabasehelper.get_second_flight_dep(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
@@ -155,9 +153,7 @@ class DynAllocConnections:
                     currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
 
                 bookedLoadSingleRowSector1 = bookedLoad_sector1
-                if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-                    tgdDate2 = self.navapihelper.get_second_flight_dep(
-                        self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
+                tgdDate2 = self.currParams.SecondFlightDepartureDate
                 if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
                     tgdDate2 = self.rmdatabasehelper.get_second_flight_dep(
                         self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
