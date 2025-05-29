@@ -335,9 +335,15 @@ class DynAllocConnections:
             b2c_rbd_sector1 = self.currParams.OpeningRBDB2C1
             b2b_rbd_sector2 = self.currParams.OpeningRBDB2B2
             b2c_rbd_sector2 = self.currParams.OpeningRBDB2C2
-            
+            origin = sector1[:3]
+            destin = sector2[-3:]
+            qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
+            if len(qpcurrency)!=0:
+                self.qpcurrency = qpcurrency['currency'][0]
+            else:
+                self.qpcurrency=''
 
-            if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2)):
+            if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2) or  self.qpcurrency==''):
                 # unable to get bookload aborting
                 lowFare="NA"
                 lowAirlineCode="NA"
@@ -404,10 +410,7 @@ class DynAllocConnections:
                         priceStrategy, discountValue, b2cSectorTotal)
                 self.outputSummaryRow_b2c.discountedFare=b2cdiscountedFare
                 fare1 = b2cdiscountedFare
-                origin = sector1[:3]
-                destin = sector2[-3:]
-                
-                self.qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
+                    
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
