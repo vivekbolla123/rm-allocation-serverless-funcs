@@ -17,6 +17,7 @@ from redis import Redis
 from constants_utils import ConstantsUtils
 from concurrent.futures import ThreadPoolExecutor
 from time_logger import TimeLogger
+from nav_api_helper import NavAPIHelper
 
 warnings.filterwarnings('ignore')
 
@@ -451,6 +452,7 @@ def lambda_handler(event, context):
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
         print(len(mkt_list)," bookings_count")
     elif route_type == "connections":
+        navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL,configsettings.NAV_OCP_SUBSCRIPTION_KEY,configsettings.NAV_USERNAME,configsettings.NAV_PWD,configsettings.NAV_DOMAIN)
         update_navitaire_method = "sftp"
         is_connections_required = "0"
         region = 'Domestic'
@@ -468,6 +470,32 @@ def lambda_handler(event, context):
             mkt_list['PerStart'], format='%m/%d/%Y').dt.date
         min_date = mkt_list['DepartureDate'].min()
         max_date = mkt_list['DepartureDate'].max()
+        
+        # Add logic to get second flight departure dates
+        mkt_list['SecondFlightDepartureDate'] = mkt_list.apply(
+            lambda row: navapihelper.get_second_flight_dep(
+                row['Flight1'], 
+                row['Flight2'], 
+                row['Sector1'][:3], 
+                row['Sector2'][3:], 
+                row['DepartureDate'].strftime('%Y-%m-%d')
+            ), axis=1
+        )
+        
+        # Filter out rows where SecondFlightDepartureDate is empty
+        original_count = len(mkt_list)
+        mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
+        filtered_count = len(mkt_list)
+        logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
+        
+        # Convert SecondFlightDepartureDate to datetime and update min/max dates if needed
+        if not mkt_list.empty:
+            mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
+            # Update date range to include second flight dates
+            all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
+            min_date = all_dates.min()
+            max_date = all_dates.max()
+        
         booked_loads = nav_helper.getCurrentBookedLoads(
             startDate=min_date, endDate=max_date)
         mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
@@ -482,7 +510,7 @@ def lambda_handler(event, context):
         # Prepare booked loads for mapping
         booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
         
-        # Map BookedPax for Sector1
+        # Map BookedPax for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
@@ -498,23 +526,23 @@ def lambda_handler(event, context):
         ).rename(columns={'capacity': 'Capacity1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map BookedPax for Sector2
+        # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'capacity': 'Capacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map OpeningRBDB2B and OpeningRBDB2C for Sector1
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
@@ -523,17 +551,18 @@ def lambda_handler(event, context):
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map OpeningRBDB2B and OpeningRBDB2C for Sector2
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
-            
-        
+                    
         markets_count = mkt_list.shape[0]
+        mkt_list = mkt_list.drop(
+            columns=['DepartureDate','SecondFlightDepartureDate'], errors='ignore')
     mkt_list = mkt_list.drop(
             columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS
