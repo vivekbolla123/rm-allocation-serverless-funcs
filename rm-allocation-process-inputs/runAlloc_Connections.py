@@ -370,8 +370,8 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                     SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
                         b2c_rbd_sector2, sector2, "B2C", "L")
-                    if currency1!='INR':
-                        SellingFare2=self.convert_currency(currency1,'INR',SellingFare2)
+                    if currency2!='INR':
+                        SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
                     self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                     if self.outputSummaryRow_b2c.SellingFare2 == 0:
                         openDataB2C['FareResult'] = "QP Fares Not Available"
