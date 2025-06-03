@@ -14,3 +14,4 @@ croniter
 pyawscron
 pyarrow==13.0.0
 numpy==1.26.4
+awswrangler==3.11.0
