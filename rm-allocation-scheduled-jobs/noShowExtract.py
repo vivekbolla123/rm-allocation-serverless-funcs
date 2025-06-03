@@ -547,7 +547,7 @@ class ExpectedNoShows:
             return bookings_df
         
         except Exception as e:
-            self.logger.error(f"Error fetching current bookings from ESB: {str(e)}")
+            self.logger.error(f"Error fetching current bookings from NAV for no show table: {str(e)}")
             raise
     
     def calculate_expected_noshows(self, bookings_df, noshow_df):
