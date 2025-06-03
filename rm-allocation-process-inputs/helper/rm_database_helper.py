@@ -669,7 +669,7 @@ GROUP BY
             rbddata = pd.read_sql(query, self.conn)
         except Exception as e:
             self.logger.error(e) 
-        return rbddata["currency"][0]
+        return rbddata
     
     def get_qp_fares(self,origin, destin):
         query= "select * from Fares where Org = '" + origin + "' and Dst = '" + destin + "'"
