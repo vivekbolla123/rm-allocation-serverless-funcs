@@ -103,11 +103,9 @@ class DynAllocConnections:
                     startDate , DATE_FORMAT_2)
         endDateStr = datetime.strftime(
                     endDate , DATE_FORMAT_2)
-        if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-            startDate2Str = self.navapihelper.get_second_flight_dep(
-                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
-            endDate2Str = self.navapihelper.get_second_flight_dep(
-                self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+        
+        startDate2Str = self.currParams.SecondFlightDepartureDate
+        endDate2Str = self.currParams.SecondFlightDepartureDate
         if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
             startDate2Str = self.rmdatabasehelper.get_second_flight_dep(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
@@ -155,9 +153,7 @@ class DynAllocConnections:
                     currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
 
                 bookedLoadSingleRowSector1 = bookedLoad_sector1
-                if self.inputSource.input_source[CONST_BOOKLOAD] == DB:
-                    tgdDate2 = self.navapihelper.get_second_flight_dep(
-                        self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
+                tgdDate2 = self.currParams.SecondFlightDepartureDate
                 if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
                     tgdDate2 = self.rmdatabasehelper.get_second_flight_dep(
                         self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
@@ -323,7 +319,7 @@ class DynAllocConnections:
         print("Determining pricing for NDO " +
               str(ndocounter) + " on  " + str(current_date1))
         dow = int(datetime.strftime(datetime.strptime(
-            current_date1, '%Y-%m-%d') + timedelta(days=ndocounter), "%w"))
+            current_date1, '%Y-%m-%d') , "%w"))
 
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
             bookload1 = bookedLoadSingleRowSector1
@@ -339,9 +335,15 @@ class DynAllocConnections:
             b2c_rbd_sector1 = self.currParams.OpeningRBDB2C1
             b2b_rbd_sector2 = self.currParams.OpeningRBDB2B2
             b2c_rbd_sector2 = self.currParams.OpeningRBDB2C2
-            
+            origin = sector1[:3]
+            destin = sector2[-3:]
+            qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
+            if len(qpcurrency)!=0:
+                self.qpcurrency = qpcurrency['currency'][0]
+            else:
+                self.qpcurrency=''
 
-            if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2)):
+            if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2) or  self.qpcurrency==''):
                 # unable to get bookload aborting
                 lowFare="NA"
                 lowAirlineCode="NA"
@@ -368,8 +370,8 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                     SellingFare2,currency2 = self.rmdatabasehelper.getSellingPrice(
                         b2c_rbd_sector2, sector2, "B2C", "L")
-                    if currency1!='INR':
-                        SellingFare2=self.convert_currency(currency1,'INR',SellingFare2)
+                    if currency2!='INR':
+                        SellingFare2=self.convert_currency(currency2,'INR',SellingFare2)
                     self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                     if self.outputSummaryRow_b2c.SellingFare2 == 0:
                         openDataB2C['FareResult'] = "QP Fares Not Available"
@@ -387,7 +389,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.SellingFare1 = SellingFare1
                 self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                 
-                lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
+                lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
                     B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                 self.outputSummaryRow_b2c.MktFare_Min=lowFare
                 self.outputSummaryRow_b2c.AirlineCode_Min=lowAirlineCode
@@ -395,9 +397,11 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.MktFare_Max=hiFare
                 self.outputSummaryRow_b2c.AirlineCode_Max=hiAirlineCode
                 self.outputSummaryRow_b2c.FlightNumber_Max=hiFilghtNum
+                self.outputSummaryRow_b2c.mktFile=himktFile
                 fare2 = hiFare
                 if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                     fare2 = lowFare
+                    self.outputSummaryRow_b2c.mktFile=lowmktFile
                 b2cdiscount = "NA"
                 b2cTotal = "NA"
                 strategyFare=0
@@ -406,10 +410,7 @@ class DynAllocConnections:
                         priceStrategy, discountValue, b2cSectorTotal)
                 self.outputSummaryRow_b2c.discountedFare=b2cdiscountedFare
                 fare1 = b2cdiscountedFare
-                origin = sector1[:3]
-                destin = sector2[-3:]
-                
-                self.qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
+                    
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
@@ -481,11 +482,14 @@ class DynAllocConnections:
                 else:
                     self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                     self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
-                    if (b2cTotal == 0):
+                    if (b2cTotal == 0 ):
                         openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2C Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
+                    elif  b2b_rbd_sector1=='' or b2b_rbd_sector2=='':
+                        openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
+                            'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
                         b2bSectorTotal, SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
                             b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
@@ -497,7 +501,7 @@ class DynAllocConnections:
                          
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
-                        lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria = self.marketfaresservice.getMarketFareAnchorFareConnections(
+                        lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
                             B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                         self.outputSummaryRow_b2b.MktFare_Min=lowFare
                         self.outputSummaryRow_b2b.AirlineCode_Min=lowAirlineCode
@@ -505,6 +509,7 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2b.MktFare_Max=hiFare
                         self.outputSummaryRow_b2b.AirlineCode_Max=hiAirlineCode
                         self.outputSummaryRow_b2b.FlightNumber_Max=hiFilghtNum
+                        self.outputSummaryRow_b2b.mktFile=himktFile
                         b2bTotal="NA"
                         b2bdiscount="NA"
                         strategyFare=0
@@ -514,6 +519,7 @@ class DynAllocConnections:
                         fare2 = hiFare
                         if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
                             fare2 = lowFare
+                            self.outputSummaryRow_b2b.mktFile=lowmktFile
                         self.outputSummaryRow_b2b.discountedFare=b2bdiscountedFare   
                         strfare=fare2
                         if self.qpcurrency!='INR':

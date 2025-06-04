@@ -1,4 +1,4 @@
-Origin,Destination,FlightNumber,DepartureDate,bookedPax,capacity,DepartureTime,Lid,adjustedCapacity,tbf_bookings,G0_bookings,G1_bookings,G2_bookings,G3_bookings,G4_bookings
+Origin,Destination,FlightNumber,DepartureDate,bookedPax,capacity,DepartureTime,Lid,adjustedCapacity,tbf_bookings,WA_bookings,WB_bookings,WC_bookings,WD_bookings,WE_bookings
 BLR,DEL,1359,2023-08-01,8,174,10:00,174,174,0,0,0,0,0,0
 BLR,DEL,1336,2023-08-02,3,174,10:00,174,174,0,0,0,0,0,0
 BLR,DEL,1359,2023-08-02,1,174,10:00,174,174,0,0,0,0,0,0
@@ -1965,3 +1965,5 @@ JAI,BOM,5507,2023-08-03,171,178,8:00,178,178,0,0,0,0,0,0
 BLR,DEL,5507,2023-08-03,170,178,8:00,178,178,0,0,0,0,0,0
 BLR,DEL,5508,2023-08-01,164,174,8:00,174,174,0,0,0,0,0,0
 JAI,BOM,5508,2023-08-01,163,174,8:00,174,174,0,0,0,0,0,0
+JAI,BOM,5528,2023-08-12,143,174,12:05,174,174,0,0,0,0,0,0
+BOM,DEL,5528,2023-09-11,50,174,10:30,174,174,0,0,0,0,0,0

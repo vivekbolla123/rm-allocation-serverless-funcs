@@ -17,6 +17,7 @@ from redis import Redis
 from constants_utils import ConstantsUtils
 from concurrent.futures import ThreadPoolExecutor
 from time_logger import TimeLogger
+from nav_api_helper import NavAPIHelper
 
 warnings.filterwarnings('ignore')
 
@@ -310,7 +311,32 @@ def left_join_with_destination_mapping(left_df, right_df):
         left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destin'],
         right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
     ).drop(columns=['Destination'], errors='ignore')
-
+    
+def quick_optimize(mkt_list,navapihelper):
+    print(f"Optimizing {len(mkt_list)} rows...")
+    
+    # Create unique parameter combinations only
+    unique_params = mkt_list[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate']].drop_duplicates()
+    print(f"Reduced to {len(unique_params)} unique API calls")
+    
+    # Parallel API calls for unique combinations
+    def api_call(row):
+        return navapihelper.get_second_flight_dep(
+            row['Flight1'], row['Flight2'], 
+            row['Sector1'][:3], row['Sector2'][3:],
+            row['DepartureDate'].strftime('%Y-%m-%d')
+        )
+    
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        results = list(executor.map(api_call, [row for _, row in unique_params.iterrows()]))
+    
+    # Map results back
+    unique_params['api_result'] = results
+    mkt_list = mkt_list.merge(unique_params, on=['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate'])
+    mkt_list['SecondFlightDepartureDate'] = mkt_list['api_result']
+    
+    return mkt_list.drop('api_result', axis=1)
 def lambda_handler(event, context):
     """
     Fetches the market list, integrates Navitaire data, and sends it to SQS.
@@ -451,6 +477,7 @@ def lambda_handler(event, context):
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
         print(len(mkt_list)," bookings_count")
     elif route_type == "connections":
+        navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL,configsettings.NAV_OCP_SUBSCRIPTION_KEY,configsettings.NAV_USERNAME,configsettings.NAV_PWD,configsettings.NAV_DOMAIN)
         update_navitaire_method = "sftp"
         is_connections_required = "0"
         region = 'Domestic'
@@ -468,6 +495,24 @@ def lambda_handler(event, context):
             mkt_list['PerStart'], format='%m/%d/%Y').dt.date
         min_date = mkt_list['DepartureDate'].min()
         max_date = mkt_list['DepartureDate'].max()
+        
+        # Add logic to get second flight departure dates
+        mkt_list = quick_optimize(mkt_list,navapihelper)
+        
+        # Filter out rows where SecondFlightDepartureDate is empty
+        original_count = len(mkt_list)
+        mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
+        filtered_count = len(mkt_list)
+        logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
+        
+        # Convert SecondFlightDepartureDate to datetime and update min/max dates if needed
+        if not mkt_list.empty:
+            mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
+            # Update date range to include second flight dates
+            all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
+            min_date = all_dates.min()
+            max_date = all_dates.max()
+        
         booked_loads = nav_helper.getCurrentBookedLoads(
             startDate=min_date, endDate=max_date)
         mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
@@ -482,7 +527,7 @@ def lambda_handler(event, context):
         # Prepare booked loads for mapping
         booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
         
-        # Map BookedPax for Sector1
+        # Map BookedPax for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
@@ -498,23 +543,23 @@ def lambda_handler(event, context):
         ).rename(columns={'capacity': 'Capacity1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map BookedPax for Sector2
+        # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'capacity': 'Capacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map OpeningRBDB2B and OpeningRBDB2C for Sector1
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
@@ -523,23 +568,38 @@ def lambda_handler(event, context):
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
 
-        # Map OpeningRBDB2B and OpeningRBDB2C for Sector2
+        # Map OpeningRBDB2B and OpeningRBDB2C for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
-            
-        
+        mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
+        mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
         markets_count = mkt_list.shape[0]
+        mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
+        mkt_list = mkt_list.drop(
+            columns=['DepartureDate'], errors='ignore')
     mkt_list = mkt_list.drop(
             columns=['DepartureDate'], errors='ignore')
     # Proceed with SQS
     start_time = datetime.now()
     run_id = str(uuid4())
     log_time.update_run_id(run_id)
+
+    del_stack_df = get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id)
+
+    if not del_stack_df.empty:
+        insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
+
+        logger.info(f"Skipping run: {run_id}")
+        log_time.send_time_log_db()
+        return {
+            'statusCode': 200,
+            'body': -1
+        }
 
     insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
                      username, type, is_connections_required, update_navitaire_method, region, markets_count)
@@ -641,6 +701,60 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
         log_time.end("insert_run_start")
     logger.info("STARTED ALLOCATION RUN")
 
+def get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id):
+    try:
+        current_time = datetime.now(timezone.utc)
+        time_window = timedelta(minutes=15) # time window (±15 mins)
+        start_time = current_time - time_window
+        end_time = current_time + time_window
+
+        read_query = f"""
+            SELECT * FROM QP_DW_RMALLOC.allocation_run_operation_log
+            WHERE
+                run_timestamp BETWEEN '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' AND '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
+                AND dtd = '{start_interval}-{end_interval}'
+                AND marketlist_name = '{market_list_table}'
+                AND region = '{region}'
+                AND `type` = '{type}'
+                AND operation = 'DELETED'
+                AND run_id IS NULL
+        """
+        df = pd.read_sql(read_query, conn)
+
+        uodate_query = "UPDATE QP_DW_RMALLOC.allocation_run_operation_log SET run_id = %s WHERE operation_id=%s"
+        if not df.empty:
+            wrconn.execute(uodate_query, (run_id, df.iloc[0]['operation_id']))
+        
+        return df
+
+    except Exception as e:
+        logger.error(f"Error fetching run_operation_log data: {str(e)}")
+        raise
+
+def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, count):
+    log_time.start()
+    currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
+    currVersionValues = read_sql(currVersionQuery, conn)
+
+    is_connections_required = 1 if type == 'Scheduled' else 0
+    is_connections_started = 1 if type == 'Scheduled' else None
+
+    table_versions = {}
+    for index, currVersion in currVersionValues.iterrows():
+        if market_list_table == currVersion["tableName"]:
+            table_versions["market_list"] = currVersion["curr_version"]
+            table_versions["market_list_name"] = currVersion["tableName"]
+        else:
+            table_versions[currVersion["tableName"]] = currVersion["curr_version"]
+
+    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, end_time, actual_end_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, is_connections_started, update_navitaire_method, is_run_completed, region, marketListCount, run_status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    try:
+        wrconn.execute(insert_query,
+                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, is_connections_started, update_navitaire_method, '0', region, count, 'DELETED'))
+    except Exception as e:
+        logger.info(e)
+    finally:
+        log_time.end("insert_deleted_run")
 
 def insert_file_upload_s3(run_id, createdAt):
     log_time.start()
@@ -771,7 +885,7 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     FROM
         (
             SELECT
-                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,FirstRBDAlloc,OtherRBDAlloc,
+                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,carrierExclusionB2C,carrierExclusionB2B,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,analystName,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,

@@ -687,11 +687,16 @@ class RBDAllocations:
                     if allocation_value < 1:
                         allocation_value = 1
 
-        # Final Allocation: only to open_rbd, others get 0
-        for rbd in w_rbd_list:
-            currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
-            currRec.set_class_attribute(brd_counter, 'class_au', allocation_value if rbd == open_rbd else 0)
-            brd_counter += 1
+            # Final Allocation: only to open_rbd, others get 0
+            for rbd in w_rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                currRec.set_class_attribute(brd_counter, 'class_au', allocation_value if rbd == open_rbd else 0)
+                brd_counter += 1
+        else:
+            for rbd in w_rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                brd_counter += 1
 
         return brd_counter 
 

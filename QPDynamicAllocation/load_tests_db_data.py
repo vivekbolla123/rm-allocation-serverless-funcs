@@ -11,7 +11,8 @@ class Schema:
     def initializTables(self):
         self.load_generic_table("Curves", "Curves.csv")
         self.load_generic_table("Fares", "Fares.csv")
-        self.load_generic_table("market_fares", "MarketFares.csv")
+        self.load_generic_table("market_fares_rg", "MarketFares.csv")
+        self.load_generic_table("market_fares_ag", "MarketFares.csv")
         self.load_generic_table("bookload", "Bookload.csv")
         self.load_generic_table("market_list", "MarketList.csv")
         self.load_generic_table("market_list_connections", "MarketList_Connections.csv")

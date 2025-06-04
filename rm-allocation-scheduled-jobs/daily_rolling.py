@@ -16,12 +16,14 @@ class DailyRolling:
         self.logger.info("Starting the run method.")
         df_market_list = self.fetch_market_list()
         df_market_list_int = self.fetch_market_list_int()
+        df_market_list_conn = self.fetch_market_list_conn()
         df_sector_map = self.fetch_sector_map()
         current_date = self.get_current_date_ist()
         self.logger.info(f"Current date: {current_date}")
         print(len(df_market_list))
         df_market_list = self.process_market_list(df_market_list, df_sector_map, current_date)
         df_market_list_int = self.process_market_list(df_market_list_int, df_sector_map, current_date)
+        df_market_list_conn = self.process_market_list(df_market_list_conn, df_sector_map, current_date)
         
         print(len(df_market_list))
         # df_market_list=self.create_new_row(df_market_list,current_date,df_sector_map)
@@ -29,8 +31,10 @@ class DailyRolling:
         self.logger.info("Writing modified DataFrame back to the database.")
         self.rm_wr_conn.execute("TRUNCATE TABLE market_list")
         self.rm_wr_conn.execute("TRUNCATE TABLE market_list_international")
+        self.rm_wr_conn.execute("TRUNCATE TABLE market_list_connections")
         df_market_list.to_sql('market_list', self.rm_wr_conn, if_exists='append', index=False)
         df_market_list_int.to_sql('market_list_international', self.rm_wr_conn, if_exists='append', index=False)
+        df_market_list_conn.to_sql('market_list_connections', self.rm_wr_conn, if_exists='append', index=False)
         
 
     def get_current_date_ist(self):
@@ -50,6 +54,13 @@ class DailyRolling:
         self.logger.info(f"Executing query_market_list: {query_market_list}")
         df_market_list = pd.read_sql(query_market_list, self.rm_wr_conn)
         self.logger.info("Retrieved data from market_list_international")
+        return df_market_list
+    
+    def fetch_market_list_conn(self):
+        query_market_list = "SELECT * FROM market_list_connections"
+        self.logger.info(f"Executing query_market_list: {query_market_list}")
+        df_market_list = pd.read_sql(query_market_list, self.rm_wr_conn)
+        self.logger.info("Retrieved data from market_list_connections")
         return df_market_list
 
 
