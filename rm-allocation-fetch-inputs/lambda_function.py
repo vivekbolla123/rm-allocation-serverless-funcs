@@ -220,7 +220,7 @@ class NavDatabaseHelper:
                 AND ILC.ClassAu != '0'
         )
         SELECT 
-            FlightNumber,
+            trim(FlightNumber) as FlightNumber,
             Origin,
             Destination,
             DepartureDate,
@@ -532,52 +532,58 @@ def lambda_handler(event, context):
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'bookedPax': 'BookedPax1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'capacity': 'Capacity1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'capacity': 'Capacity2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
-        mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
-        mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        # mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
+        # mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
         markets_count = mkt_list.shape[0]
         mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
         mkt_list = mkt_list.drop(
