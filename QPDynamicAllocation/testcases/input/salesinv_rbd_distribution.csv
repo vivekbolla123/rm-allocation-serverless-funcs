@@ -1,9 +1,9 @@
 seats,type,rbd,value
-20,close,W7,5
-20,close,W6,5
-20,close,W5,5
-20,close,W4,5
-30,farther,W7,6
-30,farther,W6,6
-30,farther,W5,6
-30,farther,W4,6
+25,close,W7,5
+25,close,W6,5
+25,close,W5,5
+25,close,W4,5
+25,farther,W7,6
+25,farther,W6,6
+25,farther,W5,6
+25,farther,W4,6

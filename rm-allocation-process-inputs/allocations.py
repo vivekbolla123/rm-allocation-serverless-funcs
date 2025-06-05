@@ -831,7 +831,7 @@ class RBDAllocations:
             # And YYMM00 for farther dates
             
             
-            date_farther = date_obj.strftime('%y%m') + '00'
+            date_farther = date_obj.strftime('%Y%m') + '00'
             # For farther dates
             sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_farther)
             if not sales_inventory_df.empty:
@@ -848,7 +848,7 @@ class RBDAllocations:
             else:
                 rbd_allocations = {}
         else:
-            date_closer = date_obj.strftime('%y%m%d')
+            date_closer = date_obj.strftime('%Y%m%d')
             # For closer dates
             sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_closer) 
             if not sales_inventory_df.empty:

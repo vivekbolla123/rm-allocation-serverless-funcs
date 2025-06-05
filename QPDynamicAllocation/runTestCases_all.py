@@ -14,7 +14,7 @@ from runAlloc_Connections import DynAllocConnections
 
 
 def testCase1():
-    DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
+    DB_WR_CONN_STRING = f"mysql+mysqldb://root:12345678@localhost/localtest"
     conn = create_engine(DB_WR_CONN_STRING)
 
     inputData = {
@@ -66,6 +66,8 @@ def testCase1():
     DynAlloc(inputData, currParams)
     currParams["route_type"]="connections"
     DynAllocConnections(inputData, currParams)
+    # currParams["saleinvflag"]=1
+    # DynAlloc(inputData, currParams)
     
 
 testCase1()

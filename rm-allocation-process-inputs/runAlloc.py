@@ -430,12 +430,9 @@ class DynAlloc:
 		# ========================================================================
 		# *** SALEINVFLAG Check: Determines which allocation path to take ***
 		# ========================================================================
-		effective_saleinvflag = '0' # Default
-		saleinvflag_param = getattr(self.currParams, 'saleinvflag', '0') # Safely get
-		if pd.notna(saleinvflag_param):
-			effective_saleinvflag = str(saleinvflag_param)
+		
 
-		if effective_saleinvflag == '1':
+		if str(self.salesInv) == '1':
 			self.logger.info(f"Running in Sales Inventory Only mode (Minimal AU Grid - W classes only) for Flt: {currFlt}, Date: {currFltDate}, NDO: {ndocounter}")
 			sales_inv_target_rbd_names = ['W7','W6','W5','W4']
 			self.AU_COLUMN_LENGTH = len(sales_inv_target_rbd_names)
@@ -452,7 +449,8 @@ class DynAlloc:
 				currRec_salesinv_minimal.end_date = dateFormatted_yyyymmdd
 
 			currRec_salesinv_minimal.day_of_week = 'Daily' # Standard valu # Standard Active status
-
+			currRec_salesinv_minimal.capacity=currAdjustedCapacity
+			currRec_salesinv_minimal.lid = currBookedLoad
 			# Assign unique IDs for summary rows, link to AuGridRow if Navitaire update enabled
 			self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
 			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
@@ -650,7 +648,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, \
 				isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, \
 				self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, \
-				hardfareb2c_updated = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2c)
+				hardfareb2c_updated,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2c)
 				hardfareb2c = hardfareb2c_updated # Update local var if function modifies it
 
 				mktfare_params_b2b = {
@@ -666,7 +664,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, \
 				isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, \
 				self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, \
-				hardfareb2b_updated = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
+				hardfareb2b_updated,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
 				hardfareb2b = hardfareb2b_updated # Update local var
 
 				# Profile Fare Quartile calculation
@@ -732,15 +730,17 @@ class DynAlloc:
 					# Set B2C Anchor Fare based on criteria or L7D Avg
 					if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
+						self.outputSummaryRow_b2c.mktFile=himktFileb2c
 					elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
+						self.outputSummaryRow_b2c.mktFile=lowmktFileb2c
 					elif pd.notna(self.outputSummaryRow_b2c.MktFare_Min): # Default to Min if criteria unclear but MktFare available
 						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 					# If still no anchor (e.g. MktFare_Min was NA), then check L7D
-					if pd.isna(self.outputSummaryRow_b2c.anchorFare) or self.outputSummaryRow_b2c.anchorFare == CONST_NA:
-						if not isB2CMarketFareAvailable and (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) :
-							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
-							is_last7avg_anchor = True
+					
+					if not isB2CMarketFareAvailable and (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) :
+						self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
+						is_last7avg_anchor = True
 					
 					if is_last7avg_anchor: self.outputSummaryRow_b2c.fareOffset = 0 # No offset if L7D avg is anchor
 					
@@ -765,8 +765,12 @@ class DynAlloc:
 					
 					# B2B RBD determination
 					if isB2BMarketFareAvailable:
-						if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
-						elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]: self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
+						if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
+							self.outputSummaryRow_b2b.mktFile=himktFileb2b
+						elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]: 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
+							self.outputSummaryRow_b2b.mktFile=lowmktFileb2b
 						elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min): self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min # Default
 						
 						openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
@@ -886,10 +890,10 @@ class DynAlloc:
 
 					# L, P, W, CUG, GQ, TBF allocations
 					# Pass YYYY-MM-DD date to L, P allocations
-					self.l_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); current_brd_counter += 1
-					self.p_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); current_brd_counter += 1
+					self.l_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); 
+					self.p_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); 
 
-					current_brd_counter = self.w_rbd_allocation(final_plf, currRec_fullalloc, current_brd_counter) # Uses final_plf
+					current_brd_counter = self.w_rbd_allocation(currRec_fullalloc, current_brd_counter) # Uses final_plf
 
 					# CUG allocation
 					B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
@@ -921,20 +925,20 @@ class DynAlloc:
 					)
 
 					# Sales Inventory for W-classes (distress_pax_count from common init)
-					w8_slot_for_sales_inv_full = -1 # Default if W8 not found
-					for i_slot in range(self.AU_COLUMN_LENGTH):
-						if getattr(currRec_fullalloc, f"class_of_service_{i_slot+1}", None) == 'W8':
-							w8_slot_for_sales_inv_full = i_slot
-							break
-					if w8_slot_for_sales_inv_full != -1:
-						self.allocations.sales_inv_allocation(
-							distress_pax_count, # Already rounded
-							w8_slot_for_sales_inv_full, # Pass index of W8
-							currRec_fullalloc, ['W7','W6','W5','W4'],
-							ndocounter,dateFormatted_yyyymmdd,self.currParams.origin,self.currParams.destin
-						)
-					else:
-						self.logger.warning("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
+					# w8_slot_for_sales_inv_full = -1 # Default if W8 not found
+					# for i_slot in range(self.AU_COLUMN_LENGTH):
+					# 	if getattr(currRec_fullalloc, f"class_of_service_{i_slot+1}", None) == 'W8':
+					# 		w8_slot_for_sales_inv_full = i_slot
+					# 		break
+					# if w8_slot_for_sales_inv_full != -1:
+					# 	self.allocations.sales_inv_allocation(
+					# 		distress_pax_count, # Already rounded
+					# 		w8_slot_for_sales_inv_full, # Pass index of W8
+					# 		currRec_fullalloc, ['W7','W6','W5','W4'],
+					# 		ndocounter,dateFormatted_yyyymmdd,self.currParams.origin,self.currParams.destin
+					# 	)
+					# else:
+					# 	self.logger.warning("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
 
 					self.AUFileData.append(currRec_fullalloc)
 					if self.inputSource.isUpdateNavitaire:
@@ -1350,12 +1354,18 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
-			AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			if self.salesInv==0:
+				AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			else:
+				AUFrame.to_csv(CONST_AU_GRID_SALES_FILE_PATH, index=False)
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
 			df = df.drop(columns=["Id"])
-			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			if self.salesInv==0:
+				df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			else:
+				df.to_csv(CONST_SUMMARY_SALES_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}
@@ -1471,6 +1481,7 @@ class DynAlloc:
 			self.runId = self.currParams.run_id
 		else:
 			self.runId = self.utils.getUniqueId()
+		self.salesInv = self.currParams.saleinvflag
 		self.log_time = self.currParams.time_logger
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)

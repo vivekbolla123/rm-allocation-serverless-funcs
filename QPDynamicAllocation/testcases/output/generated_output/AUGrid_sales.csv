@@ -1,0 +1,6 @@
+Type,Flight,StartDate,EndDate,DayOfWeek,Aircraft Type,Aircraft Suffix,Lid,Capacity,Status,Class Of Service AU Class 1,Class Type AU Class 1,Class Nest AU Class 1,Class Rank AU Class 1,Class AU AU Class 1,Class Allotted AU Class 1,AP Restriction AU Class 1,Class Of Service AU Class 2,Class Type AU Class 2,Class Nest AU Class 2,Class Rank AU Class 2,Class AU AU Class 2,Class Allotted AU Class 2,AP Restriction AU Class 2,Class Of Service AU Class 3,Class Type AU Class 3,Class Nest AU Class 3,Class Rank AU Class 3,Class AU AU Class 3,Class Allotted AU Class 3,AP Restriction AU Class 3,Class Of Service AU Class 4,Class Type AU Class 4,Class Nest AU Class 4,Class Rank AU Class 4,Class AU AU Class 4,Class Allotted AU Class 4,AP Restriction AU Class 4
+L, QP5604 DELBOM,08-01-2023,08-01-2023,Daily,,,,,,W7,,-1,-1,5,-1,-1,W6,,-1,-1,5,-1,-1,W5,,-1,-1,5,-1,-1,W4,,-1,-1,5,-1,-1
+L, QP5604 JAIBOM,08-02-2023,08-02-2023,Daily,,,,,,W7,,-1,-1,0,-1,-1,W6,,-1,-1,0,-1,-1,W5,,-1,-1,0,-1,-1,W4,,-1,-1,0,-1,-1
+L, QP5604 DELBOM,08-03-2023,08-03-2023,Daily,,,,,,W7,,-1,-1,0,-1,-1,W6,,-1,-1,0,-1,-1,W5,,-1,-1,0,-1,-1,W4,,-1,-1,0,-1,-1
+L, QP5604 BOMDEL,09-01-2023,09-01-2023,Daily,,,,,,W7,,-1,-1,6,-1,-1,W6,,-1,-1,6,-1,-1,W5,,-1,-1,6,-1,-1,W4,,-1,-1,6,-1,-1
+L, QP5604 BOMDEL,09-03-2023,09-03-2023,Daily,,,,,,W7,,-1,-1,0,-1,-1,W6,,-1,-1,0,-1,-1,W5,,-1,-1,0,-1,-1,W4,,-1,-1,0,-1,-1
