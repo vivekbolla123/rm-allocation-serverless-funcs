@@ -455,7 +455,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
 			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
 
-			current_nav_update_method = str(getattr(self, 'NavitaireUpdateMethod', '')).upper() # Safely get and uppercase
+			current_nav_update_method = str(getattr(self, 'NavitaireUpdateMethod', '')) # Safely get and uppercase
 			if self.inputSource.isUpdateNavitaire and current_nav_update_method != S3: # S3 is a constant
 				currRec_salesinv_minimal.b2crunid = self.outputSummaryRow_b2c.Id
 				currRec_salesinv_minimal.b2brunid = self.outputSummaryRow_b2b.Id
@@ -649,8 +649,7 @@ class DynAlloc:
 				isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, \
 				self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, \
 				hardfareb2c_updated,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2c)
-				hardfareb2c = hardfareb2c_updated # Update local var if function modifies it
-
+				hardfareb2c = hardfareb2c_updated # Update local var if function modifiesit    
 				mktfare_params_b2b = {
 					"currParams": self.currParams, "currFltDate": currFltDate, "channel": B2B_CHANNEL,
 					"startTime": self.outputSummaryRow_b2b.startTime, "endTime": self.outputSummaryRow_b2b.endTime,
@@ -823,7 +822,7 @@ class DynAlloc:
 					currRec_fullalloc.end_date = dateFormatted_yyyymmdd
 				currRec_fullalloc.day_of_week = 'Daily'
 
-				current_nav_update_method_full = str(getattr(self, 'NavitaireUpdateMethod', '')).upper()
+				current_nav_update_method_full = str(getattr(self, 'NavitaireUpdateMethod', ''))
 				if self.inputSource.isUpdateNavitaire and current_nav_update_method_full != S3:
 					currRec_fullalloc.b2crunid = self.outputSummaryRow_b2c.Id
 					currRec_fullalloc.b2brunid = self.outputSummaryRow_b2b.Id
