@@ -722,55 +722,75 @@ class DynAlloc:
 				param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
 				param_b2b_tolerance = getattr(self.currParams, 'b2b_tolerance', 0) # Default tolerance
 
-				if isB2CMarketFareAvailable or (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA):
+				mkt_fare_flag = int(self.currParams.mkt_fare_flag)
+
+				# Determine if we should process (enter the main block)
+				should_process = False
+				if mkt_fare_flag == 1:
+					# Flag = 1: Original behavior - process if either market fare OR last_seven_avg available
+					should_process = isB2CMarketFareAvailable or (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA)
+				elif mkt_fare_flag == 0:
+					# Flag = 0: Only process if last_seven_avg is available
+					should_process = pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA
+
+				if should_process:
 					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg_val
 					
 					is_last7avg_anchor = False
 					# Set B2C Anchor Fare based on criteria or L7D Avg
 					if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
-						self.outputSummaryRow_b2c.mktFile=himktFileb2c
+						self.outputSummaryRow_b2c.mktFile = himktFileb2c
 					elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
 						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
-						self.outputSummaryRow_b2c.mktFile=lowmktFileb2c
-					elif pd.notna(self.outputSummaryRow_b2c.MktFare_Min): # Default to Min if criteria unclear but MktFare available
-						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
-					# If still no anchor (e.g. MktFare_Min was NA), then check L7D
+						self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 					
-					if not isB2CMarketFareAvailable and (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) :
-						self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
-						is_last7avg_anchor = True
+					# Determine when to override with last_seven_avg
+					if mkt_fare_flag == 0:
+						# Flag = 0: Always use last_seven_avg if available
+						if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
+							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
+							is_last7avg_anchor = True
+					elif mkt_fare_flag == 1:
+						# Flag = 1: Original behavior - use last_seven_avg only if market fare not available
+						if not isB2CMarketFareAvailable and (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA):
+							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
+							is_last7avg_anchor = True
 					
-					if is_last7avg_anchor: self.outputSummaryRow_b2c.fareOffset = 0 # No offset if L7D avg is anchor
+					if is_last7avg_anchor: 
+						self.outputSummaryRow_b2c.fareOffset = 0  # No offset if L7D avg is anchor
 					
 					# determineRBDToOpen needs YYYY-MM-DD date
 					openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
 					self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
 					determined_overBookingFare = self.determinerbd.determineRBDToOpen(
-											self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, 
-											dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
-											b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, month_str_for_profile, deptTime_str_hhmm, 
-											dow_str_for_profile, percentile_str_full, upsellValue_full, param_b2c_tolerance, final_plf,
-											overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, 
-											is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare
-										)
+													self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, 
+													dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
+													b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, month_str_for_profile, deptTime_str_hhmm, 
+													dow_str_for_profile, percentile_str_full, upsellValue_full, param_b2c_tolerance, final_plf,
+													overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, 
+													is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare
+												)
 
 					# Get B2C Opening Price for potential B2B derivation
 					B2C_opening_price_val = None
 					# Check if 'Fare' key exists and the list is not empty before accessing iloc[0]
 					if 'Fare' in openDataB2C_details and isinstance(openDataB2C_details['Fare'], list) and openDataB2C_details['Fare'] and openDataB2C_details['Fare'][0] != CONST_NA:
-						try: B2C_opening_price_val = float(openDataB2C_details['Fare'][0])
-						except (ValueError, TypeError): self.logger.warning(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
+						try: 
+							B2C_opening_price_val = float(openDataB2C_details['Fare'][0])
+						except (ValueError, TypeError): 
+							self.logger.warning(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
 					
 					# B2B RBD determination
 					if isB2BMarketFareAvailable:
 						if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
 							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
-							self.outputSummaryRow_b2b.mktFile=himktFileb2b
+							self.outputSummaryRow_b2b.mktFile = himktFileb2b
 						elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]: 
 							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
-							self.outputSummaryRow_b2b.mktFile=lowmktFileb2b
-						elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min): self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min # Default
+							self.outputSummaryRow_b2b.mktFile = lowmktFileb2b
+						elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min): 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Default
 						
 						openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
 						self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _  = \
@@ -784,11 +804,13 @@ class DynAlloc:
 							)
 					elif B2C_opening_price_val is not None and not self.B2B_threshold and 0 <= dplfBand_full <= 3:
 						b2b_discount_fare_active = True 
-						discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP) # B2B_DISCOUNT_MAP from ConstantsUtils
+						discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
 						discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
 						
-						if '%' in discount_str_val: current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
-						else: current_discount_amount = float(discount_str_val)
+						if '%' in discount_str_val: 
+							current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
+						else: 
+							current_discount_amount = float(discount_str_val)
 						
 						derived_b2b_anchor_fare = B2C_opening_price_val - current_discount_amount
 						self.outputSummaryRow_b2b.anchorFare = derived_b2b_anchor_fare

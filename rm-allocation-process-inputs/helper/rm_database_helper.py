@@ -131,6 +131,7 @@ GROUP BY
     ml.autoGroup,
     ml.tbfFlag,
     ml.CugFlag,
+    ml.MktFareFlag,
     ml.autoBackstopFlag,
     bfd.BookingsCount,
     bfd.BookingToday, 

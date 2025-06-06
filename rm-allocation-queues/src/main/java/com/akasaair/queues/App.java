@@ -2546,7 +2546,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(39, marketListEntity.getAutoBackstopFlag());
             pstmt.setString(40, marketListEntity.getTbfFlag());
             pstmt.setString(41, marketListEntity.getCugFlag());
-            pstmt.setString(42, marketListEntity.getUuid());
+            pstmt.setString(42, marketListEntity.getMktFareFlag());
+            pstmt.setString(43, marketListEntity.getUuid());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2743,6 +2744,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .autoBackstopFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG)))
                 .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
                 .cugFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
+                .mktFareFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
                 .analystName(analystName)
                 .build());
     }
