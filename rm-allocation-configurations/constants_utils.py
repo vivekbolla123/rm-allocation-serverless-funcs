@@ -53,6 +53,8 @@ class ConstantsUtils:
         self.PF_UPSELL_VALUE = PF_UPSELL_VALUE
         self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
         self.BOOKINGS_THRESHOLD = BOOKINGS_THRESHOLD
+        self.SOFTBLOCK_RBDS = SOFTBLOCK_RBDS
+
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
@@ -166,6 +168,8 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_UPDATE_RBD = int(parameter_value)
             elif parameter_key == BOOKINGS_THRESHOLD_KEY:
                 self.BOOKINGS_THRESHOLD = int(parameter_value)
+            elif parameter_key == SOFTBLOCK_RBDS_KEY:
+                self.SOFTBLOCK_RBDS = parameter_value
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

@@ -491,7 +491,7 @@ class DynAlloc:
 
 					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
 					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
-				elif B2CopeningPrice is not None and not self.B2B_threshold and dplfBand>=0 and dplfBand<=3:
+				elif B2CopeningPrice is not None and not self.B2B_thresholdflag and dplfBand>=0 and dplfBand<=3:
 					b2b_discount_fare = True
 					last7avg = False
 					discount_map = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)
@@ -660,68 +660,27 @@ class DynAlloc:
 			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
 	def w_rbd_allocation(self, currRec, brd_counter):
-		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'G8')
-		currRec.set_class_attribute(brd_counter+3, 'class_of_service', 'W9')
-		currRec.set_class_attribute(brd_counter+4, 'class_of_service', 'W8')
-		currRec.set_class_attribute(brd_counter+5, 'class_of_service', 'W7')
-		currRec.set_class_attribute(brd_counter+6, 'class_of_service', 'W6')
-		currRec.set_class_attribute(brd_counter+7, 'class_of_service', 'W5')
-		currRec.set_class_attribute(brd_counter+8, 'class_of_service', 'W4')
-		currRec.set_class_attribute(brd_counter+9, 'class_of_service', 'W3')
-		currRec.set_class_attribute(brd_counter+10, 'class_of_service', 'W2')
-		currRec.set_class_attribute(brd_counter+11, 'class_of_service', 'W1')
-	
-		if self.g8_thresholdflag:
-			currRec.set_class_attribute(brd_counter+2, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+2, 'class_au', -1)
-	
-		if self.w9_thresholdflag:
-			currRec.set_class_attribute(brd_counter+3, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+3, 'class_au', -1)
+		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
 		
-		if self.w8_thresholdflag:
-			currRec.set_class_attribute(brd_counter+4, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+4, 'class_au', -1)
-	
-		if self.w7_thresholdflag:
-			currRec.set_class_attribute(brd_counter+5, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+5, 'class_au', -1)
-	
-		if self.w6_thresholdflag:
-			currRec.set_class_attribute(brd_counter+6, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+6, 'class_au', -1)
+		ind = 2
+		# Set class_of_service for each RBD dynamically
+		for rbd in rbds:
+			currRec.set_class_attribute(brd_counter + ind, 'class_of_service', rbd)
+			ind += 1
+		
+		ind = 2
+		# Set class_au based on threshold flags dynamically
+		for rbd in rbds:
+			flag_name = rbd.lower() + '_thresholdflag'
+			threshold_flag = getattr(self, flag_name, False)  # Get flag value or False if not exists
+			
+			if threshold_flag:
+				currRec.set_class_attribute(brd_counter + ind, 'class_au', 0)
+			else:
+				currRec.set_class_attribute(brd_counter + ind, 'class_au', -1)
+			ind += 1
 
-		if self.w5_thresholdflag:
-			currRec.set_class_attribute(brd_counter+7, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+7, 'class_au', -1)
-
-		if self.w4_thresholdflag:
-			currRec.set_class_attribute(brd_counter+8, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+8, 'class_au', -1)
-
-		if self.w3_thresholdflag:
-			currRec.set_class_attribute(brd_counter+9, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+9, 'class_au', -1)
-
-		if self.w2_thresholdflag:
-			currRec.set_class_attribute(brd_counter+10, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+10, 'class_au', -1)
-
-		if self.w1_thresholdflag:
-			currRec.set_class_attribute(brd_counter+11, 'class_au', 0)
-		else:
-			currRec.set_class_attribute(brd_counter+11, 'class_au', -1)
-
-		return brd_counter+11
+		return brd_counter + len(rbds) + 1
 
 	def p_rbd_allocation(self, dateFormatted, ndoBand, dplfBand, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter + 1, 'class_of_service', 'P')
@@ -846,86 +805,45 @@ class DynAlloc:
 		return DaySpan, input_time_str
 
 	def checkTreshold(self, currFlt, ndocounter, plf):
-		w9_thresholdValue, w8_thresholdValue, w7_thresholdValue, w6_thresholdValue, w5_thresholdValue, w4_thresholdValue, w3_thresholdValue, w2_thresholdValue, w1_thresholdValue, p_thresholdValue, l_thresholdValue, B2B_threshold, g8_thresholdValue = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		plfThresholds = self.rmdatabasehelper.getPlfThreshhold(ndocounter, str(currFlt))
+		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
 		
-		self.w9_thresholdflag = False
-		self.w8_thresholdflag = False
-		self.w7_thresholdflag = False
-		self.w6_thresholdflag = False
-		self.w5_thresholdflag = False
-		self.w4_thresholdflag = False
-		self.w3_thresholdflag = False
-		self.w2_thresholdflag = False
-		self.w1_thresholdflag = False
+		# Initialize all RBD threshold flags dynamically
+		for rbd in rbds:
+			flag_name = rbd.lower() + '_thresholdflag'
+			setattr(self, flag_name, False)
+		
+		# Initialize fixed threshold flags
 		self.p_thresholdflag = False
 		self.l_thresholdflag = False
-		self.B2B_threshold = False
-		self.g8_thresholdflag =False
+		self.B2B_thresholdflag = False
 		
-		if len(w9_thresholdValue) != 0:
-			if w9_thresholdValue[0] is not None and w9_thresholdValue[0]!='':
-				if plf > w9_thresholdValue[0]:
-					self.w9_thresholdflag = True
-		
-		if len(w8_thresholdValue) != 0:
-			if w8_thresholdValue[0] is not None and w8_thresholdValue[0]!='':
-				if plf > w8_thresholdValue[0]:
-					self.w8_thresholdflag = True
-					
-		if len(w7_thresholdValue) != 0:
-			if w7_thresholdValue[0] is not None and w7_thresholdValue[0]!='':
-				if plf > w7_thresholdValue[0]:
-					self.w7_thresholdflag = True
-					
-		if len(w6_thresholdValue) != 0:
-			if w6_thresholdValue[0] is not None and w6_thresholdValue[0]!='':
-				if plf > w6_thresholdValue[0]:
-					self.w6_thresholdflag = True
-					
-		if len(w5_thresholdValue) != 0:
-			if w5_thresholdValue[0] is not None and w5_thresholdValue[0]!='':
-				if plf > w5_thresholdValue[0]:
-					self.w5_thresholdflag = True
-					
-		if len(w4_thresholdValue) != 0:
-			if w4_thresholdValue[0] is not None and w4_thresholdValue[0]!='':
-				if plf > w4_thresholdValue[0]:
-					self.w4_thresholdflag = True
-					
-		if len(w3_thresholdValue) != 0:
-			if w3_thresholdValue[0] is not None and w3_thresholdValue[0]!='':
-				if plf > w3_thresholdValue[0]:
-					self.w3_thresholdflag = True
-					
-		if len(w2_thresholdValue) != 0:
-			if w2_thresholdValue[0] is not None and w2_thresholdValue[0]!='':
-				if plf > w2_thresholdValue[0]:
-					self.w2_thresholdflag = True
-					
-		if len(w1_thresholdValue) != 0:
-			if w1_thresholdValue[0] is not None and w1_thresholdValue[0]!='':
-				if plf > w1_thresholdValue[0]:
-					self.w1_thresholdflag = True
-					
-		if len(p_thresholdValue) != 0:
-			if p_thresholdValue[0] is not None and p_thresholdValue[0]!='':
-				if plf > p_thresholdValue[0]:
+		if len(plfThresholds) > 0:
+			threshold_row = plfThresholds.iloc[0]  # Get first row
+			
+			# Check each RBD threshold dynamically
+			for rbd in rbds:
+				threshold_col = rbd + '_threshold'
+				if threshold_col in threshold_row and threshold_row[threshold_col] is not None and threshold_row[threshold_col] != '':
+					if plf > threshold_row[threshold_col]:
+						# Set the corresponding flag to True
+						flag_name = rbd.lower() + '_thresholdflag'
+						setattr(self, flag_name, True)
+			
+			# Check P threshold
+			if 'P_threshold' in threshold_row and threshold_row['P_threshold'] is not None and threshold_row['P_threshold'] != '':
+				if plf > threshold_row['P_threshold']:
 					self.p_thresholdflag = True
-					
-		if len(l_thresholdValue) != 0:
-			if l_thresholdValue[0] is not None and l_thresholdValue[0]!='':
-				if plf > l_thresholdValue[0]:
+			
+			# Check L threshold
+			if 'L_threshold' in threshold_row and threshold_row['L_threshold'] is not None and threshold_row['L_threshold'] != '':
+				if plf > threshold_row['L_threshold']:
 					self.l_thresholdflag = True
-					
-		if len(B2B_threshold) != 0:
-			if B2B_threshold[0] is not None and B2B_threshold[0]!='':
-				if plf > B2B_threshold[0]:
-					self.B2B_threshold = True
-		
-		if len(g8_thresholdValue) != 0:
-			if g8_thresholdValue[0] is not None and g8_thresholdValue[0]!='':
-				if plf > g8_thresholdValue[0]:
-					self.g8_thresholdflag = True
+			
+			# Check B2B threshold
+			if 'B2B_threshold' in threshold_row and threshold_row['B2B_threshold'] is not None and threshold_row['B2B_threshold'] != '':
+				if plf > threshold_row['B2B_threshold']:
+					self.B2B_thresholdflag = True
 
 	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf):
 		self.b2boverbookingflag = False

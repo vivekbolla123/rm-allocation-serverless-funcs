@@ -30,3 +30,4 @@ B2B_DISCOUNT_MAP,"{ ""0"": ""450"", ""1"": ""350"", ""2"": ""250"", ""3"": ""150
 PROF_OPEN_COUNT,10
 CUG_B2C_OPENING_THRESHOLD,0.03
 CUG_SEATS_PERCENT,0.25
+SOFTBLOCK_RBDS,"[""G8"",""W9"",""W8"",""W7"",""W6"",""W5"",""W4"",""W3"", ""W2"", ""W1""]"

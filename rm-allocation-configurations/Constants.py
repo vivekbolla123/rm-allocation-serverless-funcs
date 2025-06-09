@@ -14,6 +14,7 @@ GROUP_QUOTATION =  '{ "Q2": "GJ", "Q4": "GI", "Q6": "GH", "Q8": "GG", "Q10": "GF
 B2B_DISCOUNT_MAP = '{ "0": "450", "1": "350", "2": "250", "3": "150" }'
 
 MARKET_FARES_THRESHOLD = '[ {"startNdo": 0, "endNdo": 7, "value": 2}, {"startNdo": 8, "endNdo": 14, "value": 8}, {"startNdo": 15, "endNdo": 21, "value": 48}, {"startNdo": 22, "endNdo": 90, "value": 48}, {"startNdo": 91, "endNdo": 365, "value": 48} ]'
+SOFTBLOCK_RBDS = '["G8","W9","W8","W7","W6","W5","W4","W3", "W2", "W1"]'
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
 CUG_RBD = "WA,WB,WC,WD,WE"
@@ -108,6 +109,8 @@ PF_UPSELL_VALUE_KEY = "PF_UPSELL_VALUE"
 CHECK_THRESHOLD_UPDATE_RBD_KEY = "CHECK_THRESHOLD_UPDATE_RBD"
 
 BOOKINGS_THRESHOLD_KEY = "BOOKINGS_THRESHOLD"
+
+SOFTBLOCK_RBDS_KEY = 'SOFTBLOCK_RBDS'
 
 LATEST_VERSION = '4.0.0'
 
