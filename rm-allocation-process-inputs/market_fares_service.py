@@ -8,10 +8,11 @@ import logging
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,constantsutils,timeutils):
+    def __init__(self,rm_database_helper,constantsutils,timeutils,dynamohelper):
         self.rmdatabasehelper=rm_database_helper
         self.constantsutils=constantsutils
         self.timeutils=timeutils
+        self.dynamohelper=dynamohelper
     
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)    
