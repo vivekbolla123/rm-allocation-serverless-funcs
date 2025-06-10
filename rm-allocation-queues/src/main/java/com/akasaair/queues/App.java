@@ -75,6 +75,7 @@ import static com.akasaair.queues.common.constants.ColumnNamesConstants.*;
 
 import static com.akasaair.queues.common.constants.Constants.*;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_BACKSTOP_FLAG;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_MKT_FARE_FLAG;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_GROUP;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_TIME_RANGE_FLAG;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_BACKSTOP;
@@ -2744,7 +2745,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .autoBackstopFlag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_BACKSTOP_FLAG)))
                 .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
                 .cugFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
-                .mktFareFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
+                .mktFareFlag(convertYNToBoolean(record.get(CSV_HEADER_MKT_FARE_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3104,6 +3105,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_CUG_FLAG))) {
                 listOfErrors.add(lineNum + "CUG Flag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_MKT_FARE_FLAG))) {
+                listOfErrors.add(lineNum + "Mktfare Flag has value other than 'Y' or 'N'");
             }
 
             return user;
