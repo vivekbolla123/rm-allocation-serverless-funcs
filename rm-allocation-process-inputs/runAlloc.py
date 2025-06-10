@@ -296,368 +296,753 @@ class DynAlloc:
 
 			self.runDynamicAllocationSingleFlight(currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad)
 
-	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime, tgtBookedLoadPercent, dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad):
+	def runDynamicAllocationSingleFlight(self, currFlt, currBookedLoad, currLid, currFltDate, currFltDepartureTime,
+										 tgtBookedLoadPercent, # Renamed from tgtBookloadPercent for consistency
+										 dow, ndocounter, currAdjustedCapacity,currtbfBookedLoad):
+		# currFltDate is an MM/DD/YYYY string
+		# currFltDepartureTime is an HH:MM:SS string
+
+		# --- Ensure outputSummaryRow objects are fresh for this flight-day ---
 		self.outputSummaryRow_b2b = OutputSummary()
 		self.outputSummaryRow_b2c = OutputSummary()
-		self.outputSummaryRow_b2c.w0Flag = int(self.w0Flag)
-		self.outputSummaryRow_b2b.w0Flag = int(self.w0Flag)
-		tgtBookloadFactor = tgtBookedLoadPercent
-		tgtBookedLoad = tgtBookedLoadPercent * currLid
 
-		if self.debugMode:
-			self.logger.info("Ready to start Allocation")
-			self.logger.info(self.currParams)
-			self.logger.info("DOW is : " + str(dow))
-			self.logger.info("Extract is " + str(self.currParams.dow)[dow:(dow+1)])
+		current_w0Flag = 0 # Default
+		# Safely get w0Flag from self, as it might be set in __init__ or earlier
+		if hasattr(self, 'w0Flag') and pd.notna(self.w0Flag):
+			try:
+				current_w0Flag = int(self.w0Flag)
+			except (ValueError, TypeError):
+				self.logger.warning(f"Could not convert self.w0Flag ('{self.w0Flag}') to int. Defaulting to 0.")
+		self.outputSummaryRow_b2c.w0Flag = current_w0Flag
+		self.outputSummaryRow_b2b.w0Flag = current_w0Flag
 
-		dateFormatted = datetime.strptime(str(currFltDate), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
-		if ((str(currFlt) == str(self.currParams.flight_number)) or (self.currParams.flight_number == '*')) and (str(self.currParams.dow)[dow:(dow+1)] == "1"):
-			orgBookedLoad = currBookedLoad
-			self.actualplf = (currBookedLoad/currAdjustedCapacity) * 100
-			if int(self.currParams.seriesBlock) == 1:
-				currBookedLoad = self.getBookloadSeries(dateFormatted,currBookedLoad)
-			self.logger.info("Actual Booked Load for " + str(self.currParams.flight_number) + " on " + str(currFltDate) + " is :" + str(currBookedLoad))
-			self.currentTime = self.rmdatabasehelper.getCurrentTime(self.inputSource.currentTime, self.currParams, currFltDate, self.starttime)
-			totalCapacity = currLid
-			adjustedCapacity = currAdjustedCapacity
-			bookedDeficit = round(tgtBookedLoad - currBookedLoad)
-			remainingCapacity = totalCapacity - currBookedLoad
+		# --- Date Conversions (Essential) ---
+		try:
+			# DATE_FORMAT should be '%m/%d/%Y'
+			currFltDate_dt = datetime.strptime(currFltDate, DATE_FORMAT)
+			# DATE_FORMAT_2 should be '%Y-%m-%d'
+			dateFormatted_yyyymmdd = currFltDate_dt.strftime(DATE_FORMAT_2)
+		except ValueError as e:
+			self.logger.error(f"CRITICAL: Could not parse currFltDate '{currFltDate}' with format '{DATE_FORMAT}'. Error: {e}. Aborting flight processing.")
+			# Consider how to handle this error; for now, returning to prevent further issues.
+			# You might want to populate error summary rows here before returning.
+			return
 
-			# plf = (currBookedLoad/adjustedCapacity) * 100
+		# --- Common Initializations (needed by both paths) ---
+		initial_currBookedLoad = currBookedLoad # Preserve the value passed in
 
-			startEndOfDayDplfBand, bookingToday,BookingsInHour, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad = self.getStartOfDayValues(currBookedLoad, dateFormatted, ndocounter, tgtBookloadFactor, totalCapacity, currFltDepartureTime)
-			self.outputSummaryRow_b2b.currentTgtLoad = tgtAtCurrentHour
-			self.outputSummaryRow_b2c.currentTgtLoad = tgtAtCurrentHour
-			self.outputSummaryRow_b2b.currentLoadFactor = (tgtAtCurrentHour / totalCapacity) * 100
-			self.outputSummaryRow_b2c.currentLoadFactor = (tgtAtCurrentHour / totalCapacity) * 100
-			self.outputSummaryRow_b2b.bookingToday = bookingToday
-			self.outputSummaryRow_b2c.bookingToday = bookingToday
-			self.outputSummaryRow_b2b.bookingLastHour = BookingsInHour
-			self.outputSummaryRow_b2c.bookingLastHour = BookingsInHour
-			self.outputSummaryRow_b2b.endOfDayTgtLoad = endOfDayTgtBookedLoad
-			self.outputSummaryRow_b2c.endOfDayTgtLoad = endOfDayTgtBookedLoad
-			self.outputSummaryRow_b2c.dlfBand = startEndOfDayDplfBand
-			self.outputSummaryRow_b2b.dlfBand = startEndOfDayDplfBand
+		# Actual PLF based on initial booked load and adjusted capacity
+		self.actualplf = 0.0 # Default
+		if pd.notna(currAdjustedCapacity) and currAdjustedCapacity > 0:
+			try:
+				self.actualplf = (float(initial_currBookedLoad) / float(currAdjustedCapacity)) * 100
+			except (ValueError, TypeError):
+				self.logger.warning("Could not calculate actualplf due to invalid numeric types for booked load or capacity.")
 
-			variance = self.calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad)
+		# Adjust currBookedLoad for seriesBlock if applicable
+		effective_series_block_flag = 0 # Default
+		series_block_param = getattr(self.currParams, 'seriesBlock', '0') # Safely get, default to '0'
+		if pd.notna(series_block_param):
+			try:
+				effective_series_block_flag = int(series_block_param)
+			except (ValueError, TypeError):
+				self.logger.warning(f"Invalid seriesBlock value: {series_block_param}. Assuming 0.")
 
-			mappedMonth = self.rmdatabasehelper.getMappedMonth(currFltDate)
-			time_object = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
-			deptTime = f"{time_object.hour:02d}:{time_object.minute:02d}"
-			currentDate = datetime.strptime(currFltDate, DATE_FORMAT)
-			dow = currentDate.strftime(DAY_OF_WEEK)
-			month = currentDate.strftime(MONTH)
-			if len(mappedMonth) != 0:
-				month = mappedMonth['mappedMonth'][0]    
-    
-			self.logger.info("Total capacity/Lid is: "+ str(totalCapacity))
-			self.logger.info("Adjusted capacity is: "+ str(adjustedCapacity))
-			overBookingFare = 0
-			if totalCapacity >= adjustedCapacity:
-				plf = (currBookedLoad / adjustedCapacity)*100
-			if totalCapacity < adjustedCapacity:
-				plf = (currBookedLoad / totalCapacity) * 100
-			self.logger.info("PLF is: "+ str(plf))
-			totalCapacity, self.b2boverbookingflag = self.overBooking(currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf)
-			self.logger.info("Total capacity/Lid after ob(if applicable) is: "+ str(totalCapacity))
-			overBookingCount = float(totalCapacity-adjustedCapacity)
-			self.logger.info("variance is " + str(variance))
-			ndoBand = self.rmdatabasehelper.getNdoBand(ndocounter)
-			dplfBand = self.rmdatabasehelper.getdpflBand(variance)
+		if effective_series_block_flag == 1:
+			currBookedLoad = self.getBookloadSeries(dateFormatted_yyyymmdd, currBookedLoad) # getBookloadSeries needs YYYY-MM-DD
 
-			self.outputSummaryRow_b2c.endOfDaydlfBand = dplfBand
-			self.outputSummaryRow_b2b.endOfDaydlfBand = dplfBand
+		self.logger.info(f"Effective Booked Load for Flt: {str(currFlt)} on Date: {str(currFltDate)} is: {str(currBookedLoad)}")
 
-			self.checkTreshold(currFlt, ndocounter, plf)
+		# Current processing time (HH:MM:SS string) from helper
+		self.currentTime = self.rmdatabasehelper.getCurrentTime(
+			self.inputSource.currentTime, self.currParams, currFltDate, self.starttime # currFltDate is MM/DD/YYYY
+		)
 
-			# Get Dynamic D1 (Time) Value
-			DaySpan, input_time_str = self.autoTimeRange(currFltDepartureTime)
+		# Capacities - ensure they are numeric
+		base_totalCapacity = 0.0
+		if pd.notna(currLid):
+			try: base_totalCapacity = float(currLid)
+			except (ValueError, TypeError): self.logger.warning(f"currLid '{currLid}' not convertible to float.")
 
-			self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange,hardstartTime,hardendTime = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2B_CHANNEL,plf)
-			self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange,hardstartTime,hardendTime = self.dynamictimed2.getDynamicTime(self.currParams, dplfBand, ndoBand, DaySpan, B2C_CHANNEL,plf)
+		base_adjustedCapacity = 0.0
+		if pd.notna(currAdjustedCapacity):
+			try: base_adjustedCapacity = float(currAdjustedCapacity)
+			except (ValueError, TypeError): self.logger.warning(f"currAdjustedCapacity '{currAdjustedCapacity}' not convertible to float.")
 
-			# Get Dynamic D2 (Offset & Criteria) Value
-			self.outputSummaryRow_b2b.criteria,hardcriteria, self.outputSummaryRow_b2b.fareOffset,hardoffset, self.outputSummaryRow_b2b.StrategyReference,hardfareb2b = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2B_CHANNEL,plf)
-			self.outputSummaryRow_b2c.criteria,hardcriteria, self.outputSummaryRow_b2c.fareOffset,hardoffset, self.outputSummaryRow_b2c.StrategyReference,hardfareb2c = self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand, ndoBand, B2C_CHANNEL,plf)
 
-			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
-			self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+		# --- Overbooking Logic (affects totalCapacity, run before flag check) ---
+		plf_before_ob = 0.0
+		if base_adjustedCapacity > 0:
+			plf_before_ob = (float(currBookedLoad) / base_adjustedCapacity) * 100
+		elif base_totalCapacity > 0: # Fallback if adjustedCapacity is zero
+			plf_before_ob = (float(currBookedLoad) / base_totalCapacity) * 100
 
-			# Actual Work Happens here
-			# Get the B2C and B2B Fare ranges
-			self.logger.info("Getting market Fares")
+		# self.overBooking needs YYYY-MM-DD date
+		final_totalCapacity, self.b2boverbookingflag = self.overBooking(
+			dateFormatted_yyyymmdd, ndocounter, base_totalCapacity, base_adjustedCapacity, plf_before_ob
+		)
+		self.logger.info(f"Total capacity/Lid after OB (if applicable) is: {final_totalCapacity}")
 
-			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime,hardfareb2c,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2C_CHANNEL, self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,hardcriteria,hardfareb2c,hardstartTime,hardendTime)
-   
+		# OverBookingCount relative to the original adjusted capacity
+		overBookingCount = float(final_totalCapacity - base_adjustedCapacity)
 
-			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime,hardfareb2b,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(self.currParams, currFltDate, B2B_CHANNEL, self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,hardcriteria,hardfareb2b,hardstartTime,hardendTime)
+		# --- PLF after potential overbooking (used for various thresholds) ---
+		final_plf = 0.0 # Default
+		if base_adjustedCapacity > 0:
+			final_plf = (float(currBookedLoad) / base_adjustedCapacity) * 100
+		elif final_totalCapacity > 0: # Use potentially updated totalCapacity if adjCap was 0
+			final_plf = (float(currBookedLoad) / final_totalCapacity) * 100
+		self.logger.info(f"PLF for downstream logic (based on adjCap mainly): {final_plf:.2f}%")
 
-			
-			actualPercentile = totalCapacity / PROFILE_FARES_QUARTILE
-			bookloadPercentile = self.mathutils.getCeilNumber(currBookedLoad / actualPercentile)
+		# --- Start of Day Values & Distress Pax Count (needed by both paths) ---
+		# getStartOfDayValues needs MM/DD/YYYY date AND tgtBookedLoadPercent
+		sod_dplfBand, sod_bookingToday, sod_BookingsInHour, sod_eodTgtBookedLoad_abs, \
+		sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs = \
+			self.getStartOfDayValues(
+				currBookedLoad, currFltDate, ndocounter,
+				tgtBookedLoadPercent, # Passed parameter
+				final_totalCapacity, currFltDepartureTime
+			)
 
-			self.logger.info("actualPercentile: " + str(actualPercentile))
-			self.logger.info("bookloadPercentile: " + str(bookloadPercentile))
-			if bookloadPercentile > PROFILE_FARES_QUARTILE:
-				bookloadPercentile = PROFILE_FARES_QUARTILE
-			if bookloadPercentile < PROFILE_FARES_25PERCENT_QUARTILE:
-				bookloadPercentile = PROFILE_FARES_25PERCENT_QUARTILE
-			percentile = 'Q'+str(bookloadPercentile)
+		distress_pax_count = round(sod_startOfDayTgtBookedLoad_abs - float(currBookedLoad))
+		self.logger.info(f"Distress Pax Count (SOD_Target - CurrentBooked): {distress_pax_count}")
 
-			self.logger.info("percentile: " + str(percentile))
+		# --- Date/Time strings for profileFaresExtract etc. (defined once, used by either path if needed) ---
+		# These are always defined before the if/else split.
+		# mappedMonth_df is used to potentially override month_str_for_profile
+		mappedMonth_df = self.rmdatabasehelper.getMappedMonth(currFltDate) # currFltDate is MM/DD/YYYY
 
-			sector = self.currParams.origin + self.currParams.destin
-			upsellValueData = self.rmdatabasehelper.getUpsellValue(currFltDate, sector)
+		try:
+			# TIME_FORMAT should be '%H:%M:%S'
+			time_object_dep = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
+			deptTime_str_hhmm = f"{time_object_dep.hour:02d}:{time_object_dep.minute:02d}"
+		except ValueError as e:
+			self.logger.error(f"CRITICAL: Could not parse currFltDepartureTime '{currFltDepartureTime}' with format '{TIME_FORMAT}'. Error: {e}. Using '00:00'.")
+			deptTime_str_hhmm = "00:00" # Fallback
 
-			upsellValue = 0
-			b2c_backstop = self.currParams.b2c_backstop
-			b2b_backstop = self.currParams.b2b_backstop
-			auto_b2b_backstop = "NA"
-			auto_b2c_backstop = "NA"
-			autoBackstopFlag = str(self.currParams.autoBackstopFlag)
-			if(autoBackstopFlag == "1"):
-				final_mkt_fare_b2b, final_mkt_fare_b2c = self.determineFinalMF(dplfBand, currFltDate, DaySpan, input_time_str)
-				auto_b2b_backstop = self.auto_backstop(autoBackstopFlag, self.currParams.b2b_backstop, dplfBand, final_mkt_fare_b2b)
-				auto_b2c_backstop = self.auto_backstop(autoBackstopFlag, self.currParams.b2c_backstop, dplfBand, final_mkt_fare_b2c)
-				if(auto_b2c_backstop != "NA"):
-					b2c_backstop = auto_b2c_backstop
-				else:
-					b2c_backstop = self.currParams.b2c_backstop
+		# DAY_OF_WEEK should be '%a' (e.g., "Mon"), MONTH should be '%b' (e.g., "Jan")
+		dow_str_for_profile = currFltDate_dt.strftime(DAY_OF_WEEK)
+		month_str_for_profile = currFltDate_dt.strftime(MONTH)
+		if not mappedMonth_df.empty and 'mappedMonth' in mappedMonth_df.columns and pd.notna(mappedMonth_df['mappedMonth'].iloc[0]):
+			month_str_for_profile = mappedMonth_df['mappedMonth'].iloc[0]
+
+
+		# ========================================================================
+		# *** SALEINVFLAG Check: Determines which allocation path to take ***
+		# ========================================================================
 		
-				if(auto_b2b_backstop != "NA"):
-					b2b_backstop = auto_b2b_backstop
-				else:
-					b2b_backstop = self.currParams.b2b_backstop
+
+		if str(self.salesInv) == '1':
+			self.logger.info(f"Running in Sales Inventory Only mode (Minimal AU Grid - W classes only) for Flt: {currFlt}, Date: {currFltDate}, NDO: {ndocounter}")
+			sales_inv_target_rbd_names = ['W7','W6','W5','W4']
+			self.AU_COLUMN_LENGTH = len(sales_inv_target_rbd_names)
+			currRec_salesinv_minimal = AuGridRow(self.AU_COLUMN_LENGTH) # AU_COLUMN_LENGTH from _initialize_params
+			currRec_salesinv_minimal.type = 'L'
+			currRec_salesinv_minimal.flight = f' QP{str(currFlt)} {self.currParams.origin}{self.currParams.destin}'
+			try:
+				# DATE_FORMAT_3 e.g., '%Y%m%d' or '%d%m%Y'
+				currRec_salesinv_minimal.start_date = currFltDate_dt.strftime(DATE_FORMAT_3)
+				currRec_salesinv_minimal.end_date = currFltDate_dt.strftime(DATE_FORMAT_3)
+			except ValueError as e:
+				self.logger.error(f"Error formatting date for AU Grid with DATE_FORMAT_3 ('{DATE_FORMAT_3}'): {e}. Using YYYY-MM-DD.")
+				currRec_salesinv_minimal.start_date = dateFormatted_yyyymmdd # Fallback
+				currRec_salesinv_minimal.end_date = dateFormatted_yyyymmdd
+
+			currRec_salesinv_minimal.day_of_week = 'Daily' # Standard valu # Standard Active status
+			currRec_salesinv_minimal.capacity=currAdjustedCapacity
+			currRec_salesinv_minimal.lid = currBookedLoad
+			# Assign unique IDs for summary rows, link to AuGridRow if Navitaire update enabled
+			self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+
+			current_nav_update_method = str(getattr(self, 'NavitaireUpdateMethod', '')) # Safely get and uppercase
+			if self.inputSource.isUpdateNavitaire and current_nav_update_method != S3: # S3 is a constant
+				currRec_salesinv_minimal.b2crunid = self.outputSummaryRow_b2c.Id
+				currRec_salesinv_minimal.b2brunid = self.outputSummaryRow_b2b.Id
+
 			
-			self.logger.info("auto_b2c_backstop: " + str(auto_b2c_backstop))
-			self.logger.info("auto_b2b_backstop: " + str(auto_b2b_backstop))
-    
-			if len(upsellValueData) != 0 and upsellValueData.percentage[0] is not None:
-				upsellValue = upsellValueData.percentage[0]
+			 # The only RBDs to get actual allocation
 
-			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == TEST_DATA:
-				farePrice = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams)
-				last_seven_avg = CONST_NA
-				if farePrice.shape[0] != 0:
-					lastSoldFareb2c = farePrice["B2C_last3avg_fare"][0]
-					lastSoldFareb2b = farePrice["B2B_last3avg_fare"][0]
-					last_seven_avg = farePrice["last7avg"][0]
-						
-			if self.inputSource.input_source[CONST_LAST_SELLING_FARE] == DB:
-				lastSoldFareb2c = CONST_NA
-				lastSoldFareb2b = CONST_NA
-				last_seven_avg = CONST_NA
-				flightDate = datetime.strptime(currFltDate, DATE_FORMAT).date()	
-				key = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{self.currParams.flight_number}_{flightDate}"
-				if self.cache_client.exists(key):
-					fare_manifest = self.cache_client.get(key).decode('utf-8')
-					last_seven_avg, lastsoldb2b, lastsoldb2c = self.calculate_averages(fare_manifest)
-					lastSoldFareb2c = lastsoldb2c
-					lastSoldFareb2b = lastsoldb2b
-			b2b_discount_fare = False
-			discount_amount = 0
-			if isB2CMarketFareAvailable or last_seven_avg!=CONST_NA:
-				self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg
-				
-				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
-					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
-					self.outputSummaryRow_b2c.mktFile=himktFileb2c
-				if self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
-					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
-					self.outputSummaryRow_b2c.mktFile=lowmktFileb2c
-				
-				last7avg = False
-				if not isB2CMarketFareAvailable:
-					self.outputSummaryRow_b2c.anchorFare = last_seven_avg
-					last7avg = True
-				if last7avg:
-						self.outputSummaryRow_b2c.fareOffset = 0
-				self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2C Channel is :" + str(self.outputSummaryRow_b2c.MktFare_Min) + " to " + str(self.outputSummaryRow_b2c.MktFare_Max))
-				openDataB2C, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare,self.outputSummaryRow_b2c.upsell, overBookingFare = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2c_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2c_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2c,hardoffset,BookingsInHour,lastSoldFareb2c,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
+			# Call sales_inv_allocation.
+			# It should populate W7-W4 starting at index 0 in currRec_salesinv_minimal.
+			try:
+				# Assuming sales_inv_allocation handles brd_counter=-1 to mean "start at index 0 of currRec"
+				# and sets all necessary attributes (class_of_service, class_au, type, nest, rank, allotted, ap_restriction)
+				# for the sales_inv_target_rbd_names.
+				self.allocations.sales_inv_allocation(
+					distress_pax_count, # Already rounded
+					1, # Indicates sales_inv_target_rbd_names start at currRec index 0
+					currRec_salesinv_minimal,
+					sales_inv_target_rbd_names,
+					ndocounter,
+					dateFormatted_yyyymmdd, # YYYY-MM-DD
+					self.currParams.origin,
+					self.currParams.destin
+				)
+    # Update count of filled slots
+				self.logger.info(f"Sales inventory allocation applied for {sales_inv_target_rbd_names} in minimal AU grid.")
+			except Exception as e:
+				self.logger.error(f"Error during sales_inv_allocation in minimal AU Grid mode: {e}")
+				# If error, _brd_idx_minimal_au might still be 0 or partially updated.
+				# The loop below will fill remaining slots.
 
-				B2CRBDs = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
-				if openDataB2C['Fare'][0] != CONST_NA:
-					B2CopeningPrice = float(openDataB2C['Fare'][0])
-				else:
-					B2CopeningPrice = None
-				
-				if  isB2BMarketFareAvailable:
-					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
-						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
-						self.outputSummaryRow_b2b.mktFile=himktFileb2b
-					if self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
-						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
-						self.outputSummaryRow_b2b.mktFile=lowmktFileb2b
 
-					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare)
-				elif B2CopeningPrice is not None and not self.B2B_threshold and dplfBand>=0 and dplfBand<=3:
-					b2b_discount_fare = True
-					last7avg = False
-					discount_map = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)
-					discount = discount_map[str(dplfBand)]
-					if '%' in discount:
-						# Calculate percentage discount
-						discount_amount = B2CopeningPrice * (float(discount.strip('%')) / 100)
-					else:
-						# Use absolute discount amount
-						discount_amount = float(discount)
-					
-					self.outputSummaryRow_b2b.anchorFare = B2CopeningPrice - discount_amount
-					self.logger.info("Market Fare Range for " + str(currFltDate) + " in the B2B Channel is :" + str(self.outputSummaryRow_b2b.MktFare_Min) + " to " + str(self.outputSummaryRow_b2b.MktFare_Max))
-					openDataB2B, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _  = self.determinerbd.determineRBDToOpen(self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, dateFormatted, dplfBand, ndocounter, currBookedLoad, totalCapacity, self.currParams, b2b_backstop, self.currentTime, startEndOfDayDplfBand, variance, month, deptTime, dow, percentile, upsellValue, self.currParams.b2b_tolerance,plf,float(totalCapacity-adjustedCapacity),hardfareb2b,hardoffset,BookingsInHour,lastSoldFareb2b,last7avg,b2b_discount_fare,discount_amount,self.w0Flag,self.currParams.obFare) 
-				else:
-					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
-			else:
-				openDataB2C = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [0]}
-				openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Market Data NA - Skipping allocation'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
-				self.redishelper.updateRunAudit()
-				self.redishelper.updateRunAuditReady()
+			self.AUFileData.append(currRec_salesinv_minimal) # Add to main list for later output
+			# Update Navitaire/SFTP/S3 if enabled
+			if self.inputSource.isUpdateNavitaire:
+				if current_nav_update_method == CONST_API: self.updateNavitaire(currRec_salesinv_minimal)
+				elif current_nav_update_method == CONST_SFTP: self.updateNavSFTP(currRec_salesinv_minimal)
+				elif current_nav_update_method == S3: self.updateS3Push(currRec_salesinv_minimal)
 
-			# statusInd
-			# 0 - Allocation went as planned
-			# 1 - Could not find market fares
-			# 2 - Ran out of RBDs before the offset could be achieved
+			# --- Populate OutputSummaryRow for Sales Inventory Only (Minimal AU Grid) mode ---
+			# Calculate variance for summary info (uses common variables already defined)
+			variance_salesinv = self.calculateVariance(
+				float(currBookedLoad), final_totalCapacity, ndocounter,
+				sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
+			)
+			current_ndo_band_salesinv = self.rmdatabasehelper.getNdoBand(ndocounter)
+			current_eod_dplf_band_salesinv = self.rmdatabasehelper.getdpflBand(variance_salesinv)
 
-			if (openDataB2C['statusInd'][0] == 0) or (openDataB2C['statusInd'][0] == 2):
-				# Legit Allocation - Write to AU File
-				currRec = AuGridRow(self.AU_COLUMN_LENGTH)
-				currRec.type = 'L'
-				currRec.flight = ' QP' + str(currFlt) + ' ' + self.currParams.origin + self.currParams.destin
-				currRec.start_date = datetime.strftime(datetime.strptime(currFltDate, DATE_FORMAT), DATE_FORMAT_3)
-				currRec.end_date = datetime.strftime(datetime.strptime(currFltDate, DATE_FORMAT), DATE_FORMAT_3)
-				currRec.day_of_week = 'Daily'
-				# Condition Added since we don't need to update the AU Grid in Local we need the RunId's when we update Navitare via Server Run
-				if self.inputSource.isUpdateNavitaire and not (self.NavitaireUpdateMethod == S3):
-					currRec.b2crunid = self.outputSummaryRow_b2c.Id
-					currRec.b2brunid = self.outputSummaryRow_b2b.Id
+			common_summary_attrs = {
+				"RunId": self.runId, "Origin": self.currParams.origin, "Destin": self.currParams.destin,
+				"FltNum": str(currFlt), "DepDate": str(currFltDate), # MM/DD/YYYY
+				"BookedLoad": str(currBookedLoad),
+				"TgtLoad": str(round(sod_startOfDayTgtBookedLoad_abs, 2)),
+				"HowDetermined": "Sales Inventory Only (Minimal AU Grid - W classes only)",
+				"OpenRBD": CONST_NA, "SellingFare": CONST_NA, "anchorFare": CONST_NA,
+				"analystName": str(getattr(self.currParams, 'analyst_name', CONST_NA)),
+				"allocationStatus": 1, # Mark as success for this specific mode
+				"MktFare_Min": CONST_NA, "MktFare_Max": CONST_NA, "criteria": CONST_NA, "fareOffset": CONST_NA,
+				"profileFare": CONST_NA, "strategyFare": CONST_NA, "upsell": CONST_NA,
+				"Variance": str(round(variance_salesinv,2)),
+				"bookedPlf": str(round(final_plf,2)), "overBookingCount": overBookingCount,
+				"actualbookedPlf": round(self.actualplf,2),
+				"currentTgtLoad": round(sod_tgtAtCurrentHour_abs,2),
+				"currentLoadFactor": round((sod_tgtAtCurrentHour_abs / final_totalCapacity) * 100 if final_totalCapacity > 0 else 0, 2),
+				"bookingToday": sod_bookingToday, "bookingLastHour": sod_BookingsInHour,
+				"endOfDayTgtLoad": round(sod_eodTgtBookedLoad_abs,2),
+				"dlfBand": sod_dplfBand, # Start of day DPLF band
+				"ndoBand": str(current_ndo_band_salesinv),
+				"endOfDaydlfBand": str(current_eod_dplf_band_salesinv) # End of day DPLF band (current variance)
+			}
 
-				profileExtract = self.rmdatabasehelper.profileFaresExtract(self.currParams.origin, self.currParams.destin, month, dow, deptTime)
-				profileExtractMap = profileExtract
-				profileExtract = profileExtract.transpose()
-				profileExtract = profileExtract.values.flatten()
-				profileExtract = sorted(profileExtract)
-				# First - Adding all B2C RBD's
-				b2cAllocationsUnits, brd_counter, status,_,B2CRBDs,openingRBDPrice = self.allocations.b2CAllocation(orgBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity)
-				alloc_df = self.allocations.b2CAllocations(currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, variance, remainingCapacity, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare, profileExtract, bookloadPercentile, upsellValue,openingRBDPrice, overBookingFare, adjustedCapacity)
+			for attr, value in common_summary_attrs.items():
+				setattr(self.outputSummaryRow_b2c, attr, value)
+				setattr(self.outputSummaryRow_b2b, attr, value)
 
-				self.outputSummaryRow_b2c.status = status
-				self.outputSummaryRow_b2b.status = status
-
-				isUpsellFlag = False
-				b2bSkipFlag = False
-
-				B2BRBDs = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
-				B2B_Z0_RBD = B2BRBDs['Total'][0]
-    
-				if(float(B2B_Z0_RBD)<float(self.currParams.b2b_backstop)):
-					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation zero Backtop higher'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
-				if float(self.currParams.b2b_factor) == -1:
-					b2bSkipFlag = True
-				if float(totalCapacity-adjustedCapacity)>0:
-					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation zero Overbooking'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
-
-				# Now add all the Z RBDs
-				isUpsellFlag, brd_counter = self.allocations.b2BAllocation(orgBookedLoad, openDataB2B, currRec, totalCapacity, variance, b2cAllocationsUnits, b2bSkipFlag, self.b2boverbookingflag, brd_counter, openDataB2C, self.currParams,float(totalCapacity-adjustedCapacity))
-
-				if isUpsellFlag:
-					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - Flight in upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
-
-				if b2bSkipFlag:
-					openDataB2B = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B allocation skipped - B2B Factor is -1'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
-
-				# Ends statsusInd == 0
-    
-				self.l_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
-				self.p_rbd_allocation(dateFormatted, ndoBand, dplfBand, currRec, brd_counter)
-							
-
-				brd_counter = self.w_rbd_allocation(currRec, brd_counter)
-				# Call the w_series_allocation method for WJ, WI, WH, WG, WF RBDs
-				brd_counter = self.allocations.cug_allocation(brd_counter+1, self.currParams,currRec, B2CRBDs, adjustedCapacity,self.outputSummaryRow_b2c.profileFare,dateFormatted,ndocounter,openingRBDPrice,self.cug_bookings_dict,self.currParams.cug_flag,self.currParams.cug_mkt_flag)
-				brd_counter = self.allocations.group_quote_alloc(profileExtractMap,brd_counter,currRec,self.currParams.autoGroup,adjustedCapacity,upsellValue,B2CRBDs,openingRBDPrice)
-				self.allocations.tbf_allocation(alloc_df,brd_counter,currRec,self.currParams.tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector)
-				
-    
-
-				self.AUFileData.append(currRec)
-
-				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_API):
-					self.updateNavitaire(currRec)
-
-				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP):
-					self.updateNavSFTP(currRec)
-
-				if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == S3):
-					self.updateS3Push(currRec)
-
-			if float(totalCapacity-adjustedCapacity)>0:
-				openDataB2C['FareResult'][0] = openDataB2C['FareResult'][0]+' -Overbooking'
-				openDataB2B['FareResult'][0] = openDataB2B['FareResult'][0]+' -Overbooking'
-
-			self.logger.info("Anchor fare b2c is: " + str(openDataB2C["anchorFare"][0]))
-			self.logger.info("Anchor fare b2b is: " + str(openDataB2B["anchorFare"][0]))
-
-			if int(self.currParams.profileFares) == 0:
-				self.outputSummaryRow_b2b.profileFare = CONST_NA
-				self.outputSummaryRow_b2c.profileFare = CONST_NA
-    
-			self.outputSummaryRow_b2c.RunId = self.runId
-			self.outputSummaryRow_b2c.Origin = self.currParams.origin
-			self.outputSummaryRow_b2c.Destin = self.currParams.destin
-			self.outputSummaryRow_b2c.FltNum = str(currFlt)
-			self.outputSummaryRow_b2c.DepDate = str(currFltDate)
-			self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
-			self.outputSummaryRow_b2c.TgtLoad = str(startOfDayBookLoad * totalCapacity)
-			self.outputSummaryRow_b2c.ndoBand = str(ndoBand)
-			self.outputSummaryRow_b2c.anchorFare = str(openDataB2C["anchorFare"][0])
-			self.outputSummaryRow_b2c.OpenRBD = str(openDataB2C['RBD'][0])
-			self.outputSummaryRow_b2c.SellingFare = str(openDataB2C["Fare"][0])
 			self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
-			self.outputSummaryRow_b2c.HowDetermined = str(openDataB2C['FareResult'][0])
-			self.outputSummaryRow_b2c.Backstop = self.currParams.b2c_backstop
-			self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop
-			self.outputSummaryRow_b2c.Variance = str(variance)
-			self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
-			self.outputSummaryRow_b2c.bookedPlf = str(plf)
-			self.outputSummaryRow_b2c.allocationStatus = (openDataB2C['allocationStatus'][0])
-			self.outputSummaryRow_b2c.overBookingCount = overBookingCount
-			self.outputSummaryRow_b2c.actualbookedPlf = self.actualplf
-			self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
-			
-			self.allocResults.append(self.outputSummaryRow_b2c)
-			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
-			self.outputSummaryRow_b2b.RunId = self.runId
-			self.outputSummaryRow_b2b.Origin = self.currParams.origin
-			self.outputSummaryRow_b2b.Destin = self.currParams.destin
-			self.outputSummaryRow_b2b.FltNum = str(currFlt)
-			self.outputSummaryRow_b2b.DepDate = str(currFltDate)
-			self.outputSummaryRow_b2b.BookedLoad = str(currBookedLoad)
-			self.outputSummaryRow_b2b.TgtLoad = str(startOfDayBookLoad * totalCapacity)
-			self.outputSummaryRow_b2b.ndoBand = str(ndoBand)
-			self.outputSummaryRow_b2b.anchorFare = str(openDataB2B["anchorFare"][0])
-			self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
-			self.outputSummaryRow_b2b.SellingFare = str(openDataB2B["Fare"][0])
 			self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
-			self.outputSummaryRow_b2b.HowDetermined = str(openDataB2B['FareResult'][0])
-			self.outputSummaryRow_b2b.Backstop = self.currParams.b2b_backstop
-			self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop
-			self.outputSummaryRow_b2b.Variance = str(variance)
-			self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
-			self.outputSummaryRow_b2b.bookedPlf = str(plf)
-			self.outputSummaryRow_b2b.allocationStatus = (openDataB2B['allocationStatus'][0])
-			self.outputSummaryRow_b2b.overBookingCount = overBookingCount
-			self.outputSummaryRow_b2b.actualbookedPlf = self.actualplf
+			# IDs were already set for summary rows
+			self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
 			self.outputSummaryRow_b2b.recommendedActions = self.recommend_action(self.outputSummaryRow_b2b)
 
-			self.allocResults.append(self.outputSummaryRow_b2b)
-			self.rmdatabasehelper.insertSummaryRow(self.allocResults)
+			new_summary_rows_salesinv = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
+			self.allocResults.extend(new_summary_rows_salesinv)
+			# Database insert for summary rows
+			if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): # Ideal if this method exists
+				self.rmdatabasehelper.insertSummaryRows(new_summary_rows_salesinv)
+			else: # Fallback
+				self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c])
+				self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
+
 			self.redishelper.updateRunAuditReady()
-		else:
-			if str(self.currParams.dow)[dow:(dow + 1)] == "9":
-				self.redishelper.updateRunAudit()
+			return # IMPORTANT: End processing for this flight-day if saleinvflag == '1'
+
+		# ========================================================================
+		# *** ELSE: Full Dynamic Allocation Logic (self.currParams.saleinvflag != '1') ***
+		# (This part remains as per your original full logic)
+		# ========================================================================
+		else: # effective_saleinvflag is '0' or other
+			self.logger.info("Running in Full Dynamic Allocation mode.")
+
+			# --- Start of Full Allocation Logic ---
+			# All variables from the "Common Initializations" section are available here, including:
+			# currBookedLoad, final_totalCapacity, base_adjustedCapacity, final_plf, overBookingCount,
+			# sod_dplfBand, sod_bookingToday, sod_BookingsInHour, sod_eodTgtBookedLoad_abs,
+			# sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs,
+			# distress_pax_count,
+			# dateFormatted_yyyymmdd, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm,
+			# self.currentTime, self.actualplf
+			# tgtBookedLoadPercent (parameter)
+
+			param_dow_str = str(getattr(self.currParams, 'dow', '')) # Safely get dow string from params
+			param_flight_number_str = str(getattr(self.currParams, 'flight_number', '')) # Safely get flight_number
+
+			# DOW check: dow is an int (e.g., 0 for Mon, 1 for Tue if strftime('%w'), or 1-7 if strftime('%u'))
+			# Ensure `param_dow_str` indexing is robust. `dow` should align with 0-based or 1-based indexing of this string.
+			# Assuming `dow` is 0-6 and param_dow_str uses 1 at index 0 for Monday, index 1 for Tuesday, etc.
+			# Original check: param_dow_str[dow:(dow+1)] == "1"
+			# This requires `dow` to be the correct 0-based index for the day in the 7-char string.
+			# Example: If dow is 0 (Monday), it checks param_dow_str[0:1]. If dow is 6 (Sunday), it checks param_dow_str[6:7].
+
+			dow_condition_met = False
+			if len(param_dow_str) == 7: # Ensure it's a 7-character string
+				if 0 <= dow < 7: # Ensure dow is a valid index
+					dow_condition_met = (param_dow_str[dow] == "1")
+				else:
+					self.logger.warning(f"Invalid DOW integer {dow} for indexing DOW string '{param_dow_str}'.")
+			else:
+				self.logger.warning(f"DOW string '{param_dow_str}' in params is not 7 characters long.")
+
+
+			if ((str(currFlt) == param_flight_number_str) or (param_flight_number_str == '*')) and dow_condition_met:
+
+				variance_full = self.calculateVariance(
+					float(currBookedLoad), final_totalCapacity, ndocounter,
+					sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
+				)
+				self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
+
+				ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
+				dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
+
+				# Populate summary row fields specific to full allocation
+				self.outputSummaryRow_b2c.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
+				self.outputSummaryRow_b2b.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
+				currentLoadFactor_val = (sod_tgtAtCurrentHour_abs / final_totalCapacity) * 100 if final_totalCapacity > 0 else 0.0
+				self.outputSummaryRow_b2c.currentLoadFactor = round(currentLoadFactor_val,2)
+				self.outputSummaryRow_b2b.currentLoadFactor = round(currentLoadFactor_val,2)
+				self.outputSummaryRow_b2c.bookingToday = sod_bookingToday
+				self.outputSummaryRow_b2b.bookingToday = sod_bookingToday
+				self.outputSummaryRow_b2c.bookingLastHour = sod_BookingsInHour
+				self.outputSummaryRow_b2b.bookingLastHour = sod_BookingsInHour
+				self.outputSummaryRow_b2c.endOfDayTgtLoad = round(sod_eodTgtBookedLoad_abs,2)
+				self.outputSummaryRow_b2b.endOfDayTgtLoad = round(sod_eodTgtBookedLoad_abs,2)
+				self.outputSummaryRow_b2c.dlfBand = sod_dplfBand # Start of day DPLF band
+				self.outputSummaryRow_b2b.dlfBand = sod_dplfBand
+				self.outputSummaryRow_b2c.endOfDaydlfBand = dplfBand_full # End of day DPLF band (from current variance)
+				self.outputSummaryRow_b2b.endOfDaydlfBand = dplfBand_full
+
+				self.checkTreshold(currFlt, ndocounter, final_plf) # Sets self.wX_thresholdflag, etc.
+
+				DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
+
+				# Get Dynamic D1 (Time Window)
+				self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
+					self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2B_CHANNEL, final_plf)
+				self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange, hardstartTimeB2C, hardendTimeB2C = \
+					self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
+
+				# Get Dynamic D2 (Criteria, Offset, StrategyRef)
+				self.outputSummaryRow_b2b.criteria, hardcriteriaB2B, self.outputSummaryRow_b2b.fareOffset, hardoffsetB2B, self.outputSummaryRow_b2b.StrategyReference, hardfareb2b = \
+					self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2B_CHANNEL, final_plf)
+				self.outputSummaryRow_b2c.criteria, hardcriteriaB2C, self.outputSummaryRow_b2c.fareOffset, hardoffsetB2C, self.outputSummaryRow_b2c.StrategyReference, hardfareb2c = \
+					self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2C_CHANNEL, final_plf)
+
+				# IDs for summary rows (already set in common init, but ensure unique if re-running parts)
+				self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
+				self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
+
+				self.logger.info("Getting market Fares (Full Mode)")
+				# getMarketFareAnchorFare expects currFltDate as MM/DD/YYYY
+				mktfare_params_b2c = {
+					"currParams": self.currParams, "currFltDate": currFltDate, "channel": B2C_CHANNEL,
+					"startTime": self.outputSummaryRow_b2c.startTime, "endTime": self.outputSummaryRow_b2c.endTime,
+					"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2c.criteria,
+					"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2C,
+					"hardfare": hardfareb2c, "hardstartTime": hardstartTimeB2C, "hardendTime": hardendTimeB2C
+				}
+    
+				self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, \
+				self.outputSummaryRow_b2c.AirlineCode_Min, self.outputSummaryRow_b2c.AirlineCode_Max, \
+				self.outputSummaryRow_b2c.FlightNumber_Min, self.outputSummaryRow_b2c.FlightNumber_Max, \
+				isB2CMarketFareAvailable, self.outputSummaryRow_b2c.criteria, \
+				self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, \
+				hardfareb2c_updated,lowmktFileb2c,himktFileb2c = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2c)
+				hardfareb2c = hardfareb2c_updated # Update local var if function modifiesit    
+				mktfare_params_b2b = {
+					"currParams": self.currParams, "currFltDate": currFltDate, "channel": B2B_CHANNEL,
+					"startTime": self.outputSummaryRow_b2b.startTime, "endTime": self.outputSummaryRow_b2b.endTime,
+					"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2b.criteria,
+					"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2B,
+					"hardfare": hardfareb2b, "hardstartTime": hardstartTimeB2B, "hardendTime": hardendTimeB2B
+				}
+    
+				self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, \
+				self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, \
+				self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, \
+				isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, \
+				self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, \
+				hardfareb2b_updated,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
+				hardfareb2b = hardfareb2b_updated # Update local var
+
+				# Profile Fare Quartile calculation
+				actualPercentile_full = final_totalCapacity / PROFILE_FARES_QUARTILE if PROFILE_FARES_QUARTILE != 0 else final_totalCapacity # Avoid DivByZero
+				bookloadPercentile_full = self.mathutils.getCeilNumber(float(currBookedLoad) / actualPercentile_full) if actualPercentile_full != 0 else PROFILE_FARES_QUARTILE # Avoid DivByZero
+				
+				if bookloadPercentile_full > PROFILE_FARES_QUARTILE: bookloadPercentile_full = PROFILE_FARES_QUARTILE
+				if bookloadPercentile_full < PROFILE_FARES_25PERCENT_QUARTILE: bookloadPercentile_full = PROFILE_FARES_25PERCENT_QUARTILE
+				percentile_str_full = f'Q{str(int(bookloadPercentile_full))}'
+
+				# Upsell Value
+				sector_full = self.currParams.origin + self.currParams.destin
+				upsellValueData_full = self.rmdatabasehelper.getUpsellValue(currFltDate, sector_full) # currFltDate is MM/DD/YYYY
+				upsellValue_full = 0.0
+				if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns and pd.notna(upsellValueData_full.percentage.iloc[0]):
+					try: upsellValue_full = float(upsellValueData_full.percentage.iloc[0])
+					except (ValueError, TypeError): self.logger.warning("Could not convert upsell percentage to float.")
+
+
+				# Backstop Logic
+				b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA) # Safely get
+				b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA) # Safely get
+				auto_b2b_backstop_str = "NA"
+				auto_b2c_backstop_str = "NA"
+				
+				effective_autoBackstopFlag = str(getattr(self.currParams, 'autoBackstopFlag', '0')) # Safely get
+				if effective_autoBackstopFlag == "1":
+					# determineFinalMF needs MM/DD/YYYY date
+					final_mkt_fare_b2b_for_ab, final_mkt_fare_b2c_for_ab = self.determineFinalMF(dplfBand_full, currFltDate, DaySpan_full, input_time_str_dep_full)
+					auto_b2b_backstop_str = self.auto_backstop(effective_autoBackstopFlag, b2b_backstop_final, dplfBand_full, final_mkt_fare_b2b_for_ab)
+					auto_b2c_backstop_str = self.auto_backstop(effective_autoBackstopFlag, b2c_backstop_final, dplfBand_full, final_mkt_fare_b2c_for_ab)
+					if auto_b2c_backstop_str != "NA": b2c_backstop_final = auto_b2c_backstop_str
+					if auto_b2b_backstop_str != "NA": b2b_backstop_final = auto_b2b_backstop_str
+				
+				# Last Selling Fare
+				lastSoldFareb2c_val = CONST_NA; lastSoldFareb2b_val = CONST_NA; last_seven_avg_val = CONST_NA
+				input_source_lsf = self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) # Default to TEST_DATA if not set
+
+				if input_source_lsf == TEST_DATA:
+					farePrice_data = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams) # currFltDate is MM/DD/YYYY
+					if not farePrice_data.empty:
+						if "B2C_last3avg_fare" in farePrice_data.columns: lastSoldFareb2c_val = farePrice_data["B2C_last3avg_fare"].iloc[0]
+						if "B2B_last3avg_fare" in farePrice_data.columns: lastSoldFareb2b_val = farePrice_data["B2B_last3avg_fare"].iloc[0]
+						if "last7avg" in farePrice_data.columns: last_seven_avg_val = farePrice_data["last7avg"].iloc[0]
+				elif input_source_lsf == DB:
+					redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
+					if self.cache_client.exists(redis_key_lsf):
+						fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
+						last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+				
+				# Determine RBD to Open
+				b2b_discount_fare_active = False; current_discount_amount = 0.0; determined_overBookingFare = 0.0
+				openDataB2C_details = {}; openDataB2B_details = {} # To store results from determineRBDToOpen
+				
+				param_obFare = getattr(self.currParams, 'obFare', None) # Get obFare safely
+				param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
+				param_b2b_tolerance = getattr(self.currParams, 'b2b_tolerance', 0) # Default tolerance
+
+				mkt_fare_flag = int(self.currParams.mkt_fare_flag)
+
+				# Determine if we should process (enter the main block)
+				should_process = False
+				if mkt_fare_flag == 1:
+					# Flag = 1: Original behavior - process if either market fare OR last_seven_avg available
+					should_process = isB2CMarketFareAvailable or (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA)
+				elif mkt_fare_flag == 0:
+					# Flag = 0: Only process if last_seven_avg is available
+					should_process = pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA
+
+				if should_process:
+					self.outputSummaryRow_b2c.lastSevenAvgFare = last_seven_avg_val
+					
+					is_last7avg_anchor = False
+					# Set B2C Anchor Fare based on criteria or L7D Avg
+					if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
+						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
+						self.outputSummaryRow_b2c.mktFile = himktFileb2c
+					elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
+						self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
+						self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
+					
+					# Determine when to override with last_seven_avg
+					if mkt_fare_flag == 0:
+						# Flag = 0: Always use last_seven_avg if available
+						if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
+							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
+							is_last7avg_anchor = True
+					elif mkt_fare_flag == 1:
+						# Flag = 1: Original behavior - use last_seven_avg only if market fare not available
+						if not isB2CMarketFareAvailable and (pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA):
+							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
+							is_last7avg_anchor = True
+					
+					if is_last7avg_anchor: 
+						self.outputSummaryRow_b2c.fareOffset = 0  # No offset if L7D avg is anchor
+					
+					# determineRBDToOpen needs YYYY-MM-DD date
+					openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
+					self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
+					determined_overBookingFare = self.determinerbd.determineRBDToOpen(
+													self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, 
+													dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
+													b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, month_str_for_profile, deptTime_str_hhmm, 
+													dow_str_for_profile, percentile_str_full, upsellValue_full, param_b2c_tolerance, final_plf,
+													overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, 
+													is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare
+												)
+
+					# Get B2C Opening Price for potential B2B derivation
+					B2C_opening_price_val = None
+					# Check if 'Fare' key exists and the list is not empty before accessing iloc[0]
+					if 'Fare' in openDataB2C_details and isinstance(openDataB2C_details['Fare'], list) and openDataB2C_details['Fare'] and openDataB2C_details['Fare'][0] != CONST_NA:
+						try: 
+							B2C_opening_price_val = float(openDataB2C_details['Fare'][0])
+						except (ValueError, TypeError): 
+							self.logger.warning(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
+					
+					# B2B RBD determination
+					if isB2BMarketFareAvailable:
+						if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
+							self.outputSummaryRow_b2b.mktFile = himktFileb2b
+						elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]: 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
+							self.outputSummaryRow_b2b.mktFile = lowmktFileb2b
+						elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min): 
+							self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Default
+						
+						openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
+						self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _  = \
+							self.determinerbd.determineRBDToOpen(
+								self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, 
+								dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
+								b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, month_str_for_profile, deptTime_str_hhmm, 
+								dow_str_for_profile, percentile_str_full, upsellValue_full, param_b2b_tolerance, final_plf,
+								overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val,
+								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare 
+							)
+					elif B2C_opening_price_val is not None and not self.B2B_threshold and 0 <= dplfBand_full <= 3:
+						b2b_discount_fare_active = True 
+						discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
+						discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
+						
+						if '%' in discount_str_val: 
+							current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
+						else: 
+							current_discount_amount = float(discount_str_val)
+						
+						derived_b2b_anchor_fare = B2C_opening_price_val - current_discount_amount
+						self.outputSummaryRow_b2b.anchorFare = derived_b2b_anchor_fare
+						self.outputSummaryRow_b2b.fareOffset = 0 
+
+						openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
+						self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _ = \
+							self.determinerbd.determineRBDToOpen(
+								derived_b2b_anchor_fare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, 
+								dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
+								b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, month_str_for_profile, deptTime_str_hhmm, 
+								dow_str_for_profile, percentile_str_full, upsellValue_full, param_b2b_tolerance,final_plf,
+								overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val,
+								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare
+							) 
+					else: 
+						openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
+				else: 
+					openDataB2C_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data & L7D Avg NA'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [0]}
+					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data NA - Skip B2B'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
+					self.redishelper.updateRunAudit(); self.redishelper.updateRunAuditReady()
+
+				# --- AU Grid Allocation (Full Mode) ---
+				currRec_fullalloc = AuGridRow(self.AU_COLUMN_LENGTH) # AU_COLUMN_LENGTH from _initialize_params
+				currRec_fullalloc.type = 'L'; currRec_fullalloc.flight = f' QP{str(currFlt)} {self.currParams.origin}{self.currParams.destin}'
+				try:
+					currRec_fullalloc.start_date = currFltDate_dt.strftime(DATE_FORMAT_3)
+					currRec_fullalloc.end_date = currFltDate_dt.strftime(DATE_FORMAT_3)
+				except ValueError: 
+					currRec_fullalloc.start_date = dateFormatted_yyyymmdd 
+					currRec_fullalloc.end_date = dateFormatted_yyyymmdd
+				currRec_fullalloc.day_of_week = 'Daily'
+
+				current_nav_update_method_full = str(getattr(self, 'NavitaireUpdateMethod', ''))
+				if self.inputSource.isUpdateNavitaire and current_nav_update_method_full != S3:
+					currRec_fullalloc.b2crunid = self.outputSummaryRow_b2c.Id
+					currRec_fullalloc.b2brunid = self.outputSummaryRow_b2b.Id
+
+				# Profile Fares list for allocations
+				profileExtract_df_fullalloc = self.rmdatabasehelper.profileFaresExtract(
+					self.currParams.origin, self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm
+				)
+				profileFares_list_sorted_fullalloc = []
+				if not profileExtract_df_fullalloc.empty:
+					profileFares_list_sorted_fullalloc = sorted(profileExtract_df_fullalloc.transpose().values.flatten().tolist())
+
+				# Proceed with AU allocation if B2C determination was somewhat successful
+				# Check if 'statusInd' key exists before trying to access its value
+				b2c_status_ind = openDataB2C_details.get('statusInd', [1])[0] if isinstance(openDataB2C_details.get('statusInd'), list) and openDataB2C_details.get('statusInd') else 1
+
+				if b2c_status_ind in [0, 2]:
+					# Booked deficit for B2C allocation (target based on original Lid from params)
+					bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
+					remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
+
+					b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val = \
+						self.allocations.b2CAllocation(
+							float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
+							remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
+							profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full,
+							determined_overBookingFare, base_adjustedCapacity
+						)
+
+					# This call also modifies currRec_fullalloc, for TBF.
+					alloc_df_for_tbf = self.allocations.b2CAllocations(
+						float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
+						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
+						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
+						determined_overBookingFare, base_adjustedCapacity
+					)
+
+					self.outputSummaryRow_b2c.status = b2c_status_val
+					self.outputSummaryRow_b2b.status = b2c_status_val # Mirror B2C status initially
+
+					# B2B Allocation
+					isUpsell_b2b = False; skip_b2b_factor = False
+					current_brd_counter = brd_counter_after_b2c
+
+					# B2B Z0 fare check vs backstop
+					b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
+					b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
+
+					if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
+						openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
+					
+					param_b2b_factor = getattr(self.currParams, 'b2b_factor', 0) # Default if not present
+					if pd.notna(param_b2b_factor) and float(param_b2b_factor) == -1:
+						skip_b2b_factor = True
+
+					isUpsell_b2b, current_brd_counter = self.allocations.b2BAllocation(
+						float(initial_currBookedLoad), openDataB2B_details, currRec_fullalloc, final_totalCapacity, variance_full, b2cAllocUnits_val,
+						skip_b2b_factor, self.b2boverbookingflag, current_brd_counter, openDataB2C_details,
+						self.currParams, overBookingCount
+					)
+
+					if isUpsell_b2b: openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B skipped - Flight in Upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
+					if skip_b2b_factor: openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B skipped - B2B Factor is -1'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
+
+					# L, P, W, CUG, GQ, TBF allocations
+					# Pass YYYY-MM-DD date to L, P allocations
+					self.l_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); 
+					self.p_rbd_allocation(dateFormatted_yyyymmdd, ndoBand_full, dplfBand_full, currRec_fullalloc, current_brd_counter); 
+
+					current_brd_counter = self.w_rbd_allocation(currRec_fullalloc, current_brd_counter) # Uses final_plf
+
+					# CUG allocation
+					B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
+					cug_bookings_dict_local = getattr(self, 'cug_bookings_dict', {}) # Use if it's a class member, else ensure defined
+
+					param_cug_flag = getattr(self.currParams, 'cug_flag', 0) # Default
+					param_cug_mkt_flag = getattr(self.currParams, 'cug_mkt_flag', 0) # Default
+
+					current_brd_counter = self.allocations.cug_allocation(
+						current_brd_counter + 1, self.currParams, currRec_fullalloc,
+						B2CRBDs_df_for_cug_gq_tbf, 
+						base_adjustedCapacity, self.outputSummaryRow_b2c.profileFare,
+						dateFormatted_yyyymmdd, ndocounter, b2c_opening_price_val,
+						cug_bookings_dict_local, param_cug_flag, param_cug_mkt_flag
+					)
+
+					# Group Quote allocation
+					param_autoGroup = getattr(self.currParams, 'autoGroup', 0) # Default
+					current_brd_counter = self.allocations.group_quote_alloc(
+						profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
+						base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val
+					)
+
+					# TBF allocation needs alloc_df from b2CAllocations (plural)
+					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0) # Default
+					current_brd_counter = self.allocations.tbf_allocation(
+						alloc_df_for_tbf, current_brd_counter, currRec_fullalloc, param_tbfFlag, B2CRBDs_df_for_cug_gq_tbf,
+						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full
+					)
+
+					# Sales Inventory for W-classes (distress_pax_count from common init)
+					# w8_slot_for_sales_inv_full = -1 # Default if W8 not found
+					# for i_slot in range(self.AU_COLUMN_LENGTH):
+					# 	if getattr(currRec_fullalloc, f"class_of_service_{i_slot+1}", None) == 'W8':
+					# 		w8_slot_for_sales_inv_full = i_slot
+					# 		break
+					# if w8_slot_for_sales_inv_full != -1:
+					# 	self.allocations.sales_inv_allocation(
+					# 		distress_pax_count, # Already rounded
+					# 		w8_slot_for_sales_inv_full, # Pass index of W8
+					# 		currRec_fullalloc, ['W7','W6','W5','W4'],
+					# 		ndocounter,dateFormatted_yyyymmdd,self.currParams.origin,self.currParams.destin
+					# 	)
+					# else:
+					# 	self.logger.warning("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
+
+					self.AUFileData.append(currRec_fullalloc)
+					if self.inputSource.isUpdateNavitaire:
+						if current_nav_update_method_full == CONST_API: self.updateNavitaire(currRec_fullalloc)
+						elif current_nav_update_method_full == CONST_SFTP: self.updateNavSFTP(currRec_fullalloc)
+						elif current_nav_update_method_full == S3: self.updateS3Push(currRec_fullalloc)
+				else: # B2C determination was not successful enough for AU grid
+					self.logger.info("B2C Open Data status not 0 or 2. AU Grid generation skipped for Full Allocation.")
+
+
+				# --- Populate Final OutputSummaryRows (Full Mode) ---
+				if overBookingCount > 0: # Add Overbooking note to FareResult
+					if 'FareResult' in openDataB2C_details and isinstance(openDataB2C_details.get('FareResult'), list) and openDataB2C_details.get('FareResult'):
+						openDataB2C_details['FareResult'][0] = str(openDataB2C_details['FareResult'][0]) + ' -Overbooking'
+					if 'FareResult' in openDataB2B_details and isinstance(openDataB2B_details.get('FareResult'), list) and openDataB2B_details.get('FareResult'):
+						openDataB2B_details['FareResult'][0] = str(openDataB2B_details['FareResult'][0]) + ' -Overbooking'
+
+				# If profileFares param is 0, clear profileFare from summary
+				param_profileFares = getattr(self.currParams, 'profileFares', 1) # Default to 1 (enabled)
+				if pd.notna(param_profileFares) and int(param_profileFares) == 0:
+					self.outputSummaryRow_b2b.profileFare = CONST_NA
+					self.outputSummaryRow_b2c.profileFare = CONST_NA
+
+
+				param_analyst_name_full = str(getattr(self.currParams, 'analyst_name', CONST_NA))
+				param_b2c_backstop_full = str(b2c_backstop_final if b2c_backstop_final != CONST_NA else getattr(self.currParams, 'b2c_backstop', CONST_NA))
+				param_b2b_backstop_full = str(b2b_backstop_final if b2b_backstop_final != CONST_NA else getattr(self.currParams, 'b2b_backstop', CONST_NA))
+
+
+				# B2C Summary Row Population
+				# Safely get values from openDataB2C_details dictionary
+				def safe_get_from_dict(d, key, default=CONST_NA, index=0):
+					val_list = d.get(key)
+					if isinstance(val_list, list) and len(val_list) > index:
+						return val_list[index]
+					return default
+
+				self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
+				self.outputSummaryRow_b2c.Destin = self.currParams.destin; self.outputSummaryRow_b2c.FltNum = str(currFlt)
+				self.outputSummaryRow_b2c.DepDate = str(currFltDate); self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
+				self.outputSummaryRow_b2c.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2c.ndoBand = str(ndoBand_full)
+				self.outputSummaryRow_b2c.anchorFare = str(safe_get_from_dict(openDataB2C_details, "anchorFare"))
+				self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD'))
+				self.outputSummaryRow_b2c.SellingFare = str(safe_get_from_dict(openDataB2C_details, "Fare")); self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
+				self.outputSummaryRow_b2c.HowDetermined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
+				self.outputSummaryRow_b2c.Backstop = param_b2c_backstop_full; self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop_str
+				self.outputSummaryRow_b2c.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2c.analystName = param_analyst_name_full
+				self.outputSummaryRow_b2c.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2c.allocationStatus = safe_get_from_dict(openDataB2C_details, 'allocationStatus', default=0)
+				self.outputSummaryRow_b2c.overBookingCount = overBookingCount; self.outputSummaryRow_b2c.actualbookedPlf = round(self.actualplf,2)
+				self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
+
+				# B2B Summary Row Population
+				self.outputSummaryRow_b2b.RunId = self.runId; self.outputSummaryRow_b2b.Origin = self.currParams.origin
+				self.outputSummaryRow_b2b.Destin = self.currParams.destin; self.outputSummaryRow_b2b.FltNum = str(currFlt)
+				self.outputSummaryRow_b2b.DepDate = str(currFltDate); self.outputSummaryRow_b2b.BookedLoad = str(currBookedLoad)
+				self.outputSummaryRow_b2b.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2b.ndoBand = str(ndoBand_full)
+				self.outputSummaryRow_b2b.anchorFare = str(safe_get_from_dict(openDataB2B_details, "anchorFare"))
+				self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD'))
+				self.outputSummaryRow_b2b.SellingFare = str(safe_get_from_dict(openDataB2B_details, "Fare")); self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
+				self.outputSummaryRow_b2b.HowDetermined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+				self.outputSummaryRow_b2b.Backstop = param_b2b_backstop_full; self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop_str
+				self.outputSummaryRow_b2b.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2b.analystName = param_analyst_name_full
+				self.outputSummaryRow_b2b.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2b.allocationStatus = safe_get_from_dict(openDataB2B_details, 'allocationStatus', default=0)
+				self.outputSummaryRow_b2b.overBookingCount = overBookingCount; self.outputSummaryRow_b2b.actualbookedPlf = round(self.actualplf,2)
+				self.outputSummaryRow_b2b.recommendedActions = self.recommend_action(self.outputSummaryRow_b2b)
+
+				new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
+				self.allocResults.extend(new_summary_rows_fullalloc)
+				# Database insert
+				if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
+				else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
+
 				self.redishelper.updateRunAuditReady()
-			self.logger.info("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
+			else: # Skipped due to DOW or flight number mismatch (Full Allocation Mode)
+				# Check for specific DOW '9' for audit update
+				dow_char_to_check = ''
+				if len(param_dow_str) == 7 and 0 <= dow < 7:
+					dow_char_to_check = param_dow_str[dow]
+
+				if dow_char_to_check == "9":
+					self.redishelper.updateRunAudit()
+					self.redishelper.updateRunAuditReady()
+				self.logger.info(f"Run Parameters requested to skip this flight-day (Flt: {currFlt}, DOW_int: {dow}, DOW_char_in_param: '{dow_char_to_check}') in Full Allocation Mode.")
 
 	def w_rbd_allocation(self, currRec, brd_counter):
 		currRec.set_class_attribute(brd_counter+2, 'class_of_service', 'G8')
@@ -990,12 +1375,18 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
-			AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			if self.salesInv==0:
+				AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			else:
+				AUFrame.to_csv(CONST_AU_GRID_SALES_FILE_PATH, index=False)
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
 			df = df.drop(columns=["Id"])
-			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			if self.salesInv==0:
+				df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			else:
+				df.to_csv(CONST_SUMMARY_SALES_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}
@@ -1111,6 +1502,7 @@ class DynAlloc:
 			self.runId = self.currParams.run_id
 		else:
 			self.runId = self.utils.getUniqueId()
+		self.salesInv = self.currParams.saleinvflag
 		self.log_time = self.currParams.time_logger
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)
