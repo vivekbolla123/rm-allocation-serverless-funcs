@@ -33,7 +33,7 @@ class LastSoldFare:
             CACHE_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_CACHE_PASSWORD')
             self.logger = logging.getLogger()
             self.logger.setLevel(logging.INFO)
-            self.NAV_DB_NAME = "TST0KWB01"
+            self.NAV_DB_NAME = "REZ0KWB01"
             try:
 
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
