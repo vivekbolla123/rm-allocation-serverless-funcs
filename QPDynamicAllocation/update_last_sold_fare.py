@@ -1,5 +1,4 @@
 import logging
-from os import getenv
 from sys import exit
 import json
 
@@ -20,10 +19,7 @@ class LastSoldFare:
         self.get_last_sold_fare()
 
     def generateConfigs(self):
-        ISPROD= False
-        env = getenv('env', default='uat')
-        if env == 'prod':
-            ISPROD = True
+        ISPROD = True
         if ISPROD:
             CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
             # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
