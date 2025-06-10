@@ -1,4 +1,5 @@
 import logging
+from os import getenv
 from sys import exit
 import json
 
@@ -16,32 +17,63 @@ class LastSoldFare:
         self.logger = None
         self.cache_client = None
         self.generateConfigs()
-
         self.get_last_sold_fare()
 
     def generateConfigs(self):
-        CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-        # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
-        # CACHE_ENDPOINT = "172.24.72.8"
-        CACHE_PORT = 6379
-        CACHE_USERNAME = "default"
-        CACHE_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_CACHE_PASSWORD')
-        self.logger = logging.getLogger()
-        self.logger.setLevel(logging.INFO)
-        try:
+        ISPROD= False
+        env = getenv('env', default='uat')
+        if env == 'prod':
+            ISPROD = True
+        if ISPROD:
+            CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
+            # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+            # CACHE_ENDPOINT = "172.24.72.8"
+            CACHE_PORT = 6379
+            CACHE_USERNAME = "default"
+            CACHE_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_CACHE_PASSWORD')
+            self.logger = logging.getLogger()
+            self.logger.setLevel(logging.INFO)
+            self.NAV_DB_NAME = "TST0KWB01"
+            try:
 
-            self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
-            if self.cache_client.ping():
-                print("Connected to Redis")
+                self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+                if self.cache_client.ping():
+                    print("Connected to Redis")
 
-            self.NavitaireConnection = pymssql.connect(
-                host="10.154.12.13:52900",
-                user="0KODSUSER2",
-                password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
-            )
-        except Exception as e:
-            self.logger.error(e)
-            exit()
+                self.NavitaireConnection = pymssql.connect(
+                    host="10.154.12.13:52900",
+                    user="0KODSUSER2",
+                    password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
+                )
+            except Exception as e:
+                self.logger.error(e)
+                exit()
+                
+        else:
+            # CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
+            # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
+            CACHE_ENDPOINT = "172.24.72.8"
+            CACHE_PORT = 6379
+            CACHE_USERNAME = "default"
+            CACHE_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_CACHE_PASSWORD')
+            self.logger = logging.getLogger()
+            self.logger.setLevel(logging.INFO)
+            self.NAV_DB_NAME = "TST0KWB01"
+            try:
+
+                self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+                if self.cache_client.ping():
+                    print("Connected to Redis")
+
+                self.NavitaireConnection = pymssql.connect(
+                    host="10.154.12.19:52900",
+                    user="0KODSUSER2",
+                    password=self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD')
+                )
+            except Exception as e:
+                self.logger.error(e)
+                exit()
+                
 
     def get_last_sold_fare(self):
         time = None
@@ -179,15 +211,15 @@ class LastSoldFare:
                     case when PJS.FareBasis='' then 1 else SegmentNumber end as ModSegmentNumber,
                     avg(CP.ActualDistance) as Distance
                   FROM
-                    REZ0KWB01.rez.Booking B
-                    INNER JOIN REZ0KWB01.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-                    INNER JOIN REZ0KWB01.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('S') 
-                    INNER JOIN REZ0KWB01.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
-                    INNER JOIN REZ0KWB01.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
-                    LEFT JOIN REZ0KWB01.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-                    LEFT JOIN REZ0KWB01.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
-                    Left join REZ0KWB01.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
-                    inner join REZ0KWB01.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
+                    {self.NAV_DB_NAME }.rez.Booking B
+                    INNER JOIN {self.NAV_DB_NAME }.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
+                    INNER JOIN {self.NAV_DB_NAME }.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('S') 
+                    INNER JOIN {self.NAV_DB_NAME }.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
+                    INNER JOIN {self.NAV_DB_NAME }.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
+                    LEFT JOIN {self.NAV_DB_NAME }.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
+                    LEFT JOIN {self.NAV_DB_NAME }.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
+                    Left join {self.NAV_DB_NAME }.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
+                    inner join {self.NAV_DB_NAME }.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
                     AND (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
