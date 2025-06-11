@@ -802,7 +802,7 @@ class DynAlloc:
 								overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val,
 								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare 
 							)
-					elif B2C_opening_price_val is not None and not self.B2B_threshold and 0 <= dplfBand_full <= 3:
+					elif B2C_opening_price_val is not None and not self.B2B_thresholdflag and 0 <= dplfBand_full <= 3:
 						b2b_discount_fare_active = True 
 						discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
 						discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
