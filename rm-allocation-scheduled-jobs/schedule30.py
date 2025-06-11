@@ -437,7 +437,7 @@ class ScheduleThirty:
                 "obFare","SkippingFactor", "UUID", "OwnFareFlag", "analystName", "AutoTimeRangeFlag",
                 "OverBooking", "openingFares", "profileFares", "rbdPushFlag", "B2CTolerance",
                 "B2BTolerance", "distressInventoryFlag", "seriesBlock", "autoGroup",
-                "autoBackstopFlag", "tbfFlag", "CugFlag"
+                "autoBackstopFlag", "tbfFlag", "CugFlag", "MktFareFlag"
             ]
             
             # Create a comma-separated list of columns

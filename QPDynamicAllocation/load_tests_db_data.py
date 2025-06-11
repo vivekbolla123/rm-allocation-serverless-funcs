@@ -47,6 +47,9 @@ class Schema:
         self.load_generic_table("market_list_international","Marketlist_international.csv")
         self.load_generic_table("tbf_discount_grid","tbf_discount_grid.csv")
         self.load_generic_table("expected_no_shows","expected_no_shows.csv")
+        self.load_generic_table("sales_inventory","sales_inventory.csv")
+        self.load_generic_table("salesinv_rbd_distribution","salesinv_rbd_distribution.csv")
+        self.load_generic_table("distress_calendar","distress_calendar.csv")
         self.load_generic_table("forecast_results","forecast_results.csv")
         
         self.alterTables()

@@ -220,7 +220,7 @@ class NavDatabaseHelper:
                 AND ILC.ClassAu != '0'
         )
         SELECT 
-            FlightNumber,
+            trim(FlightNumber) as FlightNumber,
             Origin,
             Destination,
             DepartureDate,
@@ -255,13 +255,14 @@ def number_of_batches_required(total_records, adhoc_batch_size):
         return [total_records // adhoc_batch_size, 0]
 
 
-def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc):
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc,saleinvflag):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
     record["runTime"] = start_time
     record["route_type"] = route_type
     record["queue"] = queue_name
     record['cug_alloc'] = cug_alloc
+    record["saleinvflag"] = saleinvflag
     return record
 
 
@@ -281,7 +282,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
         print(e)
 
 
-def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc, batch_size=10, max_workers=5):
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc,salesinv, batch_size=10, max_workers=5):
     records = df.to_dict('records')
     batches = [records[i:i+batch_size]
                for i in range(0, len(records), batch_size)]
@@ -292,7 +293,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
         'start_time': start_time,
         'route_type': route_type,
         'queue_name': queue_name,
-        'cug_alloc':cug_alloc
+        'cug_alloc':cug_alloc,
+        'saleinvflag':salesinv
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         executor.map(lambda batch: send_batch_to_sqs(
@@ -372,6 +374,7 @@ def lambda_handler(event, context):
     region = "Domestic"
     unique_key_value = ""
     cug_alloc = "0"
+    salesinv = "0"
 
     # Overrides
     if route_type_key in data:
@@ -400,6 +403,9 @@ def lambda_handler(event, context):
         unique_key_value = data[unique_key]
     if cug_alloc_key in data:
         cug_alloc = data[cug_alloc_key]
+        
+    if region=='SalesInv':
+        salesinv="1"
 
     # Start program
     if type == "Adhoc":
@@ -532,52 +538,58 @@ def lambda_handler(event, context):
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'bookedPax': 'BookedPax1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'capacity': 'Capacity1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'capacity': 'Capacity2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector2 (using SecondFlightDepartureDate)
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber'], errors='ignore')
-        mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
-        mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        # mkt_list = mkt_list.rename(columns=lambda x: 'DepartureDate' if x.startswith('DepartureDate_') else x)
+        # mkt_list = mkt_list.loc[:, ~mkt_list.columns.duplicated()]            
         markets_count = mkt_list.shape[0]
         mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
         mkt_list = mkt_list.drop(
@@ -613,7 +625,7 @@ def lambda_handler(event, context):
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name,cug_alloc)
+                              update_navitaire_method, route_type, queue_name,cug_alloc,salesinv)
     else:
         batches_required = number_of_batches_required(
             markets_count, adhoc_batch_size)
@@ -627,6 +639,7 @@ def lambda_handler(event, context):
             batch_df['route_type'] = route_type
             batch_df['queue'] = queue_name
             batch_df['cug_alloc'] = cug_alloc
+            batch_df['saleinvflag']=salesinv
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
             data_to_serialize = batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -643,6 +656,7 @@ def lambda_handler(event, context):
             last_batch_df['route_type'] = route_type
             last_batch_df['queue'] = queue_name
             last_batch_df['cug_alloc'] = cug_alloc
+            batch_df['saleinvflag']=salesinv
             temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
             data_to_serialize = last_batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -847,7 +861,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,ProfileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,Autobackstopflag,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
