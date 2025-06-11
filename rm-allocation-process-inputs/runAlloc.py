@@ -312,7 +312,7 @@ class DynAlloc:
 			try:
 				current_w0Flag = int(self.w0Flag)
 			except (ValueError, TypeError):
-				self.logger.warning(f"Could not convert self.w0Flag ('{self.w0Flag}') to int. Defaulting to 0.")
+				self.logger.info(f"Could not convert self.w0Flag ('{self.w0Flag}') to int. Defaulting to 0.")
 		self.outputSummaryRow_b2c.w0Flag = current_w0Flag
 		self.outputSummaryRow_b2b.w0Flag = current_w0Flag
 
@@ -337,7 +337,7 @@ class DynAlloc:
 			try:
 				self.actualplf = (float(initial_currBookedLoad) / float(currAdjustedCapacity)) * 100
 			except (ValueError, TypeError):
-				self.logger.warning("Could not calculate actualplf due to invalid numeric types for booked load or capacity.")
+				self.logger.info("Could not calculate actualplf due to invalid numeric types for booked load or capacity.")
 
 		# Adjust currBookedLoad for seriesBlock if applicable
 		effective_series_block_flag = 0 # Default
@@ -346,7 +346,7 @@ class DynAlloc:
 			try:
 				effective_series_block_flag = int(series_block_param)
 			except (ValueError, TypeError):
-				self.logger.warning(f"Invalid seriesBlock value: {series_block_param}. Assuming 0.")
+				self.logger.info(f"Invalid seriesBlock value: {series_block_param}. Assuming 0.")
 
 		if effective_series_block_flag == 1:
 			currBookedLoad = self.getBookloadSeries(dateFormatted_yyyymmdd, currBookedLoad) # getBookloadSeries needs YYYY-MM-DD
@@ -362,12 +362,12 @@ class DynAlloc:
 		base_totalCapacity = 0.0
 		if pd.notna(currLid):
 			try: base_totalCapacity = float(currLid)
-			except (ValueError, TypeError): self.logger.warning(f"currLid '{currLid}' not convertible to float.")
+			except (ValueError, TypeError): self.logger.info(f"currLid '{currLid}' not convertible to float.")
 
 		base_adjustedCapacity = 0.0
 		if pd.notna(currAdjustedCapacity):
 			try: base_adjustedCapacity = float(currAdjustedCapacity)
-			except (ValueError, TypeError): self.logger.warning(f"currAdjustedCapacity '{currAdjustedCapacity}' not convertible to float.")
+			except (ValueError, TypeError): self.logger.info(f"currAdjustedCapacity '{currAdjustedCapacity}' not convertible to float.")
 
 
 		# --- Overbooking Logic (affects totalCapacity, run before flag check) ---
@@ -580,9 +580,9 @@ class DynAlloc:
 				if 0 <= dow < 7: # Ensure dow is a valid index
 					dow_condition_met = (param_dow_str[dow] == "1")
 				else:
-					self.logger.warning(f"Invalid DOW integer {dow} for indexing DOW string '{param_dow_str}'.")
+					self.logger.info(f"Invalid DOW integer {dow} for indexing DOW string '{param_dow_str}'.")
 			else:
-				self.logger.warning(f"DOW string '{param_dow_str}' in params is not 7 characters long.")
+				self.logger.info(f"DOW string '{param_dow_str}' in params is not 7 characters long.")
 
 
 			if ((str(currFlt) == param_flight_number_str) or (param_flight_number_str == '*')) and dow_condition_met:
@@ -679,8 +679,8 @@ class DynAlloc:
 				upsellValueData_full = self.rmdatabasehelper.getUpsellValue(currFltDate, sector_full) # currFltDate is MM/DD/YYYY
 				upsellValue_full = 0.0
 				if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns and pd.notna(upsellValueData_full.percentage.iloc[0]):
-					try: upsellValue_full = float(upsellValueData_full.percentage.iloc[0])
-					except (ValueError, TypeError): self.logger.warning("Could not convert upsell percentage to float.")
+					try: upsellValue_full = upsellValueData_full.percentage.iloc[0]
+					except (ValueError, TypeError): self.logger.info("Could not convert upsell percentage to float.")
 
 
 				# Backstop Logic
@@ -779,7 +779,7 @@ class DynAlloc:
 						try: 
 							B2C_opening_price_val = float(openDataB2C_details['Fare'][0])
 						except (ValueError, TypeError): 
-							self.logger.warning(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
+							self.logger.info(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
 					
 					# B2B RBD determination
 					if isB2BMarketFareAvailable:
@@ -959,7 +959,7 @@ class DynAlloc:
 					# 		ndocounter,dateFormatted_yyyymmdd,self.currParams.origin,self.currParams.destin
 					# 	)
 					# else:
-					# 	self.logger.warning("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
+					# 	self.logger.info("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
 
 					self.AUFileData.append(currRec_fullalloc)
 					if self.inputSource.isUpdateNavitaire:
