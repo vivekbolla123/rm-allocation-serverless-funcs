@@ -20,6 +20,8 @@ warnings.filterwarnings('ignore')
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 s3 = boto3.client('s3')
+dynamodb = boto3.resource('dynamodb',aws_access_key_id=configsettings.RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD,
+    aws_secret_access_key=configsettings.RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD)
 # DB settings
 WAIT_TIME = 30  # in seconds
 
@@ -106,6 +108,7 @@ def lambda_handler(event, context):
         data["runTime"]=data["runTime"]
         route_type = data["route_type"]
         run_id = data["runId"]
+        data["dynamodbclient"]=dynamodb
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
             if (status_df.iloc[0]['run_status'] == 'DELETED'):

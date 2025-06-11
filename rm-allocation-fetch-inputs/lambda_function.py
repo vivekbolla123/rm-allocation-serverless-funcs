@@ -255,13 +255,14 @@ def number_of_batches_required(total_records, adhoc_batch_size):
         return [total_records // adhoc_batch_size, 0]
 
 
-def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc):
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name,cug_alloc,dynamodb):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
     record["runTime"] = start_time
     record["route_type"] = route_type
     record["queue"] = queue_name
     record['cug_alloc'] = cug_alloc
+    record["dynamodb"]=dynamodb
     return record
 
 
@@ -281,7 +282,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
         print(e)
 
 
-def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc, batch_size=10, max_workers=5):
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name,cug_alloc,dynamodb, batch_size=10, max_workers=5):
     records = df.to_dict('records')
     batches = [records[i:i+batch_size]
                for i in range(0, len(records), batch_size)]
@@ -292,7 +293,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
         'start_time': start_time,
         'route_type': route_type,
         'queue_name': queue_name,
-        'cug_alloc':cug_alloc
+        'cug_alloc':cug_alloc,
+        'dynamodb':dynamodb
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         executor.map(lambda batch: send_batch_to_sqs(
@@ -354,6 +356,7 @@ def lambda_handler(event, context):
     run_type_key = "run_type"
     is_connections_required_key = "is_connections_required"
     cug_alloc_key = "cug_alloc"
+    dynamodb_key = "dynamodb"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
     body = event['body']
@@ -372,6 +375,8 @@ def lambda_handler(event, context):
     region = "Domestic"
     unique_key_value = ""
     cug_alloc = "0"
+    dynamodb = "0"
+    
 
     # Overrides
     if route_type_key in data:
@@ -400,6 +405,8 @@ def lambda_handler(event, context):
         unique_key_value = data[unique_key]
     if cug_alloc_key in data:
         cug_alloc = data[cug_alloc_key]
+    if dynamodb_key in data:
+        dynamodb = data[dynamodb_key]
 
     # Start program
     if type == "Adhoc":
@@ -619,7 +626,7 @@ def lambda_handler(event, context):
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name,cug_alloc)
+                              update_navitaire_method, route_type, queue_name,cug_alloc,dynamodb)
     else:
         batches_required = number_of_batches_required(
             markets_count, adhoc_batch_size)
@@ -633,6 +640,7 @@ def lambda_handler(event, context):
             batch_df['route_type'] = route_type
             batch_df['queue'] = queue_name
             batch_df['cug_alloc'] = cug_alloc
+            batch_df['dynamodb'] = dynamodb
             temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
             data_to_serialize = batch_df.to_dict(orient='records')
             my_list_json = json.dumps(
@@ -649,6 +657,7 @@ def lambda_handler(event, context):
             last_batch_df['route_type'] = route_type
             last_batch_df['queue'] = queue_name
             last_batch_df['cug_alloc'] = cug_alloc
+            last_batch_df['dynamodb'] = dynamodb
             temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
             data_to_serialize = last_batch_df.to_dict(orient='records')
             my_list_json = json.dumps(

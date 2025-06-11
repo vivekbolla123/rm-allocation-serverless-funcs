@@ -78,9 +78,12 @@ class MarketFareService:
     def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
         ndo=self.timeutils.calculate_ndo(flightDate)
         hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
-        return self.rmdatabasehelper.getMarketFareRange(
-            channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
-        )
+        if params.dynamodb=='1':
+            return self.dynamohelper.getMarketFareRange(channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs)
+        else:
+            return self.rmdatabasehelper.getMarketFareRange(
+                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
+            )
 
     def get_value_for_ndo(self,json_string, ndo):
         
@@ -146,10 +149,14 @@ class MarketFareService:
         return startTime, endTime, criteria, marketFareRange, minMaxFare
     
     def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,outboundDuration):
-        
-        return self.rmdatabasehelper.getMarketFareRangeConnections(
-            channel, params,flightDate, outBoundStop,outboundDuration
-        )
+        if params.dynamodb=='1':
+            return self.dynamohelper.getMarketFareRangeConnections(
+                channel, params,flightDate, outBoundStop,outboundDuration
+            )
+        else:
+            return self.rmdatabasehelper.getMarketFareRangeConnections(
+                channel, params,flightDate, outBoundStop,outboundDuration
+            )
     
     def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,outboundDuration,criteria,inputSource,convert_currency):
         

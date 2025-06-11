@@ -6,10 +6,10 @@ from decimal import Decimal
 import logging
 
 class MarketFareDynamoDB:
-    def __init__(self,conn, region_name='ap-south-1'):
-        self.dynamodb = boto3.resource('dynamodb', region_name=region_name)
-        self.market_fares_ag = self.dynamodb.Table('market_fares_ag')
-        self.market_fares_rg = self.dynamodb.Table('market_fares_rg')
+    def __init__(self,conn,dynamodb):
+        self.dynamodb = dynamodb
+        self.market_fares_ag = self.dynamodb.Table('MarketFaresRG')
+        self.market_fares_rg = self.dynamodb.Table('MarketFaresAGInt')
         self.logger = logging.getLogger(__name__)
         self.conn=conn
         
@@ -21,7 +21,7 @@ class MarketFareDynamoDB:
         - channel-departure_date
         """
         try:
-            currFltDate = datetime.strptime(currFltDateStr, '%Y-%m-%d').date()
+            currFltDate = datetime.strptime(currFltDateStr, '%m/%d/%Y').date()
             updateDate = currFltDate + timedelta(days=int(DaySpan))
 
             if not Day3Flag:
@@ -163,7 +163,7 @@ class MarketFareDynamoDB:
                 Attr('source_airport').eq(origin) &
                 Attr('destination_airport').eq(destination) &
                 Attr('channel').eq(channel) &
-                Attr('outbound_stop').eq(0) &
+                Attr('outbound_stop').eq('0') &
                 ~Attr('outbound_airline_code').is_in(carr_exclusion_list) &
                 Attr('outbound_airline_code').ne('QP') &
                 Attr('outbound_airline_code').ne('G8') &
@@ -194,7 +194,7 @@ class MarketFareDynamoDB:
             # Perform scan with filter (Note: for better performance, use Query with GSI if available)
             response = table.scan(
                 FilterExpression=filter_expr,
-                ProjectionExpression='gross_fare, outbound_airline_code, outbound_flight, departure_date, destination_airport, source_airport, channel, outbound_departuretime, created_at, scrape_file_name'
+                ProjectionExpression='gross_fare, outbound_airline_code, outbound_flight, departure_date, destination_airport, source_airport, channel, outbound_departuretime, created_at_iso, scrape_file_name'
             )
 
             items = response['Items']
@@ -203,7 +203,7 @@ class MarketFareDynamoDB:
             while 'LastEvaluatedKey' in response:
                 response = table.scan(
                     FilterExpression=filter_expr,
-                    ProjectionExpression='gross_fare, outbound_airline_code, outbound_flight, departure_date, destination_airport, source_airport, channel, outbound_departuretime, created_at, scrape_file_name',
+                    ProjectionExpression='gross_fare, outbound_airline_code, outbound_flight, departure_date, destination_airport, source_airport, channel, outbound_departuretime, created_at_iso, scrape_file_name',
                     ExclusiveStartKey=response['LastEvaluatedKey']
                 )
                 items.extend(response['Items'])
@@ -212,6 +212,7 @@ class MarketFareDynamoDB:
             for item in items:
                 item['mktFile'] = f"{item['scrape_file_name']}_{source_suffix}"
                 item['source_table'] = source_suffix
+                item['created_at'] = item.pop('created_at_iso')
 
             return items
 
@@ -307,5 +308,6 @@ class MarketFareDynamoDB:
         query = f''' SELECT routedSector FROM config_marketFares_rerouting where sector = concat('{origin}','{destination}') '''
         try:
             routedData = pd.read_sql(query, self.conn)
+            return routedData
         except Exception as e:
             self.logger.error(e)
