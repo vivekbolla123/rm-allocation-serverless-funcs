@@ -7,6 +7,7 @@ from Constants import *
 from utilities.time_utils import TimeUtils 
 from helper.redis_helper import RedisHelper
 from sqlalchemy import text
+from constants_utils import ConstantsUtils
 
 class RMDatabaseHelper:
     def __init__(self,conn,wrconn,dwconn,runId,inputSource,debugmode,cache_client,currParams):
@@ -20,6 +21,7 @@ class RMDatabaseHelper:
         self.debugMode=debugmode
         self.timeutils=TimeUtils(inputSource)
         self.redishelper=RedisHelper(self.runId,cache_client,inputSource)
+        self.constants_utils=ConstantsUtils(self.conn)
 
     def getLatestCodeVersion(self):
         lastestQuery = " SELECT code_version FROM config_code_version where isActive = 1 "
@@ -376,28 +378,26 @@ GROUP BY
         return dplfBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
-        pflThresholdQuery = "SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' AND NDO = '"+ str(ndocounter) +"' UNION " 
-        pflThresholdQuery = pflThresholdQuery+ " SELECT W9_threshold,W8_threshold,W7_threshold,W6_threshold,W5_threshold,W4_threshold,W3_threshold,W2_threshold,W1_threshold,P_threshold,L_threshold,B2B_threshold,G8_threshold FROM config_pfl_threshold WHERE flightNumber = '*' " 
-        pflThresholdQuery = pflThresholdQuery+ " AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '"+ str(flightNumber) +"' and NDO = '"+str(ndocounter)+"') AND NDO = '"+ str(ndocounter) +"' LIMIT 1" 
+        rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
+        
+        # Build the column list for SELECT statement
+        rbd_columns = []
+        for rbd in rbds:
+            rbd_columns.append(rbd + '_threshold')
+        
+        columns_str = ','.join(rbd_columns)
+        
+        pflThresholdQuery = f"SELECT {columns_str},P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '{str(flightNumber)}' AND NDO = '{str(ndocounter)}' UNION "
+        pflThresholdQuery += f"SELECT {columns_str},P_threshold,L_threshold,B2B_threshold FROM config_pfl_threshold WHERE flightNumber = '*' "
+        pflThresholdQuery += f"AND NOT EXISTS (SELECT 1 FROM config_pfl_threshold WHERE flightNumber = '{str(flightNumber)}' and NDO = '{str(ndocounter)}') AND NDO = '{str(ndocounter)}' LIMIT 1"
+        
         try:
             pflThresholdList = pd.read_sql(pflThresholdQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
-        w9_threshold = pflThresholdList['W9_threshold']
-        w8_threshold = pflThresholdList['W8_threshold']
-        w7_threshold = pflThresholdList['W7_threshold']
-        w6_threshold = pflThresholdList['W6_threshold']
-        w5_threshold = pflThresholdList['W5_threshold']
-        w4_threshold = pflThresholdList['W4_threshold']
-        w3_threshold = pflThresholdList['W3_threshold']
-        w2_threshold = pflThresholdList['W2_threshold']
-        w1_threshold = pflThresholdList['W1_threshold']
-        p_threshold = pflThresholdList['P_threshold']
-        l_threshold = pflThresholdList['L_threshold']
-        B2B_threshold = pflThresholdList['B2B_threshold']
-        g8_threshold = pflThresholdList['G8_threshold']
-        
-        return w9_threshold,w8_threshold,w7_threshold,w6_threshold,w5_threshold,w4_threshold,w3_threshold,w2_threshold,w1_threshold,p_threshold,l_threshold,B2B_threshold,g8_threshold
+            return pd.DataFrame()  # Return empty DataFrame on error
+            
+        return pflThresholdList
 
     def getDepartureTimeBands(self):
         result = self.conn.execute("SELECT StartTime, EndTime, TimeBand FROM departure_time_ranges")
