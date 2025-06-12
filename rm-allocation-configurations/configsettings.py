@@ -44,8 +44,8 @@ param_names = [
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
     f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
-    f'/copilot/qp/${env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/${env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD'
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD'
 ]
 
 
