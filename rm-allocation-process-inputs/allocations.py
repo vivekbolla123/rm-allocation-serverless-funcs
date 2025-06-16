@@ -373,7 +373,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
             else:
                 if b2bSkipFlag:
-                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                    currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 else:
                     if RBDLabel == openingRBD:
                         openbuketFlag = True
