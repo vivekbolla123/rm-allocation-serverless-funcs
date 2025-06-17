@@ -102,5 +102,7 @@ public class MarketListEntity {
     public String tbfFlag;
     @Column(name = "CugFlag")
     public String cugFlag;
+    @Column(name = "MktFareFlag")
+    public String mktFareFlag;
 
 }

@@ -66,6 +66,8 @@ def testCase1():
     DynAlloc(inputData, currParams)
     currParams["route_type"]="connections"
     DynAllocConnections(inputData, currParams)
+    # currParams["saleinvflag"]=1
+    # DynAlloc(inputData, currParams)
     
 
 testCase1()

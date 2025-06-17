@@ -1,5 +1,6 @@
 import ast
 import copy
+from datetime import datetime
 import json
 import math
 
@@ -396,7 +397,7 @@ class RBDAllocations:
                             currRec.set_class_attribute(brd_counter, 'class_au', 0)
                     else:
                         if b2bStatus == 3:
-                            currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                            currRec.set_class_attribute(brd_counter, 'class_au', 0)
                         else:
                             currRec.set_class_attribute(brd_counter, 'class_au', 0)
             brd_counter = brd_counter+1
@@ -631,6 +632,8 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
+                
+        return brd_counter
 
     def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag):
         """
@@ -789,3 +792,85 @@ class RBDAllocations:
 
             brd_counter = brd_counter+1
         return brd_counter, currRec
+
+    def sales_inv_allocation(self, distress_pax_count, brd_counter, currRec, rbd_list,ndocounter,dateFormatted,origin,destin):
+        # Get sales inventory allocation based on distress pax count
+
+        # If no distress passengers, set all allocations to 0
+        if distress_pax_count <= 0:
+            for rbd in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                brd_counter += 1
+            return brd_counter
+
+        # Get inventory value based on pax count and ND
+            
+            
+        # Get departure date in mm/dd/yyyy format
+        dep_date = datetime.strptime(dateFormatted, '%Y-%m-%d').strftime('%m/%d/%Y')
+        
+        # Check distress calendar value for departure date and sector
+        distress_calendar_df = self.rmdatabasehelper.get_distress_calendar_value(
+            dep_date,
+            origin + destin
+        )
+        distress_calendar_value = 0 if distress_calendar_df.empty else distress_calendar_df['value'].iloc[0]
+        
+        # If distress calendar value is 1, set all allocations to 0 and return
+        if distress_calendar_value == 1:
+            for rbd in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                brd_counter += 1
+            return brd_counter
+        # Get inventory value from table based on NDO or month
+        date_obj = datetime.strptime(dateFormatted, '%Y-%m-%d')
+        if ndocounter > 30:
+            # Convert date format from YYYY-MM-DD to YYMMDD for closer dates
+            # And YYMM00 for farther dates
+            
+            
+            date_farther = date_obj.strftime('%Y%m') + '00'
+            # For farther dates
+            sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_farther)
+            if not sales_inventory_df.empty:
+                seats = sales_inventory_df['seatsallocation'].iloc[0]
+            else:
+                seats = 0
+
+            # Get RBD distribution for farther dates
+            rbd_dist_df = self.rmdatabasehelper.get_farther_rbd_distribution(seats)
+            if not rbd_dist_df.empty:
+                rbd_allocations = {}
+                for _, row in rbd_dist_df.iterrows():
+                    rbd_allocations[row['rbd']] = row['value'] 
+            else:
+                rbd_allocations = {}
+        else:
+            date_closer = date_obj.strftime('%Y%m%d')
+            # For closer dates
+            sales_inventory_df = self.rmdatabasehelper.get_sales_inventory(date_closer) 
+            if not sales_inventory_df.empty:
+                seats = sales_inventory_df['seatsallocation'].iloc[0]
+            else:
+                seats = 0
+
+            # Get RBD distribution for closer dates
+            rbd_dist_df = self.rmdatabasehelper.get_closer_rbd_distribution(seats)
+            if not rbd_dist_df.empty:
+                rbd_allocations = {}
+                for _, row in rbd_dist_df.iterrows():
+                    rbd_allocations[row['rbd']] = row['value']
+            else:
+                rbd_allocations = {}
+        
+
+        # Set allocations for each RBD
+        for rbd in rbd_list:
+            allocation = rbd_allocations.get(rbd, 0)
+            currRec.set_class_attribute(brd_counter, 'class_au', int(allocation))
+            currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+            brd_counter += 1
+            
+        return brd_counter
