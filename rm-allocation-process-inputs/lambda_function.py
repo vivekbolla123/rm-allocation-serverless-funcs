@@ -14,13 +14,13 @@ from runAlloc_Connections import DynAllocConnections
 from time_logger import TimeLogger
 from constants_utils import ConstantsUtils
 import pandas as pd
-
+from amazondax import AmazonDaxClient
 warnings.filterwarnings('ignore')
 
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 s3 = boto3.client('s3')
-dynamodb = boto3.resource('dynamodb',aws_access_key_id=configsettings.RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD,
+dynamodb = AmazonDaxClient(endpoints=['rm-cluster.2z6ogr.dax-clusters.ap-south-1.amazonaws.com:8111'],aws_access_key_id=configsettings.RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD,
     aws_secret_access_key=configsettings.RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD)
 # DB settings
 WAIT_TIME = 30  # in seconds
@@ -167,7 +167,7 @@ def insert_paused_run(run_id, content):
         raise
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"PerStart": "12/19/2024", "PerEnd": "12/19/2024", "Origin": "KWI", "Destin": "BOM", "FlightNumber": 572, "DOW": 9999199, "strategyFlag": 1, "TimeWindowStart": "0:01", "TimeWindowEnd": "23:59", "CurveID": "IGULF70_1", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "fareAnchor": "STG1MIN", "fareOffset": "", "FirstRBDAlloc": 7, "OtherRBDAlloc": 5, "B2BBackstop": 23, "B2CBackstop": 23, "B2BFactor": "0", "SkippingFactor": 0, "OwnFareFlag": "0", "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "TANAY", "openingFares": 0, "OverBooking": "0", "profileFares": "0", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "Flag": "1", "runId": "254be916-8985-483b-afaa-832eaa823099", "update_navitaire_method": "api", "runTime": "2024-09-04T06:20:07.329945", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"}
+# messageBody = {"index": 642, "PerStart": "06/19/2025", "PerEnd": "06/19/2025", "Origin": "IXZ", "Destin": "MAA", "FlightNumber": 1305, "DOW": 9999199, "TimeWindowStart": "00:15", "TimeWindowEnd": "23:55", "CurveID": "IXZMAA_NP", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "flightExclusionB2C": "", "flightExclusionB2B": "", "fareAnchor": "NP_General", "hardAnchor": "MIN", "plfthreshold": "88%", "fareOffset": "-1", "FirstRBDAlloc": 8, "OtherRBDAlloc": 3, "B2BBackstop": 5000, "B2CBackstop": 5100, "B2BFactor": "0.3", "obSeats": "", "obFare": "", "SkippingFactor": 10, "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "NEHA", "openingFares": 1, "OverBooking": "1", "ProfileFares": "1", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "AutoGroup": "1", "TbfFlag": "1", "CugFlag": "0", "MktFareFlag": "1", "Autobackstopflag": "0", "Flag": "1", "w0_value": 0.0, "DepartureTime": "12:00", "bookedPax": 2.0, "capacity": 185.0, "adjustedCapacity": 185.0, "DepartureTimeUTC": "06:30", "tbf_bookings": 0.0, "WA_bookings": 0.0, "WB_bookings": 0.0, "WC_bookings": 0.0, "WD_bookings": 0.0, "WE_bookings": 0.0, "seats_sold_L": 0.0, "seats_sold_P": 0.0, "current_rbd_L": 0.0, "current_rbd_P": 0.0, "total_series_seats": 0, "NextFlight": 0.0, "OpeningRBDB2B": "Z9", "OpeningRBDB2C": "B", "BookingsInHour": 0.0, "BookingsCount": 2.0, "BookingToday": 0.0, "runId": "c470b2ed-441e-4e92-89fc-ecd33ffa6dbd", "update_navitaire_method": "api", "runTime": "2025-06-17T21:32:27.519504", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list", "cug_alloc": "0", "dynamodb": "1", "saleinvflag": "0"}
 
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
