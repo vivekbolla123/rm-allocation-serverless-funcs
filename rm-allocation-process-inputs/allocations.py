@@ -404,12 +404,15 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice):
+    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice,groupbookload,currBookedLoad,month,sector):
         rbd_list = list(json.loads(GROUP_QUOTATION).values())
         group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         group_alloc_df=group_alloc_df.sort_values(by='Total').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         if int(autoGroup) == 1 and (not profilefarextract.empty):
+            potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector,month)
+            max_au = currBookedLoad-groupbookload+int(potential_seats)
+            max_au = min(adjustedCapacity-50, max_au)
             profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
             profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
 
@@ -481,6 +484,7 @@ class RBDAllocations:
                     # If it's not, update the last non-zero allocation
                     last_non_zero_allocation = allocation
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
+                allocation = min(allocation, max_au)
                 currRec.set_class_attribute(brd_counter, 'class_au', allocation)
                 brd_counter += 1
         elif int(autoGroup) == 0 or profilefarextract.empty:

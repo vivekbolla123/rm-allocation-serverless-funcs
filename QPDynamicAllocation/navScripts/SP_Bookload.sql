@@ -32,6 +32,7 @@ select
     AdjustedCapacity as adjustedCapacity,
 	FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC,
 	SUM(CASE WHEN ClassOfService IN ('TF', 'TE', 'TD', 'TC', 'TB', 'TY') THEN 1 ELSE 0 END) AS tbf_bookings,
+    SUM(CASE WHEN ClassOfService IN ('GJ','GI','GH','GG','GF','GE','GD','GC','GB','GA') THEN 1 ELSE 0 END) AS group_bookings,
 	 SUM(CASE WHEN ClassOfService IN ('WA') THEN 1 ELSE 0 END) AS WA_bookings,
 	 SUM(CASE WHEN ClassOfService IN ('WB') THEN 1 ELSE 0 END) AS WB_bookings,
 	 SUM(CASE WHEN ClassOfService IN ('WC') THEN 1 ELSE 0 END) AS WC_bookings,

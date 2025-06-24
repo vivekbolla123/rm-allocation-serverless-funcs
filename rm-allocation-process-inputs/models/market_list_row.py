@@ -67,7 +67,8 @@ class MarketListRow:
         self.WD_bookings = currParams.get("WD_bookings",CONST_NA)
         self.WE_bookings = currParams.get("WE_bookings",CONST_NA)	
         self.cug_flag = currParams.get("cug_alloc",'1')	
-
+        self.group_bookings = currParams.get("group_bookings",CONST_NA)
+        
         self.run_id = currParams.get("runId", CONST_NA)
         self.update_navitaire_method = currParams.get("update_navitaire_method", CONST_NA)
         self.run_time = currParams.get("runTime", CONST_NA)

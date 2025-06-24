@@ -932,10 +932,11 @@ class DynAlloc:
 					)
 
 					# Group Quote allocation
-					param_autoGroup = getattr(self.currParams, 'autoGroup', 0) # Default
+					param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
+					group_bookings=self.currParams.group_bookings# Default
 					current_brd_counter = self.allocations.group_quote_alloc(
 						profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
-						base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val
+						base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full
 					)
 
 					# TBF allocation needs alloc_df from b2CAllocations (plural)

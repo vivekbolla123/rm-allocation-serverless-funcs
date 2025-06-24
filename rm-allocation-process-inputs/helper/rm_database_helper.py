@@ -51,6 +51,7 @@ class RMDatabaseHelper:
     bl.Lid AS capacity,
     bl.adjustedCapacity,
     bl.tbf_bookings,
+    bl.group_bookings,
     bl.WA_bookings,
     bl.WB_bookings,
     bl.WC_bookings,
@@ -144,6 +145,7 @@ GROUP BY
     bl.Lid,
     bl.adjustedCapacity,
     bl.tbf_bookings,
+    bl.group_bookings,
     bl.WA_bookings,
     bl.WB_bookings,
     bl.WC_bookings,
@@ -1342,3 +1344,19 @@ LIMIT 1
             return 0
         else:
             return df['ForecastPLF'].iloc[0]
+        
+    def get_group_potential_seats(self, sector, month):
+        query = f"""
+        SELECT value 
+        FROM group_potential_seats
+        WHERE sector = '{sector}' AND month = '{month}'
+        """
+        try:
+            df = pd.read_sql(query, self.conn)
+            if not df.empty:
+                return df['value'].iloc[0]
+            else:
+                return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching group potential seats for sector {sector}, month {month}: {e}")
+            return 0 

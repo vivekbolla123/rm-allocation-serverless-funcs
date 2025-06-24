@@ -23,6 +23,8 @@ public interface ColumnNamesConstants {
     String VALUE_COLUMN_NAME = "value";
     String AU_VALUE_COLUMN_NAME = "au_value";
 
+    public static final String MONTH_COLUMN_NAME = "month";
+
     public static final String HEADER_TEXT_SALES_STARTDATE = "startdate";
     public static final String HEADER_TEXT_SALES_ENDDATE = "enddate";
     public static final String HEADER_TEXT_SALES_MINPAX = "minpax";
