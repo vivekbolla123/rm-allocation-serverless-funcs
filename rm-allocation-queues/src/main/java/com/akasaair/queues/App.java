@@ -674,9 +674,9 @@ public class App implements RequestHandler<S3Event, Object> {
 
                         boolean rowIsValid = true;
 
-                        // 1. Sector validation: 3 letters
-                        if (sector.length() != 3 || !sector.chars().allMatch(Character::isLetter)) {
-                            currentErrors.add(linePrefix + "Sector '" + sector + "' must be 3 letters only.");
+                        // 1. Sector validation: 6 letters
+                        if (sector.length() != 6 || !sector.chars().allMatch(Character::isLetter)) {
+                            currentErrors.add(linePrefix + "Sector '" + sector + "' must be 6 letters only.");
                             rowIsValid = false;
                         }
 
