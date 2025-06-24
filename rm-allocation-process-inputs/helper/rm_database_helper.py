@@ -51,6 +51,7 @@ class RMDatabaseHelper:
     bl.Lid AS capacity,
     bl.adjustedCapacity,
     bl.tbf_bookings,
+    bl.group_bookings,
     bl.WA_bookings,
     bl.WB_bookings,
     bl.WC_bookings,
@@ -144,6 +145,7 @@ GROUP BY
     bl.Lid,
     bl.adjustedCapacity,
     bl.tbf_bookings,
+    bl.group_bookings,
     bl.WA_bookings,
     bl.WB_bookings,
     bl.WC_bookings,
@@ -977,7 +979,7 @@ GROUP BY
         currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
 
         query=f'''
-            select B2B_last3avg_fare,B2C_last3avg_fare,last7avg from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
+            select B2B_last3avg_fare,B2C_last3avg_fare,CAST(last7avg AS SIGNED) AS last7avg from booking_fare_data where FlightDate = '{currFltDate}' AND FlightNumber = '{currParams.flight_number}' AND Origin = '{currParams.origin}' AND Destin = '{currParams.destin}'
         '''
         conn=self.conn
         farePrice = pd.read_sql(query, conn)
@@ -1342,3 +1344,19 @@ LIMIT 1
             return 0
         else:
             return df['ForecastPLF'].iloc[0]
+        
+    def get_group_potential_seats(self, sector, month):
+        query = f"""
+        SELECT value 
+        FROM group_potential_seats
+        WHERE sector = '{sector}' AND month = '{month}'
+        """
+        try:
+            df = pd.read_sql(query, self.conn)
+            if not df.empty:
+                return df['value'].iloc[0]
+            else:
+                return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching group potential seats for sector {sector}, month {month}: {e}")
+            return 0 
