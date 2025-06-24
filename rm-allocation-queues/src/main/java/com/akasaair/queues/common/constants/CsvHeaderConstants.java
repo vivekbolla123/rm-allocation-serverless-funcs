@@ -78,5 +78,9 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_CONNECTIONS_B2CBACKSTOP = 21;
     int CSV_HEADER_CONNECTIONS_B2BFACTOR = 22;
 
+    public static final String CSV_HEADER_SECTOR = "sector";
+    public static final String CSV_HEADER_MONTH = "month";
+    public static final String CSV_HEADER_VALUE = "value";
+
     public static final String CSV_HEADER_SI_RBD_SEATS = "seats"; public static final String CSV_HEADER_SI_RBD_TYPE = "type"; // RBD columns like W7, W6 will be identified by their position/header name in the CSV
 }
