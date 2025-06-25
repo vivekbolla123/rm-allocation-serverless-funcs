@@ -295,9 +295,9 @@ class DynAllocConnections:
         self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
         tgtBookedLoad1 = tgtBookedLoad1 * \
-            self.currParams.Capacity1
+            self.currParams.Lid1
         tgtBookedLoad2 = tgtBookedLoad2 * \
-            self.currParams.Capacity2
+            self.currParams.Lid2
         sector1 = self.currParams.sector1
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
@@ -324,8 +324,8 @@ class DynAllocConnections:
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
             bookload1 = bookedLoadSingleRowSector1
             bookload2 = bookedLoadSingleRowSector2
-            capacity = min(
-                self.currParams.Capacity1,self.currParams.Capacity2)
+            lid = min(
+                self.currParams.Lid1,self.currParams.Lid2)
             bookload = max(
                 bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
             print("Combined Booked Load for " + str(flight1)+" "+str(
@@ -414,10 +414,10 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Capacity1
-                self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Capacity2
-                self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Capacity1
-                self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Capacity2
+                self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
+                self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
                 offset=self.currParams.offset
                 if self.qpcurrency!='INR':
                     B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
@@ -577,7 +577,7 @@ class DynAllocConnections:
 
                 # First - Adding all B2C RBD's
                 b2cAllocationsUnits, brd_counter = self.allocations.b2CAllocation_connections(
-                    openDataB2C, currRec, capacity, bookload, SkippingFactor, self.currParams)
+                    openDataB2C, currRec, lid, bookload, SkippingFactor, self.currParams)
 
                 # Now add all the Z RBDs
                 brd_counter, currRec = self.allocations.b2BAllocation_connections(
