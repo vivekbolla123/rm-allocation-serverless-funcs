@@ -324,7 +324,7 @@ class DynAllocConnections:
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
             bookload1 = bookedLoadSingleRowSector1
             bookload2 = bookedLoadSingleRowSector2
-            lid = min(
+            minLid = min(
                 self.currParams.Lid1,self.currParams.Lid2)
             bookload = max(
                 bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
@@ -577,7 +577,7 @@ class DynAllocConnections:
 
                 # First - Adding all B2C RBD's
                 b2cAllocationsUnits, brd_counter = self.allocations.b2CAllocation_connections(
-                    openDataB2C, currRec, lid, bookload, SkippingFactor, self.currParams)
+                    openDataB2C, currRec, minLid, self.currParams.Lid1, self.currParams.Lid2, bookload, SkippingFactor, self.currParams)
 
                 # Now add all the Z RBDs
                 brd_counter, currRec = self.allocations.b2BAllocation_connections(
