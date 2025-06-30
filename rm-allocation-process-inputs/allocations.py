@@ -701,7 +701,7 @@ class RBDAllocations:
         return brd_counter 
 
 
-    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, lid1, lid2, currBookedLoad, SkippingFactor, currParams):
+    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams):
 
         b2cAllocationsUnits = []
         origin = currParams.sector1[:3]
@@ -718,7 +718,6 @@ class RBDAllocations:
         b2cctr = 0
         b2bctr = 0
         jumpPercent = SkippingFactor
-        adjBookedLoad = max(currBookedLoad - (lid1 - minLid), currBookedLoad - (lid2 - minLid))
 
         # reset
         # Loop on each rbd
@@ -743,7 +742,7 @@ class RBDAllocations:
                 # Valid B2C Allocation
                 # Positive Allocation
                 if firstRDBAllocation >= 0:
-                    openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(adjBookedLoad, 0, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
+                    openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, 0, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
                 if incremental >= minLid:
                     incremental = minLid

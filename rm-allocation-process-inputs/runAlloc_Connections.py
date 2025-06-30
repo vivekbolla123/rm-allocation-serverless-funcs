@@ -327,7 +327,7 @@ class DynAllocConnections:
             minLid = min(
                 self.currParams.Lid1,self.currParams.Lid2)
             bookload = max(
-                bookedLoadSingleRowSector1, bookedLoadSingleRowSector2)
+                bookload1 - (self.currParams.Lid1 - minLid), bookload2 - (self.currParams.Lid2 - minLid))
             print("Combined Booked Load for " + str(flight1)+" "+str(
                 flight2) + " on " + str(current_date1) + " is :" + str(bookload))
             
@@ -577,7 +577,7 @@ class DynAllocConnections:
 
                 # First - Adding all B2C RBD's
                 b2cAllocationsUnits, brd_counter = self.allocations.b2CAllocation_connections(
-                    openDataB2C, currRec, minLid, self.currParams.Lid1, self.currParams.Lid2, bookload, SkippingFactor, self.currParams)
+                    openDataB2C, currRec, minLid, bookload, SkippingFactor, self.currParams)
 
                 # Now add all the Z RBDs
                 brd_counter, currRec = self.allocations.b2BAllocation_connections(
