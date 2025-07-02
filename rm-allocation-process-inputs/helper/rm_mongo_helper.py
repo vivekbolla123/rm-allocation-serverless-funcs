@@ -207,7 +207,8 @@ class MarketFareMongoDB:
  
             if not all_results:
                 self.logger.warning("No market fare records found")
-                return pd.DataFrame()
+                return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'mktFile'])
+ 
  
             # Convert to DataFrame and process
             df = pd.DataFrame(all_results)
