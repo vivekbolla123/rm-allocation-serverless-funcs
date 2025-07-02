@@ -1,5 +1,7 @@
 import sys
 import logging
+
+from pymongo import MongoClient
 import configsettings
 import json
 from sqlalchemy import create_engine
@@ -14,12 +16,22 @@ from runAlloc_Connections import DynAllocConnections
 from time_logger import TimeLogger
 from constants_utils import ConstantsUtils
 import pandas as pd
-
 warnings.filterwarnings('ignore')
 
 # sqs setting
 sqs = boto3.client('sqs')  # client is required to interact with
 s3 = boto3.client('s3')
+mongoclient = MongoClient(
+            host='172.24.72.35',
+            port=27017,
+            username='test_user',
+            password='YourWish@2025',
+            authSource='test_db',
+            # Connection pool settings
+            maxPoolSize=1,          # Limit to 1 connection
+            minPoolSize=0      # No minimum connections    
+        )
+mongodb=mongoclient.test_db
 # DB settings
 WAIT_TIME = 30  # in seconds
 
@@ -106,6 +118,7 @@ def lambda_handler(event, context):
         data["runTime"]=data["runTime"]
         route_type = data["route_type"]
         run_id = data["runId"]
+        data["mongodbclient"]=mongodb
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
             if (status_df.iloc[0]['run_status'] == 'DELETED'):
@@ -164,7 +177,7 @@ def insert_paused_run(run_id, content):
         raise
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"PerStart": "12/19/2024", "PerEnd": "12/19/2024", "Origin": "KWI", "Destin": "BOM", "FlightNumber": 572, "DOW": 9999199, "strategyFlag": 1, "TimeWindowStart": "0:01", "TimeWindowEnd": "23:59", "CurveID": "IGULF70_1", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "fareAnchor": "STG1MIN", "fareOffset": "", "FirstRBDAlloc": 7, "OtherRBDAlloc": 5, "B2BBackstop": 23, "B2CBackstop": 23, "B2BFactor": "0", "SkippingFactor": 0, "OwnFareFlag": "0", "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "TANAY", "openingFares": 0, "OverBooking": "0", "profileFares": "0", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "Flag": "1", "runId": "254be916-8985-483b-afaa-832eaa823099", "update_navitaire_method": "api", "runTime": "2024-09-04T06:20:07.329945", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"}
+# messageBody = {"index": 642, "PerStart": "07/04/2025", "PerEnd": "07/04/2025", "Origin": "IXZ", "Destin": "MAA", "FlightNumber": 1305, "DOW": 1111111, "TimeWindowStart": "00:15", "TimeWindowEnd": "23:55", "CurveID": "IXZMAA_NP", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "flightExclusionB2C": "", "flightExclusionB2B": "", "fareAnchor": "NP_General", "hardAnchor": "MIN", "plfthreshold": "88%", "fareOffset": "-1", "FirstRBDAlloc": 8, "OtherRBDAlloc": 3, "B2BBackstop": 5000, "B2CBackstop": 5100, "B2BFactor": "0.3", "obSeats": "", "obFare": "", "SkippingFactor": 10, "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "NEHA", "openingFares": 1, "OverBooking": "1", "ProfileFares": "1", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "AutoGroup": "1", "TbfFlag": "1", "CugFlag": "0", "MktFareFlag": "1", "Autobackstopflag": "0", "Flag": "1", "w0_value": 0.0, "DepartureTime": "12:00", "bookedPax": 2.0, "capacity": 185.0, "adjustedCapacity": 185.0, "DepartureTimeUTC": "06:30", "tbf_bookings": 0.0, "WA_bookings": 0.0, "WB_bookings": 0.0, "WC_bookings": 0.0, "WD_bookings": 0.0, "WE_bookings": 0.0, "seats_sold_L": 0.0, "seats_sold_P": 0.0, "current_rbd_L": 0.0, "current_rbd_P": 0.0, "total_series_seats": 0, "NextFlight": 0.0, "OpeningRBDB2B": "Z9", "OpeningRBDB2C": "B", "BookingsInHour": 0.0, "BookingsCount": 2.0, "BookingToday": 0.0, "runId": "c470b2ed-441e-4e92-89fc-ecd33ffa6dbd", "update_navitaire_method": "api", "runTime": "2025-06-17T21:32:27.519504", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list", "cug_alloc": "0", "mongodb": "1", "saleinvflag": "0"}
 
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
