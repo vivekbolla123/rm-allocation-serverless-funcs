@@ -548,7 +548,7 @@ def lambda_handler(event, context):
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Capacity1'}).drop(
+        ).rename(columns={'capacity': 'Lid1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
@@ -566,7 +566,7 @@ def lambda_handler(event, context):
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Capacity2'}).drop(
+        ).rename(columns={'capacity': 'Lid2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)
