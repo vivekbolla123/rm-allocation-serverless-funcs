@@ -43,7 +43,8 @@ param_names = [
     f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
     f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
-    f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD'
+    f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
 ]
 
 
@@ -105,6 +106,8 @@ if env == 'prod':
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -173,6 +176,12 @@ if env == 'uat':
     
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
 
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+
+RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
+SENDER_EMAIL = 'qp.alerts@akasaair.com'
+SMTP_SERVER = 'smtp.office365.com'
+SMTP_PORT = 587
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379
