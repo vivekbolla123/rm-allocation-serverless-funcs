@@ -91,6 +91,10 @@ class NavOdsAlert:
             is_ods_down = (df['ods_sold_seats'] < df['api_sold_seats']).any()
             self.logger.info(f"API:{int(df['api_sold_seats'].sum())},ODS:{int(df['ods_sold_seats'].sum())}")
 
+            diff_df = df[df['ods_sold_seats'] < df['api_sold_seats']]
+            if not diff_df.empty:
+                self.logger.info(diff_df['flight'].tolist())
+
             if (is_ods_down):
                 self.send_email_alert(
                     "Nav ODS Alert", 
