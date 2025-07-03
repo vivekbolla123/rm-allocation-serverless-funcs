@@ -156,9 +156,9 @@ GROUP BY
                 marketListQuery = """SELECT 
                 mlc.*,
                 bl1.bookedPax AS BookedPax1,
-                bl1.Lid AS Capacity1,
+                bl1.Lid AS Lid1,
                 bl2.bookedPax AS BookedPax2,
-                bl2.Lid AS Capacity2,
+                bl2.Lid AS Lid2,
                 crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
                 crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
                 crb2_b2b.OpeningRBD AS OpeningRBDB2B2,

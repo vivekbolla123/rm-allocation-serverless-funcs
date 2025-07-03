@@ -27,8 +27,8 @@ class MarketListConnectiosnsRow:
         self.time_logger = currParams.get("timelogger", CONST_NA) 
         self.BookedPax1 = currParams.get("BookedPax1", CONST_NA) 
         self.BookedPax2 = currParams.get("BookedPax2", CONST_NA)
-        self.Capacity1 = currParams.get("Capacity1", CONST_NA) 
-        self.Capacity2 = currParams.get("Capacity2", CONST_NA) 
+        self.Lid1 = currParams.get("Lid1", CONST_NA) 
+        self.Lid2 = currParams.get("Lid2", CONST_NA) 
         
         self.OpeningRBDB2B1 = currParams.get("OpeningRBDB2B1", CONST_NA)  
         self.OpeningRBDB2C1 = currParams.get("OpeningRBDB2C1", CONST_NA)  

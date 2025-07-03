@@ -54,6 +54,8 @@ class ConstantsUtils:
         self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
         self.BOOKINGS_THRESHOLD = BOOKINGS_THRESHOLD
         self.SOFTBLOCK_RBDS = SOFTBLOCK_RBDS
+        self.NAVODS_ALERT_SECTOR_LIST = NAVODS_ALERT_SECTOR_LIST
+        self.NAVODS_ALERT_MAX_NDO = NAVODS_ALERT_MAX_NDO
 
 
         self.logger = logging.getLogger()
@@ -170,6 +172,10 @@ class ConstantsUtils:
                 self.BOOKINGS_THRESHOLD = int(parameter_value)
             elif parameter_key == SOFTBLOCK_RBDS_KEY:
                 self.SOFTBLOCK_RBDS = parameter_value
+            elif parameter_key == NAVODS_ALERT_SECTOR_LIST_KEY:
+                self.NAVODS_ALERT_SECTOR_LIST = parameter_value
+            elif parameter_key == NAVODS_ALERT_MAX_NDO_KEY:
+                self.NAVODS_ALERT_MAX_NDO = parameter_value
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
