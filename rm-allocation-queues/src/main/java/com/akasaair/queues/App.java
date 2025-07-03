@@ -548,6 +548,46 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                     break;
                 }
+                case GROUP_POTENTIAL_SEATS_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    String finalTableName2 = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadGroupPotentialSeatsFile(reader, finalTableName2, userName, obj_id, numOfRows);
+                                } catch (Exception e) {
+                                    error_occurred = 1;
+                                    if (listOfErrors.isEmpty()) {
+                                        listOfErrors.add("Error processing Group Potential Seats file: " + e.getMessage());
+                                        addErrorsToTable(listOfErrors, obj_id);
+                                    }
+                                    throw new RuntimeException(
+                                            "Error processing Group Potential Seats file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .exceptionally(ex -> {
+                                error_occurred = 1;
+                                System.err.println("Error during S3 getObject or processing for Group Potential Seats: " + ex.getMessage());
+                                if (listOfErrors.isEmpty()) {
+                                    listOfErrors.add("Failed to retrieve or process Group Potential Seats file from S3: " + ex.getMessage());
+                                    addErrorsToTable(listOfErrors, obj_id);
+                                }
+                                return null;
+                            })
+                            .join();
+                    break;
+                }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
@@ -585,6 +625,120 @@ public class App implements RequestHandler<S3Event, Object> {
             throw e; // Rethrow to propagate up the call stack
         }
     }
+
+    public void uploadGroupPotentialSeatsFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
+        String uuid = obj_id;
+        List<Map<String, String>> recordsToInsert = new ArrayList<>();
+        List<String> currentErrors = new ArrayList<>();
+
+        final Set<String> VALID_MONTHS = new HashSet<>(Arrays.asList(
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"));
+
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                currentErrors.add("Group Potential Seats CSV file is empty or lacks data rows.");
+            } else {
+                // Header Validation
+                List<String> headerRow = csvData.get(0).stream()
+                        .map(h -> h.replace("\uFEFF", "").trim().toLowerCase())
+                        .collect(Collectors.toList());
+
+                if (headerRow.size() != 3 ||
+                        !CSV_HEADER_SECTOR.equalsIgnoreCase(headerRow.get(0)) ||
+                        !CSV_HEADER_MONTH.equalsIgnoreCase(headerRow.get(1)) ||
+                        !CSV_HEADER_VALUE.equalsIgnoreCase(headerRow.get(2))) {
+                    currentErrors.add("Invalid headers for Group Potential Seats. Expected 'sector', 'month', 'value'. Found: " + csvData.get(0));
+                }
+
+                if (currentErrors.isEmpty()) {
+                    // Data Row Validation
+                    for (int i = 1; i < csvData.size(); i++) {
+                        List<String> row = csvData.get(i);
+                        int currentLineNum = i + 1;
+                        String linePrefix = "Line " + currentLineNum + ": ";
+
+                        if (row.size() < 3) {
+                            currentErrors.add(linePrefix + "Insufficient columns. Expected 3, got " + row.size() + ".");
+                            continue;
+                        }
+
+                        String sector = row.get(0).trim();
+                        String month = row.get(1).trim();
+                        String value = row.get(2).trim();
+
+                        boolean rowIsValid = true;
+
+                        // 1. Sector validation: 6 letters
+                        if (sector.length() != 6 || !sector.chars().allMatch(Character::isLetter)) {
+                            currentErrors.add(linePrefix + "Sector '" + sector + "' must be 6 letters only.");
+                            rowIsValid = false;
+                        }
+
+                        // 2. Month validation: Full month name
+                        if (!VALID_MONTHS.contains(month)) {
+                            currentErrors.add(linePrefix + "Month '" + month + "' is not a valid full month name (e.g., 'January').");
+                            rowIsValid = false;
+                        }
+
+                        // 3. Value validation: Must be a number
+                        if (!isNumeric(value)) { // Re-using existing helper method
+                            currentErrors.add(linePrefix + "Value '" + value + "' is not a valid number.");
+                            rowIsValid = false;
+                        }
+
+                        if (rowIsValid) {
+                            Map<String, String> record = new HashMap<>();
+                            record.put(SECTOR_COLUMN_NAME, sector.toUpperCase()); // Store sector consistently
+                            record.put(MONTH_COLUMN_NAME, month);
+                            record.put(VALUE_COLUMN_NAME, value);
+                            recordsToInsert.add(record);
+                        }
+                    }
+                }
+            }
+
+            if (!currentErrors.isEmpty()) {
+                error_occurred = 1;
+                listOfErrors.addAll(currentErrors);
+                addErrorsToTable(listOfErrors, obj_id);
+                throw new DataMismatchedException(listOfErrors);
+            }
+
+            // Database operations: Full replace. This deletes all existing data before inserting new data.
+            deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+
+            if (!recordsToInsert.isEmpty()) {
+                List<String> dbHeaders = Arrays.asList(SECTOR_COLUMN_NAME, MONTH_COLUMN_NAME, VALUE_COLUMN_NAME);
+                insertStatement(recordsToInsert, dbHeaders, tableName);
+                numOfRows.set(recordsToInsert.size());
+            } else {
+                numOfRows.set(0);
+            }
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+            System.out.println("Successfully processed " + tableName + " file.");
+
+        } catch (Exception e) {
+            error_occurred = 1;
+            System.err.println("Critical error during Group Potential Seats processing for " + tableName + ": " + e.getMessage());
+            if (listOfErrors.isEmpty()) {
+                if (!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors);
+                else listOfErrors.add("Failed to process Group Potential Seats file due to an unexpected error: " + e.getMessage());
+            }
+            addErrorsToTable(listOfErrors, obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
     public void uploadSalesInvRbdDistributionFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
         String uuid = obj_id;
         List<Map<String, String>> recordsToInsert = new ArrayList<>();
