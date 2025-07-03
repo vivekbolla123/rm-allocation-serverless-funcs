@@ -178,7 +178,7 @@ if env == 'uat':
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
 
-RM_IT_ALERT_EMAIL = 'rm.italerts@akasaair.com'
+RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
 SENDER_EMAIL = 'qp.alerts@akasaair.com'
 SMTP_SERVER = 'smtp.office365.com'
 SMTP_PORT = 587
