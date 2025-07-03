@@ -932,7 +932,7 @@ GROUP BY
         try:
             self.wrconn.execute(insert_query, (run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         except Exception as e:
-            self.logger.info(e)
+            self.logger.error(e)
 
     def getCurrentBookedLoads(self, origin, destin, startDate, endDate):
 

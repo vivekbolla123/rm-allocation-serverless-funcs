@@ -61,10 +61,6 @@ class RBDAllocations:
             # Find the closest RBD to the overbooking fare
             B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - overBookingFare)
             obRBDIndex = B2CRBDs['FareDiff'].idxmin()
-            closestRBD = B2CRBDs.loc[obRBDIndex, 'RBD']
-            closestFare = B2CRBDs.loc[obRBDIndex, 'Total']
-            self.logger.info(f"Overbooking fare: {overBookingFare}, Closest RBD index: {obRBDIndex}, RBD: {closestRBD}, Fare: {closestFare}")
-            self.logger.info(f"Overbooking seats: {overBookingSeats}, Base capacity: {baseCapacity}, Total capacity: {totalCapacity}")
             B2CRBDs = B2CRBDs.drop('FareDiff', axis=1)
         
         if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
@@ -125,8 +121,7 @@ class RBDAllocations:
                     incremental += overBookingSeats
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
-                    # self.logger.info(f"Applied overbooking to RBD {RBDLabel}: Base allocation {incremental - overBookingSeats} + {overBookingSeats} overbooking seats = {incremental}")
-
+                   
                 if RBDLabel == self.constantsutils.HIGHEST_B2C_RBD_VALUE:
                     incremental = totalCapacity
                 

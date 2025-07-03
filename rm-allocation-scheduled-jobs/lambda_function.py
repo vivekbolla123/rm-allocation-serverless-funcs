@@ -30,6 +30,7 @@ from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
+from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
 
 logger = logging.getLogger()
@@ -89,6 +90,7 @@ module_map = {
     "update_calendar": CalendarUpdate,
     "expected_no_shows": ExpectedNoShows,
     "schedule_thirty": ScheduleThirty,
+    "input_audits": S3CsvCombiner,
     "navods_alert": NavOdsAlert
 }
 
