@@ -9,6 +9,9 @@ from constants_utils import ConstantsUtils
 import traceback
 import requests
 from Constants import AKASA_AIRLINE_CODE
+import time
+import warnings
+warnings.filterwarnings('ignore')
 
 class NavOdsAlert:
 
@@ -45,7 +48,7 @@ class NavOdsAlert:
                 legKeyData = response.json().get('data', [])
 
                 if not legKeyData or len(legKeyData) == 0:
-                    self.logger.info("No data found in Nav API")
+                    self.logger.info(f"{flight} not found in API")
 
                 for date in range(len(legKeyData)):
                     for journey in range(len(legKeyData[date]['journeys'])):
@@ -58,6 +61,9 @@ class NavOdsAlert:
                         seatsSold += soldSeatsData['passengerCounts']['manifested']
                 
                 df.loc[df['flight'] == flight, 'api_sold_seats'] = seatsSold
+
+            # Waiting some secs 
+            time.sleep(6)
 
             # Getting Bookedloads from Nav ODS
             NavitaireQuery = f""" EXEC {configsettings.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
@@ -83,7 +89,7 @@ class NavOdsAlert:
             df['ods_sold_seats'] = df['ods_sold_seats'].fillna(0)
 
             is_ods_down = (df['ods_sold_seats'] < df['api_sold_seats']).any()
-            self.logger.info(df)
+            self.logger.info(f"API:{int(df['api_sold_seats'].sum())},ODS:{int(df['ods_sold_seats'].sum())}")
 
             if (is_ods_down):
                 self.send_email_alert(
@@ -94,8 +100,7 @@ class NavOdsAlert:
 
             self.logger.info("Run method completed.")
         except Exception as e:
-            print(traceback.format_exc())
-            self.logger.error(f"An error occurred in the run method: {str(e)}")
+            self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
     
     def send_email_alert(self, subject, body, to_email):
         msg = EmailMessage()
