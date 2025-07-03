@@ -255,13 +255,13 @@ def lambda_handler(event, context):
     records = event['Records']
     for record in records:
         content = record['body']
-        logger.info(type(content))
+        # logger.info(type(content))
 
         allocationStartTime = datetime.now()
 
         allocation_data = json.loads(content)
         # allocation_data = content
-        logger.info(allocation_data)
+        # logger.info(allocation_data)
         run_id = allocation_data["runId"]
         au_classes = allocation_data['auClasses']
         start_date = allocation_data['startDate']
