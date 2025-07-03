@@ -30,6 +30,7 @@ from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
+from navOdsAlert import NavOdsAlert
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -87,7 +88,8 @@ module_map = {
     "qc_fares_check": QCCheck,
     "update_calendar": CalendarUpdate,
     "expected_no_shows": ExpectedNoShows,
-    "schedule_thirty": ScheduleThirty
+    "schedule_thirty": ScheduleThirty,
+    "navods_alert": NavOdsAlert
 }
 
 
@@ -167,7 +169,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"expected_no_shows\": 1}}"
+#   "body": "{\"modules\":{\"navods_alert\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
