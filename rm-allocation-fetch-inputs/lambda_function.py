@@ -99,7 +99,6 @@ class NavDatabaseHelper:
                     @ComparisonDateTime = N'{comparison_datetime}'
                 """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_last_bookings_count")
         df.columns = ['FlightNumber', 'Origin', 'Destination', 
                      'DepartureDate', 'BookingsInHour', 'BookingsCount', 'BookingToday']
         return df
@@ -117,7 +116,6 @@ class NavDatabaseHelper:
         ORDER BY ILV.ModifiedUTC DESC
         '''
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_seats_sold_by_class")
         pivot_df = df.pivot_table(
             index=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             columns='class_code',
@@ -141,7 +139,6 @@ class NavDatabaseHelper:
         ORDER BY ILC.ModifiedUTC DESC
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_current_rbds_by_class")
         pivot_df = df.pivot_table(
             index=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             columns='class_code',
@@ -173,7 +170,6 @@ class NavDatabaseHelper:
         GROUP BY Origin, Destination, FlightNumber, DepartureDate
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_series_seats")
         df.columns = ['Origin', 'Destination', 'FlightNumber',
                       'DepartureDate', 'total_series_seats']
         return df
@@ -187,7 +183,6 @@ class NavDatabaseHelper:
                     @EndDate = N'{str(end_date)}'
                  """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_daily_flights")
         df.columns = ['Origin', 'Destination', 'FlightNumber', 
                      'DepartureDate', 'NextFlight']
         return df
@@ -240,7 +235,6 @@ class NavDatabaseHelper:
             FlightNumber
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_opening_rbds")
         return df
 
 # Utility functions

@@ -69,7 +69,6 @@ class ExpectedNoShows:
         """
         Fetch bookings from ESB database from 2:00 AM today to 4:00 AM tomorrow in IST
         """
-        self.logger.info("Fetching bookings from 2:00 AM today to 4:00 AM tomorrow from ESB")
         
         # Define IST timezone
         ist = pytz.timezone('Asia/Kolkata')
@@ -84,7 +83,6 @@ class ExpectedNoShows:
         start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
         end_time_str = end_time.strftime('%Y-%m-%d %H:%M:%S')
         
-        self.logger.info(f"Querying bookings from {start_time_str} to {end_time_str}")
         
         query = f"""
         WITH QP_DL_BOOKEDDATAPAX_CTE AS
@@ -554,7 +552,6 @@ class ExpectedNoShows:
         """
         Join bookings with no-show rates and calculate expected no-shows
         """
-        self.logger.info("Calculating expected no-shows")
         
         try:
             # Merge the booking data with no-show rates on the four common dimensions
@@ -571,7 +568,6 @@ class ExpectedNoShows:
             # Calculate expected no-shows for each row
             merged_df['ExpectedNoShows'] = (merged_df['BookedPax'] * merged_df['NoShowRate']).round(4)
             
-            self.logger.info("Successfully calculated expected no-shows")
             return merged_df
         
         except Exception as e:
@@ -582,7 +578,6 @@ class ExpectedNoShows:
         """
         Aggregate the data to create the flight summary
         """
-        self.logger.info("Generating flight summary")
         
         try:
             # Group by flight details and aggregate the required metrics
@@ -600,7 +595,6 @@ class ExpectedNoShows:
             # Add timestamp
             flight_summary['GeneratedAt'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            self.logger.info(f"Generated summary for {len(flight_summary)} flights")
             return flight_summary
         
         except Exception as e:
@@ -611,7 +605,6 @@ class ExpectedNoShows:
         """
         Save the flight summary to the database table using upsert
         """
-        self.logger.info("Upserting flight summary to QP_DW_RMALLOC.expected_no_shows table")
         
         try:
             # Convert DataFrame to a list of dictionaries for SQL execution
@@ -671,7 +664,6 @@ class ExpectedNoShows:
         Main function to orchestrate the no-show prediction process
         """
         try:
-            self.logger.info("Starting no-show prediction process")
             
             # Step 1: Load no-show rates from the database
             noshow_rates = self.load_noshow_rates_from_dw()
@@ -687,10 +679,6 @@ class ExpectedNoShows:
             
             # Step 5: Save the flight summary to database
             self.save_flight_summary_to_db(flight_summary)
-            
-            # Print a sample of the results
-            self.logger.info("\nSample of flight no-show predictions:")
-            self.logger.info(flight_summary.head().to_string())
             
             self.logger.info("No-show prediction process completed successfully")
             return True
