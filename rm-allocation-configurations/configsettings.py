@@ -45,8 +45,9 @@ param_names = [
     f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD'
-    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
+    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD'
 ]
 
 
@@ -112,6 +113,11 @@ if env == 'prod':
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "rm_mongo"
+    MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+    MONGO_URL = "10.16.6.179"
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -183,6 +189,10 @@ if env == 'uat':
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    MONGO_USERNAME = "test_user"
+    MONGO_DB = "test_db"
+    MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+    MONGO_URL = "172.24.72.35"
 
 RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
 SENDER_EMAIL = 'qp.alerts@akasaair.com'

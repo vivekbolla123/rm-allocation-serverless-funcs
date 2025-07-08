@@ -22,11 +22,11 @@ warnings.filterwarnings('ignore')
 sqs = boto3.client('sqs')  # client is required to interact with
 s3 = boto3.client('s3')
 mongoclient = MongoClient(
-            host='172.24.72.35',
+            host=configsettings.MONGO_URL,
             port=27017,
-            username='test_user',
-            password='YourWish@2025',
-            authSource='test_db',
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_DB,
             # Connection pool settings
             maxPoolSize=1,          # Limit to 1 connection
             minPoolSize=0      # No minimum connections    
