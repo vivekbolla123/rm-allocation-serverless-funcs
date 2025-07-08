@@ -47,7 +47,7 @@ param_names = [
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
-    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD'
+    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD'
 ]
 
 
