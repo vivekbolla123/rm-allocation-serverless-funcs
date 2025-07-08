@@ -47,7 +47,8 @@ param_names = [
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
-    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD'
+    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
 ]
 
 
@@ -118,6 +119,8 @@ if env == 'prod':
     MONGO_DB = "rm_mongo"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -193,6 +196,8 @@ if env == 'uat':
     MONGO_DB = "test_db"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "172.24.72.35"
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
 
 RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
 SENDER_EMAIL = 'qp.alerts@akasaair.com'
