@@ -26,10 +26,7 @@ mongoclient = MongoClient(
             port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_DB,
-            # Connection pool settings
-            maxPoolSize=1,          # Limit to 1 connection
-            minPoolSize=0      # No minimum connections    
+            authSource=configsettings.MONGO_DB  
         )
 mongodb=mongoclient[configsettings.MONGO_DB]
 # DB settings
