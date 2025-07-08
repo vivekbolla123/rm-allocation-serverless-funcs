@@ -99,7 +99,6 @@ class NavDatabaseHelper:
                     @ComparisonDateTime = N'{comparison_datetime}'
                 """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_last_bookings_count")
         df.columns = ['FlightNumber', 'Origin', 'Destination', 
                      'DepartureDate', 'BookingsInHour', 'BookingsCount', 'BookingToday']
         return df
@@ -117,7 +116,6 @@ class NavDatabaseHelper:
         ORDER BY ILV.ModifiedUTC DESC
         '''
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_seats_sold_by_class")
         pivot_df = df.pivot_table(
             index=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             columns='class_code',
@@ -141,7 +139,6 @@ class NavDatabaseHelper:
         ORDER BY ILC.ModifiedUTC DESC
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_current_rbds_by_class")
         pivot_df = df.pivot_table(
             index=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             columns='class_code',
@@ -173,7 +170,6 @@ class NavDatabaseHelper:
         GROUP BY Origin, Destination, FlightNumber, DepartureDate
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_series_seats")
         df.columns = ['Origin', 'Destination', 'FlightNumber',
                       'DepartureDate', 'total_series_seats']
         return df
@@ -187,7 +183,6 @@ class NavDatabaseHelper:
                     @EndDate = N'{str(end_date)}'
                  """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_daily_flights")
         df.columns = ['Origin', 'Destination', 'FlightNumber', 
                      'DepartureDate', 'NextFlight']
         return df
@@ -240,7 +235,6 @@ class NavDatabaseHelper:
             FlightNumber
         """
         df = pd.read_sql(query, self.NavitaireConnection)
-        print("get_opening_rbds")
         return df
 
 # Utility functions
@@ -555,7 +549,7 @@ def lambda_handler(event, context):
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Capacity1'}).drop(
+        ).rename(columns={'capacity': 'Lid1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map BookedPax for Sector2 (using SecondFlightDepartureDate)
@@ -573,7 +567,7 @@ def lambda_handler(event, context):
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Capacity2'}).drop(
+        ).rename(columns={'capacity': 'Lid2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # Map OpeningRBDB2B and OpeningRBDB2C for Sector1 (using original DepartureDate)

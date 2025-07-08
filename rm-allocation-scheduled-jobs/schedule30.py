@@ -22,7 +22,6 @@ class ScheduleThirty:
         self.nav_conn = params['navconn']
         self.dw_conn = params['dwconn']
         self.cache_client = params['cache_client']
-        self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.constants = ConstantsUtils(self.rm_rd_conn)
@@ -99,7 +98,6 @@ class ScheduleThirty:
         departure_start_date = (today + timedelta(days=30)).strftime('%Y-%m-%d')
         departure_end_date = (today + timedelta(days=365)).strftime('%Y-%m-%d')
         
-        self.logger.info(f"Fetching flight bookings for flights departing between {departure_start_date} and {departure_end_date}")
         
         # Query to get flight bookings (modified to not generate flight key in SQL)
         query = f"""
@@ -140,8 +138,6 @@ class ScheduleThirty:
             # Generate flight keys using the improved method
             df['flight_key'] = df.apply(self.generate_flight_key, axis=1)
             
-            self.logger.info(f"Retrieved booking data for {len(df)} flights")
-            
             return df
         except Exception as e:
             error_msg = f"Error fetching flights with bookings: {str(e)}"
@@ -160,11 +156,9 @@ class ScheduleThirty:
             return pd.DataFrame()
             
         current_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.logger.info(f"Tracking booking changes with threshold = {self.booking_threshold}")
         
         # Get existing tracking data from Redis cache
         tracking_dict = self._get_all_flight_tracking_data()
-        self.logger.info(f"Retrieved {len(tracking_dict)} existing flight tracking records from cache")
         
         # Process each flight and prepare cache operations
         threshold_crossings = []
@@ -204,7 +198,6 @@ class ScheduleThirty:
                         'new_bookings': total_bookings,  # All bookings are "new" for a new flight
                         'threshold_crossing_date': current_datetime
                     })
-                    self.logger.info(f"NEW THRESHOLD CROSSING: {flight_key} with {total_bookings} bookings")
                 
             else:
                 # Existing flight - update tracking with robust error handling
@@ -215,7 +208,6 @@ class ScheduleThirty:
                     previous_bookings = int(record.get('total_bookings', 0))
                 except (ValueError, TypeError):
                     previous_bookings = 0
-                    self.logger.info(f"Warning: Invalid total_bookings value for {flight_key}. Using 0.")
                 
                 # Get last threshold information
                 last_threshold_date = record.get('last_threshold_date')
@@ -227,7 +219,6 @@ class ScheduleThirty:
                         last_threshold_bookings = int(record.get('last_threshold_bookings', 0))
                 except (ValueError, TypeError):
                     last_threshold_bookings = 0
-                    self.logger.info(f"Warning: Invalid last_threshold_bookings value for {flight_key}. Using 0.")
                 
                 # Calculate new bookings since last check and last threshold
                 new_bookings_since_last_check = total_bookings - previous_bookings
@@ -265,7 +256,6 @@ class ScheduleThirty:
                         'new_bookings': new_bookings_since_last_threshold,
                         'threshold_crossing_date': current_datetime
                     })
-                    self.logger.info(f"THRESHOLD CROSSED AGAIN: {flight_key} with {new_bookings_since_last_threshold} new bookings since last threshold (total: {total_bookings})")
                 else:
                     # Keep the previous threshold info
                     update_data['last_threshold_date'] = last_threshold_date
@@ -419,12 +409,6 @@ class ScheduleThirty:
             # Don't re-raise the exception to avoid disrupting the main process
 
     def get_combined_market_list(self):
-        """
-        Get and combine both domestic and international market lists,
-        using explicit column selection to ensure consistent ordering.
-        """
-        self.logger.info("Getting combined market list (domestic + international)")
-        
         try:
             # Define specific columns to select in the same order for both tables
             # This list is based on your provided column information
@@ -488,9 +472,6 @@ class ScheduleThirty:
         if market_list_df.empty:
             self.logger.info("Empty market list - cannot match flights")
             return pd.DataFrame()
-            
-        self.logger.info("Matching threshold-crossing flights with market list")
-        self.logger.info(f"Threshold-crossing flights to match: {len(threshold_df)}")
         
         # Ensure consistent data types for joining
         threshold_df['flight_number'] = threshold_df['flight_number'].astype(str).str.strip()
@@ -528,9 +509,6 @@ class ScheduleThirty:
                 exact_match.pop('FlightNumber_norm', None)
                 
                 matches.append(exact_match)
-                
-                self.logger.info(f"Exact match: {flight_key} with market list entry for {exact_match['Origin']}-{exact_match['Destin']} "
-                      f"Flight {exact_match['FlightNumber']} on {exact_match['PerStart']}")
             else:
                 # No exact match found - log and skip
                 route_matches = market_list_df[
@@ -553,20 +531,12 @@ class ScheduleThirty:
         matched_count = len(matches_df)
         all_count = len(threshold_df)
         
-        self.logger.info(f"Found {matched_count} exact matches out of {all_count} threshold-crossing flights")
-        
         if matched_count < all_count:
             self.logger.info(f"{all_count - matched_count} flights did not have exact matches in market list and will be skipped")
         
         return matches_df
 
     def update_market_list_thirty(self, market_list_thirty_df):
-        """
-        Update the market_list_thirty table with newly matched flights.
-        First truncates the table, then inserts all matches.
-        """
-        self.logger.info("Updating market_list_thirty table")
-        
         # Truncate the table
         truncate_query = text("TRUNCATE TABLE QP_DW_RMALLOC.market_list_thirty")
         
@@ -576,8 +546,6 @@ class ScheduleThirty:
             try:
                 # Truncate first
                 connection.execute(truncate_query)
-                self.logger.info("Truncated market_list_thirty table")
-                
                 # Insert if we have matches
                 if not market_list_thirty_df.empty:
                     # Drop utility columns used for matching
@@ -620,13 +588,6 @@ class ScheduleThirty:
                 raise
     
     def update_current_version(self, version_id):
-        """
-        Update the currentVersion table with the new UUID for market_list_thirty
-        
-        Args:
-            version_id (str): UUID to use as the current version
-        """
-        self.logger.info(f"Updating currentVersion table with new version: {version_id}")
         
         update_query = text("""
             UPDATE QP_DW_RMALLOC.currentVersion
@@ -667,18 +628,7 @@ class ScheduleThirty:
                 raise
     
     def upload_to_s3(self, df, version_id):
-        """
-        Upload market list thirty data to S3
-        
-        Args:
-            df (DataFrame): The market list data to upload
-            version_id (str): UUID to use in the file name
-        
-        Returns:
-            bool: True if upload successful, False otherwise
-        """
         try:
-            self.logger.info(f"Preparing to upload market_list_thirty data to S3")
             
             # Create S3 client
             s3_client = boto3.client('s3')
@@ -713,11 +663,6 @@ class ScheduleThirty:
             return False
 
     def runScheduleThirty(self, run_id):
-        """
-        Invoke the FETCH_INPUTS_LAMBDA asynchronously with the provided run_id and other parameters.
-        Uses asynchronous invocation to avoid timeout issues and prevent duplicate executions.
-        """
-        self.logger.info(f"Invoking Lambda function asynchronously for Schedule Thirty with run_id: {run_id}")
         
         try:
             # Initialize the Lambda client
@@ -738,21 +683,12 @@ class ScheduleThirty:
                     "update_navitaire_method": "api"
                 })
             }
-            
-            # Invoke the Lambda function asynchronously
-            self.logger.info(f"Invoking Lambda asynchronously: {lambda_function_name}")
             response = lambda_client.invoke(
                 FunctionName=lambda_function_name,
                 InvocationType='Event',  # Asynchronous execution
                 Payload=json.dumps(payload)
             )
-            
-            # Log the response for debugging
-            self.logger.info(f"Lambda async invocation response: {response}")
-            
-            # For asynchronous invocation, we only get a submission confirmation
-            if response['StatusCode'] == 202:  # 202 = Accepted (for async invocations)
-                self.logger.info(f"Lambda function {lambda_function_name} invoked successfully (async)")
+            if response['StatusCode'] == 202:
                 return {"status": "success", "message": "Lambda invoked asynchronously", "statusCode": 202}
             else:
                 # Handle non-202 status codes

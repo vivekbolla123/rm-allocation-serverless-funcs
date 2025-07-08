@@ -46,6 +46,7 @@ param_names = [
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD'
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
 ]
 
 
@@ -109,6 +110,8 @@ if env == 'prod':
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
@@ -179,6 +182,12 @@ if env == 'uat':
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
 
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+
+RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
+SENDER_EMAIL = 'qp.alerts@akasaair.com'
+SMTP_SERVER = 'smtp.office365.com'
+SMTP_PORT = 587
 
 RM_CACHE_USERNAME = "default"
 RM_CACHE_PORT = 6379

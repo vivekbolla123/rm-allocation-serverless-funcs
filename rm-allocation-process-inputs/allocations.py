@@ -61,10 +61,6 @@ class RBDAllocations:
             # Find the closest RBD to the overbooking fare
             B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - overBookingFare)
             obRBDIndex = B2CRBDs['FareDiff'].idxmin()
-            closestRBD = B2CRBDs.loc[obRBDIndex, 'RBD']
-            closestFare = B2CRBDs.loc[obRBDIndex, 'Total']
-            self.logger.info(f"Overbooking fare: {overBookingFare}, Closest RBD index: {obRBDIndex}, RBD: {closestRBD}, Fare: {closestFare}")
-            self.logger.info(f"Overbooking seats: {overBookingSeats}, Base capacity: {baseCapacity}, Total capacity: {totalCapacity}")
             B2CRBDs = B2CRBDs.drop('FareDiff', axis=1)
         
         if upsellValue is None or str(upsellValue).strip() == '' or str(upsellValue).strip().upper() == 'NA':
@@ -125,8 +121,7 @@ class RBDAllocations:
                     incremental += overBookingSeats
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
-                    # self.logger.info(f"Applied overbooking to RBD {RBDLabel}: Base allocation {incremental - overBookingSeats} + {overBookingSeats} overbooking seats = {incremental}")
-
+                   
                 if RBDLabel == self.constantsutils.HIGHEST_B2C_RBD_VALUE:
                     incremental = totalCapacity
                 
@@ -705,7 +700,7 @@ class RBDAllocations:
         return brd_counter 
 
 
-    def b2CAllocation_connections(self, openDataB2C, currRec, totalCapacity, currBookedLoad, SkippingFactor, currParams):
+    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams):
 
         b2cAllocationsUnits = []
         origin = currParams.sector1[:3]
@@ -722,6 +717,7 @@ class RBDAllocations:
         b2cctr = 0
         b2bctr = 0
         jumpPercent = SkippingFactor
+
         # reset
         # Loop on each rbd
         while b2cctr < B2CRBDs.shape[0] or b2bctr < B2B_RDB_COUNT:
@@ -747,10 +743,10 @@ class RBDAllocations:
                 if firstRDBAllocation >= 0:
                     openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, 0, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
-                if incremental >= totalCapacity:
-                    incremental = totalCapacity
-                if incrementalb2b >= totalCapacity:
-                    incrementalb2b = totalCapacity
+                if incremental >= minLid:
+                    incremental = minLid
+                if incrementalb2b >= minLid:
+                    incrementalb2b = minLid
                 if b2cctr < B2CRBDs.shape[0]:
                     currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
                 b2cAllocationsUnits.append(incrementalb2b)

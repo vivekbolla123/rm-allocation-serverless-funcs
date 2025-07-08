@@ -79,7 +79,6 @@ class NavAPIHelper:
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
             self.logger.info('lid changed sucessfully to '+ str(lid))
-            self.logger.info("Response :"+ response.text)
         else:
             self.logger.info("Failed to update leg :"+ response.text)
            

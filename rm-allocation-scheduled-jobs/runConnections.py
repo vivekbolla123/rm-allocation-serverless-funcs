@@ -24,7 +24,6 @@ class RunConnections:
 
    
     def runConnections(self, run_id, dtd_start, dtd_end):
-        self.logger.info("Inside method")
         # All flights are done, push run_id to the connection_queue
         Payload =  {
                                 "run_id": run_id, 

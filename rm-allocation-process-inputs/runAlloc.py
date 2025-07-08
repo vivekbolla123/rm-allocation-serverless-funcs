@@ -63,9 +63,9 @@ class DynAlloc:
 		numMarkets = self.mktList.shape[0]
 		self.logger.info("Market List has " + str(numMarkets) + " Rows")
 
-		if self.debugMode:
-			self.logger.info("Market List : ")
-			self.logger.info(self.mktList)
+		# if self.debugMode:
+		# 	self.logger.info("Market List : ")
+		# 	self.logger.info(self.mktList)
 
 		for mktCounter in range(numMarkets):
 			self.currParams = MarketListRow(self.mktList.iloc[mktCounter])
