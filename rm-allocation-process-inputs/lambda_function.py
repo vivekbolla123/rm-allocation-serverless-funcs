@@ -31,7 +31,7 @@ mongoclient = MongoClient(
             maxPoolSize=1,          # Limit to 1 connection
             minPoolSize=0      # No minimum connections    
         )
-mongodb=mongoclient.test_db
+mongodb=mongoclient[configsettings.MONGO_DB]
 # DB settings
 WAIT_TIME = 30  # in seconds
 
