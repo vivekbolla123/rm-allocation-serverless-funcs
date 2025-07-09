@@ -149,9 +149,9 @@ class MarketFareService:
         return startTime, endTime, criteria, marketFareRange, minMaxFare
     
     def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,outboundDuration):
-        if params.dynamodb=='1':
+        if  params.mongodb=='1':
             self.logger.info("using dynamo db for market fares")
-            return self.dynamohelper.getMarketFareRangeConnections(
+            return self.mongohelper.getMarketFareRangeConnections(
                 channel, params,flightDate, outBoundStop,outboundDuration
             )
         else:
