@@ -791,7 +791,7 @@ class DynAllocConnections:
         self.timeutils = TimeUtils(self.inputSource)
         # self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
         #                                            self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
-        self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient)
+        self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
         self.marketfaresservice = MarketFareService(
             self.rmdatabasehelper, self.constantsUtils, self.timeutils,self.mongohelper)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,
