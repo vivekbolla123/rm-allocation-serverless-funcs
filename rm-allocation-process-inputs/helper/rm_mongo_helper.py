@@ -239,173 +239,125 @@ class MarketFareMongoDB:
             self.logger.error(f"Error in getMarketFareRange: {e}")
             return pd.DataFrame()
 
-    # def getMarketFareRangeConnections(self, channel, currParams, currFltDateStr, outBoundStop, outboundDuration):
-    #     try:
-    #         currFltDate = currFltDateStr
-    #         origin = currParams.sector1[:3]
-    #         destination = currParams.sector2[3:]
-
-    #         if channel == 'B2B':
-    #             carr_exclusion = currParams.carrierExclusionB2B
-    #         else:
-    #             carr_exclusion = currParams.carrierExclusionB2C
-
-    #         carr_exclusion_list = carr_exclusion.split('/')
-
-    #         ag_data = self._queryMarketFareConnectionsTable(
-    #             self.market_fares_ag, origin, destination, channel,
-    #             currFltDate, carr_exclusion_list, outBoundStop, outboundDuration, 'AG'
-    #         )
-
-    #         rg_data = self._queryMarketFareConnectionsTable(
-    #             self.market_fares_rg, origin, destination, channel,
-    #             currFltDate, carr_exclusion_list, outBoundStop, outboundDuration, 'RG'
-    #         )
-
-    #         combined_data = ag_data + rg_data
-    #         if not combined_data:
-    #             return pd.DataFrame()
-
-    #         latest_records = self._getLatestRecords(combined_data)
-    #         df_data = [{
-    #             'gross_fare': float(record['gross_fare']),
-    #             'outbound_airline_code': record['outbound_airline_code'],
-    #             'outbound_flight': record['outbound_flight'],
-    #             'currency': record.get('currency', 'N/A'),
-    #             'mktFile': record['mktFile']
-    #         } for record in latest_records]
-
-    #         mktFareRange = pd.DataFrame(df_data)
-    #         if not mktFareRange.empty:
-    #             mktFareRange = mktFareRange.sort_values('gross_fare')
-
-    #         return mktFareRange
-
-    #     except Exception as e:
-    #         self.logger.error(f"Error in getMarketFareRangeConnections: {e}")
-    #         return pd.DataFrame()
-
-    # def _queryMarketFareTable(self, table, origin, destination, channel, currFltDate, updateDate,
-    #                          startTime, endtime, Day3Flag, carr_exclusion_list, flightExclusion, hrs, source_suffix):
-    #     items = []
-    #     try:
-    #         route_channel_pk = f"{origin}-{destination}-{channel}"
-    #         key_expr = (
-    #             Key('route_channel').eq(route_channel_pk) &
-    #             Key('departure_date').between(currFltDate.isoformat(), updateDate.isoformat())
-    #         )
-
-    #         filter_expr = (
-    #             Attr('outbound_stop').eq('0') &
-    #             ~Attr('outbound_airline_code').is_in(carr_exclusion_list) &
-    #             Attr('outbound_airline_code').ne('QP') &
-    #             Attr('outbound_airline_code').ne('G8') &
-    #             Attr('outbound_flight').ne(flightExclusion)
-    #         )
-
-    #         if Day3Flag:
-    #             filter_expr = filter_expr & Attr('outbound_departuretime').between(startTime, endtime)
-
-    #         if hasattr(self, 'inputSource') and self.inputSource.input_source.get('CONST_MARKET_FARES') != 'TEST_DATA':
-    #             cutoff_time = (datetime.now() - timedelta(hours=hrs)).isoformat()
-    #             filter_expr = filter_expr & Attr('created_at').gt(cutoff_time)
-
-    #         response = table.query(
-    #             IndexName=self.gsi_name,
-    #             KeyConditionExpression=key_expr,
-    #             FilterExpression=filter_expr
-    #         )
-    #         items.extend(response['Items'])
-
-    #         while 'LastEvaluatedKey' in response:
-    #             response = table.query(
-    #                 IndexName=self.gsi_name,
-    #                 KeyConditionExpression=key_expr,
-    #                 FilterExpression=filter_expr,
-    #                 ExclusiveStartKey=response['LastEvaluatedKey']
-    #             )
-    #             items.extend(response['Items'])
-
-    #         for item in items:
-    #             item['mktFile'] = f"{item.get('scrape_file_name', 'unknown')}_{source_suffix}"
-    #             item['source_table'] = source_suffix
-    #             if 'created_at_iso' in item:
-    #                 item['created_at'] = item.pop('created_at_iso')
-
-    #         return items
-
-    #     except Exception as e:
-    #         self.logger.error(f"Error querying {source_suffix} table: {e}")
-    #         return items
-
-    # def _queryMarketFareConnectionsTable(self, table, origin, destination, channel, currFltDate,
-    #                                    carr_exclusion_list, outBoundStop, outboundDuration, source_suffix):
-    #     items = []
-    #     try:
-    #         route_channel_pk = f"{origin}-{destination}-{channel}"
-    #         key_expr = (
-    #             Key('route_channel').eq(route_channel_pk) &
-    #             Key('departure_date').eq(currFltDate)
-    #         )
-
-    #         filter_expr = (
-    #             Attr('outbound_stop').lte(int(outBoundStop)) &
-    #             Attr('outbound_duration').lte(int(outboundDuration)) &
-    #             ~Attr('outbound_airline_code').is_in(carr_exclusion_list) &
-    #             Attr('outbound_airline_code').ne('QP') &
-    #             Attr('outbound_airline_code').ne('G8')
-    #         )
-
-    #         if hasattr(self, 'inputSource') and self.inputSource.input_source.get('CONST_MARKET_FARES') != 'TEST_DATA':
-    #             cutoff_time = (datetime.now() - timedelta(days=2)).isoformat()
-    #             filter_expr = filter_expr & Attr('created_at').gt(cutoff_time)
-
-    #         response = table.query(
-    #             IndexName=self.gsi_name,
-    #             KeyConditionExpression=key_expr,
-    #             FilterExpression=filter_expr
-    #         )
-    #         items.extend(response['Items'])
-
-    #         while 'LastEvaluatedKey' in response:
-    #             response = table.query(
-    #                 IndexName=self.gsi_name,
-    #                 KeyConditionExpression=key_expr,
-    #                 FilterExpression=filter_expr,
-    #                 ExclusiveStartKey=response['LastEvaluatedKey']
-    #             )
-    #             items.extend(response['Items'])
-
-    #         for item in items:
-    #             item['mktFile'] = f"{item.get('scrape_file_name', 'unknown')}_{source_suffix}"
-    #             item['source_table'] = source_suffix
-
-    #         return items
-
-    #     except Exception as e:
-    #         self.logger.error(f"Error querying {source_suffix} connections table: {e}")
-    #         return items
-
-    # def _getLatestRecords(self, combined_data):
-    #     flight_groups = {}
-    #     for record in combined_data:
-    #         key = (
-    #             record.get('channel'),
-    #             record.get('departure_date'),
-    #             record.get('destination_airport'),
-    #             record.get('source_airport'),
-    #             record.get('outbound_flight'),
-    #             record.get('outbound_departuretime')
-    #         )
-
-    #         created_at = record.get('created_at')
-    #         if not created_at:
-    #             continue
-
-    #         if key not in flight_groups or created_at > flight_groups[key].get('created_at'):
-    #             flight_groups[key] = record
-
-    #     return list(flight_groups.values())
+    def getMarketFareRangeConnections(self, channel, currParams, currFltDateStr, outBoundStop, outboundDuration):
+        currFltDate = currFltDateStr
+        origin = currParams.sector1[:3]
+        destination = currParams.sector2[3:]
+        
+        if channel == B2B_CHANNEL:
+            carr_exclusion = currParams.carrierExclusionB2B
+        else:
+            carr_exclusion = currParams.carrierExclusionB2C
+        
+        # Convert carrier exclusion to list for MongoDB $nin operator
+        carr_exclusion_list = carr_exclusion.split('/')
+        
+        # Common query conditions for both collections
+        base_query = {
+            "source_airport": origin,
+            "destination_airport": destination,
+            "channel": channel,
+            "outbound_airline_code": {
+                "$nin": carr_exclusion_list + ["QP", "G8"]
+            },
+            "outbound_stop": {"$lte": int(outBoundStop)},
+            "outbound_duration": {"$lte": int(outboundDuration)},
+            "departure_date": currFltDate
+        }
+        
+        # Add time interval condition for non-test data
+        if self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA:
+            two_days_ago = datetime.now() - timedelta(days=2)
+            base_query["created_at"] = {"$gt": two_days_ago}
+        
+        try:
+            # MongoDB aggregation pipeline to replicate the SQL logic
+            pipeline = [
+                # Stage 1: Match documents from market_fares_ag collection
+                {
+                    "$match": base_query
+                },
+                # Stage 2: Add source_table field and transform mktFile
+                {
+                    "$addFields": {
+                        "source_table": "AG",
+                        "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                    }
+                },
+                # Stage 3: Union with market_fares_rg collection
+                {
+                    "$unionWith": {
+                        "coll": "market_fares_rg",
+                        "pipeline": [
+                            {"$match": base_query},
+                            {
+                                "$addFields": {
+                                    "source_table": "RG",
+                                    "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                                }
+                            }
+                        ]
+                    }
+                },
+                # Stage 4: Sort by created_at descending to get latest records first
+                {
+                    "$sort": {
+                        "channel": 1,
+                        "departure_date": 1,
+                        "destination_airport": 1,
+                        "source_airport": 1,
+                        "outbound_flight": 1,
+                        "outbound_departuretime": 1,
+                        "created_at": -1
+                    }
+                },
+                # Stage 5: Group by the partition fields and take the first (latest) document
+                {
+                    "$group": {
+                        "_id": {
+                            "channel": "$channel",
+                            "departure_date": "$departure_date",
+                            "destination_airport": "$destination_airport",
+                            "source_airport": "$source_airport",
+                            "outbound_flight": "$outbound_flight",
+                            "outbound_departuretime": "$outbound_departuretime"
+                        },
+                        "gross_fare": {"$first": "$gross_fare"},
+                        "outbound_airline_code": {"$first": "$outbound_airline_code"},
+                        "outbound_flight": {"$first": "$outbound_flight"},
+                        "currency": {"$first": "$currency"},
+                        "mktFile": {"$first": "$mktFile"}
+                    }
+                },
+                # Stage 6: Project only the required fields
+                {
+                    "$project": {
+                        "_id": 0,
+                        "gross_fare": 1,
+                        "outbound_airline_code": 1,
+                        "outbound_flight": 1,
+                        "currency": 1,
+                        "mktFile": 1
+                    }
+                },
+                # Stage 7: Sort by gross_fare ascending
+                {
+                    "$sort": {"gross_fare": 1}
+                }
+            ]
+            
+            # Execute the aggregation pipeline
+            # Assuming self.db is your MongoDB database connection
+            result = list(self.db.market_fares_ag.aggregate(pipeline))
+            
+            # Convert to pandas DataFrame
+            mktFareRange = pd.DataFrame(result)
+            
+        except Exception as e:
+            self.logger.error(e)
+            mktFareRange = pd.DataFrame()  # Return empty DataFrame on error
+        
+        return mktFareRange
 
     def getRoutedDestination(self, origin, destination):
         query = f'''
