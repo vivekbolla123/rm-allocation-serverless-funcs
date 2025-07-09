@@ -241,124 +241,159 @@ class MarketFareMongoDB:
             return pd.DataFrame()
 
     def getMarketFareRangeConnections(self, channel, currParams, currFltDateStr, outBoundStop, outboundDuration):
-        currFltDate = currFltDateStr
-        origin = currParams.sector1[:3]
-        destination = currParams.sector2[3:]
-        
-        if channel == B2B_CHANNEL:
-            carr_exclusion = currParams.carrierExclusionB2B
-        else:
-            carr_exclusion = currParams.carrierExclusionB2C
-        
-        # Convert carrier exclusion to list for MongoDB $nin operator
-        carr_exclusion_list = carr_exclusion.split('/')
-        
-        # Common query conditions for both collections
-        base_query = {
-            "source_airport": origin,
-            "destination_airport": destination,
-            "channel": channel,
-            "outbound_airline_code": {
-                "$nin": carr_exclusion_list + ["QP", "G8"]
-            },
-            "outbound_stop": {"$lte": int(outBoundStop)},
-            "outbound_duration": {"$lte": int(outboundDuration)},
-            "departure_date": currFltDate
-        }
-        
-        # Add time interval condition for non-test data
-        if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
-            two_days_ago = datetime.now() - timedelta(days=2)
-            base_query["created_at"] = {"$gt": two_days_ago}
-        
+        """
+        Fetches market fare data for flights with connections using a PyMongo aggregation pipeline.
+        This is a direct conversion of the original SQL-based function.
+
+        - Converts 'created_at' string to a date for filtering.
+        - Handles deduplication by keeping the most recent record for each unique flight.
+        """
         try:
-            # MongoDB aggregation pipeline to replicate the SQL logic
-            pipeline = [
-                # Stage 1: Match documents from market_fares_ag collection
-                {
-                    "$match": base_query
-                },
-                # Stage 2: Add source_table field and transform mktFile
-                {
-                    "$addFields": {
-                        "source_table": "AG",
-                        "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+            # --- 1. Parameter Setup (Matches original SQL function) ---
+            origin = currParams.sector1[:3]
+            destination = currParams.sector2[3:]
+            
+            if channel == B2B_CHANNEL:
+                carr_exclusion = currParams.carrierExclusionB2B
+            else:
+                carr_exclusion = currParams.carrierExclusionB2C
+    
+            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            
+            # Convert the flight date string to datetime objects for the start and end of that day.
+            # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.
+            fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+            start_of_day = datetime.combine(fltDate, datetime.min.time())
+            end_of_day = datetime.combine(fltDate, datetime.max.time())
+
+            self.logger.info(
+                f"Searching connection fares: {origin}-{destination}, Channel: {channel}, "
+                f"Date: {currFltDateStr}, Max Stops: {outBoundStop}, Max Duration: {outboundDuration}"
+            )
+
+            # --- 2. Check for Collection Existence ---
+            collection_names = self.db.list_collection_names()
+            ag_exists = 'market_fares_ag' in collection_names
+            rg_exists = 'market_fares_rg' in collection_names
+
+            if not ag_exists and not rg_exists:
+                self.logger.warning("Neither market_fares_ag nor market_fares_rg collections found.")
+                return pd.DataFrame()
+
+            # --- 3. Build the MongoDB Aggregation Pipeline ---
+            
+            # Stage to convert the 'created_at' string to a date object.
+        
+            date_conversion_stage = {
+                "$set": {
+                    "created_at": {
+                        "$dateFromString": {
+                            "dateString": "$created_at",
+                            "format": "%Y-%m-%d %H:%M:%S"  # <-- EXAMPLE: "2023-10-27 15:45:00"
+                        }
                     }
-                },
-                # Stage 3: Union with market_fares_rg collection
-                {
-                    "$unionWith": {
-                        "coll": "market_fares_rg",
-                        "pipeline": [
-                            {"$match": base_query},
-                            {
-                                "$addFields": {
-                                    "source_table": "RG",
-                                    "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
-                                }
-                            }
-                        ]
-                    }
-                },
-                # Stage 4: Sort by created_at descending to get latest records first
-                {
-                    "$sort": {
-                        "channel": 1,
-                        "departure_date": 1,
-                        "destination_airport": 1,
-                        "source_airport": 1,
-                        "outbound_flight": 1,
-                        "outbound_departuretime": 1,
-                        "created_at": -1
-                    }
-                },
-                # Stage 5: Group by the partition fields and take the first (latest) document
-                {
-                    "$group": {
-                        "_id": {
-                            "channel": "$channel",
-                            "departure_date": "$departure_date",
-                            "destination_airport": "$destination_airport",
-                            "source_airport": "$source_airport",
-                            "outbound_flight": "$outbound_flight",
-                            "outbound_departuretime": "$outbound_departuretime"
-                        },
-                        "gross_fare": {"$first": "$gross_fare"},
-                        "outbound_airline_code": {"$first": "$outbound_airline_code"},
-                        "outbound_flight": {"$first": "$outbound_flight"},
-                        "currency": {"$first": "$currency"},
-                        "mktFile": {"$first": "$mktFile"}
-                    }
-                },
-                # Stage 6: Project only the required fields
-                {
-                    "$project": {
-                        "_id": 0,
-                        "gross_fare": 1,
-                        "outbound_airline_code": 1,
-                        "outbound_flight": 1,
-                        "currency": 1,
-                        "mktFile": 1
-                    }
-                },
-                # Stage 7: Sort by gross_fare ascending
-                {
-                    "$sort": {"gross_fare": 1}
                 }
+            }
+
+            # Build the main matching conditions
+            match_conditions = {
+                "source_airport": origin,
+                "destination_airport": destination,
+                "channel": channel,
+                "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
+                "outbound_stop": {"$lte": int(outBoundStop)},
+                "outbound_duration": {"$lte": int(outboundDuration)},
+                "departure_date": {
+                    "$gte": start_of_day,
+                    "$lte": end_of_day
+                }
+            }
+            
+            # Add time interval condition for non-test data (matches SQL's INTERVAL 2 DAY)
+            if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
+                two_days_ago = datetime.now() - timedelta(days=2)
+                match_conditions["created_at"] = {"$gt": two_days_ago}
+
+            # Define the final fields to be returned from the database
+            projection = {
+                "_id": 0,
+                "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
+                "currency": 1, "destination_airport": 1, "source_airport": 1,
+                "channel": 1, "outbound_departuretime": 1, "departure_date": 1,
+                "created_at": 1, "mktFile": 1, "source_table": 1
+            }
+            
+            # --- 4. Query Collections and Combine ---
+            all_results = []
+
+            # Query AG collection
+            if ag_exists:
+                try:
+                    ag_pipeline = [
+                        date_conversion_stage,
+                        {"$match": match_conditions},
+                        {"$addFields": {
+                            "source_table": "AG",
+                            "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                        }},
+                        {"$project": projection}
+                    ]
+                    ag_cursor = self.db.market_fares_ag.aggregate(ag_pipeline)
+                    ag_results = list(ag_cursor)
+                    all_results.extend(ag_results)
+                    self.logger.info(f"Found {len(ag_results)} connection records from AG collection.")
+                except Exception as e:
+                    self.logger.error(f"Error querying AG collection for connections: {e}")
+
+            # Query RG collection
+            if rg_exists:
+                try:
+                    rg_pipeline = [
+                        date_conversion_stage,
+                        {"$match": match_conditions},
+                        {"$addFields": {
+                            "source_table": "RG",
+                            "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                        }},
+                        {"$project": projection}
+                    ]
+                    rg_cursor = self.db.market_fares_rg.aggregate(rg_pipeline)
+                    rg_results = list(rg_cursor)
+                    all_results.extend(rg_results)
+                    self.logger.info(f"Found {len(rg_results)} connection records from RG collection.")
+                except Exception as e:
+                    self.logger.error(f"Error querying RG collection for connections: {e}")
+            
+            if not all_results:
+                self.logger.warning("No market fare connection records found for the given criteria.")
+                return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
+
+            # --- 5. Deduplicate and Sort in Pandas (Replicates SQL Window Function) ---
+            df = pd.DataFrame(all_results)
+            
+            # These columns define a unique flight, as in the SQL PARTITION BY clause
+            partition_cols = [
+                'channel', 'departure_date', 'destination_airport',
+                'source_airport', 'outbound_flight', 'outbound_departuretime'
             ]
             
-            # Execute the aggregation pipeline
-            # Assuming self.db is your MongoDB database connection
-            result = list(self.db.market_fares_ag.aggregate(pipeline))
+            # Sort to bring the latest record for each flight to the top
+            df = df.sort_values(by=partition_cols + ['created_at'], ascending=False)
             
-            # Convert to pandas DataFrame
-            mktFareRange = pd.DataFrame(result)
+            # Keep only the first (latest) record for each unique flight
+            df_dedup = df.drop_duplicates(subset=partition_cols, keep='first')
             
+            # Select final columns and sort by price, as in the final SQL ORDER BY
+            mktFareRange = df_dedup[['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile']].copy()
+            mktFareRange = mktFareRange.sort_values('gross_fare', ascending=True).reset_index(drop=True)
+            
+            self.logger.info(f"Returning {len(mktFareRange)} unique market fare connection records.")
+            
+            return mktFareRange
+
         except Exception as e:
-            self.logger.error(e)
-            mktFareRange = pd.DataFrame()  # Return empty DataFrame on error
-        
-        return mktFareRange
+            self.logger.error(f"An unexpected error occurred in getMarketFareRangeConnections: {e}")
+            return pd.DataFrame()
 
     def getRoutedDestination(self, origin, destination):
         query = f'''
