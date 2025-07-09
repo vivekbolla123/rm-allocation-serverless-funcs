@@ -4,11 +4,12 @@ from Constants import *
 import logging
 
 class MarketFareMongoDB:
-    def __init__(self, conn,db):
+    def __init__(self, conn,db,inputSource):
         self.db = db
         self.logger = logging.getLogger(__name__)
         self.gsi_name = 'ChannelDepartureDateGSI'
         self.conn=conn
+        self.inputSource=inputSource
 
     
 
@@ -266,7 +267,7 @@ class MarketFareMongoDB:
         }
         
         # Add time interval condition for non-test data
-        if self.inputSource.input_source[CONST_MARKET_FARES] != TEST_DATA:
+        if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
             two_days_ago = datetime.now() - timedelta(days=2)
             base_query["created_at"] = {"$gt": two_days_ago}
         
