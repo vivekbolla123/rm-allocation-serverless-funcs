@@ -34,7 +34,8 @@ class NavOdsAlert:
         try:
             self.logger.info("Starting the run method.")
             currDate = datetime.now(timezone.utc)
-            futureDate = currDate + timedelta(days=self.max_ndo)
+            ndo2Date = currDate + timedelta(days=2)
+            maxNdoDate = currDate + timedelta(days=self.max_ndo)
             
             df = pd.DataFrame({'flight': self.sector_list})
 
@@ -42,7 +43,7 @@ class NavOdsAlert:
             for flight in self.sector_list:
                 seatsSold = 0
                 response = legKeyData = None
-                getLegKeyUrl = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/trip/info/simple?Origin={flight[:3]}&Destination={flight[3:6]}&Identifier={flight[6:]}&BeginDate={currDate.date()}&endDate={futureDate.date()}&CarrierCode={AKASA_AIRLINE_CODE}&FlightType=3"
+                getLegKeyUrl = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/trip/info/simple?Origin={flight[:3]}&Destination={flight[3:6]}&Identifier={flight[6:]}&BeginDate={ndo2Date.date()}&endDate={maxNdoDate.date()}&CarrierCode={AKASA_AIRLINE_CODE}&FlightType=3"
 
                 response = self.session.get(getLegKeyUrl)
                 legKeyData = response.json().get('data', [])
@@ -63,12 +64,12 @@ class NavOdsAlert:
                 df.loc[df['flight'] == flight, 'api_sold_seats'] = seatsSold
 
             # Waiting some secs 
-            time.sleep(6)
+            time.sleep(20)
 
             # Getting Bookedloads from Nav ODS
             NavitaireQuery = f""" EXEC {configsettings.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
-                                @DepartureDate_from = N'{str(currDate)}',
-                                @DepartureDate_to = N'{str(futureDate)}'
+                                @DepartureDate_from = N'{str(ndo2Date.date())}',
+                                @DepartureDate_to = N'{str(maxNdoDate.date())}'
                             """
             bookedData = pd.read_sql(NavitaireQuery, self.navconn)
 
@@ -98,7 +99,7 @@ class NavOdsAlert:
             if (is_ods_down):
                 self.send_email_alert(
                     "Nav ODS Alert", 
-                    "Bookedload from Nav ODS is lesser than the bookedload from Nav API.\nPlease check Nav ODS.", 
+                    f"Bookedload from Nav ODS is lesser than the bookedload from Nav API for date range {ndo2Date.date()} to {maxNdoDate.date()}.\n\n{df.to_string(index=False)}\n\nPlease check Nav ODS.", 
                     configsettings.RM_IT_ALERT_EMAIL
                     )
 
