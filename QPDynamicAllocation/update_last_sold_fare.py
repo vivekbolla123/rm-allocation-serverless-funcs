@@ -7,15 +7,18 @@ import pymssql
 from redis import Redis
 from datetime import datetime
 from boto3 import client
+from sqlalchemy import create_engine, text
 
 
 class LastSoldFare:
 
     def __init__(self):
         self.NavitaireConnection = None
+        self.rmrdconn = None
         self.logger = None
         self.cache_client = None
         self.generateConfigs()
+        self.get_filter_configs(['allfares', 'b2bfares', 'b2cfares'])
         self.get_last_sold_fare()
 
     def generateConfigs(self):
@@ -30,6 +33,9 @@ class LastSoldFare:
             self.logger = logging.getLogger()
             self.logger.setLevel(logging.INFO)
             self.NAV_DB_NAME = "REZ0KWB01"
+            RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
+            RM_RD_CONN_STRING = f"mysql+mysqldb://rmappuser:{RM_RD_PASSWORD}@prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+
             try:
 
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -41,6 +47,7 @@ class LastSoldFare:
                     user="0KODSUSER2",
                     password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
                 )
+                self.rmrdconn = create_engine(RM_RD_CONN_STRING)
             except Exception as e:
                 self.logger.error(e)
                 exit()
@@ -55,6 +62,8 @@ class LastSoldFare:
             self.logger = logging.getLogger()
             self.logger.setLevel(logging.INFO)
             self.NAV_DB_NAME = "TST0KWB01"
+            RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD')
+            RM_RD_CONN_STRING = f"mysql+mysqldb://rm-user:{RM_RD_PASSWORD}@uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
             try:
 
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -66,10 +75,45 @@ class LastSoldFare:
                     user="0KODSUSER2",
                     password=self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD')
                 )
+                self.rmrdconn = create_engine(RM_RD_CONN_STRING)
             except Exception as e:
                 self.logger.error(e)
                 exit()
                 
+    def get_filter_configs(self, filter_names):
+        placeholders = ','.join(['%s'] * len(filter_names))
+        query = f"SELECT parameterKey, parameterValue FROM rm_parameter_values WHERE parameterKey IN ({placeholders})"
+        df = pd.read_sql(query, self.rmrdconn, params=[f'fare_filter_{name}' for name in filter_names])
+        
+        configs = {name: {} for name in filter_names}
+        for _, row in df.iterrows():
+            filter_name = row['parameterKey'].replace('fare_filter_', '')
+            configs[filter_name] = json.loads(row['parameterValue']) if not pd.isna(row['parameterValue']) else {}
+        
+        self.filter_config = configs
+    
+    def apply_filter(self, fares, filter_name):
+        config = self.filter_config.get(filter_name, {})
+        excluded_prefixes = config.get('excluded_class_prefixes', [])
+        excluded_classes = config.get('excluded_classes', [])
+        included_fare_basis = config.get('included_fare_basis', [])
+        
+        filtered_fares = []
+        for fare in fares:
+            # Check class prefix exclusions - G
+            if any(fare['ClassOfService'].startswith(prefix) for prefix in excluded_prefixes):
+                continue
+            
+            # Check class exclusions - G7
+            if fare['ClassOfService'] in excluded_classes:
+                continue
+            
+            # Check fare basis inclusion
+            if included_fare_basis and fare['FareBasis'] not in included_fare_basis:
+                continue
+            
+            filtered_fares.append(fare)
+        return filtered_fares
 
     def get_last_sold_fare(self):
         time = None
@@ -91,14 +135,11 @@ class LastSoldFare:
             # Sort the DataFrame by BookingUTC
             df = df.sort_values(by='BookingUTC')
             df = df.loc[df.groupby('BookingID')['BookingUTC'].idxmax()]
-            # Group by the required columns and get the last booking based on BookingUTC
-            last_booking_df = df.groupby(['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate', 'FareBasis']).apply(
-                lambda x: x.nlargest(7, 'BookingUTC')).reset_index(drop=True)
 
-            last_booking_df = last_booking_df[
-                last_booking_df['FareBasis'].notna() & (last_booking_df['FareBasis'] != '')]
+            df = df[
+                df['FareBasis'].notna() & (df['FareBasis'] != '')]
 
-            self.updateValuesToRedis(last_booking_df)
+            self.updateValuesToRedis(df)
 
         self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -112,10 +153,15 @@ class LastSoldFare:
             # Prepare all fares list
             new_all_fares = group.sort_values('BookingUTC', ascending=False).apply(lambda row: {
                 'BookingID': row['BookingID'],
+                'ClassOfService': row['ClassOfService'],
                 'FareBasis': row['FareBasis'],
                 'Fare': row['Fare'],
                 'BookingUTC': row['BookingUTC'].strftime('%Y-%m-%dT%H:%M:%S.%f')
             }, axis=1).tolist()
+
+            filtered_all_fares = self.apply_filter(new_all_fares, 'allfares')
+            filtered_b2b_fares = self.apply_filter(new_all_fares, 'b2bfares')
+            filtered_b2c_fares = self.apply_filter(new_all_fares, 'b2cfares')
             
             # Check if key exists in Redis
             existing_data = self.cache_client.get(key)
@@ -125,18 +171,18 @@ class LastSoldFare:
                 existing_dict = json.loads(existing_data.decode('utf-8'))
                 
                 # Merge and deduplicate all fares
-                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), new_all_fares, 7)
+                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7)
                 
                 # Separate and merge B2B and B2C fares
                 b2b_fares = self._merge_and_limit_entries(
                     existing_dict.get('b2bfares', []), 
-                    [fare for fare in new_all_fares if fare['FareBasis'] == 'M'], 
+                    filtered_b2b_fares, 
                     3
                 )
                 
                 b2c_fares = self._merge_and_limit_entries(
                     existing_dict.get('b2cfares', []), 
-                    [fare for fare in new_all_fares if fare['FareBasis'] in ['R', 'C', 'V', 'Z']], 
+                    filtered_b2c_fares, 
                     3
                 )
                 
@@ -149,9 +195,9 @@ class LastSoldFare:
             else:
                 # If no existing data, create new lists
                 final_data = {
-                    'allfares': new_all_fares[:7],
-                    'b2bfares': [fare for fare in new_all_fares if fare['FareBasis'] == 'M'][:3],
-                    'b2cfares': [fare for fare in new_all_fares if fare['FareBasis'] in ['R', 'C', 'V', 'Z']][:3]
+                    'allfares': filtered_all_fares[:7],
+                    'b2bfares': filtered_b2b_fares[:3],
+                    'b2cfares': filtered_b2c_fares[:3]
                 }
 
             # Store in Redis as JSON
@@ -182,13 +228,13 @@ class LastSoldFare:
             CASE 
                 WHEN LEFT(FareBasis, 1) = 'G' THEN 'G' 
                 ELSE SUBSTRING(FareBasis, 5, 1) 
-            END as FareBasis, 
+            END as FareBasis, ClassOfService,
             Fare
             from 
             (
               Select
                 BookingID, BookingUTC, PassengerID, SegmentID, InventoryLegID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, FareBasis, RecordLocator,
-                CAST(sum(BaseFare+AirportCharges+Taxes) over (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber)*(SQRT(Distance))/SUM(SQRT(Distance)) OVER (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber) as decimal(19,4)) as Fare
+                CAST(sum(BaseFare+AirportCharges+Taxes) over (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber)*(SQRT(Distance))/SUM(SQRT(Distance)) OVER (Partition by PassengerID,TripNumber,JourneyNumber,ModSegmentNumber) as decimal(19,4)) as Fare, ClassOfService
                 from 
                 (
                   SELECT
@@ -205,7 +251,8 @@ class LastSoldFare:
                     + SUM(Case when PJC.ChargeType=3 and CTM.IncludedTaxFlag=1  then (PJC.ChargeAmount*CCV.ConversionRate) else 0 end)
                     else 0 end as Taxes,
                     case when PJS.FareBasis='' then 1 else SegmentNumber end as ModSegmentNumber,
-                    avg(CP.ActualDistance) as Distance
+                    avg(CP.ActualDistance) as Distance,
+                    PJS.ClassOfService
                   FROM
                     {self.NAV_DB_NAME }.rez.Booking B
                     INNER JOIN {self.NAV_DB_NAME }.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
@@ -222,7 +269,7 @@ class LastSoldFare:
 		            OR LEFT(FareBasis, 1) = 'G')
                   GROUP BY
                     B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
-                    PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator
+                    PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator, PJS.ClassOfService
                 ) X
               ) Y
               WHERE
