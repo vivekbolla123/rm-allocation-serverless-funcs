@@ -617,7 +617,8 @@ class RBDAllocations:
                     class_au = 0
                 if str(tbfenhflag)=='1' and currtbfBookedLoad<=(blocked_seats-2):
                     if nearest_rbd=="TF":
-                        class_au=currBookedLoad+self.constantsutils.TBF_OPEN_SEATS
+                        open=currBookedLoad+self.constantsutils.TBF_OPEN_SEATS
+                        class_au = max(open,min(incremental_value, max_au))
                     
                 currRec.set_class_attribute(brd_counter, 'class_au', class_au)
                 brd_counter += 1
