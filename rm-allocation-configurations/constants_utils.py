@@ -56,6 +56,8 @@ class ConstantsUtils:
         self.SOFTBLOCK_RBDS = SOFTBLOCK_RBDS
         self.NAVODS_ALERT_SECTOR_LIST = NAVODS_ALERT_SECTOR_LIST
         self.NAVODS_ALERT_MAX_NDO = NAVODS_ALERT_MAX_NDO
+        self.TBF_ORG_CODE = TBF_ORG_CODE
+        self.TBF_OPEN_SEATS = TBF_OPEN_SEATS
 
 
         self.logger = logging.getLogger()
@@ -176,6 +178,10 @@ class ConstantsUtils:
                 self.NAVODS_ALERT_SECTOR_LIST = parameter_value
             elif parameter_key == NAVODS_ALERT_MAX_NDO_KEY:
                 self.NAVODS_ALERT_MAX_NDO = parameter_value
+            elif parameter_key == TBF_ORG_CODE_KEY:
+                self.TBF_ORG_CODE = parameter_value
+            elif parameter_key == TBF_OPEN_SEATS_KEY:
+                self.TBF_OPEN_SEATS = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

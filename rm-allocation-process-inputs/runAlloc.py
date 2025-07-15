@@ -959,10 +959,12 @@ class DynAlloc:
 					)
 
 					# TBF allocation needs alloc_df from b2CAllocations (plural)
-					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0) # Default
+					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0)
+					param_tbfenhFlag = getattr(self.currParams, 'tbfenhflag', 0) # Default
+     				# Default
 					current_brd_counter = self.allocations.tbf_allocation(
 						alloc_df_for_tbf, current_brd_counter, currRec_fullalloc, param_tbfFlag, B2CRBDs_df_for_cug_gq_tbf,
-						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full
+						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full,param_tbfenhFlag,dateFormatted_yyyymmdd
 					)
 
 					# Sales Inventory for W-classes (distress_pax_count from common init)
