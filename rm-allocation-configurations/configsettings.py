@@ -44,11 +44,13 @@ param_names = [
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
     f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
+    f'/copilot/qp/{env}/secrets/Qp-Forecast-DB-User',
+    f'/copilot/qp/{env}/secrets/Qp-Forecast-DB-Pass',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
-    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
     f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
-    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
+  
 ]
 
 
