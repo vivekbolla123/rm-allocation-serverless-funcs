@@ -135,6 +135,7 @@ GROUP BY
     ml.tbfFlag,
     ml.CugFlag,
     ml.MktFareFlag,
+    ml.directFlag,
     ml.autoBackstopFlag,
     bfd.BookingsCount,
     bfd.BookingToday, 
