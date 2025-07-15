@@ -32,13 +32,14 @@ from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
 from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
+from calendarUpsell import CalUpsell
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 RM_ALLOC_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 RM_REPORTS_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-ESB_DB = f"mysql+mysqldb://{configsettings.ESB_DB_USERNAME}:{configsettings.ESB_DB_PASSWORD}@{configsettings.ESB_DB_WR_APPUSER_URL}/{configsettings.ESB_NAV_SCHEMA_NAME}"
+ESB_DB = f"mysql+mysqldb://{configsettings.ESB_USER}:{configsettings.ESB_PASSWORD}@{configsettings.ESB_HOST}/{configsettings.ESB_READ_SCHEMA}"
 DB_DW_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 
@@ -91,7 +92,8 @@ module_map = {
     "expected_no_shows": ExpectedNoShows,
     "schedule_thirty": ScheduleThirty,
     "input_audits": S3CsvCombiner,
-    "navods_alert": NavOdsAlert
+    "navods_alert": NavOdsAlert,
+    "calendar_upsell": CalUpsell
 }
 
 

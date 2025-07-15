@@ -711,6 +711,9 @@ class RBDAllocations:
         origin = currParams.sector1[:3]
         destin = currParams.sector2[-3:]
         B2CRBDs = self.rmdatabasehelper.fareExtract(origin, destin, 'B2C', '', 'R')
+        rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
+        rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
 
         openingRBD = openDataB2C['RBD'][0]
         openbuketFlag = False
