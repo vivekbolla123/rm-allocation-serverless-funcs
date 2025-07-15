@@ -251,14 +251,14 @@ class DetermineRBD:
             
             # Case: No lastSoldFare but profileFare exists
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
+                max_fare = max(float(profileFare), float(strategyFare))
                 if has_tolerance_fare():
-                    avg_fare = (float(profileFare) + float(strategyFare)) / 2
                     tolerance_val = calculate_tolerance_value()
-                    anchorFare = max(avg_fare, tolerance_val)
-                    howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN' if anchorFare == avg_fare else 'AllocationY_ToleranceHit_UpsellN'
+                    anchorFare = max(max_fare, tolerance_val)
+                    howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
                 else:
-                    anchorFare = (float(profileFare) + float(strategyFare)) / 2
-                    howDetermined = 'AllocationY_Avgof_Startegy_Profile_UpsellN'
+                    anchorFare = max_fare
+                    howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN'
                 
                 anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
             
