@@ -12,6 +12,7 @@ import time as time_sleep
 
 from Constants import *
 
+from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
 from helper.redis_helper import RedisHelper
 from helper.rm_database_helper import RMDatabaseHelper
@@ -768,6 +769,7 @@ class DynAllocConnections:
         self.conn = self.currParams.dbconn
         self.wrconn = self.currParams.wrconn
         self.dwconn = self.currParams.dwconn
+        self.mongoclient = self.currParams.mongodbclient
         self.starttime = datetime.now()
         self.allocResults = []
         self.AUFileData = []
@@ -789,8 +791,9 @@ class DynAllocConnections:
         self.timeutils = TimeUtils(self.inputSource)
         # self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
         #                                            self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
+        self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
         self.marketfaresservice = MarketFareService(
-            self.rmdatabasehelper, self.constantsUtils, self.timeutils)
+            self.rmdatabasehelper, self.constantsUtils, self.timeutils,self.mongohelper)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,
                                          self.constantsUtils, self.mathutils, self.redishelper)
         self.allocations = RBDAllocations(

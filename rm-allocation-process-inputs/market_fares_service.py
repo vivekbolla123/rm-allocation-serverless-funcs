@@ -8,10 +8,11 @@ import logging
 
 class MarketFareService:
     # Assuming other parts of the class are defined elsewhere
-    def __init__(self,rm_database_helper,constantsutils,timeutils):
+    def __init__(self,rm_database_helper,constantsutils,timeutils,mongohelper):
         self.rmdatabasehelper=rm_database_helper
         self.constantsutils=constantsutils
         self.timeutils=timeutils
+        self.mongohelper=mongohelper
     
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)    
@@ -77,9 +78,12 @@ class MarketFareService:
     def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
         ndo=self.timeutils.calculate_ndo(flightDate)
         hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
-        return self.rmdatabasehelper.getMarketFareRange(
-            channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
-        )
+        if params.mongodb=='1':
+            return self.mongohelper.getMarketFareRange(channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs)
+        else:
+            return self.rmdatabasehelper.getMarketFareRange(
+                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
+            )
 
     def get_value_for_ndo(self,json_string, ndo):
         
@@ -145,10 +149,16 @@ class MarketFareService:
         return startTime, endTime, criteria, marketFareRange, minMaxFare
     
     def fetchMarketFareRangeConnections(self, channel, flightDate, params, outBoundStop,outboundDuration):
-        
-        return self.rmdatabasehelper.getMarketFareRangeConnections(
-            channel, params,flightDate, outBoundStop,outboundDuration
-        )
+        if  params.mongodb=='1':
+            self.logger.info("using dynamo db for market fares")
+            return self.mongohelper.getMarketFareRangeConnections(
+                channel, params,flightDate, outBoundStop,outboundDuration
+            )
+        else:
+            self.logger.info("using mysql db for market fares")
+            return self.rmdatabasehelper.getMarketFareRangeConnections(
+                channel, params,flightDate, outBoundStop,outboundDuration
+            )
     
     def getMarketFareAnchorFareConnections(self,channel, params,flightDate, outBoundStop,outboundDuration,criteria,inputSource,convert_currency):
         

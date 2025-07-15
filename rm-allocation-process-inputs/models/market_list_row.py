@@ -47,6 +47,7 @@ class MarketListRow:
         self.directFlag = currParams.get("directFlag",'1')
         self.cug_mkt_flag = currParams.get("CugFlag",CONST_NA)
         self.mkt_fare_flag = currParams.get("MktFareFlag",CONST_NA)
+        self.tbfenhflag = currParams.get("TBFEnhFlag",CONST_NA)
         
         self.DepartureTime = currParams.get("DepartureTime",CONST_NA)
         self.bookedPax = currParams.get("bookedPax",CONST_NA)
@@ -84,4 +85,7 @@ class MarketListRow:
         self.time_logger = currParams.get("timelogger", CONST_NA)        
         self.route_type=currParams.get("route_type",CONST_NA)
         self.strategy = CONST_NA
+        self.mongodb=currParams.get("mongodb",'0')
+        self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
+        
         self.saleinvflag = currParams.get("saleinvflag",0)

@@ -22,6 +22,7 @@ from get_dynamic_time_d2 import GetDynamicTimeD2
 from market_fares_service import MarketFareService
 from determine_rbd import DetermineRBD
 
+from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.redis_helper import RedisHelper
 from helper.nav_api_helper import NavAPIHelper
 from helper.rm_database_helper import RMDatabaseHelper
@@ -967,10 +968,12 @@ class DynAlloc:
 					)
 
 					# TBF allocation needs alloc_df from b2CAllocations (plural)
-					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0) # Default
+					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0)
+					param_tbfenhFlag = getattr(self.currParams, 'tbfenhflag', 0) # Default
+     				# Default
 					current_brd_counter = self.allocations.tbf_allocation(
 						alloc_df_for_tbf, current_brd_counter, currRec_fullalloc, param_tbfFlag, B2CRBDs_df_for_cug_gq_tbf,
-						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full
+						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full,param_tbfenhFlag,dateFormatted_yyyymmdd
 					)
 
 					# Sales Inventory for W-classes (distress_pax_count from common init)
@@ -1433,6 +1436,7 @@ class DynAlloc:
 		self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
 
 		self.sqs = self.currParams.sqs
+		self.mongoclient = self.currParams.mongodbclient
 		self.conn = self.currParams.dbconn
 		self.wrconn = self.currParams.wrconn
 		self.dwconn = self.currParams.dwconn
@@ -1456,6 +1460,7 @@ class DynAlloc:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
+		self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
 		self.constantsUtils = ConstantsUtils(self.conn)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
@@ -1465,7 +1470,7 @@ class DynAlloc:
 		if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 			self.navapihelper = NavAPIHelper(self.NAV_BASE_API_URL, self.NAV_OCP_SUBSCRIPTION_KEY, self.NAV_USERNAME, self.NAV_PWD, self.NAV_DOMAIN, self.runId, self.inputSource)
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
-		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils)
+		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils,self.mongohelper)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
 

@@ -44,6 +44,10 @@ param_names = [
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
     f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
+    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
     f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD'
 ]
 
@@ -106,6 +110,15 @@ if env == 'prod':
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
+    RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "rm_mongo"
+    MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+    MONGO_URL = "10.16.6.179"
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
@@ -175,6 +188,14 @@ if env == 'uat':
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
+    RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+
+    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    MONGO_USERNAME = "test_user"
+    MONGO_DB = "test_db"
+    MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+    MONGO_URL = "172.24.72.35"
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
 
