@@ -135,7 +135,9 @@ GROUP BY
     ml.tbfFlag,
     ml.CugFlag,
     ml.MktFareFlag,
+    ml.directFlag,
     ml.autoBackstopFlag,
+    ml.TBFEnhFlag,
     bfd.BookingsCount,
     bfd.BookingToday, 
     bfd.BookingsInHour,
@@ -1201,7 +1203,7 @@ GROUP BY
         return l_class_rbd, p_class_rbd
     
     def getSeriesBlockedSeats(self,departure_date):
-        query=f"""select sum(seatsblocked) as blocked from series_blocking where DepartureDate = '{departure_date}'"""
+        query=f"""select sum(seatsblocked) as blocked from series_blocking where DepartureDate = '{departure_date}' and OrgCode != '{self.constants_utils.TBF_ORG_CODE}' """
         df = pd.read_sql(query, self.conn)
         return df
     def get_series_seats(self,departure_date, flight_number, sector):
@@ -1360,3 +1362,19 @@ LIMIT 1
         except Exception as e:
             self.logger.error(f"Error fetching group potential seats for sector {sector}, month {month}: {e}")
             return 0 
+        
+    def get_tbf_seats_blocked(self, orgcode, departuredate):
+        query = f"""
+        SELECT SUM(seatsblocked) as total_blocked 
+        FROM series_blocking 
+        WHERE OrgCode = '{orgcode}' AND DepartureDate = '{departuredate}'
+        """
+        try:
+            df = pd.read_sql(query, self.conn)
+            if not df.empty and not pd.isna(df['total_blocked'].iloc[0]):
+                return df['total_blocked'].iloc[0]
+            else:
+                return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching TBF seats blocked for OrgCode {orgcode}, Date {departuredate}: {e}")
+            return 0

@@ -99,6 +99,7 @@ class DynAlloc:
 		analystName = self.currParams.analyst_name
 		FlightNumber = str(self.currParams.flight_number)
 		self.currParams.strategy = self.currParams.fare_anchor
+		self.directFlag = self.currParams.directFlag
 
 		startDate, endDate, startNDO, endNDO = self.getStartEndDate(currDate, startNDO, endNDO)
 
@@ -316,6 +317,14 @@ class DynAlloc:
 				self.logger.info(f"Could not convert self.w0Flag ('{self.w0Flag}') to int. Defaulting to 0.")
 		self.outputSummaryRow_b2c.w0Flag = current_w0Flag
 		self.outputSummaryRow_b2b.w0Flag = current_w0Flag
+
+		current_directFlag = 1 # Default
+		# Safely get directFlag from self, as it might be set in __init__ or earlier
+		if hasattr(self, 'directFlag') and pd.notna(self.directFlag):
+			try:
+				current_directFlag = int(self.directFlag)
+			except (ValueError, TypeError):
+				self.logger.info(f"Could not convert self.directFlag ('{self.directFlag}') to int. Defaulting to 1.")
 
 		# --- Date Conversions (Essential) ---
 		try:
@@ -790,7 +799,7 @@ class DynAlloc:
 													dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 													b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 													overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, 
-													is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare, profileFare, is_profile_anchor
+													is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor
 												)
 
 					# Get B2C Opening Price for potential B2B derivation
@@ -820,7 +829,7 @@ class DynAlloc:
 								dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 								b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 								overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val,
-								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare, profileFare, False
+								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False
 							)
 					elif B2C_opening_price_val is not None and not self.B2B_thresholdflag and 0 <= dplfBand_full <= 3:
 						b2b_discount_fare_active = True 
@@ -843,7 +852,7 @@ class DynAlloc:
 								dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 								b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance,final_plf,
 								overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val,
-								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, param_obFare, profileFare, False
+								False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False
 							) 
 					else: 
 						openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
@@ -959,10 +968,12 @@ class DynAlloc:
 					)
 
 					# TBF allocation needs alloc_df from b2CAllocations (plural)
-					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0) # Default
+					param_tbfFlag = getattr(self.currParams, 'tbfFlag', 0)
+					param_tbfenhFlag = getattr(self.currParams, 'tbfenhflag', 0) # Default
+     				# Default
 					current_brd_counter = self.allocations.tbf_allocation(
 						alloc_df_for_tbf, current_brd_counter, currRec_fullalloc, param_tbfFlag, B2CRBDs_df_for_cug_gq_tbf,
-						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full
+						currtbfBookedLoad, float(currBookedLoad), base_adjustedCapacity, b2c_opening_price_val, month_str_for_profile, sector_full,param_tbfenhFlag,dateFormatted_yyyymmdd
 					)
 
 					# Sales Inventory for W-classes (distress_pax_count from common init)
@@ -1432,6 +1443,8 @@ class DynAlloc:
 		self.w0Flag = self.currParams.w0Flag
 		if pd.isna(self.currParams.w0Flag):
 			self.w0Flag = 0
+		if pd.isna(self.currParams.directFlag):
+			self.directFlag = 1
 		
 		self.cache_client = self.currParams.cache_client
 		self.starttime = datetime.now()

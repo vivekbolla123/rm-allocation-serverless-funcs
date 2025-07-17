@@ -2703,6 +2703,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(41, marketListEntity.getCugFlag());
             pstmt.setString(42, marketListEntity.getMktFareFlag());
             pstmt.setString(43, marketListEntity.getUuid());
+            pstmt.setString(44, marketListEntity.getDirectFlag());
+            pstmt.setString(45, marketListEntity.getTbfEnhFlag());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2900,6 +2902,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .tbfFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_FLAG)))
                 .cugFlag(convertYNToBoolean(record.get(CSV_HEADER_CUG_FLAG)))
                 .mktFareFlag(convertYNToBoolean(record.get(CSV_HEADER_MKT_FARE_FLAG)))
+                .directFlag(convertYNToBoolean(record.get(CSV_HEADER_DIRECT_FLAG)))
+                .tbfEnhFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_ENH_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3087,6 +3091,12 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TIME_RANGE_FLAG))) {
                 listOfErrors.add(lineNum + "AutoTimeRangeFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_DIRECT_FLAG))) {
+                listOfErrors.add(lineNum + "directFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_TBF_ENH_FLAG))) {
+                listOfErrors.add(lineNum + "TBFEnhFlag has value other than 'Y' or 'N'");
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
