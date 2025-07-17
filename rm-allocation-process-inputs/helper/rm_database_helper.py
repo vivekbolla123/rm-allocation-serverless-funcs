@@ -1202,7 +1202,7 @@ GROUP BY
         return l_class_rbd, p_class_rbd
     
     def getSeriesBlockedSeats(self,departure_date):
-        query=f"""select sum(seatsblocked) as blocked from series_blocking where DepartureDate = '{departure_date}'"""
+        query=f"""select sum(seatsblocked) as blocked from series_blocking where DepartureDate = '{departure_date}' and OrgCode != '{self.constants_utils.TBF_ORG_CODE}' """
         df = pd.read_sql(query, self.conn)
         return df
     def get_series_seats(self,departure_date, flight_number, sector):
