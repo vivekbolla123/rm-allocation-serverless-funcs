@@ -260,7 +260,7 @@ GROUP BY
 
     def insertSummaryRow(self, allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
-            latest_row = allocResults[-1]
+            latest_row = allocResults
 
             insertQuery = text(""" 
                 INSERT INTO run_summary 
