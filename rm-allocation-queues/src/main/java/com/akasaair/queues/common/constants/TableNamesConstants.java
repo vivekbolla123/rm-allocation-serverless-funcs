@@ -33,5 +33,6 @@ public interface TableNamesConstants {
     public static final String SALESINV_RBD_DISTRIBUTION_TABLE_NAME = "salesinv_rbd_distribution";
     public static final String DISTRESS_CLAENDAR = "distress_calendar";
     public static final String GROUP_POTENTIAL_SEATS_TABLE_NAME = "group_potential_seats";
+    public static final String MARKET_LIST_SALESINV_TABLE_NAME = "market_list_salesinv";
 
 }
