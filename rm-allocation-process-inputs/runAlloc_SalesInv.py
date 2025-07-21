@@ -211,8 +211,8 @@ class DynAllocSalesInv:
         
         summary_rows = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
         self.allocResults.extend(summary_rows)
-        self.rmdatabasehelper.insertSummaryRow(self.outputSummaryRow_b2c)
-        self.rmdatabasehelper.insertSummaryRow(self.outputSummaryRow_b2b)
+        self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c])
+        self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
         
 
     def updateNavitaire(self, rec):
