@@ -590,13 +590,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                     break;
                 }
-                case MARKET_LIST_SALESINV_TABLE_NAME -> {
+                case MARKET_LIST_SALESINV_TABLE_NAME,MARKET_LIST_SALESINV_ADHOC_TABLE_NAME -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
                         pstmt.setObject(2, LocalDateTime.now());
                         pstmt.setString(3, obj_id);
                         pstmt.executeUpdate();
                     }
+
+                    if (tableName.startsWith(MARKET_LIST_SALESINV_ADHOC_TABLE_NAME)) {
+                            tableName = MARKET_LIST_SALESINV_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
+                        }
                     String finalTableName = tableName;
                     s3Client.getObject(GetObjectRequest.builder()
                                             .bucket(bucketName)
