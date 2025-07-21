@@ -13,6 +13,7 @@ import Constants
 from helper.rm_database_helper import RMDatabaseHelper
 from runAlloc import DynAlloc
 from runAlloc_Connections import DynAllocConnections
+from runAlloc_SalesInv import DynAllocSalesInv
 from time_logger import TimeLogger
 from constants_utils import ConstantsUtils
 import pandas as pd
@@ -26,7 +27,7 @@ mongoclient = MongoClient(
             port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_DB  
+            authSource=configsettings.MONGO_DB
         )
 mongodb=mongoclient[configsettings.MONGO_DB]
 # DB settings
@@ -70,7 +71,8 @@ logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 def lambda_handler(event, context):
     """
-    This function fetches the market_list and inserts it into the queue
+    This function fetches the market_list and inserts it into the queue.
+    It now checks for saleinvflag to route to the appropriate allocation logic.
     """
     records = event['Records']
 
@@ -101,7 +103,6 @@ def lambda_handler(event, context):
 
     for record in records:
         content = record['body']
-#        NavitaireUpdateMethod=record['attributes']['update_navitaire_method']
         data = json.loads(content)
         data["timelogger"] = log_time
         data["dbconn"] = rdconn
@@ -113,8 +114,11 @@ def lambda_handler(event, context):
         data['cache_client']=cache_client
         data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
         data["runTime"]=data["runTime"]
-        route_type = data["route_type"]
-        run_id = data["runId"]
+        
+        route_type = data.get("route_type")
+        run_id = data.get("runId")
+        is_sales_inventory = str(data.get("saleinvflag")) == "1"
+
         data["mongodbclient"]=mongodb
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
@@ -132,11 +136,21 @@ def lambda_handler(event, context):
                     'statusCode': 200,
                     'body': 'paused'
                 }
-        if route_type == 'connections':
+
+        # Route to the correct logic based on the message flags
+        if is_sales_inventory:
+            logger.info("Routing to Sales Inventory Allocation Logic")
+            DynAllocSalesInv(input_data, data)
+        elif route_type == 'connections':
+            logger.info("Routing to Connections Allocation Logic")
             DynAllocConnections(input_data, data)
-        if route_type == 'direct':
+        elif route_type == 'direct':
+            logger.info("Routing to Direct Allocation Logic")
             DynAlloc(input_data, data)
-    
+        else:
+            logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
+
+
     log_time.send_time_log_db()
     return {
         'statusCode': 200,
@@ -157,17 +171,17 @@ def insert_paused_run(run_id, content):
     """
     import uuid
     from datetime import datetime
-    
+
     try:
         record_id = str(uuid.uuid4())
         create_at = datetime.now()
 
         query = """
-        INSERT INTO QP_DW_RMALLOC.run_paused 
-        (run_id, record_id, createAt, value) 
+        INSERT INTO QP_DW_RMALLOC.run_paused
+        (run_id, record_id, createAt, value)
         VALUES (%s, %s, %s, %s)
         """
-        
+
         wrconn.execute(query, (run_id, record_id, create_at, content))
     except Exception as e:
         logger.error(f"Error inserting paused run record: {str(e)}")

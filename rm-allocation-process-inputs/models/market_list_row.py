@@ -49,6 +49,8 @@ class MarketListRow:
         self.mkt_fare_flag = currParams.get("MktFareFlag",CONST_NA)
         self.tbfenhflag = currParams.get("TBFEnhFlag",CONST_NA)
         
+        self.saleflag = currParams.get("saleflag",CONST_NA)
+        
         self.DepartureTime = currParams.get("DepartureTime",CONST_NA)
         self.bookedPax = currParams.get("bookedPax",CONST_NA)
         self.capacity = currParams.get("capacity",CONST_NA)
