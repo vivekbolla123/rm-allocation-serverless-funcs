@@ -1283,7 +1283,7 @@ LIMIT 1
         SELECT rbd, value
         FROM salesinv_rbd_distribution
         WHERE seats = {seats}
-        AND type = 'close' 
+        AND type = 'closer' 
         """
         df = pd.read_sql(query, self.conn)
         return df
