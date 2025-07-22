@@ -221,4 +221,8 @@ public class QueryConstants {
         return "SELECT " + user + " as user from config_user_sector_map where sector= ?";
     }
 
+    public static String INSERT_INTO_MARKET_LIST_SALESINV(String tableName) {
+        return "INSERT INTO " + tableName + " (Origin, Destin, FlightNumber, PerStart, PerEnd, DOW, CurveID, saleflag) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+    }
+
 }

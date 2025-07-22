@@ -11,6 +11,8 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
 
+import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
+
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
@@ -587,6 +589,37 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join();
                     break;
+                }
+                case MARKET_LIST_SALESINV_TABLE_NAME,MARKET_LIST_SALESINV_ADHOC_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    if (tableName.startsWith(MARKET_LIST_SALESINV_ADHOC_TABLE_NAME)) {
+                            tableName = MARKET_LIST_SALESINV_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
+                        }
+                    String finalTableName = tableName;
+                    s3Client.getObject(GetObjectRequest.builder()
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadMarketListSalesInvFile(reader, finalTableName, userName, role_obj, obj_id, numOfRows);
+                                } catch (Exception e) {
+                                    throw new RuntimeException("Error processing market_list_salesinv file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .exceptionally(ex -> {
+                                System.out.println("Error during file processing: " + ex.getMessage());
+                                throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                            })
+                            .join();
                 }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
@@ -1541,10 +1574,13 @@ public class App implements RequestHandler<S3Event, Object> {
             throw new DataMismatchedException(Collections.singletonList(INVALID_TABLE_NAME_ERROR_MESSAGE));
         }
         String tableNameForHeader = tableName;
+        if (tableNameForHeader.startsWith(MARKET_LIST_SALESINV_TABLE_NAME))
+            tableNameForHeader = MARKET_LIST_SALESINV_TABLE_NAME;
         if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME + UNDERSCORE + CONNECTIONS.toLowerCase()) || tableNameForHeader.startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME + UNDERSCORE + CONNECTIONS))
             tableNameForHeader = MARKET_LIST_CONNECTIONS_TABLE_NAME;
-        else if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME))
+        else if (tableNameForHeader.startsWith(MARKET_LIST_TABLE_NAME) && !tableNameForHeader.startsWith(MARKET_LIST_SALESINV_TABLE_NAME))
             tableNameForHeader = MARKET_LIST_TABLE_NAME_S3;
+
 
         List<String> headers = Arrays.asList(getColumnHeaders(tableNameForHeader).split(COMMA));
         List<Map<String, Object>> values;
@@ -2374,7 +2410,9 @@ public class App implements RequestHandler<S3Event, Object> {
         if (SALES_INVENTORY_TABLE_NAME.equalsIgnoreCase(value)) {
             return String.join(",", SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
         }
-
+        if (value.startsWith(MARKET_LIST_SALESINV_TABLE_NAME)) {
+            return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
+        }
         try (PreparedStatement pstmt = connection.prepareStatement(GET_COLUMN_HEADERS())) {
             pstmt.setString(1, value);
             try (ResultSet resultSet = pstmt.executeQuery()) {
@@ -3539,6 +3577,136 @@ public class App implements RequestHandler<S3Event, Object> {
             }
         }
         return result;
+    }
+
+    public void uploadMarketListSalesInvFile(Reader file, String tableName, String userName, Object role,
+                                             String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
+        List<MarketListSalesInvEntity> entityList = new ArrayList<>();
+        try {
+            createTable(tableName, MARKET_LIST_SALESINV_TABLE_NAME);
+
+            String uuid = obj_id;
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<Object> listOfCurves = searchDistinctResults(CURVES_COLUMN_NAME, CURVES_TABLE_NAME);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            csvData = splitRowsByDateRange(csvData, listOfErrors);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            for (int i = 1; i < csvData.size(); i++) {
+                validationForMarketListSalesInvFile(csvData.get(i), listOfErrors, i + 1, listOfCurves);
+                createMarketListSalesInvEntity(csvData.get(i), entityList);
+            }
+
+            if (!listOfErrors.isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred = 1;
+                addErrorsToTable(listOfErrors, obj_id);
+                throw new DataMismatchedException(listOfErrors);
+            }
+
+            deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+
+            for (MarketListSalesInvEntity entity : entityList) {
+                insertIntoMarketListSalesInv(entity, tableName);
+            }
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred = 1;
+            if (listOfErrors.isEmpty()) {
+                listOfErrors.add("An unexpected error occurred: " + e.getMessage());
+            }
+            addErrorsToTable(listOfErrors, obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    /**
+     * Validates a single row from a market_list_salesinv CSV file.
+     */
+    private void validationForMarketListSalesInvFile(List<String> record, List<String> listOfErrors, int rowCount, List<Object> listOfCurves) {
+        String origin = record.get(CSV_HEADER_SALESINV_ORIGIN);
+        String destin = record.get(CSV_HEADER_SALESINV_DESTIN);
+        String flightNo = record.get(CSV_HEADER_SALESINV_FLIGHT_NO);
+        String startDate = record.get(CSV_HEADER_SALESINV_START_DATE);
+        String endDate = record.get(CSV_HEADER_SALESINV_END_DATE);
+        String dow = record.get(CSV_HEADER_SALESINV_DOW);
+        String curveId = record.get(CSV_HEADER_SALESINV_CURVE_ID);
+        String saleFlag = record.get(CSV_HEADER_SALESINV_SALE_FLAG);
+
+        String sector = origin + destin;
+        String lineNum = "Line " + rowCount + ": " + sector + "_" + flightNo + "_" + startDate + ": ";
+
+        if (!isLengthEqualTo(origin, 3)) listOfErrors.add(lineNum + "Origin must be 3 characters.");
+        if (!isLengthEqualTo(destin, 3)) listOfErrors.add(lineNum + "Destin must be 3 characters.");
+        if (!isNumeric(flightNo)) listOfErrors.add(lineNum + "FlightNumber must be numeric.");
+
+        if (!"1".equals(saleFlag) && !"0".equals(saleFlag)) {
+            listOfErrors.add(lineNum + "saleflag must be '1' or '0'.");
+        }
+
+        if (!(isLengthEqualTo(dow, 7) && isNumeric(dow) && checkDOWDigits(dow))) {
+            listOfErrors.add(lineNum + "DOW is not 7 digits or has a value other than '1' or '9'.");
+        }
+
+        if (!listOfCurves.contains(curveId)) {
+            listOfErrors.add(lineNum + "CurveID is not valid.");
+        }
+
+        try {
+            LocalDate formattedStartDate = LocalDate.parse(startDate, DATE_OUTPUT_FORMATTER);
+            LocalDate formattedEndDate = LocalDate.parse(endDate, DATE_OUTPUT_FORMATTER);
+            if (formattedEndDate.isBefore(formattedStartDate)) {
+                listOfErrors.add(lineNum + "EndDate must be on or after StartDate.");
+            }
+        } catch (Exception e) {
+            listOfErrors.add(lineNum + "Date is in an invalid format.");
+        }
+    }
+
+    /**
+     * Creates a MarketListSalesInvEntity from a CSV record and adds it to the list.
+     */
+    private static void createMarketListSalesInvEntity(List<String> record, List<MarketListSalesInvEntity> entityList) {
+        entityList.add(MarketListSalesInvEntity.builder()
+                .origin(record.get(CSV_HEADER_SALESINV_ORIGIN))
+                .destin(record.get(CSV_HEADER_SALESINV_DESTIN))
+                .flightNumber(record.get(CSV_HEADER_SALESINV_FLIGHT_NO))
+                .perStart(record.get(CSV_HEADER_SALESINV_START_DATE))
+                .perEnd(record.get(CSV_HEADER_SALESINV_END_DATE))
+                .dow(record.get(CSV_HEADER_SALESINV_DOW))
+                .curveId(record.get(CSV_HEADER_SALESINV_CURVE_ID))
+                .saleFlag(record.get(CSV_HEADER_SALESINV_SALE_FLAG))
+                .build());
+    }
+
+    /**
+     * Inserts a record into the specified market_list_salesinv (ad-hoc) table.
+     */
+    public void insertIntoMarketListSalesInv(MarketListSalesInvEntity entity, String tableName) {
+        try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST_SALESINV(tableName))) {
+            pstmt.setString(1, entity.getOrigin());
+            pstmt.setString(2, entity.getDestin());
+            pstmt.setLong(3, Long.parseLong(entity.getFlightNumber()));
+            pstmt.setString(4, entity.getPerStart());
+            pstmt.setString(5, entity.getPerEnd());
+            pstmt.setLong(6, Long.parseLong(entity.getDow()));
+            pstmt.setString(7, entity.getCurveId());
+            pstmt.setString(8, entity.getSaleFlag());
+            pstmt.executeUpdate();
+        } catch (SQLException e) {
+            error_occurred = 1;
+            String errorMsg = "Failed to insert salesinv record for sector " + entity.getOrigin() + entity.getDestin() + ": " + e.getMessage();
+            listOfErrors.add(errorMsg);
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
 

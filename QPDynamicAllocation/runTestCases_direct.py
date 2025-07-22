@@ -10,6 +10,7 @@ from testcontainers.mysql import MySqlContainer
 from sqlalchemy import create_engine
 from load_tests_db_data import Schema
 from runAlloc import DynAlloc
+from runAlloc_SalesInv import DynAllocSalesInv
 
 def testCase1():
     DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
@@ -61,5 +62,6 @@ def testCase1():
     schema.initializTables()
 
     DynAlloc(inputData, currParams)
+    # DynAllocSalesInv(inputData, currParams)
 
 testCase1()

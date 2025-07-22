@@ -801,13 +801,20 @@ class RBDAllocations:
             brd_counter = brd_counter+1
         return brd_counter, currRec
 
-    def sales_inv_allocation(self, distress_pax_count, brd_counter, currRec, rbd_list,ndocounter,dateFormatted,origin,destin):
+    def sales_inv_allocation(self, distress_pax_count, brd_counter, currRec, rbd_list,ndocounter,dateFormatted,origin,destin,saleflag):
         # Get sales inventory allocation based on distress pax count
 
         # If no distress passengers, set all allocations to 0
         if distress_pax_count <= 0:
             for rbd in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                brd_counter += 1
+            return brd_counter
+        
+        if str(saleflag)=="0":
+            for rbd in rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
                 brd_counter += 1
             return brd_counter

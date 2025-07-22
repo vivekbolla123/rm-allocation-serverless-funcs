@@ -429,7 +429,10 @@ def lambda_handler(event, context):
     
     # Fetch market list
     if route_type == "direct":
-        market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
+        if region == 'SalesInv':
+            market_list_query = getSaleMktQuery(start_period, end_period, market_list_table)
+        else:
+            market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
         w0_df= get_w0_rbd(start_period,end_period)
         mkt_list = read_sql(market_list_query, conn)
         logger.info(f"Original Market List {mkt_list}")
@@ -881,6 +884,44 @@ def getMarketListQuery(start_period, end_period, market_list_table):
     """
     return query
 
+
+def getSaleMktQuery(start_period, end_period, market_list_table):
+    query = f"""
+    WITH RECURSIVE DateRange AS (
+        SELECT
+            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
+        UNION
+        ALL
+        SELECT
+            Date + INTERVAL 1 DAY
+        FROM
+            DateRange
+        WHERE
+            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
+    )
+    SELECT
+        *
+    FROM
+        (
+            SELECT
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
+                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
+                Origin,Destin,FlightNumber,DOW,CurveID,saleflag,
+                substring(dow, dayofweek(Date), 1) as Flag
+            FROM
+                DateRange
+            CROSS JOIN
+                {market_list_table} as ml
+            WHERE
+                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
+                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
+        ) A
+    WHERE
+        Flag = 1
+    ORDER BY
+        Origin, Destin, FlightNumber
+    """
+    return query
 
 def getConnectionMarketListQuery(start_period, end_period, market_list_table):
     log_time.start()
