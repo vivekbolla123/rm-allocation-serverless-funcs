@@ -80,6 +80,15 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_CONNECTIONS_B2CBACKSTOP = 21;
     int CSV_HEADER_CONNECTIONS_B2BFACTOR = 22;
 
+    public static final int CSV_HEADER_SALESINV_ORIGIN = 0;
+    public static final int CSV_HEADER_SALESINV_DESTIN = 1;
+    public static final int CSV_HEADER_SALESINV_FLIGHT_NO = 2;
+    public static final int CSV_HEADER_SALESINV_START_DATE = 3;
+    public static final int CSV_HEADER_SALESINV_END_DATE = 4;
+    public static final int CSV_HEADER_SALESINV_DOW = 5;
+    public static final int CSV_HEADER_SALESINV_CURVE_ID = 6;
+    public static final int CSV_HEADER_SALESINV_SALE_FLAG = 7;
+
     public static final String CSV_HEADER_SECTOR = "sector";
     public static final String CSV_HEADER_MONTH = "month";
     public static final String CSV_HEADER_VALUE = "value";
