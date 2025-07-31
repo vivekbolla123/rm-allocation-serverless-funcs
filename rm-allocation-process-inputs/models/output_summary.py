@@ -54,3 +54,6 @@ class OutputSummary:
         self.w0Flag = CONST_NA
         self.mktFile=CONST_NA
         
+        self.forecastPLF=CONST_NA
+        self.FirstRBDAlloc=CONST_NA
+        self.OtherRBDAlloc=CONST_NA

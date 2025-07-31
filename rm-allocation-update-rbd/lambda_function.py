@@ -5,7 +5,6 @@ import warnings
 import time
 from uuid import uuid4
 from datetime import datetime
-from lambda_multiprocessing import Pool
 from sqlalchemy import create_engine
 import requests
 import configsettings
@@ -116,14 +115,28 @@ def patch_nav_dcs_inventory_api(args):
     """
         desc
     """
-    leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units = args
-    try:
-        dcs_patch_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v1/inventory/legs/{leg_key}/nests/{nest_key}/classes/{class_key}"
-        logger.info(f"Attempting update {dcs_patch_inventory_url},target_authorised_units: {target_authorised_units}, current_authorised_units: {curr_authorised_units}")
+    req_body = {}
 
-        req_body = {
-            "authorizedUnits": target_authorised_units
-        }
+    for leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions in args:
+        nests = req_body.setdefault('Nests', {})
+
+        # Ensure nest_key exists
+        nest = nests.setdefault(nest_key, {})
+
+        # Ensure 'Classes' exists under the nest
+        classes = nest.setdefault('Classes', {})
+
+        # Ensure class_key exists
+        class_info = classes.setdefault(class_key, {})
+
+        if target_authorised_units != -1:
+            class_info['AuthorizedUnits'] = target_authorised_units
+        if target_ap_restrictions != -1:
+            class_info['LatestAdvancedReservation'] = target_ap_restrictions
+
+    try:
+        dcs_patch_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v2/inventory/legs/{args[0][0]}"
+
         try:    
             response = session.patch(dcs_patch_inventory_url, json=req_body, verify=False)
         except Exception as e:
@@ -132,11 +145,11 @@ def patch_nav_dcs_inventory_api(args):
             
         if (not check_status(response)):
             logger.error(f"Navitaire update failed : status check  {str(response.reason)},  {str(response.status_code)}, {str(response.json())}")
-            target_authorised_units = -3
-        return [class_of_service , target_authorised_units]
+            return False
+        return True
     except Exception as err:
         logger.error(f"Navitaire update failed :{err}")
-        return [class_of_service , -3]
+        return False
 
 def format_date(date_str):
     """
@@ -192,34 +205,37 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
             nest_key = inventory_nest["nestKey"]
             classes = inventory_nest["classes"]
             args = []
-            with Pool(1) as p:
-                for _class in classes:
-                    class_key = _class["classKey"]
-                    class_of_service = _class["classOfService"]
-                    curr_authorised_units = _class["authorizedUnits"]
+            for _class in classes:
+                class_key = _class["classKey"]
+                class_of_service = _class["classOfService"]
+                curr_authorised_units = _class["authorizedUnits"]
+                curr_ap_restrictions = _class["latestAdvancedReservation"]
 
-                    if class_of_service in au_classes:
-                        au_class = au_classes[class_of_service]
-                        target_authorised_units = au_class["classAU"]
+                if class_of_service in au_classes:
+                    au_class = au_classes[class_of_service]
+                    target_authorised_units = au_class["classAU"]
+                    target_ap_restrictions = au_class["apRestriction"]
 
-                        if target_authorised_units != curr_authorised_units and target_authorised_units > -1:
-                            # update nav class with target AU
-                            args.append(
-                                [leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units])
-                            print(
-                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}"
-                            )
-                        else:
-                            print(
-                                f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
-
-                        allocation_result[class_of_service] = target_authorised_units
+                    if (target_authorised_units != curr_authorised_units and target_authorised_units > -1) or (target_ap_restrictions != curr_ap_restrictions and target_ap_restrictions > -1):
+                        # update nav class with target AU
+                        args.append(
+                            [leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions])
+                        print(
+                            f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}"
+                        )
                     else:
-                        allocation_result[class_of_service] = -2
-                        print(f"missing class {class_of_service}")
-                arr = p.map(patch_nav_dcs_inventory_api, args)
-                for key, value in arr:
-                    allocation_result[key] = value
+                        print(
+                            f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
+
+                    allocation_result[class_of_service] = target_authorised_units
+                else:
+                    allocation_result[class_of_service] = -2
+                    print(f"missing class {class_of_service}")
+            if args:
+                is_updated = patch_nav_dcs_inventory_api(args)
+                if not is_updated: 
+                    for _, _, _, _, class_of_service,_,_ in args:
+                        allocation_result[class_of_service] = -3
     log_time.end("update_au_in_navitaire")
     return allocation_result
 
@@ -345,6 +361,6 @@ def updateAllocationAudit(endTime, run_id):
     update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE run_id = %s"
     conn.execute(update_query, (endTime.strftime('%Y-%m-%d %H:%M:%S'), run_id))
 
-# messageBody = {'runId': '80ee0d91-3493-4907-be1d-6181742daee7', 'type': 'L', 'flight': ' QP1410 BOMDEL', 'startDate': '08-27-2024', 'endDate': '08-27-2024', 'dayOfWeek': 'Daily', 'aircraftType': '', 'aircraftSuffix': '', 'lid': '', 'capacity': '', 'status': '', 'b2cRunId': 'e4bfe37b-440c-4ccf-95ea-b88112c6e84b', 'b2bRunId': '9460355b-799f-4a8b-97b9-ce661aacc580', 'rowId': '6d988a82-03b9-45f4-b994-6b503b9cc176', 'auClasses': {}}
+# messageBody = {"runId": "1c33b6fe-8af0-4c22-968f-bacc7cdbaa37", "type": "L", "flight": " QP1367 BOMBLR", "startDate": "07-30-2025", "endDate": "07-30-2025", "dayOfWeek": "Daily", "aircraftType": "", "aircraftSuffix": "", "lid": "", "capacity": "", "status": "", "b2cRunId": "0593df22-2471-4b56-8138-34bc947441c6", "b2bRunId": "ba2420ed-706e-4ec9-845c-efdda65bc7f0", "auClasses": {"V9": {"classOfService": "V9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 129, "classAllotted": -1, "apRestriction": -1}, "S": {"classOfService": "S", "classType": "", "classNest": -1, "classRank": -1, "classAU": 99, "classAllotted": -1, "apRestriction": 99}}}
 # event = {'Records': [{'body': json.dumps(messageBody)}]}
 # lambda_handler(event, None)

@@ -108,5 +108,7 @@ public class MarketListEntity {
     public String directFlag;
     @Column(name = "TBFEnhFlag")
     public String tbfEnhFlag;
+    @Column(name = "defaultMlFlag")
+    public String defaultMlFlag;
 
 }
