@@ -44,6 +44,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_MKT_FARE_FLAG = 39;
     int CSV_HEADER_DIRECT_FLAG = 40;
     int CSV_HEADER_TBF_ENH_FLAG = 41;
+    int CSV_HEADER_DEFAULT_ML_FLAG = 42;
 
 
     public static final int CSV_SALES_STARTDATE_IDX = 0; // Assuming "startdate" is the first column

@@ -33,6 +33,7 @@ from schedule30 import ScheduleThirty
 from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
+from defaultMarketlist import defaultMarketlist
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -93,7 +94,8 @@ module_map = {
     "schedule_thirty": ScheduleThirty,
     "input_audits": S3CsvCombiner,
     "navods_alert": NavOdsAlert,
-    "calendar_upsell": CalUpsell
+    "calendar_upsell": CalUpsell,
+    "default_ml": defaultMarketlist
 }
 
 
@@ -173,7 +175,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"navods_alert\": 1}}"
+#   "body": "{\"modules\":{\"default_ml\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

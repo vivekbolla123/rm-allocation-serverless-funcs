@@ -91,3 +91,5 @@ class MarketListRow:
         self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
         
         self.saleinvflag = currParams.get("saleinvflag",0)
+        self.defaultMlFlag = currParams.get("defaultMlFlag",0)
+        self.forecastPLF = currParams.get("forecastPLF",CONST_NA)

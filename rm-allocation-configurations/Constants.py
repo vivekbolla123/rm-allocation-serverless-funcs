@@ -19,6 +19,9 @@ SOFTBLOCK_RBDS = '["G8","W9","W8","W7","W6","W5","W4","W3", "W2", "W1", "S"]'
 NAVODS_ALERT_SECTOR_LIST = '["BOMDEL1127", "BOMDEL1120", "DELBOM1719", "DELBOM1411", "BOMDBR1529", "DBRBOM1530", "CCUBOM1125", "CCUBOM1173"]'
 NAVODS_ALERT_MAX_NDO = 3
 
+DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1"}'
+DEFAULT_MARKET_LIST_DAYS = 30
+
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
 CUG_RBD = "WA,WB,WC,WD,WE"
 CUG_B2C_OPENING_THRESHOLD=0.3
@@ -120,6 +123,9 @@ NAVODS_ALERT_MAX_NDO_KEY = 'NAVODS_ALERT_MAX_NDO'
 
 TBF_ORG_CODE_KEY = "TBF_ORG_CODE"
 TBF_OPEN_SEATS_KEY = "TBF_OPEN_SEATS"
+
+DEFAULT_MARKET_LIST_KEY = "DEFAULT_MARKET_LIST"
+DEFAULT_MARKET_LIST_DAYS_KEY = "DEFAULT_MARKET_LIST_DAYS"
 
 LATEST_VERSION = '4.0.0'
 

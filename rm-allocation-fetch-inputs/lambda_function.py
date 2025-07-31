@@ -29,6 +29,7 @@ sqs = boto3.client('sqs')
 DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
 DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 USERNAME = "SYS2"
+DW_DB_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 # Cache settings
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
@@ -57,6 +58,7 @@ try:
         user=configsettings.NAV_DB_USER,
         password=configsettings.NAV_DB_PASSWORD
     )
+    dwconn = create_engine(DW_DB_CONN_STRING)
 except Exception as e:
     logger.error(e)
     sys.exit()
@@ -471,7 +473,11 @@ def lambda_handler(event, context):
             comparison_date=curr_date,
             comparison_datetime=curr_datetime_str
         )
+        forecast_plf_query = get_forecast(min_date, max_date)
+        forecast_plf_list = read_sql(forecast_plf_query, dwconn)
 
+        mkt_list = left_join_with_destination_mapping(mkt_list, forecast_plf_list)
+        print(len(mkt_list)," forecast_plf_list")
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
         print(len(mkt_list)," booked_loads")
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
@@ -845,6 +851,9 @@ def deduct_available_slot():
 
 
 def getMarketListQuery(start_period, end_period, market_list_table):
+    condition = ""
+    if market_list_table != "market_list":
+        condition = " AND defaultMlFlag = '0'"
     query = f"""
     WITH RECURSIVE DateRange AS (
         SELECT
@@ -867,7 +876,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,ProfileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,directFlag,TBFEnhFlag,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,directFlag,TBFEnhFlag,defaultMlFlag,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
@@ -876,6 +885,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
             WHERE
                 Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
                 AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
+                {condition}
         ) A
     WHERE
         Flag = 1
@@ -1108,6 +1118,14 @@ def clean_markets_optimized(market_list_df, w0_df):
     except Exception as e:
         logger.error(f"Error in clean_markets_optimized: {str(e)}")
         return market_list_df, 0
+    
+def get_forecast(min_date, max_date):
+    query = f"""
+    SELECT ROUND(forecastPLF, 1) AS forecastPLF,Origin,Destination,FlightNumber, DepartureDate 
+    FROM RM_DW_DATA.forecast_results
+    WHERE DepartureDate BETWEEN '{min_date}' AND '{max_date}'
+    """
+    return query
 
 
 # if __name__ == "__main__":

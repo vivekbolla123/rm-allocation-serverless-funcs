@@ -768,7 +768,7 @@ class DynAlloc:
 				bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 
-				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val = \
+				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
@@ -902,6 +902,10 @@ class DynAlloc:
 					return val_list[index]
 				return default
 
+			self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
+			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
+			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
+
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
 			self.outputSummaryRow_b2c.Destin = self.currParams.destin; self.outputSummaryRow_b2c.FltNum = str(currFlt)
 			self.outputSummaryRow_b2c.DepDate = str(currFltDate); self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
@@ -951,11 +955,14 @@ class DynAlloc:
 
 	def w_rbd_allocation(self, currRec, brd_counter):
 		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
+		default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
 		
 		ind = 2
 		# Set class_of_service for each RBD dynamically
 		for rbd in rbds:
 			currRec.set_class_attribute(brd_counter + ind, 'class_of_service', rbd)
+			if default_ml_flag == 1 and rbd == "S":
+				currRec.set_class_attribute(brd_counter + ind, 'ap_restriction', 365)
 			ind += 1
 		
 		ind = 2
@@ -1511,3 +1518,13 @@ class DynAlloc:
 		lastsoldb2c = self.calculate_average(b2c_fares)
 		
 		return last_seven_avg, lastsoldb2b, lastsoldb2c
+	
+	def getParsedForecast(self):
+		value = getattr(self.currParams, 'forecastPLF', CONST_NA)
+		try:
+			value = float(value)
+			if not math.isnan(value):
+				return value
+			return CONST_NA
+		except (ValueError, TypeError):
+			return CONST_NA

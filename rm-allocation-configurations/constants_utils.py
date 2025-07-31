@@ -58,6 +58,8 @@ class ConstantsUtils:
         self.NAVODS_ALERT_MAX_NDO = NAVODS_ALERT_MAX_NDO
         self.TBF_ORG_CODE = TBF_ORG_CODE
         self.TBF_OPEN_SEATS = TBF_OPEN_SEATS
+        self.DEFAULT_MARKET_LIST = DEFAULT_MARKET_LIST
+        self.DEFAULT_MARKET_LIST_DAYS = DEFAULT_MARKET_LIST_DAYS
 
 
         self.logger = logging.getLogger()
@@ -182,6 +184,10 @@ class ConstantsUtils:
                 self.TBF_ORG_CODE = parameter_value
             elif parameter_key == TBF_OPEN_SEATS_KEY:
                 self.TBF_OPEN_SEATS = int(parameter_value)
+            elif parameter_key == DEFAULT_MARKET_LIST_KEY:
+                self.DEFAULT_MARKET_LIST = parameter_value
+            elif parameter_key == DEFAULT_MARKET_LIST_DAYS_KEY:
+                self.DEFAULT_MARKET_LIST_DAYS = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

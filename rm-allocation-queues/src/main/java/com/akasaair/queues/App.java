@@ -429,7 +429,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                         .count();
                                 numOfRows.set(rowCount);
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadPartialDateEvent(reader, userName, obj_id);
+                                    uploadPartialDateEvent(reader, userName, obj_id, listOfErrors);
                                 } catch (Exception e) {
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
@@ -2050,7 +2050,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void uploadPartialDateEvent(Reader file, String userName, String obj_id) throws RuntimeException {
+    public void uploadPartialDateEvent(Reader file, String userName, String obj_id, List<String> listOfErrors) throws RuntimeException {
         String uuid = obj_id;
         try {
             // Same initialization steps as the original method
@@ -2075,7 +2075,16 @@ public class App implements RequestHandler<S3Event, Object> {
             // Step 5: Process the data specifically for partial update
             // - Extract only the sectors included in the CSV (columns 4+)
             // - Process only non-empty values
-            Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
+            // - Validate upsell values
+            Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData, listOfErrors);
+
+            if (!listOfErrors.isEmpty()) {
+                updateInputStatus(DATE_EVENT_TABLE_NAME);
+                error_occurred = 1;
+                addErrorsToTable(listOfErrors, obj_id);
+                System.out.println(FILE_UPLOAD_ERROR_MESSAGE);
+                throw new DataMismatchedException(listOfErrors);
+            }
             
             // Step 6: Get column headers and prepare date event data
             List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
@@ -2134,7 +2143,7 @@ public class App implements RequestHandler<S3Event, Object> {
      * Extract date event data from CSV for partial update
      * Specifically designed to handle case where DOW column might be missing
      */
-    public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
+    public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData, List<String> listOfErrors) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
         int startColumn = 3; // Start from column 3 (after Date, MappedMonth, Event)
@@ -2144,21 +2153,34 @@ public class App implements RequestHandler<S3Event, Object> {
             List<String> inputRow = csvData.get(i);
             if (inputRow.size() <= dateHeader) continue; // Skip if row is too short
             
-            String dateKey = inputRow.get(dateHeader);
+            String dateKey = inputRow.get(dateHeader).trim();
             if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
-            
+            if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
+                listOfErrors.add(dateKey + ": Date should should have mm/dd/yyyy format");
+            }
+
             // Process each sector column
             for (int j = startColumn; j < inputRow.size(); j++) {
                 // Skip if column header is missing
                 if (j >= csvData.get(0).size()) continue;
                 
-                String stationKey = csvData.get(0).get(j);
+                String stationKey = csvData.get(0).get(j).trim();
                 if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
-                
+                if (i == 1 && !(stationKey.matches("[A-Za-z]{6}"))) {
+                    listOfErrors.add(stationKey + ": Sector value should be valid");
+                }
+
                 // Check if value exists (include even empty values for clearing)
-                String value = (j < inputRow.size()) ? inputRow.get(j) : "";
+                String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
                 String keyVal = dateKey + stationKey;
-                
+
+                // Validation for upsell value
+                if (!(stationKey.equals("Date") || stationKey.equals("Mapped Month") || stationKey.equals("Event"))) {
+                    if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%")))) {
+                        listOfErrors.add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value followed by %");
+                    }
+                }
+
                 // Create entry regardless of whether value is empty (to support clearing values)
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
@@ -2302,7 +2324,7 @@ public class App implements RequestHandler<S3Event, Object> {
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
         for (List<String> singleCsvData : csvData) {
-            String date = singleCsvData.get(0);
+            String date = singleCsvData.get(0).trim();
             String dayOfWeek = getAbbreviatedDayOfWeek(parseDate(date));
 
             // Add day of the week to the second position
@@ -2310,7 +2332,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             Map<String, String> map = new HashMap<>();
             for (int i = 0; i < headers.size(); i++) {
-                map.put(headers.get(i), singleCsvData.get(i));
+                map.put(headers.get(i), singleCsvData.get(i).trim());
             }
             data.add(map);
         }
@@ -2743,6 +2765,7 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(43, marketListEntity.getUuid());
             pstmt.setString(44, marketListEntity.getDirectFlag());
             pstmt.setString(45, marketListEntity.getTbfEnhFlag());
+            pstmt.setString(46, marketListEntity.getDefaultMlFlag());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2942,6 +2965,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .mktFareFlag(convertYNToBoolean(record.get(CSV_HEADER_MKT_FARE_FLAG)))
                 .directFlag(convertYNToBoolean(record.get(CSV_HEADER_DIRECT_FLAG)))
                 .tbfEnhFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_ENH_FLAG)))
+                .defaultMlFlag(convertYNToBoolean(record.get(CSV_HEADER_DEFAULT_ML_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3135,6 +3159,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_TBF_ENH_FLAG))) {
                 listOfErrors.add(lineNum + "TBFEnhFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_DEFAULT_ML_FLAG))) {
+                listOfErrors.add(lineNum + "defaultMlFlag has value other than 'Y' or 'N'");
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
