@@ -38,8 +38,11 @@ class OutputSummaryConnections:
         self.AirlineCode_Max=CONST_NA
         self.FlightNumber_Max=CONST_NA
         self.Backstop=CONST_NA
+        self.Backstop_INR=CONST_NA
         self.HowDetermined = CONST_NA 
         self.Channel = CONST_NA 
+        self.firstrbd=CONST_NA
+        self.otherrbd=CONST_NA
         self.analystName=CONST_NA
         self.allocationStatus=CONST_NA
         self.mktFile=CONST_NA

@@ -60,6 +60,8 @@ class ConstantsUtils:
         self.TBF_OPEN_SEATS = TBF_OPEN_SEATS
         self.DEFAULT_MARKET_LIST = DEFAULT_MARKET_LIST
         self.DEFAULT_MARKET_LIST_DAYS = DEFAULT_MARKET_LIST_DAYS
+        self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
+        self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
 
 
         self.logger = logging.getLogger()
@@ -188,6 +190,10 @@ class ConstantsUtils:
                 self.DEFAULT_MARKET_LIST = parameter_value
             elif parameter_key == DEFAULT_MARKET_LIST_DAYS_KEY:
                 self.DEFAULT_MARKET_LIST_DAYS = int(parameter_value)
+            elif parameter_key == DOMESTIC_PLF_THRESHOLD_KEY:
+                self.DOMESTIC_PLF_THRESHOLD = int(parameter_value)
+            elif parameter_key == INTERNATIONAL_PLF_THRESHOLD_KEY:
+                self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

@@ -1972,6 +1972,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(24, marketListEntity.getFareAnchor());
             pstmt.setString(25, marketListEntity.getOffset());
             pstmt.setString(26, marketListEntity.getDiscountFlag());
+            pstmt.setString(27, marketListEntity.getSosFlag());
+
             pstmt.executeUpdate();
         } catch (SQLException e) {
             error_occurred = 1; // Set global flag
@@ -2047,6 +2049,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .analystName(analystName)
                 .carrierExclusionB2B(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2B))
                 .carrierExclusionB2C(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2C))
+                .sosFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))
                 .build());
     }
 
@@ -3408,6 +3411,10 @@ public class App implements RequestHandler<S3Event, Object> {
         // ... continue all other validations from original method ...
         if (!checkPriceStrategy(record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY))) {
             errorsFound.add(lineNum + "Price Strategy ("+ record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY) +") has value other than '1' or '2'.");
+        }
+
+        if (!checkStrategyFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))) {
+            errorsFound.add(lineNum + "SOS Flag ("+ record.get(CSV_HEADER_CONNECTIONS_SOSFLAG) +") has value other than '0' or '1'.");
         }
         if (!isPositive(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
             errorsFound.add(lineNum + "First Allocation ("+ record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC) +") is not a positive number.");

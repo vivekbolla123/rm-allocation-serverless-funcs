@@ -52,6 +52,7 @@ class Schema:
         self.load_generic_table("distress_calendar","distress_calendar.csv")
         self.load_generic_table("forecast_results","forecast_results.csv")
         self.load_generic_table("group_potential_seats","group_potential_seats.csv")
+        self.load_generic_table("config_station_master","config_station_master.csv")
         
         
         self.alterTables()

@@ -80,6 +80,8 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_CONNECTIONS_B2BBACKSTOP = 20;
     int CSV_HEADER_CONNECTIONS_B2CBACKSTOP = 21;
     int CSV_HEADER_CONNECTIONS_B2BFACTOR = 22;
+    int CSV_HEADER_CONNECTIONS_SOSFLAG = 23;
+
 
     public static final int CSV_HEADER_SALESINV_ORIGIN = 0;
     public static final int CSV_HEADER_SALESINV_DESTIN = 1;
