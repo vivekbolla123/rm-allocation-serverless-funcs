@@ -13,6 +13,11 @@ import com.nimbusds.jose.shaded.json.JSONArray;
 
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
 
+import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
@@ -181,6 +186,9 @@ import static com.akasaair.queues.common.constants.TableNamesConstants.TIME_RANG
 import static com.akasaair.queues.common.constants.TableNamesConstants.*;
 import static com.akasaair.queues.common.helpers.CsvHelper.convertToCSV;
 import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
+//import static com.akasaair.queues.common.helpers.QpFaresFileConverter.convertToCSV;
+import static com.akasaair.queues.common.helpers.QpFaresFileConverter.convertToCSVReader;
+
 
 public class App implements RequestHandler<S3Event, Object> {
     final Connection connection = new JdbcConnection().connection();
@@ -621,6 +629,59 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join();
                 }
+                // case PRICING_QP_FARES_TABLE_NAME -> {
+                //     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                //         pstmt.setString(1, status);
+                //         pstmt.setObject(2, LocalDateTime.now());
+                //         pstmt.setString(3, obj_id);
+                //         pstmt.executeUpdate();
+                //     }
+
+                //     String finalTableNamePricing = "QP_DW_PRIAUT." + tableName;
+                //     Path tempFilePath = Paths.get(System.getProperty("java.io.tmpdir"), "temp_qp_fares_" + obj_id + ".txt");
+
+                //     s3Client.getObject(GetObjectRequest.builder()
+                //                             .bucket(bucketName)
+                //                             .key(key)
+                //                             .build(),
+                //                     AsyncResponseTransformer.toFile(tempFilePath))
+                //             .thenAccept(response -> {
+                //                 try {
+                //                     StringReader csvReader = convertToCSVReader(tempFilePath.toString());
+                //                     uploadFile(csvReader, finalTableNamePricing, userName, obj_id);
+                //                 } catch (Exception e) {
+                //                     error_occurred = 1;
+                //                     if (listOfErrors.isEmpty()) {
+                //                         listOfErrors.add("Error processing Pricing QP Fares file: " + e.getMessage());
+                //                         addErrorsToTable(listOfErrors, obj_id);
+                //                     }
+                //                     throw new RuntimeException("Error processing Pricing QP Fares file content: " + e.getMessage(), e);
+                //                 } finally {
+                //                     try {
+                //                         Files.deleteIfExists(tempFilePath);
+                //                     } catch (IOException e) {
+                //                         System.err.println("Warning: Could not delete temporary file: " + tempFilePath);
+                //                     }
+                //                 }
+                //             })
+                //             .exceptionally(ex -> {
+                //                 error_occurred = 1;
+                //                 if (listOfErrors.isEmpty()) {
+                //                     listOfErrors.add("Failed to retrieve or process Pricing QP Fares file from S3: " + ex.getMessage());
+                //                     addErrorsToTable(listOfErrors, obj_id);
+                //                 }
+
+                //                 try {
+                //                     Files.deleteIfExists(tempFilePath);
+                //                 } catch (IOException e) {
+                //                     System.err.println("Warning: Could not delete temporary file after error: " + tempFilePath);
+                //                 }
+
+                //                 return null;
+                //             })
+                //             .join();
+                //     break;
+                // }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
@@ -1620,7 +1681,11 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public int findIfTableExists(String tableName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-        String query = "SHOW TABLES LIKE '" + tableName + "'";
+        if (tableName.toUpperCase().startsWith("QP_DW_PRIAUT.")) {
+            tableName = tableName.substring("QP_DW_PRIAUT.".length());
+        }
+
+        String query = "SELECT table_name FROM information_schema. tables WHERE table_type = 'BASE TABLE' AND table_name = '"+ tableName+ "'";
 
         try (Statement stmt = connection.createStatement();
                 ResultSet resultSet = stmt.executeQuery(query)) {
@@ -2674,7 +2739,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void updateInputStatus(String name) {
-        try (PreparedStatement preparedStatement = connection.prepareStatement(UPDATE_INPUT_STATUS(0, name))) {
+        int value = 0;
+        try (PreparedStatement preparedStatement = connection.prepareStatement(UPDATE_INPUT_STATUS(value, name))) {
             preparedStatement.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2894,6 +2960,10 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void insertInputStatusTable(String tableName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
+        int value = 1;
+        if(tableName.contains("QP_DW_PRIAUT.")){
+            value = 0;
+        }
         try (PreparedStatement countStmt = connection.prepareStatement(GET_INPUT_STATUS_COUNT())) {
             countStmt.setString(1, tableName);
             try (ResultSet resultSet = countStmt.executeQuery()) {
@@ -2904,12 +2974,12 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
             if (!listObj.isEmpty() && Integer.parseInt(listObj.get(0).get(COUNT_COLUMN_NAME).toString()) == 1) {
-                try (PreparedStatement updateStmt = connection.prepareStatement(UPDATE_INPUT_STATUS(1, tableName))) {
+                try (PreparedStatement updateStmt = connection.prepareStatement(UPDATE_INPUT_STATUS(value,tableName))) {
                     updateStmt.executeUpdate();
                 }
             } else {
                 try (PreparedStatement insertStmt = connection.prepareStatement(INSERT_INPUT_STATUS())) {
-                    insertStmt.setString(1, tableName);
+                    insertStmt.setString(value, tableName);
                     insertStmt.executeUpdate();
                 }
             }

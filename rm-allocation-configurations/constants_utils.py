@@ -1,3 +1,4 @@
+import json
 import logging
 import pandas as pd
 from Constants import *
@@ -60,6 +61,10 @@ class ConstantsUtils:
         self.TBF_OPEN_SEATS = TBF_OPEN_SEATS
         self.DEFAULT_MARKET_LIST = DEFAULT_MARKET_LIST
         self.DEFAULT_MARKET_LIST_DAYS = DEFAULT_MARKET_LIST_DAYS
+        self.PRICING_DUF_SECTORS = PRICING_DUF_SECTORS
+        self.PRICING_RCS_SECTORS = PRICING_RCS_SECTORS
+        self.PRICING_CARR_EXCL = PRICING_CARR_EXCL
+        self.PRICING_GST_SECTORS = PRICING_GST_SECTORS
 
 
         self.logger = logging.getLogger()
@@ -188,6 +193,14 @@ class ConstantsUtils:
                 self.DEFAULT_MARKET_LIST = parameter_value
             elif parameter_key == DEFAULT_MARKET_LIST_DAYS_KEY:
                 self.DEFAULT_MARKET_LIST_DAYS = int(parameter_value)
+            elif parameter_key == PRICING_DUF_SECTORS_KEY:
+                self.PRICING_DUF_SECTORS = json.loads(parameter_value)
+            elif parameter_key == PRICING_RCS_SECTORS_KEY:
+                self.PRICING_RCS_SECTORS = json.loads(parameter_value)
+            elif parameter_key == PRICING_CARR_EXCL_KEY:
+                self.PRICING_CARR_EXCL = parameter_value
+            elif parameter_key == PRICING_GST_SECTORS_KEY:
+                self.PRICING_GST_SECTORS = json.loads(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
