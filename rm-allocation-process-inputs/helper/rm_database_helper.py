@@ -57,6 +57,7 @@ class RMDatabaseHelper:
     bl.WC_bookings,
     bl.WD_bookings,
     bl.WE_bookings,
+    fr.forecastPLF,fr.variance as forecast_variance,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
     SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
@@ -88,6 +89,11 @@ LEFT JOIN
     AND ml.Destin = cr.Destin 
     AND ml.FlightNumber = cr.FlightNumber
     AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = cr.DepartureDate
+LEFT JOIN 
+    forecast_results fr ON ml.Origin = fr.Origin 
+    AND ml.Destin = fr.Destination 
+    AND ml.FlightNumber = fr.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = fr.DepartureDate
 LEFT JOIN 
     series_booked sb ON ml.Origin = sb.Origin 
     AND ml.Destin = sb.Destination 
@@ -153,7 +159,9 @@ GROUP BY
     bl.WB_bookings,
     bl.WC_bookings,
     bl.WD_bookings,
-    bl.WE_bookings
+    bl.WE_bookings,
+    fr.forecastPLF,
+    fr.variance
     """
             else:
                 marketListQuery = """SELECT 
@@ -265,9 +273,9 @@ GROUP BY
 
             insertQuery = text(""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag,mktFile, FirstRBDAlloc, OtherRBDAlloc, forecastPLF)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag,mktFile, FirstRBDAlloc, OtherRBDAlloc, forecastPLF,ImputedForecastPLF)  
                 VALUES (
-                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag, :mktFile, :FirstRBDAlloc, :OtherRBDAlloc, :forecastPLF
+                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag, :mktFile, :FirstRBDAlloc, :OtherRBDAlloc, :forecastPLF,:ImputedForecastPLF
                 )
             """)
 
@@ -326,7 +334,9 @@ GROUP BY
                 "mktFile": str(latest_row.mktFile),
                 "FirstRBDAlloc": str(latest_row.FirstRBDAlloc),
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
-                "forecastPLF": str(latest_row.forecastPLF)
+                "forecastPLF": str(latest_row.forecastPLF),
+                "ImputedForecastPLF": str(latest_row.ImputedForecastPLF)
+                
             }
 
             try:
@@ -1332,24 +1342,6 @@ LIMIT 1
 
         return is_valid
     
-
-    def get_forecast_results(self, origin, destin, flight_number, departure_date):
-        query = f"""
-        SELECT 
-            ForecastPLF
-        FROM 
-            forecast_results
-        WHERE 
-            Origin = '{origin}'
-            AND Destination = '{destin}'
-            AND FlightNumber = '{flight_number}'
-            AND DepartureDate = '{departure_date}'
-        """ 
-        df = pd.read_sql(query, self.dwconn)
-        if df.empty or pd.isna(df['ForecastPLF'].iloc[0]):
-            return 0
-        else:
-            return df['ForecastPLF'].iloc[0]
         
     def get_group_potential_seats(self, sector, month):
         query = f"""

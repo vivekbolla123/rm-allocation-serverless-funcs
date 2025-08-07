@@ -1121,7 +1121,7 @@ def clean_markets_optimized(market_list_df, w0_df):
     
 def get_forecast(min_date, max_date):
     query = f"""
-    SELECT ROUND(forecastPLF, 1) AS forecastPLF,Origin,Destination,FlightNumber, DepartureDate 
+    SELECT ROUND(forecastPLF, 1) AS forecastPLF,Variance as forecast_variance,Origin,Destination,FlightNumber, DepartureDate 
     FROM RM_DW_DATA.forecast_results
     WHERE DepartureDate BETWEEN '{min_date}' AND '{max_date}'
     """
