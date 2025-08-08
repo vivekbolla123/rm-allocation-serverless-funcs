@@ -74,7 +74,7 @@ class ActionSectors:
                 WHERE qf.Carrier_Code = 'QP'
                 AND qf.Rule_Nbr in ('1001','2001')
                 AND qf.Fare_Direction IN ('F', 'T')
-                AND qf.OW_RT = 'O'
+                AND (qf.OW_RT = 'O' OR qf.OW_RT = 'C')
                 AND (qf.Footnote is null OR qf.Footnote = "")
                 AND (
                     EXISTS (
@@ -122,7 +122,7 @@ class ActionSectors:
                 WHERE qf.Carrier_Code = 'QP'
                 AND qf.Rule_Nbr in ('M101','R101','M201','R201')
                 AND qf.Fare_Direction IN ('F', 'T')
-                AND qf.OW_RT = 'O'
+                AND (qf.OW_RT = 'O' OR qf.OW_RT = 'C')
                 AND (qf.Footnote is null OR qf.Footnote = "")
                 AND (
                     EXISTS (
