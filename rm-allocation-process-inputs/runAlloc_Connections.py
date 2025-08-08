@@ -354,7 +354,7 @@ class DynAllocConnections:
                 apply_domestic_fare_logic = True
                 use_sector2_fare = True
                 
-        if str(self.currParams.sosFlag) == '1':
+        if int(self.currParams.sosFlag) == 1:
             should_allocate_to_y = True
         # elif is_sector1_domestic and is_sector2_domestic:
         #     # Both domestic

@@ -157,71 +157,81 @@ GROUP BY
     """
             else:
                 marketListQuery = """SELECT 
-                mlc.*,
-                bl1.bookedPax AS BookedPax1,
-                bl1.Lid AS Lid1,
-                fr1.forecastPLF AS forecastPLF1,
-                bl2.bookedPax AS BookedPax2,
-                bl2.Lid AS Lid2,
-                fr2.forecastPLF AS forecastPLF2,
-                crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
-                crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
-                crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
-                crb2_b2c.OpeningRBD AS OpeningRBDB2C2
-            FROM 
-                market_list_connections mlc
-            LEFT JOIN 
-                Bookload bl1 ON 
-                LEFT(mlc.Sector1, 3) = bl1.Origin AND
-                RIGHT(mlc.Sector1, 3) = bl1.Destination AND
-                mlc.Flight1 = bl1.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
-            LEFT JOIN 
-                forecast_results fr1 ON 
-                LEFT(mlc.Sector1, 3) = fr1.Origin AND
-                RIGHT(mlc.Sector1, 3) = fr1.Destination AND
-                mlc.Flight1 = fr1.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = fr1.DepartureDate
-            LEFT JOIN 
-                forecast_results fr2 ON 
-                LEFT(mlc.Sector2, 3) = fr2.Origin AND
-                RIGHT(mlc.Sector2, 3) = fr2.Destination AND
-                mlc.Flight2 = fr2.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = fr2.DepartureDate
-            LEFT JOIN 
-                Bookload bl2 ON 
-                LEFT(mlc.Sector2, 3) = bl2.Origin AND
-                RIGHT(mlc.Sector2, 3) = bl2.Destination AND
-                mlc.Flight2 = bl2.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
-            LEFT JOIN 
-                current_opening_rbd crb1_b2b ON 
-                LEFT(mlc.Sector1, 3) = crb1_b2b.Origin AND
-                RIGHT(mlc.Sector1, 3) = crb1_b2b.Destination AND
-                mlc.Flight1 = crb1_b2b.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2b.DepartureDate AND
-                crb1_b2b.Channel = 'B2B'
-            LEFT JOIN 
-                current_opening_rbd crb1_b2c ON 
-                LEFT(mlc.Sector1, 3) = crb1_b2c.Origin AND
-                RIGHT(mlc.Sector1, 3) = crb1_b2c.Destination AND
-                mlc.Flight1 = crb1_b2c.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2c.DepartureDate AND
-                crb1_b2c.Channel = 'B2C'
-            LEFT JOIN 
-                current_opening_rbd crb2_b2b ON 
-                LEFT(mlc.Sector2, 3) = crb2_b2b.Origin AND
-                RIGHT(mlc.Sector2, 3) = crb2_b2b.Destination AND
-                mlc.Flight2 = crb2_b2b.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2b.DepartureDate AND
-                crb2_b2b.Channel = 'B2B'
-            LEFT JOIN 
-                current_opening_rbd crb2_b2c ON 
-                LEFT(mlc.Sector2, 3) = crb2_b2c.Origin AND
-                RIGHT(mlc.Sector2, 3) = crb2_b2c.Destination AND
-                mlc.Flight2 = crb2_b2c.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2c.DepartureDate AND
-                crb2_b2c.Channel = 'B2C'
+    mlc.*,
+    bl1.bookedPax AS BookedPax1,
+    bl1.Lid AS Lid1,
+    fr1.forecastPLF AS forecastPLF1,
+    bl2.bookedPax AS BookedPax2,
+    bl2.Lid AS Lid2,
+    fr2.forecastPLF AS forecastPLF2,
+    crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
+    crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
+    crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
+    crb2_b2c.OpeningRBD AS OpeningRBDB2C2
+FROM 
+    market_list_connections mlc
+LEFT JOIN 
+    -- Join with your departure dates table to get Departuredate2
+    connections_details dt ON 
+    LEFT(mlc.Sector1, 3) = dt.Origin1 AND
+    RIGHT(mlc.Sector1, 3) = dt.Destnination1 AND
+    mlc.Flight1 = dt.FlightNo1 AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = dt.Departuredate1 AND
+    LEFT(mlc.Sector2, 3) = dt.Origin2 AND
+    RIGHT(mlc.Sector2, 3) = dt.Destnination2 AND
+    mlc.Flight2 = dt.FlightNo2
+LEFT JOIN 
+    Bookload bl1 ON 
+    LEFT(mlc.Sector1, 3) = bl1.Origin AND
+    RIGHT(mlc.Sector1, 3) = bl1.Destination AND
+    mlc.Flight1 = bl1.FlightNumber AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
+LEFT JOIN 
+    forecast_results fr1 ON 
+    LEFT(mlc.Sector1, 3) = fr1.Origin AND
+    RIGHT(mlc.Sector1, 3) = fr1.Destination AND
+    mlc.Flight1 = fr1.FlightNumber AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = fr1.DepartureDate
+LEFT JOIN 
+    forecast_results fr2 ON 
+    LEFT(mlc.Sector2, 3) = fr2.Origin AND
+    RIGHT(mlc.Sector2, 3) = fr2.Destination AND
+    mlc.Flight2 = fr2.FlightNumber AND
+    dt.Departuredate2 = fr2.DepartureDate
+LEFT JOIN 
+    Bookload bl2 ON 
+    LEFT(mlc.Sector2, 3) = bl2.Origin AND
+    RIGHT(mlc.Sector2, 3) = bl2.Destination AND
+    mlc.Flight2 = bl2.FlightNumber AND
+    dt.Departuredate2 = bl2.DepartureDate
+LEFT JOIN 
+    current_opening_rbd crb1_b2b ON 
+    LEFT(mlc.Sector1, 3) = crb1_b2b.Origin AND
+    RIGHT(mlc.Sector1, 3) = crb1_b2b.Destination AND
+    mlc.Flight1 = crb1_b2b.flightno AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2b.DepartureDate AND
+    crb1_b2b.Channel = 'B2B'
+LEFT JOIN 
+    current_opening_rbd crb1_b2c ON 
+    LEFT(mlc.Sector1, 3) = crb1_b2c.Origin AND
+    RIGHT(mlc.Sector1, 3) = crb1_b2c.Destination AND
+    mlc.Flight1 = crb1_b2c.flightno AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2c.DepartureDate AND
+    crb1_b2c.Channel = 'B2C'
+LEFT JOIN 
+    current_opening_rbd crb2_b2b ON 
+    LEFT(mlc.Sector2, 3) = crb2_b2b.Origin AND
+    RIGHT(mlc.Sector2, 3) = crb2_b2b.Destination AND
+    mlc.Flight2 = crb2_b2b.flightno AND
+    dt.Departuredate2 = crb2_b2b.DepartureDate AND
+    crb2_b2b.Channel = 'B2B'
+LEFT JOIN 
+    current_opening_rbd crb2_b2c ON 
+    LEFT(mlc.Sector2, 3) = crb2_b2c.Origin AND
+    RIGHT(mlc.Sector2, 3) = crb2_b2c.Destination AND
+    mlc.Flight2 = crb2_b2c.flightno AND
+    dt.Departuredate2 = crb2_b2c.DepartureDate AND
+    crb2_b2c.Channel = 'B2C'
                 """
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
