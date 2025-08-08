@@ -389,7 +389,7 @@ class DynAlloc:
 
 		# self.overBooking needs YYYY-MM-DD date
 		final_totalCapacity, self.b2boverbookingflag = self.overBooking(
-			dateFormatted_yyyymmdd, ndocounter, base_totalCapacity, base_adjustedCapacity, plf_before_ob
+			self.currParams.per_start, ndocounter, base_totalCapacity, base_adjustedCapacity, plf_before_ob
 		)
 		self.logger.info(f"Total capacity/Lid after OB (if applicable) is: {final_totalCapacity}")
 
