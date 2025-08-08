@@ -973,7 +973,7 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
         (
             SELECT
                 Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,carrierExclusionB2C,carrierExclusionB2B,FirstRBDAlloc,OtherRBDAlloc,
-                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,analystName,
+                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,sosFlag,analystName,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 substring(dow, dayofweek(Date), 1) as Flag
