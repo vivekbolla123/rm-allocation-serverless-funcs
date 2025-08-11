@@ -57,3 +57,4 @@ class OutputSummary:
         self.forecastPLF=CONST_NA
         self.FirstRBDAlloc=CONST_NA
         self.OtherRBDAlloc=CONST_NA
+        self.B2BFactor=CONST_NA

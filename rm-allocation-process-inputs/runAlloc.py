@@ -480,6 +480,25 @@ class DynAlloc:
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
 
+			forecastBand = CONST_NA
+			forecast_plf = getattr(self.currParams, 'forecastPLF', CONST_NA)
+			if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
+				forecastBand = self.rmdatabasehelper.getForecastBand(getattr(self.currParams, 'forecastPLF', CONST_NA))
+
+			ml_b2b_factor = self.currParams.b2b_factor
+			b2b_strategy = self.currParams.b2bStrategy
+
+			is_b2b_strategy_available = b2b_strategy != CONST_NA and b2b_strategy != "" and not pd.isna(b2b_strategy)
+			skip_auto_b2b_factor = ml_b2b_factor <= 0
+
+			if ((not skip_auto_b2b_factor) and is_b2b_strategy_available and forecastBand != CONST_NA):
+				auto_b2b_factor_value = self.rmdatabasehelper.getB2BStrategyValue(dplfBand_full, ndoBand_full, forecastBand, b2b_strategy)
+				if auto_b2b_factor_value is not None:
+					try:
+						self.currParams.b2b_factor = float(auto_b2b_factor_value)
+					except (ValueError, TypeError):
+						pass  # keep the default value from ML
+
 			# Populate summary row fields specific to full allocation
 			self.outputSummaryRow_b2c.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
 			self.outputSummaryRow_b2b.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
@@ -905,6 +924,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
+			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
 			self.outputSummaryRow_b2c.Destin = self.currParams.destin; self.outputSummaryRow_b2c.FltNum = str(currFlt)

@@ -57,6 +57,7 @@ class RMDatabaseHelper:
     bl.WC_bookings,
     bl.WD_bookings,
     bl.WE_bookings,
+    fr.forecastPLF,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassSold ELSE 0 END) AS seats_sold_L,
     SUM(CASE WHEN cr.ClassOfService = 'P' THEN cr.ClassSold ELSE 0 END) AS seats_sold_P,
     SUM(CASE WHEN cr.ClassOfService = 'L' THEN cr.ClassAu ELSE 0 END) AS current_rbd_L,
@@ -88,6 +89,11 @@ LEFT JOIN
     AND ml.Destin = cr.Destin 
     AND ml.FlightNumber = cr.FlightNumber
     AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = cr.DepartureDate
+LEFT JOIN 
+    forecast_results fr ON ml.Origin = fr.Origin 
+    AND ml.Destin = fr.Destination 
+    AND ml.FlightNumber = fr.FlightNumber
+    AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = fr.DepartureDate
 LEFT JOIN 
     series_booked sb ON ml.Origin = sb.Origin 
     AND ml.Destin = sb.Destination 
@@ -139,6 +145,7 @@ GROUP BY
     ml.autoBackstopFlag,
     ml.TBFEnhFlag,
     ml.defaultMlFlag,
+    ml.b2bStrategy,
     bfd.BookingsCount,
     bfd.BookingToday, 
     bfd.BookingsInHour,
@@ -153,7 +160,8 @@ GROUP BY
     bl.WB_bookings,
     bl.WC_bookings,
     bl.WD_bookings,
-    bl.WE_bookings
+    bl.WE_bookings,
+    fr.forecastPLF
     """
             else:
                 marketListQuery = """SELECT 
@@ -384,6 +392,16 @@ GROUP BY
             self.logger.error(e)
         dplfBand = dplfBandList['dplf_band'][0]
         return dplfBand
+    
+    def getForecastBand(self, forecast):
+        forecastBandQuery = "SELECT forecast_band FROM forecast_bands where start <= " + str(forecast) + " and end > " + str(forecast) 
+        try:
+            forecastBandList = pd.read_sql(forecastBandQuery, self.conn)
+            forecastBand = forecastBandList['forecast_band'][0]
+        except Exception as e:
+            self.logger.error(e)
+            forecastBand = CONST_NA
+        return forecastBand
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
@@ -423,6 +441,23 @@ GROUP BY
         except Exception as e:
             self.logger.error(e)
         return dynamicList
+    
+    def getB2BStrategyValue(self, dplfBand, ndoBand, forecastBand, name):
+        b2bStrategyQuery = (
+            "SELECT b2b_factor FROM auto_b2b_factor "
+            f"WHERE ndo_band = {ndoBand} AND dplf_band = {dplfBand} "
+            f"AND forecast_band = '{forecastBand}' AND name = '{name}'"
+        )
+        try:
+            dynamicList = pd.read_sql(b2bStrategyQuery, self.conn)
+            if not dynamicList.empty:
+                return dynamicList.iloc[0]["b2b_factor"]
+            else:
+                return None
+        except Exception as e:
+            self.logger.error(e)
+            return None
+
 
     def getTimeRange(self, time_range):
         timeRangeQuery = "SELECT type, start, end FROM time_ranges where time_range = '"+ time_range +"'"

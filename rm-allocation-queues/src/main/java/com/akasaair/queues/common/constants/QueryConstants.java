@@ -33,11 +33,11 @@ public class QueryConstants {
                 "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, flightExclusionB2B, flightExclusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, "
                 +
                 "B2BBackstop, B2CBackstop, B2BFactor, obSeats, obFare, SkippingFactor, DaySpan, AutoTimeRangeFlag, " +
-                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,MktFareFlag,UUID, directFlag, TBFEnhFlag, defaultMlFlag) "
+                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,MktFareFlag,UUID, directFlag, TBFEnhFlag, defaultMlFlag, b2bStrategy) "
                 +
 
                 "VALUES " +
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
     }
 
     public static String GET_ROLE_PERMISSION_LIST(Object role) {
@@ -187,6 +187,23 @@ public class QueryConstants {
                 "UNION ALL " +
                 GET_STRATEGY_GRID_OFFSET(limit, value) +
                 " ORDER BY Strategy, channel, Decision, Band ";
+    }
+
+    public static String GET_AUTO_B2B_FACTOR_GRID(int limit) {
+        String condition = " ";
+        StringBuilder query = new StringBuilder("""
+                SELECT name, ndo_band, forecast_band,
+            """);
+        for (int i = 0; i < limit; i++) {
+            query.append(" MAX(CASE WHEN dplf_band = ").append(i).append(" THEN b2b_factor END) AS'").append(i).append("' ");
+            if (i < limit - 1) {
+                query.append(",");
+            }
+        }
+        query.append(" FROM `QP_DW_RMALLOC`.`auto_b2b_factor` ")
+                .append(condition)
+                .append(" GROUP BY name, ndo_band, forecast_band");
+        return query.toString();
     }
 
     public static String INPUT_FILE_UPLOAD_INSERT() {
