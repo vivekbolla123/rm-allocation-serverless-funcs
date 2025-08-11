@@ -2739,7 +2739,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 Map<String, String> map = autob2bMap.get(keyVal);
 
                 if (!value.matches("^(-1(\\.0+)?|0(\\.\\d+)?|1(\\.0+)?)$")) {
-                    listOfErrors2.append(nameKey + ": auto_b2b_factor should either be -1 or witin the range of 0 to 1");
+                    listOfErrors2.add(nameKey + ": auto_b2b_factor should either be -1 or witin the range of 0 to 1");
                     continue;
                 }
                 map.put(AUTO_B2B_FACTOR_COLUMN_NAME, value);
