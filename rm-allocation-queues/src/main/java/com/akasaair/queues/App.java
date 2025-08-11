@@ -2709,7 +2709,7 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
     public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
-            Map<String, String> headerColumnMap, List<String> listOfErrors) throws DataMismatchedException {
+            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
         Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
         int nameHeader = 0;
         int forecastBandHeader = 2;
