@@ -298,9 +298,9 @@ LEFT JOIN
 
             insertQuery = text(""" 
                 INSERT INTO run_summary 
-                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag,mktFile, FirstRBDAlloc, OtherRBDAlloc, forecastPLF,ImputedForecastPLF)  
+                (Id, Origin, Destin, FltNum, DepDate, BookedLoad, TgtLoad, MktFare_Min, OpenRBD, SellingFare, Channel, HowDetermined, RunId, CreatedAt, MktFare_Max, fareAnchor, fareOffset, TimeRange, dlfBand, ndoBand, criteria, AirlineCode_Max, AirlineCode_Min, FlightNumber_Max, FlightNumber_Min, backstop, autoBackstop, Variance, StrategyReference, analystName, bookedPlf, actualbookedPlf, startTime, endTime, allocationStatus, endOfDaydlfBand, endOfDayTgtLoad, strategyFare, lastSellingFare, lastSevenAvgFare, hardAnchorFare, upsell, bookingToday, bookingInHour, currentTgtLoad, currentLoadFactor, overBookingCount, recommendedActions, profileFare, status, w0Flag,mktFile, FirstRBDAlloc, OtherRBDAlloc, forecastPLF,ImputedForecastPLF, B2BFactor)  
                 VALUES (
-                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag, :mktFile, :FirstRBDAlloc, :OtherRBDAlloc, :forecastPLF,:ImputedForecastPLF
+                    :Id, :Origin, :Destin, :FltNum, :DepDate, :BookedLoad, :TgtLoad, :MktFare_Min, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :RunId, :CreatedAt, :MktFare_Max, :fareAnchor, :fareOffset, :TimeRange, :dlfBand, :ndoBand, :criteria, :AirlineCode_Max, :AirlineCode_Min, :FlightNumber_Max, :FlightNumber_Min, :backstop, :autoBackstop, :Variance, :StrategyReference, :analystName, :bookedPlf, :actualbookedPlf, :startTime, :endTime, :allocationStatus, :endOfDaydlfBand, :endOfDayTgtLoad, :strategyFare, :lastSellingFare, :lastSevenAvgFare, :hardAnchorFare, :upsell, :bookingToday, :bookingInHour, :currentTgtLoad, :currentLoadFactor, :overBookingCount, :recommendedActions, :profileFare, :status, :w0Flag, :mktFile, :FirstRBDAlloc, :OtherRBDAlloc, :forecastPLF,:ImputedForecastPLF, :B2BFactor
                 )
             """)
 
@@ -360,7 +360,8 @@ LEFT JOIN
                 "FirstRBDAlloc": str(latest_row.FirstRBDAlloc),
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
                 "forecastPLF": str(latest_row.forecastPLF),
-                "ImputedForecastPLF": str(latest_row.ImputedForecastPLF)
+                "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
+                "B2BFactor": str(latest_row.B2BFactor)
                 
             }
 
