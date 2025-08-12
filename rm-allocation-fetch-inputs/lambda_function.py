@@ -544,7 +544,7 @@ def lambda_handler(event, context):
 
         # Prepare booked loads for mapping
         booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
-        
+        forecast_plf_list['FlightNumber']=forecast_plf_list['FlightNumber'].astype('int64')
         # Map BookedPax for Sector1 (using original DepartureDate)
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
