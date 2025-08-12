@@ -3408,7 +3408,7 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
             }
-            if (!listOfB2BStrategies.contains(record.get(CSV_HEADER_B2B_STRATEGY))) {
+            if (!(listOfB2BStrategies.contains(record.get(CSV_HEADER_B2B_STRATEGY)) || record.get(CSV_HEADER_B2B_STRATEGY).equals(""))) {
                 listOfErrors.add(lineNum + "B2B Strategy must be one of the valid strategies");
             }
             String hardAnchor = record.get(CSV_HEADER_HARD_ANCHOR);
