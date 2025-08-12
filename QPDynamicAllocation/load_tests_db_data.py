@@ -54,6 +54,7 @@ class Schema:
         self.load_generic_table("group_potential_seats","group_potential_seats.csv")
         self.load_generic_table("auto_b2b_factor","auto_b2b_factor.csv")
         self.load_generic_table("forecast_bands","forecast_bands.csv")
+        self.load_generic_table("config_station_master","config_station_master.csv")
         
         
         self.alterTables()

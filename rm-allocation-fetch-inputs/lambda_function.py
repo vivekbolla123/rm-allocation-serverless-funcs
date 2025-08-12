@@ -531,6 +531,8 @@ def lambda_handler(event, context):
         
         booked_loads = nav_helper.getCurrentBookedLoads(
             startDate=min_date, endDate=max_date)
+        forecast_plf_query = get_forecast(min_date, max_date)
+        forecast_plf_list = read_sql(forecast_plf_query, dwconn)
         mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
         mkt_list['Sector1Dest'] = mkt_list['Sector1'].str[3:]
         mkt_list['Sector2Origin'] = mkt_list['Sector2'].str[:3]
@@ -544,6 +546,23 @@ def lambda_handler(event, context):
         booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
         
         # Map BookedPax for Sector1 (using original DepartureDate)
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecastPLF': 'forecastPLF1'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
+            how='left',
+            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecastPLF': 'forecastPLF2'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
@@ -954,7 +973,7 @@ def getConnectionMarketListQuery(start_period, end_period, market_list_table):
         (
             SELECT
                 Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,carrierExclusionB2C,carrierExclusionB2B,FirstRBDAlloc,OtherRBDAlloc,
-                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,analystName,
+                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,sosFlag,analystName,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 substring(dow, dayofweek(Date), 1) as Flag

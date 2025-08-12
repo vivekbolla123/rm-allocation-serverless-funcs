@@ -166,57 +166,81 @@ GROUP BY
     """
             else:
                 marketListQuery = """SELECT 
-                mlc.*,
-                bl1.bookedPax AS BookedPax1,
-                bl1.Lid AS Lid1,
-                bl2.bookedPax AS BookedPax2,
-                bl2.Lid AS Lid2,
-                crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
-                crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
-                crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
-                crb2_b2c.OpeningRBD AS OpeningRBDB2C2
-            FROM 
-                market_list_connections mlc
-            LEFT JOIN 
-                Bookload bl1 ON 
-                LEFT(mlc.Sector1, 3) = bl1.Origin AND
-                RIGHT(mlc.Sector1, 3) = bl1.Destination AND
-                mlc.Flight1 = bl1.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
-            LEFT JOIN 
-                Bookload bl2 ON 
-                LEFT(mlc.Sector2, 3) = bl2.Origin AND
-                RIGHT(mlc.Sector2, 3) = bl2.Destination AND
-                mlc.Flight2 = bl2.FlightNumber AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl2.DepartureDate
-            LEFT JOIN 
-                current_opening_rbd crb1_b2b ON 
-                LEFT(mlc.Sector1, 3) = crb1_b2b.Origin AND
-                RIGHT(mlc.Sector1, 3) = crb1_b2b.Destination AND
-                mlc.Flight1 = crb1_b2b.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2b.DepartureDate AND
-                crb1_b2b.Channel = 'B2B'
-            LEFT JOIN 
-                current_opening_rbd crb1_b2c ON 
-                LEFT(mlc.Sector1, 3) = crb1_b2c.Origin AND
-                RIGHT(mlc.Sector1, 3) = crb1_b2c.Destination AND
-                mlc.Flight1 = crb1_b2c.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2c.DepartureDate AND
-                crb1_b2c.Channel = 'B2C'
-            LEFT JOIN 
-                current_opening_rbd crb2_b2b ON 
-                LEFT(mlc.Sector2, 3) = crb2_b2b.Origin AND
-                RIGHT(mlc.Sector2, 3) = crb2_b2b.Destination AND
-                mlc.Flight2 = crb2_b2b.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2b.DepartureDate AND
-                crb2_b2b.Channel = 'B2B'
-            LEFT JOIN 
-                current_opening_rbd crb2_b2c ON 
-                LEFT(mlc.Sector2, 3) = crb2_b2c.Origin AND
-                RIGHT(mlc.Sector2, 3) = crb2_b2c.Destination AND
-                mlc.Flight2 = crb2_b2c.flightno AND
-                STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb2_b2c.DepartureDate AND
-                crb2_b2c.Channel = 'B2C'
+    mlc.*,
+    bl1.bookedPax AS BookedPax1,
+    bl1.Lid AS Lid1,
+    fr1.forecastPLF AS forecastPLF1,
+    bl2.bookedPax AS BookedPax2,
+    bl2.Lid AS Lid2,
+    fr2.forecastPLF AS forecastPLF2,
+    crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
+    crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
+    crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
+    crb2_b2c.OpeningRBD AS OpeningRBDB2C2
+FROM 
+    market_list_connections mlc
+LEFT JOIN 
+    -- Join with your departure dates table to get Departuredate2
+    connections_details dt ON 
+    LEFT(mlc.Sector1, 3) = dt.Origin1 AND
+    RIGHT(mlc.Sector1, 3) = dt.Destnination1 AND
+    mlc.Flight1 = dt.FlightNo1 AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = dt.Departuredate1 AND
+    LEFT(mlc.Sector2, 3) = dt.Origin2 AND
+    RIGHT(mlc.Sector2, 3) = dt.Destnination2 AND
+    mlc.Flight2 = dt.FlightNo2
+LEFT JOIN 
+    Bookload bl1 ON 
+    LEFT(mlc.Sector1, 3) = bl1.Origin AND
+    RIGHT(mlc.Sector1, 3) = bl1.Destination AND
+    mlc.Flight1 = bl1.FlightNumber AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = bl1.DepartureDate
+LEFT JOIN 
+    forecast_results fr1 ON 
+    LEFT(mlc.Sector1, 3) = fr1.Origin AND
+    RIGHT(mlc.Sector1, 3) = fr1.Destination AND
+    mlc.Flight1 = fr1.FlightNumber AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = fr1.DepartureDate
+LEFT JOIN 
+    forecast_results fr2 ON 
+    LEFT(mlc.Sector2, 3) = fr2.Origin AND
+    RIGHT(mlc.Sector2, 3) = fr2.Destination AND
+    mlc.Flight2 = fr2.FlightNumber AND
+    dt.Departuredate2 = fr2.DepartureDate
+LEFT JOIN 
+    Bookload bl2 ON 
+    LEFT(mlc.Sector2, 3) = bl2.Origin AND
+    RIGHT(mlc.Sector2, 3) = bl2.Destination AND
+    mlc.Flight2 = bl2.FlightNumber AND
+    dt.Departuredate2 = bl2.DepartureDate
+LEFT JOIN 
+    current_opening_rbd crb1_b2b ON 
+    LEFT(mlc.Sector1, 3) = crb1_b2b.Origin AND
+    RIGHT(mlc.Sector1, 3) = crb1_b2b.Destination AND
+    mlc.Flight1 = crb1_b2b.flightno AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2b.DepartureDate AND
+    crb1_b2b.Channel = 'B2B'
+LEFT JOIN 
+    current_opening_rbd crb1_b2c ON 
+    LEFT(mlc.Sector1, 3) = crb1_b2c.Origin AND
+    RIGHT(mlc.Sector1, 3) = crb1_b2c.Destination AND
+    mlc.Flight1 = crb1_b2c.flightno AND
+    STR_TO_DATE(mlc.PerStart, '%%m/%%d/%%Y') = crb1_b2c.DepartureDate AND
+    crb1_b2c.Channel = 'B2C'
+LEFT JOIN 
+    current_opening_rbd crb2_b2b ON 
+    LEFT(mlc.Sector2, 3) = crb2_b2b.Origin AND
+    RIGHT(mlc.Sector2, 3) = crb2_b2b.Destination AND
+    mlc.Flight2 = crb2_b2b.flightno AND
+    dt.Departuredate2 = crb2_b2b.DepartureDate AND
+    crb2_b2b.Channel = 'B2B'
+LEFT JOIN 
+    current_opening_rbd crb2_b2c ON 
+    LEFT(mlc.Sector2, 3) = crb2_b2c.Origin AND
+    RIGHT(mlc.Sector2, 3) = crb2_b2c.Destination AND
+    mlc.Flight2 = crb2_b2c.flightno AND
+    dt.Departuredate2 = crb2_b2c.DepartureDate AND
+    crb2_b2c.Channel = 'B2C'
                 """
             try:
                 self.mktList = pd.read_sql(marketListQuery, self.conn)
@@ -1114,9 +1138,9 @@ GROUP BY
             
             insertQuery = text(""" 
                 INSERT INTO run_summary_connections 
-                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate,mktFile) 
+                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate,mktFile,firstrbd,otherrbd,Backstop_INR) 
                 VALUES (
-                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate,:mktFile
+                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate,:mktFile,:firstrbd,:otherrbd,:Backstop_INR
                 )
             """)
 
@@ -1162,7 +1186,10 @@ GROUP BY
                 "DiscountedFare": str(latest_row.discountedFare),
                 "Currency": str(latest_row.currency),
                 "conversionRate": str(latest_row.conversionRate),
-                "mktFile": str(latest_row.mktFile)
+                "mktFile": str(latest_row.mktFile),
+                "firstrbd":str(latest_row.firstrbd),
+                "otherrbd":str(latest_row.otherrbd),
+                "Backstop_INR":str(latest_row.Backstop_INR)
             }
 
             try:
@@ -1260,7 +1287,7 @@ GROUP BY
     
     def get_curveids(self,sector1,sector2,fltno1,fltno2,dep1,dep2):
         
-        query = f"SELECT * FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION SELECT * FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
+        query = f"SELECT * FROM market_list ml WHERE (CONCAT(ml.Origin,ml.Destin) = '{sector1}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND ml.FlightNumber = '{fltno1}') OR (CONCAT(ml.Origin,ml.Destin) = '{sector2}' AND STR_TO_DATE(ml.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND ml.FlightNumber = '{fltno2}') UNION ALL SELECT * FROM market_list_international mli WHERE (CONCAT(mli.Origin, mli.Destin) = '{sector1}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep1}' AND mli.FlightNumber = '{fltno1}') OR (CONCAT(mli.Origin, mli.Destin) = '{sector2}' AND STR_TO_DATE(mli.PerStart, '%%m/%%d/%%Y') = '{dep2}' AND mli.FlightNumber = '{fltno2}');"
         
         df = pd.read_sql(query, self.conn)
         return df
@@ -1402,3 +1429,40 @@ LIMIT 1
         except Exception as e:
             self.logger.error(f"Error fetching TBF seats blocked for OrgCode {orgcode}, Date {departuredate}: {e}")
             return 0
+        
+    def check_sector_types(self, sector1, sector2):
+        """
+        Check if sectors are domestic or international using single query
+        Returns tuple: (is_sector1_domestic, is_sector2_domestic)
+        Uses config_station_master table: if any station has route='I', sector is international
+        """
+        try:
+            sector1_origin = sector1[:3]
+            sector1_dest = sector1[3:]
+            sector2_origin = sector2[:3] 
+            sector2_dest = sector2[3:]
+            
+            # Single query to get route info for all 4 stations
+            query = """
+            SELECT station, route 
+            FROM config_station_master 
+            WHERE station IN (%s, %s, %s, %s)
+            """
+            
+            station_df = pd.read_sql(query, self.conn, 
+                                params=[sector1_origin, sector1_dest, sector2_origin, sector2_dest])
+            
+            # Check if sector1 is international (any station has route='I')
+            sector1_stations = station_df[station_df['station'].isin([sector1_origin, sector1_dest])]
+            is_sector1_domestic = not (sector1_stations['route'] == 'I').any()
+            
+            # Check if sector2 is international (any station has route='I')  
+            sector2_stations = station_df[station_df['station'].isin([sector2_origin, sector2_dest])]
+            is_sector2_domestic = not (sector2_stations['route'] == 'I').any()
+            
+            return is_sector1_domestic, is_sector2_domestic
+            
+        except Exception as e:
+            print(f"Error checking sector types for {sector1}, {sector2}: {e}")
+            # Default to domestic if there's an error
+            return True, True

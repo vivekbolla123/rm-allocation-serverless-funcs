@@ -28,7 +28,8 @@ class MarketListConnectiosnsRow:
         self.BookedPax1 = currParams.get("BookedPax1", CONST_NA) 
         self.BookedPax2 = currParams.get("BookedPax2", CONST_NA)
         self.Lid1 = currParams.get("Lid1", CONST_NA) 
-        self.Lid2 = currParams.get("Lid2", CONST_NA) 
+        self.Lid2 = currParams.get("Lid2", CONST_NA)
+        self.sosFlag =  currParams.get("sosFlag", CONST_NA)
         
         self.OpeningRBDB2B1 = currParams.get("OpeningRBDB2B1", CONST_NA)  
         self.OpeningRBDB2C1 = currParams.get("OpeningRBDB2C1", CONST_NA)  
@@ -56,3 +57,5 @@ class MarketListConnectiosnsRow:
         self.strategy=CONST_NA
         self.mongodb=currParams.get("mongodb",'0')
         self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
+        self.forecastPLF1 = currParams.get("forecastPLF1",CONST_NA)
+        self.forecastPLF2 = currParams.get("forecastPLF2",CONST_NA)

@@ -726,7 +726,7 @@ class RBDAllocations:
         return brd_counter 
 
 
-    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams):
+    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams,should_allocate_to_y):
 
         b2cAllocationsUnits = []
         origin = currParams.sector1[:3]
@@ -776,6 +776,8 @@ class RBDAllocations:
                     incremental = minLid
                 if incrementalb2b >= minLid:
                     incrementalb2b = minLid
+                if should_allocate_to_y:
+                    incremental = minLid
                 if b2cctr < B2CRBDs.shape[0]:
                     currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
                 b2cAllocationsUnits.append(incrementalb2b)
