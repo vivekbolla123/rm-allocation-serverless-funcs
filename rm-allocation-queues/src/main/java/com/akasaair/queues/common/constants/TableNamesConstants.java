@@ -7,6 +7,8 @@ public interface TableNamesConstants {
     String DPLF_BANDS_TABLE = "dplf_bands";
     String CURVES_TABLE_NAME = "Curves";
     String STRATEGY_TABLE_NAME = "d1_d2_strategies";
+    String AUTO_B2B_TABLE_NAME = "auto_b2b_factor";
+    String FORECAST_BANDS_TABLE_NAME = "forecast_bands";
     String MARKET_LIST_TABLE_NAME = "market_list";
     String MARKET_LIST_TABLE_NAME_S3 = "market_list_s3";
     String MARKET_LIST_INTERNATIONAL_TABLE_NAME = "market_list_international";
@@ -28,6 +30,7 @@ public interface TableNamesConstants {
     String SECTOR_ANALYST_MAP_TABLE_NAME = "config_user_sector_map";
     String STATION_MASTER_TABLE_NAME = "config_station_master";
     String STRATEGY_INPUT_NAME = "strategy_input";
+    String AUTO_B2B_INPUT_NAME = "auto_b2b_input";
     String CONFIG_PROFILE_FARE_STATION_UPSELL = "config_profile_fare_station_upsell";
     String SERIES_BLOCKING_TABLE_NAME = "series_blocking";
     String PRICING_QP_FARES_TABLE_NAME = "qp_fares";

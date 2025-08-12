@@ -65,6 +65,8 @@ class ConstantsUtils:
         self.PRICING_RCS_SECTORS = PRICING_RCS_SECTORS
         self.PRICING_CARR_EXCL = PRICING_CARR_EXCL
         self.PRICING_GST_SECTORS = PRICING_GST_SECTORS
+        self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
+        self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
 
 
         self.logger = logging.getLogger()
@@ -201,6 +203,10 @@ class ConstantsUtils:
                 self.PRICING_CARR_EXCL = parameter_value
             elif parameter_key == PRICING_GST_SECTORS_KEY:
                 self.PRICING_GST_SECTORS = json.loads(parameter_value)
+            elif parameter_key == DOMESTIC_PLF_THRESHOLD_KEY:
+                self.DOMESTIC_PLF_THRESHOLD = int(parameter_value)
+            elif parameter_key == INTERNATIONAL_PLF_THRESHOLD_KEY:
+                self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

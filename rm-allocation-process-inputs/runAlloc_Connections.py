@@ -303,6 +303,11 @@ class DynAllocConnections:
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
         flight2 = self.currParams.flight2
+        forecasted_plf_sector1 = self.currParams.forecastPLF1
+        forecasted_plf_sector2 = self.currParams.forecastPLF2
+        is_sector1_domestic, is_sector2_domestic = self.rmdatabasehelper.check_sector_types(sector1, sector2)
+        domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
+        international_plf_threshold = self.constantsUtils.INTERNATIONAL_PLF_THRESHOLD
         dow = self.currParams.dow
         B2BBackstop = self.currParams.b2b_backstop
         B2CBackstop = self.currParams.b2c_backstop
@@ -311,9 +316,13 @@ class DynAllocConnections:
         SkippingFactor = self.currParams.skipping_factor
         b2bRunId = self.utils.getUniqueId()
         b2cRunId = self.utils.getUniqueId()
+        B2BBackstop_inr = B2BBackstop
+        B2CBackstop_inr = B2CBackstop
         if self.currParams.currency!="INR":
             B2BBackstop = self.convert_currency(self.currParams.currency,'INR', self.currParams.b2b_backstop)
+            B2BBackstop_inr = B2BBackstop
             B2CBackstop = self.convert_currency(self.currParams.currency,'INR', self.currParams.b2c_backstop)
+            B2CBackstop_inr = B2CBackstop
             if int(priceStrategy)==1:
                 discountValue=self.convert_currency(self.currParams.currency,'INR', self.currParams.discountvalue)
 
@@ -321,6 +330,41 @@ class DynAllocConnections:
               str(ndocounter) + " on  " + str(current_date1))
         dow = int(datetime.strftime(datetime.strptime(
             current_date1, '%Y-%m-%d') , "%w"))
+        
+        should_allocate_to_y = False
+        apply_domestic_fare_logic = False
+        use_sector1_fare = False
+        use_sector2_fare = False
+
+
+        if is_sector1_domestic and not is_sector2_domestic:
+            # Sector1 is domestic, Sector2 is international
+            if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
+                should_allocate_to_y = True
+            elif forecasted_plf_sector1 >= domestic_plf_threshold:
+                # Only domestic leg meets PLF threshold - use domestic fare logic
+                apply_domestic_fare_logic = True
+                use_sector1_fare = True
+        elif not is_sector1_domestic and is_sector2_domestic:
+            # Sector1 is international, Sector2 is domestic  
+            if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
+                should_allocate_to_y = True
+            elif forecasted_plf_sector2 >= domestic_plf_threshold:
+                # Only domestic leg meets PLF threshold - use domestic fare logic
+                apply_domestic_fare_logic = True
+                use_sector2_fare = True
+                
+        if int(self.currParams.sosFlag) == 1:
+            should_allocate_to_y = True
+        # elif is_sector1_domestic and is_sector2_domestic:
+        #     # Both domestic
+        #     if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
+        #         should_allocate_to_y = True
+        # else:
+        #     # Both international
+        #     if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
+        #         should_allocate_to_y = True
+
 
         if (str(self.currParams.dow)[dow:(dow+1)] == "1" ):
             bookload1 = bookedLoadSingleRowSector1
@@ -354,6 +398,8 @@ class DynAllocConnections:
                 hiFilghtNum="NA"
                 self.outputSummaryRow_b2c.Backstop = B2CBackstop
                 self.outputSummaryRow_b2b.Backstop = B2BBackstop
+                self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
+                self.outputSummaryRow_b2b.Backstop_INR = B2BBackstop_inr
                 openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                     'BaseLeg B2C SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
@@ -444,6 +490,10 @@ class DynAllocConnections:
                         b2cTotal = max(fare1, float(strategyFare))
                     else:
                         b2cTotal = min(fare1, float(strategyFare))
+                    if apply_domestic_fare_logic and use_sector1_fare:
+                        b2cTotal = max(SellingFare1,float(strategyFare))
+                    if apply_domestic_fare_logic and use_sector2_fare:
+                        b2cTotal = max(SellingFare2,float(strategyFare))
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
@@ -452,11 +502,13 @@ class DynAllocConnections:
                 if b2cTotal=="NA":
                     self.outputSummaryRow_b2c.Backstop = B2CBackstop
                     self.outputSummaryRow_b2b.Backstop = B2BBackstop
+                    self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
+                    self.outputSummaryRow_b2b.Backstop_INR = B2BBackstop_inr
                     openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                         'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 else:
                     openDataB2C = self.determineRBDToOpen(
-                    b2cTotal, origin, destin, "B2C", B2CBackstop,0)
+                    b2cTotal, origin, destin, "B2C", B2CBackstop,0,should_allocate_to_y)
                 
                 if (b2b_rbd_sector1 == CONST_NA or pd.isna(b2b_rbd_sector1) or b2b_rbd_sector2 == CONST_NA or pd.isna(b2b_rbd_sector2)):
                     # unable to get bookload aborting
@@ -548,15 +600,21 @@ class DynAllocConnections:
                                 b2bTotal = max(fare1, float(strategyFare))
                             else:
                                 b2bTotal = min(fare1, float(strategyFare))
+                            if apply_domestic_fare_logic and use_sector1_fare:
+                                b2bTotal = max(SellingFare1,float(strategyFare))
+                            if apply_domestic_fare_logic and use_sector2_fare:
+                                b2bTotal = max(SellingFare2,float(strategyFare))
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
                             self.outputSummaryRow_b2b.Backstop = B2BBackstop
+                            self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
+                            self.outputSummaryRow_b2b.Backstop_INR = B2BBackstop_inr
                             openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                                 'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         else:
                             openDataB2B = self.determineRBDToOpen(
-                            b2bTotal, origin, destin, "B2B", B2BBackstop,0)
+                            b2bTotal, origin, destin, "B2B", B2BBackstop,0,should_allocate_to_y)
                         self.outputSummaryRow_b2b.Discount = b2bdiscount
 
             if (openDataB2C['statusInd'][0] != 1):
@@ -578,7 +636,7 @@ class DynAllocConnections:
 
                 # First - Adding all B2C RBD's
                 b2cAllocationsUnits, brd_counter = self.allocations.b2CAllocation_connections(
-                    openDataB2C, currRec, minLid, bookload, SkippingFactor, self.currParams)
+                    openDataB2C, currRec, minLid, bookload, SkippingFactor, self.currParams,should_allocate_to_y)
 
                 # Now add all the Z RBDs
                 brd_counter, currRec = self.allocations.b2BAllocation_connections(
@@ -613,7 +671,12 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.HowDetermined = str(
                 openDataB2C['FareResult'][0])
             self.outputSummaryRow_b2c.Backstop = B2CBackstop
+            self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
+            
             self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
+            self.outputSummaryRow_b2c.firstrbd = self.currParams.first_rbd_alloc
+            self.outputSummaryRow_b2c.otherrbd = self.currParams.other_rbd_alloc
+            
             self.allocResults.append(self.outputSummaryRow_b2c)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
@@ -639,7 +702,10 @@ class DynAllocConnections:
             self.outputSummaryRow_b2b.HowDetermined = str(
                 openDataB2B['FareResult'][0])
             self.outputSummaryRow_b2b.Backstop = B2BBackstop
+            self.outputSummaryRow_b2b.Backstop_INR = B2BBackstop_inr
             self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
+            self.outputSummaryRow_b2b.firstrbd = self.currParams.first_rbd_alloc
+            self.outputSummaryRow_b2b.otherrbd = self.currParams.other_rbd_alloc
             self.allocResults.append(self.outputSummaryRow_b2b)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
@@ -695,7 +761,7 @@ class DynAllocConnections:
         print(f"strategy fare is {strategyFare}")
         return strategyFare
     
-    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset):
+    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset,should_allocate_to_y):
         anchorFare = finalprice
         if self.qpcurrency!='INR':
             anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
@@ -705,13 +771,16 @@ class DynAllocConnections:
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
             origin, destin, anchorFare, offset, channel, openResult, 'R')
 
-        if (rbddata.shape[0] == 0):
+        if (rbddata.shape[0] == 0) or should_allocate_to_y:
             openResult = self.determinerbd.extremeFaresSkipping(
                 origin, destin, anchorFare, offset, channel, backstop, openResult, 'R')
+            if should_allocate_to_y:
+                openResult['FareResult'][0] = 'Matched and allocating at y level'
         else:
             howDetermined = 'Matched and allocated'+self.fareStatus
             openResult = self.determinerbd.getFaresWithBackstop(
                 origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'R')
+        
         return openResult
 
     def outputResults(self):
