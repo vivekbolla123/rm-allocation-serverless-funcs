@@ -35,6 +35,10 @@ Alter table QP_DW_RMALLOC.market_list_adhoc_SR add column b2bStrategy VARCHAR(50
 
 Alter table QP_DW_RMALLOC.market_list_adhoc_SS add column b2bStrategy VARCHAR(50) DEFAULT NULL AFTER defaultMlFlag;
 
+Alter table QP_DW_RMALLOC.market_list_adhoc_mrunal add column b2bStrategy VARCHAR(50) DEFAULT NULL AFTER defaultMlFlag;
+
+Alter table QP_DW_RMALLOC.market_list_adhoc_MRUNAL add column b2bStrategy VARCHAR(50) DEFAULT NULL AFTER defaultMlFlag;
+
 
 UPDATE `QP_DW_RMALLOC`.`config_column_names` SET `columns` = 'Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,DATE_FORMAT(STR_TO_DATE(PerStart, \'%m/%d/%Y\'), \'%a\') AS Day,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfThreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,SkippingFactor,B2BTolerance,B2CTolerance,B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,DaySpan,AutoTimeRangeFlag,openingFares,OverBooking,profileFares,rbdPushFlag,distressInventoryFlag,seriesBlock,autoGroup,autoBackstopFlag,tbfFlag,CugFlag,MktFareFlag,directFlag,TBFEnhFlag,defaultMlFlag,b2bStrategy,analystName' WHERE (`tableName` = 'market_list');
 UPDATE `QP_DW_RMALLOC`.`config_column_names` SET `columns` = 'Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,DATE_FORMAT(STR_TO_DATE(PerStart, \'%m/%d/%Y\'), \'%a\') AS Day,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfThreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,SkippingFactor,B2BTolerance,B2CTolerance,B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,DaySpan,AutoTimeRangeFlag,openingFares,OverBooking,profileFares,rbdPushFlag,distressInventoryFlag,seriesBlock,autoGroup,autoBackstopFlag,tbfFlag,CugFlag,MktFareFlag,directFlag,TBFEnhFlag,defaultMlFlag,b2bStrategy,analystName' WHERE (`tableName` = 'market_list_international');
@@ -46,8 +50,9 @@ ALTER TABLE `QP_DW_RMALLOC`.`run_summary`
 ADD COLUMN `B2BFactor` VARCHAR(50) AFTER `OtherRBDAlloc`;
 
 
-UPDATE `QP_DW_RMALLOC`.`config_column_names` SET `columns` = 'Origin,Destin,FltNum,DepDate,DATE_FORMAT(STR_TO_DATE(DepDate, \'%m/%d/%Y\'), \'%a\') AS Day,BookedLoad,TgtLoad as StartOfDayTgtLoad,bookedPlf,actualbookedPlf,Variance,currentTgtLoad,currentLoadFactor as currentTgtLoadFactor ,endOfDayTgtLoad,bookingToday,bookingInHour,strategyFare,hardAnchorFare,lastSellingFare,profileFare,lastSevenAvgFare as last7AvgFare,upsell,fareAnchor,OpenRBD,SellingFare,Channel,HowDetermined,RunId,CreatedAt,MktFare_Min,FlightNumber_Min,MktFare_Max,FlightNumber_Max,criteria,fareOffset,TimeRange,startTime,endTime,Backstop,autoBackstop,StrategyReference,dlfBand as startOfDayDplfBand,endOfDaydlfBand as currentDplfBand,ndoBand,overBookingCount,recommendedActions,status,w0Flag,analystName,mktFile,forecastPLF,FirstRBDAlloc,OtherRBDAlloc,B2BFactor' WHERE (`tableName` = 'run_summary');
+UPDATE `QP_DW_RMALLOC`.`config_column_names` SET `columns` = 'Origin,Destin,FltNum,DepDate,DATE_FORMAT(STR_TO_DATE(DepDate, \'%m/%d/%Y\'), \'%a\') AS Day,BookedLoad,TgtLoad as StartOfDayTgtLoad,bookedPlf,actualbookedPlf,Variance,currentTgtLoad,currentLoadFactor as currentTgtLoadFactor ,endOfDayTgtLoad,bookingToday,bookingInHour,strategyFare,hardAnchorFare,lastSellingFare,profileFare,lastSevenAvgFare as last7AvgFare,upsell,fareAnchor,OpenRBD,SellingFare,Channel,HowDetermined,RunId,CreatedAt,MktFare_Min,FlightNumber_Min,MktFare_Max,FlightNumber_Max,criteria,fareOffset,TimeRange,startTime,endTime,Backstop,autoBackstop,StrategyReference,dlfBand as startOfDayDplfBand,endOfDaydlfBand as currentDplfBand,ndoBand,overBookingCount,recommendedActions,status,w0Flag,analystName,mktFile,forecastPLF,ImputedForecastPLF,FirstRBDAlloc,OtherRBDAlloc,B2BFactor' WHERE (`tableName` = 'run_summary');
 
+UPDATE `QP_DW_RMALLOC`.`config_column_names` SET `columns` = 'RunId,Sector1,Sector2,FltNum1,FltNum2,DepDate1,DepDate2,BookedLoad1,BookedLoad2,OpenRBD1,OpenRBD2,SellingFare1,SellingFare2,Variance1,Variance2,BookedLoad,Discount,DiscountedFare,outBoundStop,outboundDuration,strategyFare,currency,conversionRate,SellingFare,anchorFare,OpenRBD,criteria,fareOffset, MktFare_Min,FlightNumber_Min,MktFare_Max,FlightNumber_Max,Backstop, Backstop_INR,firstrbd,otherrbd,HowDetermined,Channel,CreatedAt,analystName,mktFile' WHERE (`tableName` = 'run_summary_connections');
 
 CREATE TABLE `QP_DW_RMALLOC`.`forecast_bands` (
   `forecast_band` int NOT NULL,
@@ -85,3 +90,11 @@ UPDATE `QP_DW_RMALLOC`.`config_role_permission` SET `PermissionID` = '{\"role\":
 UPDATE `QP_DW_RMALLOC`.`config_role_permission` SET `PermissionID` = '{\"role\": \"INVENTORY ANALYST\", \"permissions\": [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 20, 22, 23, 24, 25, 26, 27, 28, 29, 33, 34, 36, 99, 41, 47, 53, 54, 55, 59, 62, 63, 66, 72, 74, 75, 94, 95, 90, 91, 103, 104, 105, 107, 109, 110, 118, 119, 123, 124, 125, 126, 127]}' WHERE (`Role` = 'INVENTORYANALYST');
 UPDATE `QP_DW_RMALLOC`.`config_role_permission` SET `PermissionID` = '{\"role\": \"INVENTORY ANALYST\", \"permissions\": [1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 20, 22, 23, 24, 25, 26, 27, 28, 29, 33, 34, 36, 37, 41, 47, 53, 54, 55, 59, 62, 63, 66, 72, 74, 75, 103, 104, 105, 107, 109, 110, 118, 119, 123, 124, 125, 126, 127]}' WHERE (`Role` = 'INVENTORYANALYST2');
 UPDATE `QP_DW_RMALLOC`.`config_role_permission` SET `PermissionID` = '{\"role\": \"MANAGER\", \"permissions\": [1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 52, 53, 54, 55, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 98, 100, 101, 102, 103, 104, 105, 107, 108, 109, 110, 106, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127]}' WHERE (`Role` = 'MANAGER');
+
+ALTER TABLE `QP_DW_RMALLOC`.`run_summary` 
+ADD COLUMN `ImputedForecastPLF` VARCHAR(45) NULL AFTER `OtherRBDAlloc`;
+
+ALTER TABLE `QP_DW_RMALLOC`.`run_summary_connections` 
+ADD COLUMN `firstrbd` VARCHAR(45) NULL AFTER `mktFile`,
+ADD COLUMN `otherrbd` VARCHAR(45) NULL AFTER `firstrbd`,
+ADD COLUMN `Backstop_INR` VARCHAR(45) NULL AFTER `otherrbd`;
