@@ -924,6 +924,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
+			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
@@ -1545,6 +1546,19 @@ class DynAlloc:
 			value = float(value)
 			if not math.isnan(value):
 				return value
+			return CONST_NA
+		except (ValueError, TypeError):
+			return CONST_NA
+
+	def getParsedImputedForecast(self,variance):
+		forecastPLF = getattr(self.currParams, 'forecastPLF', CONST_NA)
+		forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
+
+		try:
+			forecastPLF = float(forecastPLF)
+			forecast_variance = float(forecast_variance)
+			if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
+				return forecastPLF+variance-forecast_variance
 			return CONST_NA
 		except (ValueError, TypeError):
 			return CONST_NA

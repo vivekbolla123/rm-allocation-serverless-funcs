@@ -674,7 +674,10 @@ class RBDAllocations:
         try:
             origin, destin, flight_number = currParams.origin, currParams.destin, currParams.flight_number
             departure_date = currFltDate
-            forecastedPLF = self.rmdatabasehelper.get_forecast_results(origin, destin, flight_number, departure_date) or 0
+            if currParams.forecastPLF!=CONST_NA:
+                forecastedPLF = currParams.forecastPLF
+            else:
+                forecastedPLF=0
         except Exception as e:
             self.logger.error(f"Error getting flight forecast data: {str(e)}")
             forecastedPLF = 0

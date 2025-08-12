@@ -93,4 +93,5 @@ class MarketListRow:
         self.saleinvflag = currParams.get("saleinvflag",0)
         self.defaultMlFlag = currParams.get("defaultMlFlag",0)
         self.forecastPLF = currParams.get("forecastPLF",CONST_NA)
+        self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
