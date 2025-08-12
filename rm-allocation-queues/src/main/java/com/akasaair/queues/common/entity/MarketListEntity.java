@@ -110,5 +110,7 @@ public class MarketListEntity {
     public String tbfEnhFlag;
     @Column(name = "defaultMlFlag")
     public String defaultMlFlag;
+    @Column(name = "b2bStrategy")
+    public String b2bStrategy;
 
 }

@@ -674,7 +674,10 @@ class RBDAllocations:
         try:
             origin, destin, flight_number = currParams.origin, currParams.destin, currParams.flight_number
             departure_date = currFltDate
-            forecastedPLF = self.rmdatabasehelper.get_forecast_results(origin, destin, flight_number, departure_date) or 0
+            if currParams.forecastPLF!=CONST_NA:
+                forecastedPLF = currParams.forecastPLF
+            else:
+                forecastedPLF=0
         except Exception as e:
             self.logger.error(f"Error getting flight forecast data: {str(e)}")
             forecastedPLF = 0
@@ -723,7 +726,7 @@ class RBDAllocations:
         return brd_counter 
 
 
-    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams):
+    def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams,should_allocate_to_y):
 
         b2cAllocationsUnits = []
         origin = currParams.sector1[:3]
@@ -773,6 +776,8 @@ class RBDAllocations:
                     incremental = minLid
                 if incrementalb2b >= minLid:
                     incrementalb2b = minLid
+                if should_allocate_to_y:
+                    incremental = minLid
                 if b2cctr < B2CRBDs.shape[0]:
                     currRec.set_class_attribute(b2cctr + 1, 'class_au', int(incremental))
                 b2cAllocationsUnits.append(incrementalb2b)

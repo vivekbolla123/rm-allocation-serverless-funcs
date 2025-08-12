@@ -418,6 +418,33 @@ public class App implements RequestHandler<S3Event, Object> {
                             })
                             .join();
                 }
+                case AUTO_B2B_TABLE_NAME -> {
+                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
+                        pstmt.setString(1, status);
+                        pstmt.setObject(2, LocalDateTime.now());
+                        pstmt.setString(3, obj_id);
+                        pstmt.executeUpdate();
+                    }
+
+                    s3Client.getObject(GetObjectRequest.builder()
+                            .bucket(bucketName)
+                            .key(key)
+                            .build(),
+                            AsyncResponseTransformer.toBytes())
+                            .thenAccept(response -> {
+                                String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                                long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
+                                        .count();
+                                numOfRows.set(rowCount);
+                                try (Reader reader = new StringReader(fileContent)) {
+                                    uploadAutoB2BGridFile(reader, userName, obj_id);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(
+                                            "Error processing autoB2BFactor file content: " + e.getMessage(), e);
+                                }
+                            })
+                            .join();
+                }
                 case DATE_EVENT_TABLE_NAME -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
@@ -1069,6 +1096,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             List<Object> listOfCurves = searchDistinctResults(CURVES_COLUMN_NAME, CURVES_TABLE_NAME);
             List<Object> listOfStrategies = searchDistinctResults(STRATEGY_COLUMN_NAME, STRATEGY_TABLE_NAME);
+            List<Object> listOfB2BStrategies = searchDistinctResults(AUTO_B2B_NAME_COLUMN_NAME, AUTO_B2B_TABLE_NAME);
             List<Object> listOfCriteria = searchDistinctResults(CRITERIA_COLUMN_NAME, CRITERIA_TABLE);
 
             List<List<String>> csvData = getDataFromCSVFile(file);
@@ -1077,7 +1105,7 @@ public class App implements RequestHandler<S3Event, Object> {
             for (int i = 0; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i,
-                        role, userName, listOfCurves, listOfStrategies, listOfCriteria);
+                        role, userName, listOfCurves, listOfStrategies, listOfB2BStrategies, listOfCriteria);
                 createMarketListEntity(csvData.get(i), marketListEntityList, uuidForEntries, analystName);
             }
 
@@ -1211,6 +1239,32 @@ public class App implements RequestHandler<S3Event, Object> {
             throw e;
         } finally {
             updateInputStatus(STRATEGY_TABLE_NAME);
+        }
+    }
+
+    public void uploadAutoB2BGridFile(Reader file, String userName, String obj_id) throws Exception {
+        String uuid = obj_id;
+        try {
+            insertAuditStatement(AUTO_B2B_TABLE_NAME, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(AUTO_B2B_TABLE_NAME);
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            Map<String, Map<String, String>> autoB2BMap = new HashMap<>();
+            try {
+                autoB2BMap = getAutoB2BGrid(csvData, STRATEGY_HEADER_VALUES, listOfErrors);
+            } catch (Exception e) {
+                addErrorsToTable(listOfErrors, obj_id);
+                throw e;
+            }
+            Set<String> names = getUniqueNames(autoB2BMap);
+            deleteValuesAutoB2BTable(names, AUTO_B2B_TABLE_NAME, AUTO_B2B_NAME_COLUMN_NAME);
+            List<String> headers = Arrays.asList(getColumnHeaders(AUTO_B2B_INPUT_NAME).split(COMMA));
+            insertStatement(autoB2BMap.values().stream().toList(), headers, AUTO_B2B_TABLE_NAME);
+            s3FileStorageDao.storeFile(createCSV(AUTO_B2B_TABLE_NAME), AUTO_B2B_TABLE_NAME, uuid);
+            updateAuditStatement(AUTO_B2B_TABLE_NAME, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            throw e;
+        } finally {
+            updateInputStatus(AUTO_B2B_TABLE_NAME);
         }
     }
 
@@ -1647,6 +1701,8 @@ public class App implements RequestHandler<S3Event, Object> {
         List<Map<String, Object>> values;
         if (tableNameForHeader.equals(STRATEGY_TABLE_NAME)) {
             values = retrieveStrategyGrid(null);
+        } else if (tableNameForHeader.equals(AUTO_B2B_TABLE_NAME)) {
+            values = retrieveAutoB2BGrid(null);
         } else {
             values = findAllRecordsFromTable(tableName, headers);
         }
@@ -1665,6 +1721,30 @@ public class App implements RequestHandler<S3Event, Object> {
                     row.put(CHANNEL_COLUMN_NAME, resultSet.getString(CHANNEL_COLUMN_NAME));
                     row.put(DECISION_COLUMN_NAME, resultSet.getString(DECISION_COLUMN_NAME));
                     row.put(BAND_COLUMN_NAME, resultSet.getString(BAND_COLUMN_NAME));
+                    for (int i = 0; i <= 6; i++) {
+                        row.put(String.valueOf(i), resultSet.getString(String.valueOf(i)));
+                    }
+
+                    listObj.add(row);
+                }
+            }
+        } catch (SQLException e) {
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+        return listObj;
+    }
+
+    public List<Map<String, Object>> retrieveAutoB2BGrid(String value) {
+        int limit = getCountOfEntries(DPLF_BANDS_TABLE);
+        List<Map<String, Object>> listObj = new ArrayList<>();
+        try (PreparedStatement pstmt = connection.prepareStatement(GET_AUTO_B2B_FACTOR_GRID(limit))) {
+            try (ResultSet resultSet = pstmt.executeQuery()) {
+                while (resultSet.next()) {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put(AUTO_B2B_NAME_COLUMN_NAME, resultSet.getString(AUTO_B2B_NAME_COLUMN_NAME));
+                    row.put(NDO_BAND_COLUMN_NAME, resultSet.getString(NDO_BAND_COLUMN_NAME));
+                    row.put(FORECAST_BAND_COLUMN_NAME, resultSet.getString(FORECAST_BAND_COLUMN_NAME));
                     for (int i = 0; i <= 6; i++) {
                         row.put(String.valueOf(i), resultSet.getString(String.valueOf(i)));
                     }
@@ -2037,6 +2117,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(24, marketListEntity.getFareAnchor());
             pstmt.setString(25, marketListEntity.getOffset());
             pstmt.setString(26, marketListEntity.getDiscountFlag());
+            pstmt.setString(27, marketListEntity.getSosFlag());
+
             pstmt.executeUpdate();
         } catch (SQLException e) {
             error_occurred = 1; // Set global flag
@@ -2112,6 +2194,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .analystName(analystName)
                 .carrierExclusionB2B(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2B))
                 .carrierExclusionB2C(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2C))
+                .sosFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))
                 .build());
     }
 
@@ -2541,10 +2624,38 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
+    public void deleteValuesAutoB2BTable(Set<String> value, String tableName, String columnName) {
+        if (!value.isEmpty()) {
+            // Creating the placeholder string for the SQL IN clause
+            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
+            // Constructing to delete SQL query
+            // Note: Direct table and column name insertion into the query can lead to SQL
+            // injection if not handled properly.
+            String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
+            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
+                // Execute the update
+                int index = 1;
+                for (String val : value) {
+                    pstmt.setString(index++, val);
+                }
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                System.out.println(e.getMessage());
+            }
+        }
+    }
+
     private Set<String> getUniqueStrategies(Map<String, Map<String, String>> strategyMap) {
         Set<String> strategy = new HashSet<>();
         for (Map<String, String> strategies : strategyMap.values()) {
             strategy.add(strategies.get(STRATEGY_COLUMN_NAME) + strategies.get(CHANNEL_COLUMN_NAME));
+        }
+        return strategy;
+    }
+    private Set<String> getUniqueNames(Map<String, Map<String, String>> strategyMap) {
+        Set<String> strategy = new HashSet<>();
+        for (Map<String, String> strategies : strategyMap.values()) {
+            strategy.add(strategies.get(AUTO_B2B_NAME_COLUMN_NAME));
         }
         return strategy;
     }
@@ -2600,12 +2711,71 @@ public class App implements RequestHandler<S3Event, Object> {
 
         return strategyMap;
     }
+    public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
+            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
+        Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
+        int nameHeader = 0;
+        int forecastBandHeader = 2;
+        int ndoBandHeader = 1;
+        int startColumn = 3;
+        Set<String> counter = new HashSet<>();
+        int countTotalValues = 0;
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            String nameKey = csvData.get(i).get(nameHeader);
+            counter.add(nameKey);
+
+            String ndoBandKey = csvData.get(i).get(ndoBandHeader);
+            String forecastBandKey = csvData.get(i).get(forecastBandHeader);
+            for (int j = startColumn; j < inputRow.size(); j++) {
+                String value = csvData.get(i).get(j);
+                String dlfBand = csvData.get(0).get(j);
+                String keyVal = nameKey + ndoBandKey + forecastBandKey + dlfBand;
+                if (!autob2bMap.containsKey(keyVal)) {
+                    Map<String, String> map = new HashMap<>();
+                    map.put(AUTO_B2B_NAME_COLUMN_NAME, nameKey);
+                    map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
+                    map.put(FORECAST_BAND_COLUMN_NAME, forecastBandKey);
+                    map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
+                    autob2bMap.put(keyVal, map);
+                }
+                Map<String, String> map = autob2bMap.get(keyVal);
+
+                if (!value.matches("^(-1(\\.0+)?|0(\\.\\d+)?|1(\\.0+)?)$")) {
+                    listOfErrors2.add(nameKey + ": auto_b2b_factor should either be -1 or witin the range of 0 to 1");
+                    continue;
+                }
+                map.put(AUTO_B2B_FACTOR_COLUMN_NAME, value);
+                countTotalValues++;
+            }
+        }
+        findActualCountForAutoB2BFactor(counter, countTotalValues, listOfErrors2);
+
+        if (!listOfErrors2.isEmpty()) {
+            throw new DataMismatchedException(listOfErrors2);
+        }
+
+        return autob2bMap;
+    }
 
     private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues,
             List<String> errorList) throws DataMismatchedException {
         int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
         int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
         int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * NUMBER_OF_DECISIONS * 2;
+        if (expectedValueCount != countTotalValues) {
+            updateInputStatus(STRATEGY_TABLE_NAME);
+            errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
+            throw new DataMismatchedException(Collections.singletonList(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE));
+        }
+    }
+
+    private void findActualCountForAutoB2BFactor(Set<String> strategyCounter, int countTotalValues,
+            List<String> errorList) throws DataMismatchedException {
+        int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
+        int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
+        int forecastBand = getCountOfEntries(FORECAST_BANDS_TABLE_NAME);
+        int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * forecastBand;
         if (expectedValueCount != countTotalValues) {
             updateInputStatus(STRATEGY_TABLE_NAME);
             errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
@@ -2832,6 +3002,7 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(44, marketListEntity.getDirectFlag());
             pstmt.setString(45, marketListEntity.getTbfEnhFlag());
             pstmt.setString(46, marketListEntity.getDefaultMlFlag());
+            pstmt.setString(47, marketListEntity.getB2bStrategy());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -3036,6 +3207,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .directFlag(convertYNToBoolean(record.get(CSV_HEADER_DIRECT_FLAG)))
                 .tbfEnhFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_ENH_FLAG)))
                 .defaultMlFlag(convertYNToBoolean(record.get(CSV_HEADER_DEFAULT_ML_FLAG)))
+                .b2bStrategy(record.get(CSV_HEADER_B2B_STRATEGY))
                 .analystName(analystName)
                 .build());
     }
@@ -3099,7 +3271,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     private String validationForMarketListFile(List<String> record, List<String> permissions, String route,
             List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves,
-            List<Object> listOfStrategies, List<Object> listOfCriteria) throws Exception {
+            List<Object> listOfStrategies, List<Object> listOfB2BStrategies, List<Object> listOfCriteria) throws Exception {
         try {
             JSONArray roles = new JSONArray();
             if (role instanceof String roleStr) {
@@ -3235,6 +3407,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
+            }
+            if (!(listOfB2BStrategies.contains(record.get(CSV_HEADER_B2B_STRATEGY)) || record.get(CSV_HEADER_B2B_STRATEGY).equals(""))) {
+                listOfErrors.add(lineNum + "B2B Strategy must be one of the valid strategies");
             }
             String hardAnchor = record.get(CSV_HEADER_HARD_ANCHOR);
             String fareOffset = record.get(CSV_HEADER_FARE_OFFSET);
@@ -3478,6 +3653,10 @@ public class App implements RequestHandler<S3Event, Object> {
         // ... continue all other validations from original method ...
         if (!checkPriceStrategy(record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY))) {
             errorsFound.add(lineNum + "Price Strategy ("+ record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY) +") has value other than '1' or '2'.");
+        }
+
+        if (!checkStrategyFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))) {
+            errorsFound.add(lineNum + "SOS Flag ("+ record.get(CSV_HEADER_CONNECTIONS_SOSFLAG) +") has value other than '0' or '1'.");
         }
         if (!isPositive(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
             errorsFound.add(lineNum + "First Allocation ("+ record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC) +") is not a positive number.");

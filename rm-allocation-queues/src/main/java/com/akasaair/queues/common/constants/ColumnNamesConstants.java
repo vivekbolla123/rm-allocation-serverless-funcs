@@ -22,6 +22,9 @@ public interface ColumnNamesConstants {
     String HOUR_COLUMN_NAME = "hour";
     String VALUE_COLUMN_NAME = "value";
     String AU_VALUE_COLUMN_NAME = "au_value";
+    String AUTO_B2B_NAME_COLUMN_NAME = "name";
+    String FORECAST_BAND_COLUMN_NAME = "forecast_band";
+    String AUTO_B2B_FACTOR_COLUMN_NAME = "b2b_factor";
 
     public static final String DESTIN_COLUMN_NAME = "Destin";
     public static final String SALE_FLAG_COLUMN_NAME = "saleflag";
