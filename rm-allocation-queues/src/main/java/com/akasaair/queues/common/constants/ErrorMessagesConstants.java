@@ -20,4 +20,5 @@ public interface ErrorMessagesConstants {
     public static final String INVALID_SI_RBD_TYPE_VALUE_ERROR_PREFIX = "Invalid 'type' value: ";
     public static final String DUPLICATE_PK_SI_RBD_ERROR_PREFIX = "Duplicate primary key (seats, type, rbd) detected in CSV data for: ";// Append actual value and allowed list
     public static final String INVALID_SI_RBD_RBD_VALUE_ERROR = "Invalid value for RBD column. Must be a non-negative integer.";
+    public static final String ERROR_PROCESSING_FILE = "Error Processing File. Please check if all required columns are added";
 }

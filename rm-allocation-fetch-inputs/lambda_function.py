@@ -456,8 +456,10 @@ def lambda_handler(event, context):
             mkt_list['PerStart'], format='%m/%d/%Y').dt.date
         min_date = mkt_list['DepartureDate'].min()
         max_date = mkt_list['DepartureDate'].max()
-        curr_date = datetime.now(timezone.utc).date()
-        curr_datetime = datetime.now(timezone.utc) - timedelta(hours=1)
+        ist = pytz.timezone('Asia/Kolkata')
+
+        curr_date = datetime.now(ist).date()
+        curr_datetime = datetime.now(ist) - timedelta(hours=1)
         curr_datetime_str = curr_datetime.strftime("%Y-%m-%d %H:%M:%S")
         # Fetch Navitaire data
         booked_loads = nav_helper.getCurrentBookedLoads(

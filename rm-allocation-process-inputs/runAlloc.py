@@ -854,7 +854,7 @@ class DynAlloc:
 					B2CRBDs_df_for_cug_gq_tbf, 
 					base_adjustedCapacity, self.outputSummaryRow_b2c.profileFare,
 					dateFormatted_yyyymmdd, ndocounter, b2c_opening_price_val,
-					cug_bookings_dict_local, param_cug_flag, param_cug_mkt_flag
+					cug_bookings_dict_local, param_cug_flag, param_cug_mkt_flag,sector_full
 				)
 
 				# Group Quote allocation

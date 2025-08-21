@@ -1322,6 +1322,7 @@ LIMIT 1
         df = pd.read_sql(query, self.conn)
         return df
     
+    
     def getOverbookedSeats(self, origin, destin, FltNumber, currFltDate):
         sector = origin + destin
         query = f"""SELECT ExpectedNoShows from expected_no_shows

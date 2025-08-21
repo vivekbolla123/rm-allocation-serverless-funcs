@@ -68,7 +68,7 @@ class MarketFareMongoDB:
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
                 },
-                "outbound_stop": 0
+                "outbound_stop": '0'
             }
             
             if flightExclusion:
@@ -186,6 +186,16 @@ class MarketFareMongoDB:
     }
   },
                         {"$match": base_match_conditions},
+                         {"$addFields": {
+        "gross_fare": {
+            "$convert": {
+                "input": "$gross_fare",
+                "to": "double",
+                "onError": None,
+                "onNull": None
+            }
+        }
+    }},
                         {"$addFields": {
                             "source_table": "RG",
                             "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
@@ -301,7 +311,7 @@ class MarketFareMongoDB:
                 "destination_airport": destination,
                 "channel": channel,
                 "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
-                "outbound_stop": {"$lte": int(outBoundStop)},
+                "outbound_stop": {"$lte": f"{outBoundStop}"},
                 "outbound_duration": {"$lte": int(outboundDuration)},
                 "departure_date": {
                     "$gte": start_of_day,
@@ -332,6 +342,16 @@ class MarketFareMongoDB:
                     ag_pipeline = [
                         date_conversion_stage,
                         {"$match": match_conditions},
+                         {"$addFields": {
+        "gross_fare": {
+            "$convert": {
+                "input": "$gross_fare",
+                "to": "double",
+                "onError": None,
+                "onNull": None
+            }
+        }
+    }},
                         {"$addFields": {
                             "source_table": "AG",
                             "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
