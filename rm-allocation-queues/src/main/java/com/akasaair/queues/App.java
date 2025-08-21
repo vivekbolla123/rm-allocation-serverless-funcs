@@ -10,11 +10,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
 import com.nimbusds.jose.shaded.json.JSONArray;
-
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
-
-import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -22,12 +18,10 @@ import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
-
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
-
 import java.io.*;
 import java.math.BigInteger;
 import java.net.URLDecoder;
@@ -44,151 +38,18 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.text.SimpleDateFormat;
-
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.AU_VALUE_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.BAND_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.CHANNEL_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.COLUMNS_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.COUNT_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.CRITERIA_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.CURVES_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DATE_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DECISION_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DISTRESS_DLF_BANDS_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DISTRESS_NDO_BANDS_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DLF_BANDS_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.DPLF_BAND_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.HOUR_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_BANDS_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_BAND_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_END_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.NDO_START_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.PARAMETER_VALUE_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.PERMISSION_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.ROUTE_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER1_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER2_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER3_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.SECTOR_MAP_USER4_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.STATION_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.STRATEGY_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.TIME_RANGE_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.USER_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.UUID_COLUMN_NAME;
-import static com.akasaair.queues.common.constants.ColumnNamesConstants.VALUE_COLUMN_NAME;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.*;
-
 import static com.akasaair.queues.common.constants.Constants.*;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_BACKSTOP_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_MKT_FARE_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_GROUP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_AUTO_TIME_RANGE_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_BACKSTOP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_FACTOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2B_TOLERANCE;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2C_BACKSTOP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_B2C_TOLERANCE;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CARR_EXCLUSION_B2B;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CARR_EXCLUSION_B2C;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2B;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_EXCLUSION_B2C;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2BBACKSTOP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2BFACTOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_B2CBACKSTOP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_CURRENCY;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DISCOUNTFLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DISCOUNTVALUE;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_DOW;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FAREANCHOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FLIGHT1;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_FLIGHT2;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OFFSET;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OTHERRBDALLOC;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_OUTBOUNDSTOP;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PEREND;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PERSTART;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_PRICESTRATEGY;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SECTOR1;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SECTOR2;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CONNECTIONS_SKIPPINGFACTOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CRITERIA;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_CURVE_ID;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DAY_OF_WEEK;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DAY_SPAN;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DESTINATION;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_DISTRESS_INVENTORY_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_END_DATE;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_END_TIME;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_ANCHOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FARE_OFFSET;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FIRST_ALLOCATION;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_FLIGHT_NO;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_HARD_ANCHOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OFFSET;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OPENING_FARES;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_ORIGIN;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OTHER_ALLOCATION;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_OVER_BOOKING;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PLF_THRESHOLD;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_PROFILE_FARES;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_RBD_PUSH_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_SERIES_BLOCK_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_SKIPPING_FACTOR;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_START_DATE;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_START_TIME;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TBF_FLAG;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.CSV_HEADER_TIME;
-import static com.akasaair.queues.common.constants.CsvHeaderConstants.ROW_START_COUNT;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.*;
-
-import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_OUTPUT_FORMATTER;
-import static com.akasaair.queues.common.constants.DateTimeConstants.DATE_TIME_OUTPUT_FORMATTER;
-import static com.akasaair.queues.common.constants.DateTimeConstants.SIMPLE_DATE_OUTPUT_FORMATTER_2;
-import static com.akasaair.queues.common.constants.DateTimeConstants.SIMPLE_DAY_FORMATTER;
-import static com.akasaair.queues.common.constants.ErrorMessagesConstants.DATABASE_ACCESS_ERROR_MESSAGE;
-import static com.akasaair.queues.common.constants.ErrorMessagesConstants.FILE_UPLOAD_ERROR_MESSAGE;
-import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_DATA_ERROR_MESSAGE;
-import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE;
-import static com.akasaair.queues.common.constants.ErrorMessagesConstants.INVALID_TABLE_NAME_ERROR_MESSAGE;
+import static com.akasaair.queues.common.constants.DateTimeConstants.*;
 import static com.akasaair.queues.common.constants.ErrorMessagesConstants.*;
-
-import static com.akasaair.queues.common.constants.PermissionsConstants.ADMIN;
-import static com.akasaair.queues.common.constants.PermissionsConstants.MANAGER;
-import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS;
-import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_ALL;
-import static com.akasaair.queues.common.constants.PermissionsConstants.PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS;
+import static com.akasaair.queues.common.constants.PermissionsConstants.*;
 import static com.akasaair.queues.common.constants.QueryConstants.*;
-import static com.akasaair.queues.common.constants.TableNamesConstants.CONFIG_PROFILE_FARE_STATION_UPSELL;
-import static com.akasaair.queues.common.constants.TableNamesConstants.CRITERIA_TABLE;
-import static com.akasaair.queues.common.constants.TableNamesConstants.CURVES_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.DATE_EVENT_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.DISTRESS_INVENTORY_STRATEGY_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.DPLF_BANDS_TABLE;
-import static com.akasaair.queues.common.constants.TableNamesConstants.HISTORIC_GRID_DROP_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.HISTORIC_HOURLY_DROP_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_ADHOC_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_CONNECTIONS_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_INTERNATIONAL_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.MARKET_LIST_TABLE_NAME_S3;
-import static com.akasaair.queues.common.constants.TableNamesConstants.NDO_BANDS_TABLE;
-import static com.akasaair.queues.common.constants.TableNamesConstants.PROFILE_FARES_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.QP_FARES_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.SERIES_BLOCKING_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_INPUT_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.STRATEGY_TABLE_NAME;
-import static com.akasaair.queues.common.constants.TableNamesConstants.TIME_RANGE_TABLE;
 import static com.akasaair.queues.common.constants.TableNamesConstants.*;
 import static com.akasaair.queues.common.helpers.CsvHelper.convertToCSV;
 import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
-//import static com.akasaair.queues.common.helpers.QpFaresFileConverter.convertToCSV;
 import static com.akasaair.queues.common.helpers.QpFaresFileConverter.convertToCSVReader;
-
 
 public class App implements RequestHandler<S3Event, Object> {
     final Connection connection = new JdbcConnection().connection();
@@ -197,8 +58,10 @@ public class App implements RequestHandler<S3Event, Object> {
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
     public static int error_occurred = 0;
-    // Inside App class
-    private static final Set<String> ALLOWED_SI_RBD_TYPES = Set.of("closer", "farther"); // Or your actual allowed values
+    public static int partial_upload_occurred = 0;
+    public static final String UPLOAD_QUEUE_STATUS_PARTIALLY_UPLOADED = "PARTIALLY UPLOADED";
+
+    private static final Set<String> ALLOWED_SI_RBD_TYPES = Set.of("closer", "farther");
     public enum UploadFileType {
         UPSELL,
         DISTRESS
@@ -227,6 +90,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
         });
         error_occurred = 0;
+        partial_upload_occurred = 0;
         return null;
     }
 
@@ -235,7 +99,6 @@ public class App implements RequestHandler<S3Event, Object> {
         int lengthOfKey = finalKey.length();
         String obj_id = finalKey.substring(S3_FILE_PATH_NAME.length() + 7, lengthOfKey - 4);
 
-        // Initialize the tableName variable
         String tableName = null;
         Object role = null;
         String usern = null;
@@ -244,7 +107,6 @@ public class App implements RequestHandler<S3Event, Object> {
         LocalDateTime startTime = null;
         AtomicLong numOfRows = new AtomicLong();
 
-        // Database query to get the tableName
         try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_INSERT())) {
             pstmt.setString(1, obj_id);
             try (ResultSet resultSet = pstmt.executeQuery()) {
@@ -259,7 +121,7 @@ public class App implements RequestHandler<S3Event, Object> {
             }
         } catch (SQLException e) {
             error_occurred = 1;
-            listOfErrors.add(e.getMessage());
+            listOfErrors.add(DATABASE_ACCESS_ERROR_MESSAGE);
             addErrorsToTable(listOfErrors, obj_id);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
@@ -271,7 +133,6 @@ public class App implements RequestHandler<S3Event, Object> {
         final String routeString = routeStr;
         String status = UPLOAD_QUEUE_STATUS_IN_PROGRESS;
 
-        // Now you can use tableName in your subsequent logic
         System.out.println("The table name is -> " + table);
         try {
             insertAndValidatedBasedOnTableName(bucketName, key, obj_id, tableName, numOfRows, table, role_obj, userName,
@@ -279,7 +140,7 @@ public class App implements RequestHandler<S3Event, Object> {
         } catch (Exception e) {
             error_occurred = 1;
             if (listOfErrors.isEmpty()) {
-                listOfErrors.add(e.getMessage());
+                listOfErrors.add("Validation has failed while inserting data in table");
                 addErrorsToTable(listOfErrors, obj_id);
             }
             System.out.println(e);
@@ -288,6 +149,8 @@ public class App implements RequestHandler<S3Event, Object> {
         listOfErrors.clear();
         if (error_occurred == 0) {
             status = UPLOAD_QUEUE_STATUS_DONE;
+        } else if (partial_upload_occurred == 1) {
+            status = UPLOAD_QUEUE_STATUS_PARTIALLY_UPLOADED;
         } else {
             status = UPLOAD_QUEUE_STATUS_FAILED;
         }
@@ -299,7 +162,6 @@ public class App implements RequestHandler<S3Event, Object> {
         long minutes = (seconds % 3600) / 60;
         long secs = seconds % 60;
 
-        // Formatting the string as hh:mm:ss
         String formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
         System.out.println("Status--->" + status);
 
@@ -312,28 +174,28 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.executeUpdate();
             System.out.println("Status Updated");
         } catch (SQLException e) {
+            listOfErrors.add(DATABASE_ACCESS_ERROR_MESSAGE);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
 
-        // Deleting the object from S3
         if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
             s3Client.deleteObject(DeleteObjectRequest.builder()
-                    .bucket(bucketName)
-                    .key(finalKey)
-                    .build())
+                            .bucket(bucketName)
+                            .key(finalKey)
+                            .build())
                     .join();
         }
 
     }
 
     private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName,
-            AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername,
-            String routeString, String status) throws Exception {
+                                                    AtomicLong numOfRows, String table, Object role_obj, String userName, String adhocUsername,
+                                                    String routeString, String status) throws Exception {
         try {
             switch (tableName) {
                 case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME,
-                        MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
+                     MARKET_LIST_CONNECTIONS_TABLE_NAME, MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME -> {
                     String route;
                     if (tableName.equals(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
                         route = DOMESTIC;
@@ -364,10 +226,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     String finalRoute = route;
                     String finalTableName = tableName;
                     s3Client.getObject(GetObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build(),
-                            AsyncResponseTransformer.toBytes())
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 try (Reader reader = new StringReader(fileContent)) {
@@ -382,11 +244,12 @@ public class App implements RequestHandler<S3Event, Object> {
                                                 obj_id, numOfRows);
                                     }
                                 } catch (Exception e) {
+                                    listOfErrors.add("Error Uploading MarketList to DB. Please check File content.");
                                     throw new RuntimeException("Error processing file content: " + e.getMessage(), e);
                                 }
                             })
                             .exceptionally(ex -> {
-                                System.out.println("Error during file processing: " + ex.getMessage());
+                                listOfErrors.add("Error during file processing for S3");
                                 throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                             })
                             .join();
@@ -400,10 +263,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build(),
-                            AsyncResponseTransformer.toBytes())
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
@@ -412,6 +275,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadStrategyGridFile(reader, userName, obj_id);
                                 } catch (Exception e) {
+                                    listOfErrors.add("Error Uploading Strategy File to DB. Please check file content");
                                     throw new RuntimeException(
                                             "Error processing strategy file content: " + e.getMessage(), e);
                                 }
@@ -427,10 +291,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build(),
-                            AsyncResponseTransformer.toBytes())
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
@@ -454,10 +318,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build(),
-                            AsyncResponseTransformer.toBytes())
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
@@ -466,6 +330,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadPartialDateEvent(reader, userName, obj_id, listOfErrors);
                                 } catch (Exception e) {
+                                    listOfErrors.add("Error Uploading Calendar File to DB. Please check file content");
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
                                 }
@@ -493,13 +358,14 @@ public class App implements RequestHandler<S3Event, Object> {
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadDateEventFile(reader, userName, obj_id,UploadFileType.DISTRESS);
                                 } catch (Exception e) {
+                                    listOfErrors.add("Error Distress Calendar File to DB. Please check file content");
                                     throw new RuntimeException(
                                             "Error processing date event file content: " + e.getMessage(), e);
                                 }
                             })
                             .join();
                 }
-                case SALES_INVENTORY_TABLE_NAME-> { // <<<--- NEW CASE
+                case SALES_INVENTORY_TABLE_NAME-> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
                         pstmt.setObject(2, LocalDateTime.now());
@@ -515,17 +381,12 @@ public class App implements RequestHandler<S3Event, Object> {
                                     AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
-                                // Estimate initial row count (can be refined after date expansion)
-                                long initialRowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                                // We will set the final row count after expansion inside the upload method
-                                // numOfRows.set(initialRowCount); // Comment out or remove if setting inside the method
                                 try (Reader reader = new StringReader(fileContent)) {
-                                    uploadSalesInventoryFile(reader, finalTableName1, userName, obj_id, numOfRows); // Call new method
+                                    uploadSalesInventoryFile(reader, finalTableName1, userName, obj_id, numOfRows);
                                 } catch (Exception e) {
-                                    // Log or handle specific exceptions from uploadSalesInventoryFile if needed
-                                    error_occurred = 1; // Ensure error is flagged
-                                    if (listOfErrors.isEmpty()) { // Add generic error if specific one wasn't added
-                                        listOfErrors.add("Error processing sales inventory file: " + e.getMessage());
+                                    error_occurred = 1;
+                                    if (listOfErrors.isEmpty()) {
+                                        listOfErrors.add("Error processing sales inventory file: ");
                                         addErrorsToTable(listOfErrors, obj_id);
                                     }
                                     throw new RuntimeException(
@@ -533,18 +394,16 @@ public class App implements RequestHandler<S3Event, Object> {
                                 }
                             })
                             .exceptionally(ex -> {
-                                error_occurred = 1; // Ensure error is flagged
+                                error_occurred = 1;
                                 System.err.println("Error during S3 getObject or processing: " + ex.getMessage());
                                 if (listOfErrors.isEmpty()) {
                                     listOfErrors.add("Failed to retrieve or process file from S3: " + ex.getMessage());
                                     addErrorsToTable(listOfErrors, obj_id);
                                 }
-                                // Ensure the exception is propagated correctly if needed by framework
-                                // Or handle it gracefully here
-                                return null; // or throw new RuntimeException(ex);
+                                return null;
                             })
-                            .join(); // Make sure processing completes
-                    break; // Don't forget break
+                            .join();
+                    break;
                 }
                 case SALESINV_RBD_DISTRIBUTION_TABLE_NAME -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
@@ -566,7 +425,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 } catch (Exception e) {
                                     error_occurred = 1;
                                     if (listOfErrors.isEmpty()) {
-                                        listOfErrors.add("Error processing Sales RBD Distribution file: " + e.getMessage());
+                                        listOfErrors.add("Error processing Sales RBD Distribution file");
                                         addErrorsToTable(listOfErrors, obj_id);
                                     }
                                     throw new RuntimeException(
@@ -577,7 +436,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 error_occurred = 1;
                                 System.err.println("Error during S3 getObject or processing for Sales RBD Distribution: " + ex.getMessage());
                                 if (listOfErrors.isEmpty()) {
-                                    listOfErrors.add("Failed to retrieve or process Sales RBD Distribution file from S3: " + ex.getMessage());
+                                    listOfErrors.add("Failed to retrieve or process Sales RBD Distribution file from S3");
                                     addErrorsToTable(listOfErrors, obj_id);
                                 }
                                 return null;
@@ -606,7 +465,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 } catch (Exception e) {
                                     error_occurred = 1;
                                     if (listOfErrors.isEmpty()) {
-                                        listOfErrors.add("Error processing Group Potential Seats file: " + e.getMessage());
+                                        listOfErrors.add("Error processing Group Potential Seats file");
                                         addErrorsToTable(listOfErrors, obj_id);
                                     }
                                     throw new RuntimeException(
@@ -617,7 +476,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                 error_occurred = 1;
                                 System.err.println("Error during S3 getObject or processing for Group Potential Seats: " + ex.getMessage());
                                 if (listOfErrors.isEmpty()) {
-                                    listOfErrors.add("Failed to retrieve or process Group Potential Seats file from S3: " + ex.getMessage());
+                                    listOfErrors.add("Failed to retrieve or process Group Potential Seats file from S3");
                                     addErrorsToTable(listOfErrors, obj_id);
                                 }
                                 return null;
@@ -634,8 +493,8 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     if (tableName.startsWith(MARKET_LIST_SALESINV_ADHOC_TABLE_NAME)) {
-                            tableName = MARKET_LIST_SALESINV_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
-                        }
+                        tableName = MARKET_LIST_SALESINV_ADHOC_TABLE_NAME + UNDERSCORE + adhocUsername;
+                    }
                     String finalTableName = tableName;
                     s3Client.getObject(GetObjectRequest.builder()
                                             .bucket(bucketName)
@@ -647,68 +506,17 @@ public class App implements RequestHandler<S3Event, Object> {
                                 try (Reader reader = new StringReader(fileContent)) {
                                     uploadMarketListSalesInvFile(reader, finalTableName, userName, role_obj, obj_id, numOfRows);
                                 } catch (Exception e) {
+                                    listOfErrors.add("Error processing market_list_salesinv file content");
                                     throw new RuntimeException("Error processing market_list_salesinv file content: " + e.getMessage(), e);
                                 }
                             })
                             .exceptionally(ex -> {
+                                listOfErrors.add("Error processing market_list_salesinv file content");
                                 System.out.println("Error during file processing: " + ex.getMessage());
                                 throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                             })
                             .join();
                 }
-                // case PRICING_QP_FARES_TABLE_NAME -> {
-                //     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                //         pstmt.setString(1, status);
-                //         pstmt.setObject(2, LocalDateTime.now());
-                //         pstmt.setString(3, obj_id);
-                //         pstmt.executeUpdate();
-                //     }
-
-                //     String finalTableNamePricing = "QP_DW_PRIAUT." + tableName;
-                //     Path tempFilePath = Paths.get(System.getProperty("java.io.tmpdir"), "temp_qp_fares_" + obj_id + ".txt");
-
-                //     s3Client.getObject(GetObjectRequest.builder()
-                //                             .bucket(bucketName)
-                //                             .key(key)
-                //                             .build(),
-                //                     AsyncResponseTransformer.toFile(tempFilePath))
-                //             .thenAccept(response -> {
-                //                 try {
-                //                     StringReader csvReader = convertToCSVReader(tempFilePath.toString());
-                //                     uploadFile(csvReader, finalTableNamePricing, userName, obj_id);
-                //                 } catch (Exception e) {
-                //                     error_occurred = 1;
-                //                     if (listOfErrors.isEmpty()) {
-                //                         listOfErrors.add("Error processing Pricing QP Fares file: " + e.getMessage());
-                //                         addErrorsToTable(listOfErrors, obj_id);
-                //                     }
-                //                     throw new RuntimeException("Error processing Pricing QP Fares file content: " + e.getMessage(), e);
-                //                 } finally {
-                //                     try {
-                //                         Files.deleteIfExists(tempFilePath);
-                //                     } catch (IOException e) {
-                //                         System.err.println("Warning: Could not delete temporary file: " + tempFilePath);
-                //                     }
-                //                 }
-                //             })
-                //             .exceptionally(ex -> {
-                //                 error_occurred = 1;
-                //                 if (listOfErrors.isEmpty()) {
-                //                     listOfErrors.add("Failed to retrieve or process Pricing QP Fares file from S3: " + ex.getMessage());
-                //                     addErrorsToTable(listOfErrors, obj_id);
-                //                 }
-
-                //                 try {
-                //                     Files.deleteIfExists(tempFilePath);
-                //                 } catch (IOException e) {
-                //                     System.err.println("Warning: Could not delete temporary file after error: " + tempFilePath);
-                //                 }
-
-                //                 return null;
-                //             })
-                //             .join();
-                //     break;
-                // }
                 default -> {
                     try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
                         pstmt.setString(1, status);
@@ -718,10 +526,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
-                            .bucket(bucketName)
-                            .key(key)
-                            .build(),
-                            AsyncResponseTransformer.toBytes())
+                                            .bucket(bucketName)
+                                            .key(key)
+                                            .build(),
+                                    AsyncResponseTransformer.toBytes())
                             .thenAccept(response -> {
                                 String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                                 long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1)
@@ -741,9 +549,10 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
         } catch (Exception e) {
+            listOfErrors.add("Failure During Vaildation");
             System.out.println("Error in insertAndValidatedBasedOnTableName: " + e.getMessage());
             e.printStackTrace();
-            throw e; // Rethrow to propagate up the call stack
+            throw e;
         }
     }
 
@@ -765,7 +574,6 @@ public class App implements RequestHandler<S3Event, Object> {
             if (csvData.isEmpty() || csvData.size() < 2) {
                 currentErrors.add("Group Potential Seats CSV file is empty or lacks data rows.");
             } else {
-                // Header Validation
                 List<String> headerRow = csvData.get(0).stream()
                         .map(h -> h.replace("\uFEFF", "").trim().toLowerCase())
                         .collect(Collectors.toList());
@@ -778,7 +586,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
 
                 if (currentErrors.isEmpty()) {
-                    // Data Row Validation
                     for (int i = 1; i < csvData.size(); i++) {
                         List<String> row = csvData.get(i);
                         int currentLineNum = i + 1;
@@ -795,27 +602,24 @@ public class App implements RequestHandler<S3Event, Object> {
 
                         boolean rowIsValid = true;
 
-                        // 1. Sector validation: 6 letters
                         if (sector.length() != 6 || !sector.chars().allMatch(Character::isLetter)) {
                             currentErrors.add(linePrefix + "Sector '" + sector + "' must be 6 letters only.");
                             rowIsValid = false;
                         }
 
-                        // 2. Month validation: Full month name
                         if (!VALID_MONTHS.contains(month)) {
                             currentErrors.add(linePrefix + "Month '" + month + "' is not a valid full month name (e.g., 'January').");
                             rowIsValid = false;
                         }
 
-                        // 3. Value validation: Must be a number
-                        if (!isNumeric(value)) { // Re-using existing helper method
+                        if (!isNumeric(value)) {
                             currentErrors.add(linePrefix + "Value '" + value + "' is not a valid number.");
                             rowIsValid = false;
                         }
 
                         if (rowIsValid) {
                             Map<String, String> record = new HashMap<>();
-                            record.put(SECTOR_COLUMN_NAME, sector.toUpperCase()); // Store sector consistently
+                            record.put(SECTOR_COLUMN_NAME, sector.toUpperCase());
                             record.put(MONTH_COLUMN_NAME, month);
                             record.put(VALUE_COLUMN_NAME, value);
                             recordsToInsert.add(record);
@@ -831,7 +635,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 throw new DataMismatchedException(listOfErrors);
             }
 
-            // Database operations: Full replace. This deletes all existing data before inserting new data.
             deleteValues(Collections.singleton(ZERO), tableName, ZERO);
 
             if (!recordsToInsert.isEmpty()) {
@@ -851,7 +654,7 @@ public class App implements RequestHandler<S3Event, Object> {
             System.err.println("Critical error during Group Potential Seats processing for " + tableName + ": " + e.getMessage());
             if (listOfErrors.isEmpty()) {
                 if (!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors);
-                else listOfErrors.add("Failed to process Group Potential Seats file due to an unexpected error: " + e.getMessage());
+                else listOfErrors.add("Failed to process Group Potential Seats file due to an unexpected error");
             }
             addErrorsToTable(listOfErrors, obj_id);
             throw e;
@@ -864,8 +667,8 @@ public class App implements RequestHandler<S3Event, Object> {
         String uuid = obj_id;
         List<Map<String, String>> recordsToInsert = new ArrayList<>();
         List<String> currentErrors = new ArrayList<>();
-        Set<String> uniqueSeatTypeCombinationsInCsv = new HashSet<>(); // To track (seats,type) for deletion
-        Set<String> processedPrimaryKeys = new HashSet<>(); // For checking (seats,type,rbd) duplicates within CSV
+        Set<String> uniqueSeatTypeCombinationsInCsv = new HashSet<>();
+        Set<String> processedPrimaryKeys = new HashSet<>();
 
         try {
             insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
@@ -873,16 +676,15 @@ public class App implements RequestHandler<S3Event, Object> {
 
             List<List<String>> csvData = getDataFromCSVFile(file);
 
-            if (csvData.isEmpty() || csvData.size() < 2) { // Must have header and at least one data row
+            if (csvData.isEmpty() || csvData.size() < 2) {
                 currentErrors.add("Sales RBD Distribution CSV file is empty or lacks data rows.");
             } else {
                 List<String> headerRow = csvData.get(0);
-                // Basic Header Validation
                 if (headerRow.size() < 2 ||
                         !CSV_HEADER_SI_RBD_SEATS.equalsIgnoreCase(headerRow.get(0).replace("\uFEFF", "").trim()) ||
                         !CSV_HEADER_SI_RBD_TYPE.equalsIgnoreCase(headerRow.get(1).replace("\uFEFF", "").trim())) {
                     currentErrors.add(MISSING_SI_RBD_HEADERS_ERROR + " Found: " + headerRow);
-                } else if (headerRow.size() < 3) { // Must have at least one RBD column
+                } else if (headerRow.size() < 3) {
                     currentErrors.add(NO_RBD_COLUMNS_FOUND_ERROR + " Found: " + headerRow);
                 }
 
@@ -892,27 +694,25 @@ public class App implements RequestHandler<S3Event, Object> {
                         rbdColumnHeaders.add(headerRow.get(hIdx).replace("\uFEFF", "").trim());
                     }
 
-                    for (int i = 1; i < csvData.size(); i++) { // Start from 1 to skip header
+                    for (int i = 1; i < csvData.size(); i++) {
                         List<String> row = csvData.get(i);
-                        int currentLineNum = i + 1; // 1-based for user messages
+                        int currentLineNum = i + 1;
                         String linePrefix = "Line " + currentLineNum + ": ";
 
                         if (row.size() < headerRow.size()) {
                             currentErrors.add(linePrefix + INSUFFICIENT_COLUMNS_ERROR_MESSAGE + " Expected " + headerRow.size() + ", got " + row.size() + ".");
-                            continue; // Skip this malformed row
+                            continue;
                         }
 
                         String seatsStr = row.get(0).trim();
                         String typeStr = row.get(1).trim();
                         boolean currentRowCoreValid = true;
 
-                        // Validate seats (non-negative integer)
                         if (!isNonNegativeInteger(seatsStr)) {
                             currentErrors.add(linePrefix + INVALID_SI_RBD_SEATS_ERROR + " (value: '" + seatsStr + "')");
                             currentRowCoreValid = false;
                         }
 
-                        // Validate type (not empty and in allowed list)
                         if (typeStr.isEmpty()) {
                             currentErrors.add(linePrefix + EMPTY_SI_RBD_TYPE_ERROR);
                             currentRowCoreValid = false;
@@ -922,31 +722,29 @@ public class App implements RequestHandler<S3Event, Object> {
                         }
 
                         if (!currentRowCoreValid) {
-                            continue; // Skip to next row if core 'seats' or 'type' are invalid
+                            continue;
                         }
 
                         uniqueSeatTypeCombinationsInCsv.add(seatsStr + "|" + typeStr.toLowerCase());
 
-                        // Process RBD columns for this row
                         for (int rbdCsvColIdx = 2; rbdCsvColIdx < row.size(); rbdCsvColIdx++) {
                             String rbdHeaderName = rbdColumnHeaders.get(rbdCsvColIdx - 2);
                             String rbdValueStr = row.get(rbdCsvColIdx).trim();
 
-                            // Validate RBD value (non-negative integer)
                             if (!isNonNegativeInteger(rbdValueStr)) {
                                 currentErrors.add(linePrefix + "RBD column '" + rbdHeaderName + "' " + INVALID_SI_RBD_RBD_VALUE_ERROR + " (value: '" + rbdValueStr + "')");
-                                continue; // Skip this RBD, move to next in the row
+                                continue;
                             }
 
                             String primaryKey = seatsStr + "|" + typeStr.toLowerCase() + "|" + rbdHeaderName;
                             if (!processedPrimaryKeys.add(primaryKey)) {
                                 currentErrors.add(linePrefix + DUPLICATE_PK_SI_RBD_ERROR_PREFIX + primaryKey + " (for RBD '" + rbdHeaderName + "').");
-                                continue; // Skip duplicate primary key from CSV
+                                continue;
                             }
 
                             Map<String, String> record = new HashMap<>();
                             record.put(SI_RBD_SEATS_COLUMN_NAME, seatsStr);
-                            record.put(SI_RBD_TYPE_COLUMN_NAME, typeStr.toLowerCase()); // Store type in consistent case
+                            record.put(SI_RBD_TYPE_COLUMN_NAME, typeStr.toLowerCase());
                             record.put(SI_RBD_RBD_COLUMN_NAME, rbdHeaderName);
                             record.put(SI_RBD_VALUE_COLUMN_NAME, rbdValueStr);
                             recordsToInsert.add(record);
@@ -964,12 +762,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 throw new DataMismatchedException(listOfErrors);
             }
 
-            // Database Operations
             if (!recordsToInsert.isEmpty()) {
-                // 1. Delete existing records for the (seats, type) combinations found in the CSV
                 deleteSalesInvRbdDistributionBySeatType(uniqueSeatTypeCombinationsInCsv, tableName);
 
-                // 2. Insert new records
                 List<String> dbHeaders = List.of(
                         SI_RBD_SEATS_COLUMN_NAME,
                         SI_RBD_TYPE_COLUMN_NAME,
@@ -980,8 +775,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 insertStatement(recordsToInsert, dbHeaders, tableName);
                 numOfRows.set(recordsToInsert.size());
             } else {
-                // If uniqueSeatTypeCombinationsInCsv is not empty, deletions might still have occurred.
-                // This implies the CSV intended to clear those (seats,type) groups without adding new data.
                 if(!uniqueSeatTypeCombinationsInCsv.isEmpty()){
                     deleteSalesInvRbdDistributionBySeatType(uniqueSeatTypeCombinationsInCsv, tableName);
                     System.out.println("Cleared data for (seats,type) combinations from " + tableName + " as per CSV, with no new records to insert.");
@@ -997,21 +790,21 @@ public class App implements RequestHandler<S3Event, Object> {
 
         } catch (DataMismatchedException dme) {
             System.err.println("Data mismatched, processing halted for " + tableName + ": " + dme.getMessage());
-            throw dme; // Re-throw to be caught by the caller
+            throw dme;
         } catch (Exception e) {
             error_occurred = 1;
             System.err.println("Critical error during Sales RBD Distribution processing for " + tableName + ": " + e.getMessage());
             e.printStackTrace();
-            if (listOfErrors.isEmpty()) { // If generic catch and no specific errors logged yet
-                if(!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors); // Add any errors collected during processing
-                else listOfErrors.add("Failed to process Sales RBD Distribution file due to an unexpected error: " + e.getMessage());
-            } else if (!currentErrors.isEmpty() && !listOfErrors.containsAll(currentErrors)){ // Merge if both have errors
+            if (listOfErrors.isEmpty()) {
+                if(!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors);
+                else listOfErrors.add("Failed to process Sales RBD Distribution file due to an unexpected error");
+            } else if (!currentErrors.isEmpty() && !listOfErrors.containsAll(currentErrors)){
                 listOfErrors.addAll(currentErrors);
             }
-            addErrorsToTable(listOfErrors, obj_id); // Ensure errors are logged
-            throw e; // Re-throw to be caught by the caller
+            addErrorsToTable(listOfErrors, obj_id);
+            throw e;
         } finally {
-            updateInputStatus(tableName); // Sets status to done/failed based on error_occurred
+            updateInputStatus(tableName);
             System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id + ". Status: " + (error_occurred == 1 ? "FAILED" : "DONE"));
         }
     }
@@ -1020,51 +813,45 @@ public class App implements RequestHandler<S3Event, Object> {
         if (seatTypeCombinations == null || seatTypeCombinations.isEmpty()) {
             return;
         }
-        // Using PreparedStatement for each deletion to handle batching internally if supported by driver,
-        // or at least provide security against SQL injection for the values.
-        // The query targets specific (seats, type) pairs.
         String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SI_RBD_SEATS_COLUMN_NAME + " = ? AND " + SI_RBD_TYPE_COLUMN_NAME + " = ?";
 
         System.out.println("Preparing to delete from " + tableName + " for " + seatTypeCombinations.size() + " (seats, type) combinations.");
         int totalDeletedRows = 0;
 
         try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            connection.setAutoCommit(false); // Manage transaction manually for batch delete
+            connection.setAutoCommit(false);
             for (String combo : seatTypeCombinations) {
-                String[] parts = combo.split("\\|"); // Assuming "|" was used as separator
+                String[] parts = combo.split("\\|");
                 if (parts.length == 2) {
                     try {
                         int seats = Integer.parseInt(parts[0]);
-                        String type = parts[1]; // Should be already lowercased when added to the set
+                        String type = parts[1];
 
                         pstmt.setInt(1, seats);
                         pstmt.setString(2, type);
-                        pstmt.addBatch(); // Add to batch
+                        pstmt.addBatch();
                     } catch (NumberFormatException e) {
+                        listOfErrors.add("Skipping deletion for invalid seat format in combo: " + combo);
                         System.err.println("Skipping deletion for invalid seat format in combo: " + combo);
-                        // Optionally add to a list of non-critical errors
                     }
                 } else {
                     System.err.println("Skipping deletion for malformed (seats,type) combo: " + combo);
                 }
             }
             int[] batchResult = pstmt.executeBatch();
-            connection.commit(); // Commit transaction
+            connection.commit();
 
             for(int count : batchResult) {
-                if (count > 0) totalDeletedRows += count; // Sum up actual deletions
-                else if (count == Statement.SUCCESS_NO_INFO) { /* Can't know for sure, could estimate or ignore */ }
+                if (count > 0) totalDeletedRows += count;
             }
             System.out.println("Total deleted approximately " + totalDeletedRows + " records from " + tableName + " based on CSV (seats,type) groups.");
 
         } catch (SQLException e) {
             try { connection.rollback(); } catch (SQLException ex) { System.err.println("Rollback failed: " + ex.getMessage());}
-            error_occurred = 1; // Flag error
-            String errorMsg = "Failed to delete existing Sales RBD Distribution data: " + e.getMessage();
-            System.err.println(errorMsg);
-            listOfErrors.add(errorMsg); // Add to main error list to be reported
-            // Depending on business rules, you might throw a RuntimeException here to halt processing
-            // throw new RuntimeException(errorMsg, e);
+            error_occurred = 1;
+            String errorMsg = "Failed to delete existing Sales RBD Distribution data";
+            System.err.println(errorMsg + ":"+ e.getMessage());
+            listOfErrors.add(errorMsg);
         } finally {
             try { connection.setAutoCommit(true); } catch (SQLException ex) { System.err.println("Failed to reset auto-commit: " + ex.getMessage());}
         }
@@ -1081,8 +868,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route,
-            String obj_id, AtomicLong numOfRows) throws DataMismatchedException {
-        List<MarketListEntity> marketListEntityList = new ArrayList<>();
+                                     String obj_id, AtomicLong numOfRows) {
+        List<MarketListEntity> validMarketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
             if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
@@ -1101,40 +888,54 @@ public class App implements RequestHandler<S3Event, Object> {
 
             List<List<String>> csvData = getDataFromCSVFile(file);
             csvData = splitRowsByDateRange(csvData, listOfErrors);
-            numOfRows.set(csvData.size() - 1);
-            for (int i = 0; i < csvData.size(); i++) {
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            for (int i = 1; i < csvData.size(); i++) {
                 String uuidForEntries = UUID.randomUUID().toString();
+                int errorCountBefore = listOfErrors.size();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i,
                         role, userName, listOfCurves, listOfStrategies, listOfB2BStrategies, listOfCriteria);
-                createMarketListEntity(csvData.get(i), marketListEntityList, uuidForEntries, analystName);
+                if (listOfErrors.size() == errorCountBefore) {
+                    createMarketListEntity(csvData.get(i), validMarketListEntityList, uuidForEntries, analystName);
+                }
             }
 
             if (!listOfErrors.isEmpty()) {
-                updateInputStatus(tableName);
                 error_occurred = 1;
                 addErrorsToTable(listOfErrors, obj_id);
-                System.out.println(FILE_UPLOAD_ERROR_MESSAGE);
-                throw new DataMismatchedException(listOfErrors);
             }
 
-            if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+            if (!validMarketListEntityList.isEmpty()) {
+                if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+                } else {
+                    deleteRecords(validMarketListEntityList, tableName);
+                }
+                for (MarketListEntity marketEntity : validMarketListEntityList) {
+                    insertIntoMarketList(marketEntity, tableName);
+                }
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+                updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+
+                if (error_occurred == 1) {
+                    partial_upload_occurred = 1;
+                }
             } else {
-                deleteRecords(marketListEntityList, tableName);
+                if (error_occurred == 1) {
+                    System.out.println(FILE_UPLOAD_ERROR_MESSAGE + ": No valid records to upload.");
+                }
             }
-            for (MarketListEntity marketEntity : marketListEntityList) {
-                insertIntoMarketList(marketEntity, tableName);
-            }
-            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
-            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
-        } catch (IOException | ExecutionException | InterruptedException e) {
-            throw new RuntimeException(e);
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            error_occurred = 1;
+            listOfErrors.add(ERROR_PROCESSING_FILE);
+            addErrorsToTable(listOfErrors, obj_id);
+            System.err.println("An exception occurred in uploadMarketListFile: " + e.getMessage());
+            e.printStackTrace();
         } finally {
             updateInputStatus(tableName);
         }
     }
+
 
     public static List<List<String>> splitRowsByDateRange(List<List<String>> csvData, List<String> listOfErrors) {
         DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("MM/dd/yyyy");
@@ -1142,12 +943,10 @@ public class App implements RequestHandler<S3Event, Object> {
         List<List<String>> result = new ArrayList<>();
         Set<String> uniqueKeys = new HashSet<>();
 
-        // Add the header row to the result without processing
         if (!csvData.isEmpty()) {
             intermediateResult.add(new ArrayList<>(csvData.get(0)));
         }
 
-        // Process the rest of the rows, starting from index 1
         for (int rowIndex = 1; rowIndex < csvData.size(); rowIndex++) {
             List<String> row = csvData.get(rowIndex);
             LocalDate startDate = LocalDate.parse(row.get(3), DATE_FORMATTER);
@@ -1155,12 +954,10 @@ public class App implements RequestHandler<S3Event, Object> {
             String dowPattern = row.get(5);
 
             if (startDate.equals(endDate)) {
-                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7; // 0 for Sunday, 1 for Monday, etc.
+                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;
                 if (dowPattern.charAt(dayOfWeek) == '1') {
                     addRowWithDuplicateCheck(intermediateResult, uniqueKeys, row, listOfErrors, rowIndex);
                 }
-                // If DOW doesn't match, the record is implicitly removed by not adding it to
-                // the result
             } else {
                 long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
 
@@ -1177,6 +974,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             }
         }
+        result.add(intermediateResult.get(0));
         for (int i = 1; i < intermediateResult.size(); i++) {
             List<String> row = intermediateResult.get(i);
             LocalDate date = LocalDate.parse(row.get(3), DATE_FORMATTER);
@@ -1188,22 +986,26 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,
-            List<String> listOfErrors, int rowIndex) {
+                                                 List<String> listOfErrors, int rowIndex) {
         String key = row.get(0) + "|" + row.get(1) + "|" + row.get(2) + "|" + row.get(3);
         if (!uniqueKeys.add(key)) {
-            listOfErrors.add("Duplicate record found at Line" + rowIndex + ": " + key);
+            listOfErrors.add("Duplicate record found at Line" + (rowIndex + 1) + ": " + key);
+        } else {
+            result.add(row);
         }
-        result.add(row);
     }
 
-    private static String adjustDowPattern(LocalDate date, String dowPattern /*Original DOW can be ignored here if always setting one day*/) {
+    private static String adjustDowPattern(LocalDate date, String dowPattern) {
         StringBuilder adjustedPattern = new StringBuilder("9999999");
-        int dayOfWeek = date.getDayOfWeek().getValue() % 7; // 0 for Sunday, 1 for Monday, etc.
+        int dayOfWeek = date.getDayOfWeek().getValue() % 7;
         adjustedPattern.setCharAt(dayOfWeek, '1');
         return adjustedPattern.toString();
     }
 
     public void addErrorsToTable(List<String> errorsList, String obj_id) {
+        if (errorsList == null || errorsList.isEmpty()) {
+            return;
+        }
         String errorsString = String.join(", ", errorsList);
         try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_ERROR_OCCURRED())) {
             pstmt.setObject(1, errorsString);
@@ -1345,7 +1147,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public void uploadSalesInventoryFile(Reader file, String tableName, String userName, String obj_id, AtomicLong numOfRows) throws Exception {
         String uuid = obj_id;
         List<Map<String, String>> recordsToProcess = new ArrayList<>();
-        List<String> currentErrors = new ArrayList<>(); // Collects errors throughout processing
+        List<String> currentErrors = new ArrayList<>();
 
         Set<String> monthsToClearYYYYMM00 = new HashSet<>();
         LocalDate overallMinDateForDailyDeletion = null;
@@ -1384,7 +1186,6 @@ public class App implements RequestHandler<S3Event, Object> {
             Integer colIdxMaxPax = headerMap.get(HEADER_TEXT_SALES_MAXPAX.toLowerCase());
             Integer colIdxSeatsAlloc = headerMap.get(HEADER_TEXT_SALES_SEATSALLOC.toLowerCase());
 
-            // --- Validate headers based on detected format ---
             if (isMonthBasedFormat) {
                 if (colIdxMonth == null || colIdxMinSeats == null || colIdxMaxSeats == null || colIdxSeatsAlloc == null) {
                     currentErrors.add(MISSING_SALES_HEADER_ERROR_PREFIX + "Expected for month format: " + HEADER_TEXT_SALES_MONTH + ", " + HEADER_TEXT_SALES_MINSEATS + ", " + HEADER_TEXT_SALES_MAXSEATS + ", " + HEADER_TEXT_SALES_SEATSALLOC + ". Found: " + headerRow);
@@ -1410,12 +1211,10 @@ public class App implements RequestHandler<S3Event, Object> {
                 updateInputStatus(tableName);
                 throw new DataMismatchedException(listOfErrors);
             }
-            // --- End Header Validation ---
 
-            // --- Start of CSV row processing loop ---
             for (int i = 1; i < csvData.size(); i++) {
                 List<String> row = csvData.get(i);
-                int currentLineNum = i + 1; // 1-based for user messages
+                int currentLineNum = i + 1;
                 String linePrefix = "Line " + currentLineNum + ": ";
                 boolean rowIsValid = true;
 
@@ -1444,11 +1243,11 @@ public class App implements RequestHandler<S3Event, Object> {
                             itemStartDateForDailyDeletionCalc = ym.atDay(1);
                             itemEndDateForDailyDeletionCalc = ym.atEndOfMonth();
                         } catch (DateTimeParseException e) {
-                            currentErrors.add(linePrefix + INVALID_SALES_MONTH_YEAR_FORMAT_ERROR + " (value: " + monthYearStr + ", error: " + e.getMessage() + ")");
+                            currentErrors.add(linePrefix + INVALID_SALES_MONTH_YEAR_FORMAT_ERROR + " (value: " + monthYearStr + ")");
                             rowIsValid = false;
                         }
                     }
-                } else { // isDateRangeBasedFormat
+                } else {
                     minHeaderName = HEADER_TEXT_SALES_MINPAX;
                     maxHeaderName = HEADER_TEXT_SALES_MAXPAX;
                     int maxIndexRequired = Collections.max(Arrays.asList(colIdxStartDate, colIdxEndDate, colIdxMinPax, colIdxMaxPax, colIdxSeatsAlloc));
@@ -1471,15 +1270,14 @@ public class App implements RequestHandler<S3Event, Object> {
                             itemStartDateForDailyDeletionCalc = parsedStartDate;
                             itemEndDateForDailyDeletionCalc = parsedEndDate;
                         } catch (DateTimeParseException e) {
-                            currentErrors.add(linePrefix + INVALID_SALES_DATE_FORMAT_ERROR + " (value: " + startDateStr + "/" + endDateStr + ", error: " + e.getMessage() + ")");
+                            currentErrors.add(linePrefix + INVALID_SALES_DATE_FORMAT_ERROR + " (value: " + startDateStr + "/" + endDateStr + ")");
                             rowIsValid = false;
                         }
                     }
                 }
 
-                if (!rowIsValid) continue; // Skip to next row if basic parsing/column count failed
+                if (!rowIsValid) continue;
 
-                // Validate Numeric Fields
                 if (!isNumeric(minValStr)) {
                     currentErrors.add(linePrefix + "'" + minHeaderName + "' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + minValStr + ")");
                     rowIsValid = false;
@@ -1492,7 +1290,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     currentErrors.add(linePrefix + "'" + HEADER_TEXT_SALES_SEATSALLOC + "' " + INVALID_SALES_NUMBER_FORMAT_ERROR + " (value: " + seatsAllocValStr + ")");
                     rowIsValid = false;
                 }
-                if (rowIsValid && isNumeric(minValStr) && isNumeric(maxValStr)) { // Check again if still valid
+                if (rowIsValid && isNumeric(minValStr) && isNumeric(maxValStr)) {
                     if (Integer.parseInt(minValStr) > Integer.parseInt(maxValStr)) {
                         currentErrors.add(linePrefix + "'" + minHeaderName + "' (" + minValStr + ") cannot be greater than '" + maxHeaderName + "' (" + maxValStr + ").");
                         rowIsValid = false;
@@ -1514,7 +1312,7 @@ public class App implements RequestHandler<S3Event, Object> {
                         record.put(SALES_DB_MAXVALUE, maxValStr);
                         record.put(SALES_DB_SEATSALLOCATION, seatsAllocValStr);
                         recordsToProcess.add(record);
-                    } else { // isDateRangeBasedFormat - expand dates
+                    } else {
                         LocalDate currentDate = itemStartDateForDailyDeletionCalc;
                         while (!currentDate.isAfter(itemEndDateForDailyDeletionCalc)) {
                             Map<String, String> record = new HashMap<>();
@@ -1527,10 +1325,9 @@ public class App implements RequestHandler<S3Event, Object> {
                         }
                     }
                 }
-            } // --- End CSV row loop ---
+            }
 
-            // --- Duplicate Date Validation from processed records ---
-            List<Map<String, String>> recordsToInsert = new ArrayList<>(); // Final list for DB
+            List<Map<String, String>> recordsToInsert = new ArrayList<>();
             Set<String> uniqueDbDates = new HashSet<>();
 
             for (Map<String, String> record : recordsToProcess) {
@@ -1538,16 +1335,14 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (!uniqueDbDates.add(dateKey)) {
                     String errorMsg = "Duplicate entry generated for date: " + dateKey +
                             ". This can occur if multiple CSV rows (after processing month/date ranges) resolve to the same date string.";
-                    if (!currentErrors.contains(errorMsg)) { // Add unique error message
+                    if (!currentErrors.contains(errorMsg)) {
                         currentErrors.add(errorMsg);
                     }
                 } else {
-                    recordsToInsert.add(record); // Add if unique (first occurrence)
+                    recordsToInsert.add(record);
                 }
             }
-            // --- End Duplicate Date Validation ---
 
-            // If any errors were found during row processing or duplicate checking, fail now
             if (!currentErrors.isEmpty()) {
                 error_occurred = 1;
                 listOfErrors.addAll(currentErrors);
@@ -1557,15 +1352,11 @@ public class App implements RequestHandler<S3Event, Object> {
                 throw new DataMismatchedException(listOfErrors);
             }
 
-            // --- Database Operations ---
-            // Proceed only if recordsToInsert is not empty AND no errors occurred
             if (!recordsToInsert.isEmpty()) {
-                // 1. Delete specific "YYYYMM00" records
                 if (!monthsToClearYYYYMM00.isEmpty()) {
                     deleteSalesInventoryByExactDates(monthsToClearYYYYMM00, tableName);
                 }
 
-                // 2. Delete daily "YYYYMMDD" records
                 if (overallMinDateForDailyDeletion != null && overallMaxDateForDailyDeletion != null) {
                     deleteSalesInventoryDailyByDateRange(
                             overallMinDateForDailyDeletion.format(SALES_DATE_DB_FORMATTER),
@@ -1574,17 +1365,14 @@ public class App implements RequestHandler<S3Event, Object> {
                     );
                 }
 
-                // 3. Insert new unique records
                 List<String> dbHeaders = List.of(SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
                 System.out.println("Inserting " + recordsToInsert.size() + " unique records into " + tableName);
                 insertStatement(recordsToInsert, dbHeaders, tableName);
                 numOfRows.set(recordsToInsert.size());
 
-            } else { // No records to insert (either file was empty, all rows had errors, or all were duplicates of nothing)
+            } else {
                 System.out.println("No valid, unique sales inventory data to insert for " + tableName + ".");
                 numOfRows.set(0);
-                // Note: Deletions might still have occurred if monthsToClear or daily deletion range was set
-                // This behavior might need adjustment if deletions should only happen if there's also an insert.
             }
 
             System.out.println("Creating CSV backup for " + tableName);
@@ -1592,35 +1380,27 @@ public class App implements RequestHandler<S3Event, Object> {
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
             System.out.println("Successfully processed " + tableName + " file.");
 
-        } catch (DataMismatchedException dme) { // Catch specific exception to avoid double-logging by generic catch
-            // Error already flagged and added to table by the point it's thrown
+        } catch (DataMismatchedException dme) {
             System.err.println("Data mismatched, processing halted for " + tableName + ": " + dme.getMessage());
-            throw dme; // Re-throw
+            throw dme;
         } catch (Exception e) {
             error_occurred = 1;
             System.err.println("Critical error during sales inventory processing for " + tableName + ": " + e.getMessage());
             e.printStackTrace();
-            if (listOfErrors.isEmpty()) { // If generic catch and no specific errors logged yet
+            if (listOfErrors.isEmpty()) {
                 if (!currentErrors.isEmpty()) listOfErrors.addAll(currentErrors);
-                else listOfErrors.add("Failed to process sales inventory file due to an unexpected error: " + e.getMessage());
+                else listOfErrors.add("Failed to process sales inventory file due to an unexpected error");
             } else if (!currentErrors.isEmpty() && !listOfErrors.containsAll(currentErrors)){
                 listOfErrors.addAll(currentErrors);
             }
-            addErrorsToTable(listOfErrors, obj_id); // Ensure errors are logged
-            throw e; // Re-throw
+            addErrorsToTable(listOfErrors, obj_id);
+            throw e;
         } finally {
-            updateInputStatus(tableName); // Sets status to done/failed based on error_occurred
+            updateInputStatus(tableName);
             System.out.println("Finished processing attempt for " + tableName + " with obj_id " + obj_id + ". Status: " + (error_occurred == 1 ? "FAILED" : "DONE"));
         }
     }
 
-    // The deleteSalesInventoryByDateRange method likely uses a query like:
-    // "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " >= ? AND " + SALES_DB_DATE + " <= ?"
-    // The parameters passed to it (startDate, endDate) should be in a format comparable by the DB
-    // if SALES_DB_DATE stores different formats (YYYYMMDD vs YYYYMM00).
-    // If SALES_DB_DATE is a proper DATE type, storing "YYYYMM00" is not ideal.
-    // If it's VARCHAR, the comparison might be tricky unless all dates are YYYYMMDD or similar.
-    // For now, I've assumed the deletion is based on the *actual* month's start/end for "month" inputs.
     private void deleteSalesInventoryByExactDates(Set<String> datesToDelete, String tableName) {
         if (datesToDelete == null || datesToDelete.isEmpty()) {
             return;
@@ -1636,25 +1416,18 @@ public class App implements RequestHandler<S3Event, Object> {
             int deletedRows = pstmt.executeUpdate();
             System.out.println("Deleted " + deletedRows + " exact date records from " + tableName + " matching: " + datesToDelete);
         } catch (SQLException e) {
-            error_occurred = 1; // Flag error
-            String errorMsg = "Failed to delete exact sales inventory data for dates " + datesToDelete + ": " + e.getMessage();
+            error_occurred = 1;
+            String errorMsg = "Failed to delete exact sales inventory data for dates " + datesToDelete;
             System.err.println(errorMsg);
             listOfErrors.add(errorMsg);
-            throw new RuntimeException(errorMsg, e); // Or handle more gracefully
+            throw new RuntimeException(errorMsg, e);
         }
     }
     private void deleteSalesInventoryDailyByDateRange(String startDateYYYYMMDD, String endDateYYYYMMDD, String tableName) {
-        // This query assumes SALES_DB_DATE stores "YYYYMMDD" for daily and "YYYYMM00" for monthly.
-        // It aims to delete only daily records within the range.
-        // Using "NOT LIKE '%00'" is a simple way. A more robust way for MySQL/PostgreSQL:
-        // AND LENGTH(date_col) = 8 AND SUBSTRING(date_col, 7, 2) <> '00'
-        // For SQL Server: AND LEN(date_col) = 8 AND SUBSTRING(date_col, 7, 2) <> '00'
-        // Choose the one appropriate for your DB. '%00' might be too broad if other valid dates end in 00.
-        // If all daily dates are guaranteed to not end in '00' except monthly, then it's okay.
         String deleteQuery = "DELETE FROM " + tableName + " WHERE " +
                 SALES_DB_DATE + " >= ? AND " +
                 SALES_DB_DATE + " <= ? AND " +
-                SALES_DB_DATE + " NOT LIKE '%00'"; // Be cautious with this condition
+                SALES_DB_DATE + " NOT LIKE '%00'";
 
         System.out.println("Executing delete for daily records (not ending in '00') on " + tableName + " from " + startDateYYYYMMDD + " to " + endDateYYYYMMDD);
         try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
@@ -1663,15 +1436,14 @@ public class App implements RequestHandler<S3Event, Object> {
             int deletedRows = pstmt.executeUpdate();
             System.out.println("Deleted " + deletedRows + " existing daily records (not ending in '00') from " + tableName + " in the range.");
         } catch (SQLException e) {
-            error_occurred = 1; // Flag error
-            String errorMsg = "Failed to delete existing daily sales inventory data for range " + startDateYYYYMMDD + "-" + endDateYYYYMMDD + ": " + e.getMessage();
+            error_occurred = 1;
+            String errorMsg = "Failed to delete existing daily sales inventory data for range " + startDateYYYYMMDD + "-" + endDateYYYYMMDD;
             System.err.println(errorMsg);
             listOfErrors.add(errorMsg);
-            throw new RuntimeException(errorMsg, e); // Or handle more gracefully
+            throw new RuntimeException(errorMsg, e);
         }
     }
 
-    // Helper method for numeric check (you might already have this)
     private boolean isNumeric(String str) {
         if (str == null || str.trim().isEmpty()) {
             return false;
@@ -1768,17 +1540,17 @@ public class App implements RequestHandler<S3Event, Object> {
         String query = "SELECT table_name FROM information_schema. tables WHERE table_type = 'BASE TABLE' AND table_name = '"+ tableName+ "'";
 
         try (Statement stmt = connection.createStatement();
-                ResultSet resultSet = stmt.executeQuery(query)) {
+             ResultSet resultSet = stmt.executeQuery(query)) {
             while (resultSet.next()) {
                 Map<String, Object> row = new HashMap<>();
-                row.put("tableName", resultSet.getString(1)); // Usually the table name is in the first column
+                row.put("tableName", resultSet.getString(1));
                 listObj.add(row);
             }
         } catch (SQLException e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
-        return listObj.size(); // Will be >0 if table exists
+        return listObj.size();
     }
 
     private Set<String> getUniqueValues(List<Map<String, String>> data, String columnName) {
@@ -1887,8 +1659,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public Map<String, Map<String, String>> createTransformDataSet(List<List<String>> csvData, int key1Header,
-            int key2Header, int valueStartColumn, String key1Name, String key2Name, String[] valueNames,
-            String headerKey) {
+                                                                   int key2Header, int valueStartColumn, String key1Name, String key2Name, String[] valueNames,
+                                                                   String headerKey) {
         Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -1913,7 +1685,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public Map<String, Map<String, String>> createTransformDataSetDistress(List<List<String>> csvData, int key1Header,
-            int valueStartColumn, String key1Name, String[] valueNames, String headerKey) {
+                                                                           int valueStartColumn, String key1Name, String[] valueNames, String headerKey) {
         Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -1936,8 +1708,9 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public void uploadMarketListConnectionsFile(Reader file, String tableName, String userName, Object role,
-                                                String obj_id) throws DataMismatchedException {
+                                                String obj_id) {
         List<String> methodScopedErrors = new ArrayList<>();
+        List<MarketListConnectionsEntity> validMarketListConnectionsEntityList = new ArrayList<>();
         AtomicLong numOfRowsProcessed = new AtomicLong(0);
 
         try {
@@ -1955,113 +1728,85 @@ public class App implements RequestHandler<S3Event, Object> {
 
             if (rawCsvData.isEmpty() || rawCsvData.size() <= 1) {
                 methodScopedErrors.add("CSV file is empty or contains only headers. No data to process for Market List Connections.");
-                // If this is an error, throw early
-                if (!methodScopedErrors.isEmpty()) {
-                    error_occurred = 1;
-                    this.listOfErrors.addAll(methodScopedErrors);
-                    throw new DataMismatchedException(new ArrayList<>(methodScopedErrors));
-                }
+                error_occurred = 1;
+                this.listOfErrors.addAll(methodScopedErrors);
+                return;
             }
 
             List<List<String>> processedCsvData = splitConnectionsRowsByDateRange(rawCsvData, methodScopedErrors);
             numOfRowsProcessed.set(processedCsvData.isEmpty() ? 0 : Math.max(0, processedCsvData.size() - 1));
 
-
-            List<MarketListConnectionsEntity> marketListConnectionsEntityList = new ArrayList<>();
-            // Iterate from 1 to skip header in processedCsvData
             for (int i = 1; i < processedCsvData.size(); i++) {
                 List<String> record = processedCsvData.get(i);
-                String uuidForEntry = generateUUID(); // Each split row gets a new UUID
+                String uuidForEntry = generateUUID();
+                int errorCountBefore = methodScopedErrors.size();
 
-                // 'i' is the 1-based index of the processed record (after header)
                 String analystName = validationForMarketListConnectionsFile(record, i, permissions, role, userName, methodScopedErrors);
 
-                createMarketListConnectionsEntity(record, marketListConnectionsEntityList, uuidForEntry, analystName);
+                if (methodScopedErrors.size() == errorCountBefore) {
+                    createMarketListConnectionsEntity(record, validMarketListConnectionsEntityList, uuidForEntry, analystName);
+                }
             }
 
             if (!methodScopedErrors.isEmpty()) {
                 error_occurred = 1;
                 this.listOfErrors.addAll(methodScopedErrors);
-                throw new DataMismatchedException(new ArrayList<>(methodScopedErrors));
             }
 
-            // If we reach here, all (split and validated) records are fine.
-            if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                deleteValues(Collections.singleton(ZERO), tableName, ZERO); // Full replace for adhoc
+            if (!validMarketListConnectionsEntityList.isEmpty()) {
+                if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+                } else {
+                    deleteSpecificConnectionRecords(validMarketListConnectionsEntityList, tableName);
+                }
+
+                for (MarketListConnectionsEntity marketEntity : validMarketListConnectionsEntityList) {
+                    insertIntoMarketListConnections(marketEntity, tableName);
+                }
+
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, auditUuid);
+                updateAuditStatement(tableName, getCurrentDateTime(), auditUuid);
+
+                if(error_occurred == 1) {
+                    partial_upload_occurred = 1;
+                }
             } else {
-                deleteSpecificConnectionRecords(marketListConnectionsEntityList, tableName);
-                // deleteSpecificConnectionRecords throws SQLException and sets error_occurred, adds to this.listOfErrors
-            }
-
-            // Insert all new/updated records
-            for (MarketListConnectionsEntity marketEntity : marketListConnectionsEntityList) {
-                insertIntoMarketListConnections(marketEntity, tableName);
-                if (error_occurred == 1) { // Check if insertIntoMarketListConnections failed
-                    // this.listOfErrors already contains the message from insertIntoMarketListConnections
-                    throw new SQLException("Failure during insertion of market list connection: " + marketEntity.getSector1() + "/" + marketEntity.getFlight1() + " to " + marketEntity.getSector2() + "/" + marketEntity.getFlight2() + " on " + marketEntity.getStartDate());
+                if (error_occurred == 1) {
+                    System.out.println(FILE_UPLOAD_ERROR_MESSAGE + ": No valid connection records to upload.");
                 }
             }
-
-            s3FileStorageDao.storeFile(createCSV(tableName), tableName, auditUuid);
-            updateAuditStatement(tableName, getCurrentDateTime(), auditUuid);
-
-        } catch (DataMismatchedException e) {
-
-
-            error_occurred = 1; // Ensure it's set.
-
-            System.err.println("Data mismatched exception during market list connections upload. " +
-                    "Detailed errors should be in the accumulated list. Exception message: " + e.getMessage());
-            // e.printStackTrace(); // Optionally, print stack trace for debugging if needed.
-            // The higher-level error handling in uploadFile will use this.listOfErrors.
-            throw e; // Rethrow to allow the main handler in uploadFile to process it,
-            // which uses this.listOfErrors to update the database.
         } catch (SQLException e) {
-            error_occurred = 1; // Ensure it's set
-            String sqlErrorMsg = "Database operation failed during market list connections upload: " + e.getMessage();
+            error_occurred = 1;
+            String sqlErrorMsg = "Database operation failed during market list connections upload";
             if (this.listOfErrors.isEmpty() || !this.listOfErrors.get(this.listOfErrors.size()-1).contains(e.getMessage())) {
                 this.listOfErrors.add(sqlErrorMsg);
             }
             System.out.println("SQL Exception in uploadMarketListConnectionsFile: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException(sqlErrorMsg, e);
-        } catch (IOException | ExecutionException | InterruptedException e) {
-            error_occurred = 1;
-            String sysErrorMsg = "System error during market list connections file processing: " + e.getMessage();
-            this.listOfErrors.add(sysErrorMsg);
-            System.out.println("System error: " + e.getMessage());
-            e.printStackTrace();
-            throw new RuntimeException(e);
         } catch (Exception e) {
             error_occurred = 1;
-            String unexpectedErrorMsg = "Unexpected error during market list connections upload: " + e.getMessage();
+            String unexpectedErrorMsg = "Unexpected error during market list connections upload";
             this.listOfErrors.add(unexpectedErrorMsg);
             System.out.println("Unexpected error: " + e.getMessage());
             e.printStackTrace();
-            throw new RuntimeException(unexpectedErrorMsg, e);
         } finally {
-            // The main `uploadFile` method handles `addErrorsToTable` if `error_occurred` is set,
-            // using the class member `listOfErrors`.
-            // So, ensure `this.listOfErrors` is populated correctly by catch blocks
-            addErrorsToTable(this.listOfErrors,obj_id);
-            updateInputStatus(tableName); // Sets status back to not running (0)
+            if (!this.listOfErrors.isEmpty()) {
+                addErrorsToTable(this.listOfErrors, obj_id);
+            }
+            updateInputStatus(tableName);
         }
     }
+
 
     private void deleteSpecificConnectionRecords(List<MarketListConnectionsEntity> marketListConnectionsEntityList, String tableName) throws SQLException {
         if (marketListConnectionsEntityList.isEmpty()) {
             return;
         }
-
-        // Assuming PerStart in DB is DATE or VARCHAR in 'yyyy-MM-dd' or 'MM/dd/yyyy' matching entity.getStartDate()
-        // MarketListConnectionsEntity.startDate is "MM/dd/yyyy"
-        // If DB PerStart is DATE, PreparedStatement should handle String to DATE conversion if format is standard.
-        // If DB PerStart is VARCHAR, it must match "MM/dd/yyyy".
         String deleteSQL = "DELETE FROM " + tableName + " WHERE sector1 = ? AND flight1 = ? AND sector2 = ? AND flight2 = ? AND PerStart = ?";
 
         boolean autoCommitOriginalStatus = connection.getAutoCommit();
         try {
-            connection.setAutoCommit(false); // Start transaction
+            connection.setAutoCommit(false);
 
             try (PreparedStatement pstmt = connection.prepareStatement(deleteSQL)) {
                 for (MarketListConnectionsEntity entity : marketListConnectionsEntityList) {
@@ -2069,36 +1814,35 @@ public class App implements RequestHandler<S3Event, Object> {
                     pstmt.setString(2, entity.getFlight1());
                     pstmt.setString(3, entity.getSector2());
                     pstmt.setString(4, entity.getFlight2());
-                    pstmt.setString(5, entity.getStartDate()); // This is the specific "MM/dd/yyyy" PerStart date
+                    pstmt.setString(5, entity.getStartDate());
                     pstmt.addBatch();
                 }
                 pstmt.executeBatch();
             }
-            connection.commit(); // Commit transaction
+            connection.commit();
         } catch (SQLException e) {
-            connection.rollback(); // Rollback on error
+            connection.rollback();
             error_occurred = 1;
-            String errorMsg = "Error deleting existing connection records for replacement: " + e.getMessage();
+            String errorMsg = "Error deleting existing connection records for replacement";
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + " " + errorMsg);
             e.printStackTrace();
             this.listOfErrors.add(errorMsg);
-            throw e; // Re-throw to be caught by caller
+            throw e;
         } finally {
-            connection.setAutoCommit(autoCommitOriginalStatus); // Restore auto-commit status
+            connection.setAutoCommit(autoCommitOriginalStatus);
         }
     }
 
     public void insertIntoMarketListConnections(MarketListConnectionsEntity marketListEntity, String tableName) {
         try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST_CONNECTIONS(tableName))) {
-            // Setting the PreparedStatement parameters
             pstmt.setString(1, marketListEntity.getSector1());
             pstmt.setString(2, marketListEntity.getSector2());
             pstmt.setString(3, marketListEntity.getFlight1());
             pstmt.setString(4, marketListEntity.getFlight2());
-            pstmt.setString(5, marketListEntity.getPerType()); // Should be "Flight"
-            pstmt.setString(6, marketListEntity.getStartDate()); // Specific date "MM/dd/yyyy"
-            pstmt.setString(7, marketListEntity.getEndDate());   // Specific date, same as startDate "MM/dd/yyyy"
-            pstmt.setInt(8, new BigInteger(marketListEntity.getDayOfWeek()).intValue()); // Adjusted DOW "9199999"
+            pstmt.setString(5, marketListEntity.getPerType());
+            pstmt.setString(6, marketListEntity.getStartDate());
+            pstmt.setString(7, marketListEntity.getEndDate());
+            pstmt.setInt(8, new BigInteger(marketListEntity.getDayOfWeek()).intValue());
             pstmt.setString(9, marketListEntity.getPriceStrategy());
             pstmt.setString(10, marketListEntity.getDiscountValue());
             pstmt.setInt(11, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
@@ -2121,19 +1865,18 @@ public class App implements RequestHandler<S3Event, Object> {
 
             pstmt.executeUpdate();
         } catch (SQLException e) {
-            error_occurred = 1; // Set global flag
+            error_occurred = 1;
             String errorMsg = "Failed to insert market list connection for sectors " + marketListEntity.getSector1() + "/" + marketListEntity.getSector2() +
                     ", flights " + marketListEntity.getFlight1() + "/" + marketListEntity.getFlight2() +
-                    " on " + marketListEntity.getStartDate() + ": " + e.getMessage();
+                    " on " + marketListEntity.getStartDate();
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + errorMsg);
             e.printStackTrace();
-            this.listOfErrors.add(errorMsg); // Add to global list
-            // This exception will propagate if not caught by caller loop, or error_occurred will be checked.
+            this.listOfErrors.add(errorMsg);
         }
     }
 
     private void deleteRecordsConnections(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
-            String tableName) {
+                                          String tableName) {
         Set<String> uuid = new HashSet<>();
         for (MarketListConnectionsEntity marketEntity : marketListConnectionsEntityList) {
             List<Map<String, Object>> listOfResult = searchMarketListConnections(marketEntity, tableName);
@@ -2145,7 +1888,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity,
-            String tableName) {
+                                                                 String tableName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
         try (PreparedStatement pstmt = connection.prepareStatement(SELECT_MARKET_LIST_CONNECTIONS(tableName))) {
             pstmt.setString(1, marketListEntity.getSector1());
@@ -2166,7 +1909,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private static void createMarketListConnectionsEntity(List<String> record,
-            List<MarketListConnectionsEntity> MarketListConnectionsEntityList, String uuid, String analystName) {
+                                                          List<MarketListConnectionsEntity> MarketListConnectionsEntityList, String uuid, String analystName) {
         MarketListConnectionsEntityList.add(MarketListConnectionsEntity.builder()
                 .uuid(uuid)
                 .sector1(record.get(CSV_HEADER_CONNECTIONS_SECTOR1))
@@ -2201,29 +1944,20 @@ public class App implements RequestHandler<S3Event, Object> {
     public void uploadPartialDateEvent(Reader file, String userName, String obj_id, List<String> listOfErrors) throws RuntimeException {
         String uuid = obj_id;
         try {
-            // Same initialization steps as the original method
             String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
             String ProfileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
 
-            // Step 1: Insert audit statement entries
             insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), userName, uuid);
-            
-            // Step 2: Create temporary tables
+
             createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
             createTable(ProfileFareStationUpsellTempTableName, CONFIG_PROFILE_FARE_STATION_UPSELL);
-            
-            // Step 3: Update input status to in-progress
+
             insertInputStatusTable(DATE_EVENT_TABLE_NAME);
             insertInputStatusTable(CONFIG_PROFILE_FARE_STATION_UPSELL);
 
-            // Step 4: Parse CSV file data
             List<List<String>> csvData = getDataFromCSVFile(file);
-            
-            // Step 5: Process the data specifically for partial update
-            // - Extract only the sectors included in the CSV (columns 4+)
-            // - Process only non-empty values
-            // - Validate upsell values
+
             Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData, listOfErrors);
 
             if (!listOfErrors.isEmpty()) {
@@ -2233,103 +1967,83 @@ public class App implements RequestHandler<S3Event, Object> {
                 System.out.println(FILE_UPLOAD_ERROR_MESSAGE);
                 throw new DataMismatchedException(listOfErrors);
             }
-            
-            // Step 6: Get column headers and prepare date event data
+
             List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
             List<String> upsellHeaders = Arrays.asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
             List<Map<String, String>> data = createListOfMapDateEvent(csvData, dateEventHeaders);
 
-            // Step 7: Insert data into temporary tables
-            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders, 
+            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders,
                     ProfileFareStationUpsellTempTableName);
             insertStatement(data, dateEventHeaders, dateEventTempTableName);
-            
-            // Step 8: Get unique sector values for deletion
+
             String columnName = SECTOR_COLUMN_NAME.toLowerCase();
             Set<String> uniqueValues = dateEventMap.values().stream()
                     .map(obj -> obj.get(columnName))
                     .collect(Collectors.toSet());
-            
-            // Step 9: Get unique dates for date event deletion
+
             Set<String> uniqueDates = data.stream()
                     .map(map -> map.get(DATE_COLUMN_NAME))
                     .collect(Collectors.toSet());
 
-            // Step 10: Delete existing data for these dates and sectors
             deleteValues(uniqueDates, DATE_EVENT_TABLE_NAME, DATE_COLUMN_NAME);
-            
-            // For each sector, delete only the date+sector combinations that exist in the CSV
+
             for (String sector : uniqueValues) {
                 deletePartialSectorValues(uniqueDates, sector, CONFIG_PROFILE_FARE_STATION_UPSELL);
             }
 
-            // Step 11: Copy from temp tables to main tables
             copyFromTempToMainTable(CONFIG_PROFILE_FARE_STATION_UPSELL, ProfileFareStationUpsellTempTableName);
             copyFromTempToMainTable(DATE_EVENT_TABLE_NAME, dateEventTempTableName);
 
-            // Step 12: Update audit statement with end time
             updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
             updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
 
-            // Step 13: Clean up temporary tables
             deleteTable(ProfileFareStationUpsellTempTableName);
             deleteTable(dateEventTempTableName);
-            
+
             error_occurred = 0;
         } catch (Exception e) {
             error_occurred = 1;
             e.printStackTrace();
             throw new RuntimeException(e);
         } finally {
-            // Step 14: Update input status back to not running
             updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
     }
 
-    /**
-     * Extract date event data from CSV for partial update
-     * Specifically designed to handle case where DOW column might be missing
-     */
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData, List<String> listOfErrors) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
-        int startColumn = 3; // Start from column 3 (after Date, MappedMonth, Event)
-        
-        // Process each row (skip header row)
+        int startColumn = 3;
+
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= dateHeader) continue; // Skip if row is too short
-            
+            if (inputRow.size() <= dateHeader) continue;
+
             String dateKey = inputRow.get(dateHeader).trim();
-            if (dateKey == null || dateKey.trim().isEmpty()) continue; // Skip if no date
+            if (dateKey == null || dateKey.trim().isEmpty()) continue;
             if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
                 listOfErrors.add(dateKey + ": Date should should have mm/dd/yyyy format");
             }
 
-            // Process each sector column
             for (int j = startColumn; j < inputRow.size(); j++) {
-                // Skip if column header is missing
                 if (j >= csvData.get(0).size()) continue;
-                
+
                 String stationKey = csvData.get(0).get(j).trim();
-                if (stationKey == null || stationKey.trim().isEmpty()) continue; // Skip if no station code
+                if (stationKey == null || stationKey.trim().isEmpty()) continue;
                 if (i == 1 && !(stationKey.matches("[A-Za-z]{6}"))) {
                     listOfErrors.add(stationKey + ": Sector value should be valid");
                 }
 
-                // Check if value exists (include even empty values for clearing)
                 String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
                 String keyVal = dateKey + stationKey;
 
-                // Validation for upsell value
                 if (!(stationKey.equals("Date") || stationKey.equals("Mapped Month") || stationKey.equals("Event"))) {
                     if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%")))) {
                         listOfErrors.add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value followed by %");
                     }
                 }
 
-                // Create entry regardless of whether value is empty (to support clearing values)
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
                 map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
@@ -2340,31 +2054,23 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    /**
-     * Delete specific date and sector combinations
-     */
     public void deletePartialSectorValues(Set<String> dates, String sector, String tableName) {
         if (dates.isEmpty()) return;
-        
-        // Build the placeholder string for dates (?, ?, ?, ...)
+
         String placeholders = dates.stream().map(v -> "?").collect(Collectors.joining(", "));
-        
-        // Build the delete SQL query
-        String deleteQuery = "DELETE FROM " + tableName + 
-                            " WHERE " + DATE_COLUMN_NAME + " IN (" + placeholders + ")" +
-                            " AND " + SECTOR_COLUMN_NAME.toLowerCase() + " = ?";
-        
+
+        String deleteQuery = "DELETE FROM " + tableName +
+                " WHERE " + DATE_COLUMN_NAME + " IN (" + placeholders + ")" +
+                " AND " + SECTOR_COLUMN_NAME.toLowerCase() + " = ?";
+
         try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            // Set date parameters
             int index = 1;
             for (String date : dates) {
                 pstmt.setString(index++, date);
             }
-            
-            // Set sector parameter
+
             pstmt.setString(index, sector);
-            
-            // Execute the update
+
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println("Error deleting sector values: " + e.getMessage());
@@ -2375,76 +2081,66 @@ public class App implements RequestHandler<S3Event, Object> {
         String uuid = obj_id;
         String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
 
-        // Determine the target table and its temporary counterpart based on fileType
         String secondaryTableName;
         String secondaryTempTableName;
-        // String secondaryTableSpecificColumnName = SECTOR_COLUMN_NAME; // If column name also changes
 
         if (fileType == UploadFileType.DISTRESS) {
             secondaryTableName = DISTRESS_CLAENDAR;
-            // If distress table uses a different column than SECTOR_COLUMN_NAME for deletion logic:
-            // secondaryTableSpecificColumnName = "DISTRESS_SPECIFIC_COLUMN_NAME";
-        } else { // Default to UPSELL or handle other types
+        } else {
             secondaryTableName = CONFIG_PROFILE_FARE_STATION_UPSELL;
         }
         secondaryTempTableName = secondaryTableName + UNDERSCORE + TEMP;
 
         try {
             insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
-            insertAuditStatement(secondaryTableName, getCurrentDateTime(), userName, uuid); // Use secondaryTableName
+            insertAuditStatement(secondaryTableName, getCurrentDateTime(), userName, uuid);
 
             createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
-            createTable(secondaryTempTableName, secondaryTableName); // Use secondaryTempTableName
+            createTable(secondaryTempTableName, secondaryTableName);
 
             insertInputStatusTable(DATE_EVENT_TABLE_NAME);
-            insertInputStatusTable(secondaryTableName); // Use secondaryTableName
+            insertInputStatusTable(secondaryTableName);
 
             List<List<String>> csvData = getDataFromCSVFile(file);
-            Map<String, Map<String, String>> dateEventMap = getDateEvent(csvData); // Assumed to contain data for both date_event and (upsell/distress)
+            Map<String, Map<String, String>> dateEventMap = getDateEvent(csvData);
 
             List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
             List<String> secondaryTableHeaders = Arrays
-                    .asList(getColumnHeaders(secondaryTableName).split(COMMA)); // Use secondaryTableName
+                    .asList(getColumnHeaders(secondaryTableName).split(COMMA));
 
             List<Map<String, String>> dataForDateEventTable = createListOfMapDateEvent(csvData, dateEventHeaders);
 
-            // Assuming dateEventMap.values() directly provides data for upsell/distress table
-            // If transformation is needed for distress data, it should happen here.
             List<Map<String, String>> dataForSecondaryTable = new ArrayList<>(dateEventMap.values());
 
             insertStatement(dataForSecondaryTable, secondaryTableHeaders,
-                    secondaryTempTableName); // Use secondaryTempTableName & headers
+                    secondaryTempTableName);
             insertStatement(dataForDateEventTable, dateEventHeaders, dateEventTempTableName);
 
-            // Assuming SECTOR_COLUMN_NAME is relevant for both upsell and distress logic
-            // If not, use secondaryTableSpecificColumnName defined above
             String columnNameForDeletion = SECTOR_COLUMN_NAME.toLowerCase();
             Set<String> uniqueValuesForSecondaryTableDeletion = dataForSecondaryTable.stream()
-                    .map(obj -> obj.get(columnNameForDeletion)) // or obj.get(secondaryTableSpecificColumnName.toLowerCase())
-                    .filter(java.util.Objects::nonNull) // Avoid NullPointerExceptions
+                    .map(obj -> obj.get(columnNameForDeletion))
+                    .filter(java.util.Objects::nonNull)
                     .collect(Collectors.toSet());
 
-            deleteValues(Collections.singleton(ZERO), DATE_EVENT_TABLE_NAME, ZERO); // Standard for date_event
+            deleteValues(Collections.singleton(ZERO), DATE_EVENT_TABLE_NAME, ZERO);
             if (!uniqueValuesForSecondaryTableDeletion.isEmpty()) {
-                deleteValues(uniqueValuesForSecondaryTableDeletion, secondaryTableName, columnNameForDeletion); // Use secondaryTableName
+                deleteValues(uniqueValuesForSecondaryTableDeletion, secondaryTableName, columnNameForDeletion);
             }
 
 
-            copyFromTempToMainTable(secondaryTableName, secondaryTempTableName); // Use secondaryTableName
+            copyFromTempToMainTable(secondaryTableName, secondaryTempTableName);
             copyFromTempToMainTable(DATE_EVENT_TABLE_NAME, dateEventTempTableName);
 
-            updateAuditStatement(secondaryTableName, getCurrentDateTime(), uuid); // Use secondaryTableName
+            updateAuditStatement(secondaryTableName, getCurrentDateTime(), uuid);
             updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
 
-            deleteTable(secondaryTempTableName); // Use secondaryTempTableName
+            deleteTable(secondaryTempTableName);
             deleteTable(dateEventTempTableName);
             error_occurred = 0;
         } catch (Exception e) {
-            // It's often better to log the exception and rethrow a more specific one,
-            // or at least include the original exception as the cause.
             throw new RuntimeException("Error during date event file upload: " + e.getMessage(), e);
         } finally {
-            updateInputStatus(secondaryTableName); // Use secondaryTableName
+            updateInputStatus(secondaryTableName);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
     }
@@ -2475,7 +2171,6 @@ public class App implements RequestHandler<S3Event, Object> {
             String date = singleCsvData.get(0).trim();
             String dayOfWeek = getAbbreviatedDayOfWeek(parseDate(date));
 
-            // Add day of the week to the second position
             singleCsvData.add(1, dayOfWeek);
 
             Map<String, String> map = new HashMap<>();
@@ -2531,7 +2226,6 @@ public class App implements RequestHandler<S3Event, Object> {
             placeholders.append("?,");
         }
 
-        // Finalize the SQL statement
         String insertSql = "INSERT INTO " + tableName + " (" + columnNames.substring(0, columnNames.length() - 1)
                 + ") VALUES (" + placeholders.substring(0, placeholders.length() - 1) + ")";
 
@@ -2544,14 +2238,12 @@ public class App implements RequestHandler<S3Event, Object> {
                         pstmt.setString(i + 1, dataMap.get(columnHeaders.get(i)));
                     }
                     pstmt.addBatch();
-                    // Every 5000 records, execute batch and reset count
                     if (++count % 10000 == 0) {
                         pstmt.executeBatch();
                         connection2.commit();
                         System.out.println("10000 records inserted successfully.");
                     }
                 }
-                // Execute any remaining records if they don't make up a full batch
                 if (count % 10000 != 0) {
                     pstmt.executeBatch();
                     connection2.commit();
@@ -2572,11 +2264,9 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public String getColumnHeaders(String value) {
         String listObj = null;
-        // Special handling for the new table if its headers are fixed
         if (SALESINV_RBD_DISTRIBUTION_TABLE_NAME.equalsIgnoreCase(value)) {
             return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME, SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
         }
-        // ... (your existing code for SALES_INVENTORY_TABLE_NAME and other tables) ...
         if (SALES_INVENTORY_TABLE_NAME.equalsIgnoreCase(value)) {
             return String.join(",", SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
         }
@@ -2596,23 +2286,18 @@ public class App implements RequestHandler<S3Event, Object> {
         }
         if (listObj == null) {
             System.err.println("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
-            return ""; // Or throw an exception if this is critical
+            return "";
         }
         return listObj;
     }
 
     public void deleteValuesStrategyTable(Set<String> value, String tableName, String strategyColumnName,
-            String channelColumnName) {
+                                          String channelColumnName) {
         if (!value.isEmpty()) {
-            // Creating the placeholder string for the SQL IN clause
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            // Constructing to delete SQL query
-            // Note: Direct table and column name insertion into the query can lead to SQL
-            // injection if not handled properly.
             String deleteQuery = "DELETE FROM " + tableName + " WHERE concat(" + strategyColumnName + ","
                     + channelColumnName + ") IN (" + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                // Execute the update
                 int index = 1;
                 for (String val : value) {
                     pstmt.setString(index++, val);
@@ -2626,14 +2311,9 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void deleteValuesAutoB2BTable(Set<String> value, String tableName, String columnName) {
         if (!value.isEmpty()) {
-            // Creating the placeholder string for the SQL IN clause
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            // Constructing to delete SQL query
-            // Note: Direct table and column name insertion into the query can lead to SQL
-            // injection if not handled properly.
             String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                // Execute the update
                 int index = 1;
                 for (String val : value) {
                     pstmt.setString(index++, val);
@@ -2661,7 +2341,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     public Map<String, Map<String, String>> getStrategyGrid(List<List<String>> csvData,
-            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
+                                                            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int strategyGridHeader = 0;
         int channelHeader = 1;
@@ -2695,7 +2375,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred = 1;
                     updateInputStatus(STRATEGY_TABLE_NAME);
-                    String errorMsg = "Line " + i + ": " + INVALID_DATA_ERROR_MESSAGE
+                    String errorMsg = "Line " + (i+1) + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors2.add(errorMsg);
                 }
@@ -2712,7 +2392,7 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
     public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
-            Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
+                                                           Map<String, String> headerColumnMap, List<String> listOfErrors2) throws DataMismatchedException {
         Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
         int nameHeader = 0;
         int forecastBandHeader = 2;
@@ -2759,7 +2439,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues,
-            List<String> errorList) throws DataMismatchedException {
+                                                      List<String> errorList) throws DataMismatchedException {
         int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
         int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
         int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * NUMBER_OF_DECISIONS * 2;
@@ -2771,7 +2451,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private void findActualCountForAutoB2BFactor(Set<String> strategyCounter, int countTotalValues,
-            List<String> errorList) throws DataMismatchedException {
+                                                 List<String> errorList) throws DataMismatchedException {
         int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
         int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
         int forecastBand = getCountOfEntries(FORECAST_BANDS_TABLE_NAME);
@@ -2786,7 +2466,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public int getCountOfEntries(String tableName) {
         int count = 0;
         try (Statement stmt = connection.createStatement();
-                ResultSet resultSet = stmt.executeQuery(COUNT_OF_RECORDS(tableName))) {
+             ResultSet resultSet = stmt.executeQuery(COUNT_OF_RECORDS(tableName))) {
             if (resultSet.next()) {
                 count = resultSet.getInt(COUNT_COLUMN_NAME);
             }
@@ -2842,7 +2522,6 @@ public class App implements RequestHandler<S3Event, Object> {
     public List<Map<String, Object>> findAllRecordsFromTable(String tableName, List<String> headers, int limit) {
         List<Map<String, Object>> listObj = new ArrayList<>();
 
-        // List of headers that need Y/N conversion
         List<String> booleanHeaders = Arrays.asList(
                 "OwnFareFlag", "AutoTimeRangeFlag", "openingFares", "OverBooking",
                 "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
@@ -2853,15 +2532,13 @@ public class App implements RequestHandler<S3Event, Object> {
         String query = "SELECT " + headerValues + " FROM " + tableName + limitCondition;
 
         try (Statement stmt = connection.createStatement();
-                ResultSet resultSet = stmt.executeQuery(query)) {
+             ResultSet resultSet = stmt.executeQuery(query)) {
             while (resultSet.next()) {
                 Map<String, Object> row = new HashMap<>();
                 for (String header : headers) {
                     Object value = resultSet.getObject(header);
 
-                    // Convert 1/0 to Y/N for specified headers
                     if (booleanHeaders.contains(header) && value != null) {
-                        // Handle both Integer and String cases
                         String stringValue = value.toString();
                         if (stringValue.equals("1")) {
                             value = "Y";
@@ -2919,14 +2596,12 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void updateAuditStatement(String tableName, String endTime, String uuid) {
         try {
-            // Update file_upload_audit table
             try (PreparedStatement pstmt = connection.prepareStatement(UPDATE_FILE_UPLOAD())) {
                 pstmt.setString(1, endTime);
                 pstmt.setString(2, uuid);
                 pstmt.setString(3, tableName);
                 pstmt.executeUpdate();
             }
-            // Retrieve the current version count
             int count = 0;
             try (PreparedStatement pstmt = connection.prepareStatement(GET_CURRENT_VERSION_COUNT())) {
                 pstmt.setString(1, tableName);
@@ -2935,7 +2610,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     count = rs.getInt(COUNT_COLUMN_NAME);
                 }
             }
-            // Update or insert into currentVersion table based on count
             if (count == 1) {
                 try (PreparedStatement pstmt = connection.prepareStatement(UPDATE_CURRENT_VERSION())) {
                     pstmt.setString(1, uuid);
@@ -3011,17 +2685,13 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void deleteValues(Set<String> value, String tableName, String columnName) {
         if (!value.isEmpty()) {
-            // Build the placeholder string (?, ?, ?, ...)
             String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            // Build to delete SQL query using the placeholders
             String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                // Set each value in the PreparedStatement
                 int index = 1;
                 for (String val : value) {
                     pstmt.setString(index++, val);
                 }
-                // Execute the update
                 pstmt.executeUpdate();
             } catch (SQLException e) {
                 System.out.println(e.getMessage());
@@ -3036,12 +2706,10 @@ public class App implements RequestHandler<S3Event, Object> {
                     + ROUTE_COLUMN_NAME + ") IN ("
                     + placeholders + ")";
             try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                // Set each value in the PreparedStatement
                 int index = 1;
                 for (String val : value) {
                     pstmt.setString(index++, val);
                 }
-                // Execute the update
                 pstmt.executeUpdate();
             } catch (SQLException e) {
                 System.out.println(e.getMessage());
@@ -3150,7 +2818,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 }
             } else {
                 try (PreparedStatement insertStmt = connection.prepareStatement(INSERT_INPUT_STATUS())) {
-                    insertStmt.setString(value, tableName);
+                    insertStmt.setString(1,tableName);
+                    insertStmt.setInt(2,value);
                     insertStmt.executeUpdate();
                 }
             }
@@ -3160,7 +2829,7 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private static void createMarketListEntity(List<String> record, List<MarketListEntity> marketListEntityList,
-            String uuid, String analystName) {
+                                               String uuid, String analystName) {
         marketListEntityList.add(MarketListEntity.builder()
                 .uuid(uuid)
                 .origin(record.get(CSV_HEADER_ORIGIN))
@@ -3218,7 +2887,6 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public List<Object> searchDistinctResults(String columnName, String tableName) {
         List<Object> listObj = new ArrayList<>();
-        // Constructing SQL query with direct concatenation;
         String query = "SELECT DISTINCT " + columnName + " FROM " + tableName;
 
         try (PreparedStatement pstmt = connection.prepareStatement(query)) {
@@ -3270,8 +2938,8 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
     private String validationForMarketListFile(List<String> record, List<String> permissions, String route,
-            List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves,
-            List<Object> listOfStrategies, List<Object> listOfB2BStrategies, List<Object> listOfCriteria) throws Exception {
+                                               List<String> listOfErrors, int rowCount, Object role, String userName, List<Object> listOfCurves,
+                                               List<Object> listOfStrategies, List<Object> listOfB2BStrategies, List<Object> listOfCriteria) throws Exception {
         try {
             JSONArray roles = new JSONArray();
             if (role instanceof String roleStr) {
@@ -3294,7 +2962,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             List<Map<String, Object>> routeJourney = getJourneyDestination(record.get(CSV_HEADER_ORIGIN),
                     record.get(CSV_HEADER_DESTINATION), routeSymbol);
-            String lineNum = "Line " + rowCount + ": " + sector_flight_dept + ":";
+            String lineNum = "Line " + (rowCount + 1) + ": " + sector_flight_dept + ":";
             if (!isLengthEqualTo(record.get(CSV_HEADER_ORIGIN), 3)) {
                 listOfErrors.add(lineNum + "Origin Station is not equal to 3 characters");
             }
@@ -3416,8 +3084,6 @@ public class App implements RequestHandler<S3Event, Object> {
             String plfThreshold = record.get(CSV_HEADER_PLF_THRESHOLD);
 
             if (listOfCriteria.contains(hardAnchor)) {
-                // When hardAnchor is from listOfCriteria, fareOffset is mandatory and must be
-                // numeric
                 if (fareOffset == null || fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset is required when Hard Anchor is applied");
                 }
@@ -3426,7 +3092,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     if (!trimmedValue.endsWith("%")) {
                         listOfErrors.add(lineNum + "PLF Threshold must include a percentage symbol (%)");
                     } else {
-                        // Remove the % symbol for numeric validation
                         String numericValue = trimmedValue.substring(0, trimmedValue.length() - 1);
                         if (!isNumeric(numericValue)) {
                             listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
@@ -3442,7 +3107,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
             }
-            // If hardAnchor is numeric
             else if (hardAnchor != null && !hardAnchor.trim().isEmpty()) {
                 if (!isNumeric(hardAnchor)) {
                     StringBuilder validOptions = new StringBuilder();
@@ -3463,7 +3127,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     if (!trimmedValue.endsWith("%")) {
                         listOfErrors.add(lineNum + "PLF Threshold must include a percentage symbol (%)");
                     } else {
-                        // Remove the % symbol for numeric validation
                         String numericValue = trimmedValue.substring(0, trimmedValue.length() - 1);
                         if (!isNumeric(numericValue)) {
                             listOfErrors.add(lineNum + "PLF Threshold must be a valid number");
@@ -3475,8 +3138,6 @@ public class App implements RequestHandler<S3Event, Object> {
                         }
                     }
                 }
-                // When hardAnchor is numeric, fareOffset is optional but must be numeric if
-                // present
                 if (fareOffset != null && !fareOffset.trim().isEmpty() && !isNumeric(fareOffset)) {
                     listOfErrors.add(lineNum + "If present, Fare Offset must be a valid number");
                 }
@@ -3484,7 +3145,6 @@ public class App implements RequestHandler<S3Event, Object> {
                     listOfErrors.add(lineNum + "plfThreshold is required when Hard Anchor is applied");
                 }
             }
-            // If hardAnchor is empty - all three fields can be empty
             else {
                 if (fareOffset != null && !fareOffset.trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Fare Offset must be empty");
@@ -3526,7 +3186,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     && !record.get(CSV_HEADER_B2C_TOLERANCE).trim().isEmpty()) {
                 listOfErrors.add(lineNum + "B2C Tolerance is not a number or empty");
             }
-            
+
             boolean hasSeats = !record.get(CSV_HEADER_OB_SEATS).trim().isEmpty();
             boolean hasFare = !record.get(CSV_HEADER_OB_FARE).trim().isEmpty();
 
@@ -3542,7 +3202,7 @@ public class App implements RequestHandler<S3Event, Object> {
                         listOfErrors.add(lineNum + "Overbooking seats cannot exceed 10 and should be greater than 0");
                     }
                 }
-    
+
                 if (!(isFloat(record.get(CSV_HEADER_OB_FARE)))
                         && !record.get(CSV_HEADER_OB_FARE).trim().isEmpty()) {
                     listOfErrors.add(lineNum + "Overbooking fare is not a number or empty");
@@ -3586,6 +3246,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
             return user;
         } catch (Exception e) {
+            listOfErrors.add("Unknown Error Encountered in Validation");
             throw new Exception(e);
         }
     }
@@ -3594,34 +3255,30 @@ public class App implements RequestHandler<S3Event, Object> {
                                                           Object role, String userName, List<String> errorsFound) {
         JSONArray roles = new JSONArray();
         if (role instanceof String roleStr) {
-            roleStr = roleStr.substring(1, roleStr.length() - 1); // Remove outer []
-            roleStr = roleStr.substring(1, roleStr.length() - 1); // Remove inner ""
+            roleStr = roleStr.substring(1, roleStr.length() - 1);
+            roleStr = roleStr.substring(1, roleStr.length() - 1);
             roles.add(roleStr);
-        } else if (role instanceof ArrayList) { // If role is already a list from DB (e.g., JSON array)
+        } else if (role instanceof ArrayList) {
             ((ArrayList<?>) role).forEach(r -> roles.add(r.toString()));
         }
 
 
-        String user1 = null; // Analyst for sector 1
-        String user2 = null; // Analyst for sector 2
-        String analystNameToStore = "UNKNOWN_ANALYST"; // Default if no mapping found
+        String user1 = null;
+        String user2 = null;
+        String analystNameToStore = "UNKNOWN_ANALYST";
 
         String sector1 = record.get(CSV_HEADER_CONNECTIONS_SECTOR1);
         String sector2 = record.get(CSV_HEADER_CONNECTIONS_SECTOR2);
-        // Use a unique identifier for the processed record in error messages
-        String recordIdentifier = "Processed Record (Origin Sector1: " + sector1 +
+        String recordIdentifier = "Processed Record " + rowCountInProcessedCsv + " (Origin Sector1: " + sector1 +
                 ", Flight1: " + record.get(CSV_HEADER_CONNECTIONS_FLIGHT1) +
                 ", Sector2: " + sector2 +
                 ", Flight2: " + record.get(CSV_HEADER_CONNECTIONS_FLIGHT2) +
                 ", Date: " + record.get(CSV_HEADER_CONNECTIONS_PERSTART) + ")";
         String lineNum = recordIdentifier + ": ";
 
-
-        // --- Basic Validations (length, numeric etc.) from original method ---
         String carrierExclB2B = record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2B);
         String carrierExclB2C = record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2C);
 
-        // Assuming MarketListValidator.isValidCarrExcl exists and validates a comma-separated list of 2-char codes
         if (!MarketListValidator.isValidCarrExcl(carrierExclB2B)) {
             errorsFound.add(lineNum + "CarrierExclusionB2B (" + carrierExclB2B + ") contains invalid carrier codes. Each should be 2 characters, comma-separated if multiple.");
         }
@@ -3640,17 +3297,14 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!isNumeric(record.get(CSV_HEADER_CONNECTIONS_FLIGHT2))) {
             errorsFound.add(lineNum + "Flight Number2 (" + record.get(CSV_HEADER_CONNECTIONS_FLIGHT2) + ") is not a Number.");
         }
-        // ... (all other field-specific validations as in the original method) ...
-        // Ensure all these validations use 'lineNum' for context. For example:
-        if (!isValidDate(record.get(CSV_HEADER_CONNECTIONS_PEREND))) { // PerEnd is same as PerStart now
+        if (!isValidDate(record.get(CSV_HEADER_CONNECTIONS_PEREND))) {
             errorsFound.add(lineNum + "PerEnd date ("+ record.get(CSV_HEADER_CONNECTIONS_PEREND) +") is not a valid date. Should be MM/dd/yyyy.");
         }
         if (!(isLengthEqualTo(record.get(CSV_HEADER_CONNECTIONS_DOW), 7)
                 && isNumeric(record.get(CSV_HEADER_CONNECTIONS_DOW))
-                && checkDOWDigits(record.get(CSV_HEADER_CONNECTIONS_DOW)))) { // DOW is adjusted now
+                && checkDOWDigits(record.get(CSV_HEADER_CONNECTIONS_DOW)))) {
             errorsFound.add(lineNum + "DOW ("+ record.get(CSV_HEADER_CONNECTIONS_DOW) +") is not 7 digits or has value other than '1' or '9'.");
         }
-        // ... continue all other validations from original method ...
         if (!checkPriceStrategy(record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY))) {
             errorsFound.add(lineNum + "Price Strategy ("+ record.get(CSV_HEADER_CONNECTIONS_PRICESTRATEGY) +") has value other than '1' or '2'.");
         }
@@ -3661,38 +3315,30 @@ public class App implements RequestHandler<S3Event, Object> {
         if (!isPositive(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
             errorsFound.add(lineNum + "First Allocation ("+ record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC) +") is not a positive number.");
         }
-        // ... and so on for all fields.
 
-
-        // --- Analyst Name and Access Control Logic ---
-        // This logic relies on PerStart which is now a single date for the processed record.
         String perStartDateStr = record.get(CSV_HEADER_CONNECTIONS_PERSTART);
         LocalDate perStartDate = null;
         try {
             perStartDate = LocalDate.parse(perStartDateStr, DateTimeFormatter.ofPattern("MM/dd/yyyy"));
         } catch (Exception e) {
             errorsFound.add(lineNum + "Cannot parse PerStart date ("+ perStartDateStr +") for analyst mapping logic.");
-            // If date is unparsable, can't determine correct user map.
-            // Return early or use a default that will likely fail access check for non-admins.
-            return analystNameToStore; // or throw if this is critical
+            return analystNameToStore;
         }
 
         LocalDate daysFromToday = LocalDate.now().plusDays(DAYS_TO_ENTER_INTO_MARKET_LIST);
 
-        String userMapColumnSector1 = SECTOR_MAP_USER3_COLUMN_NAME; // Default for connections <30 days
+        String userMapColumnSector1 = SECTOR_MAP_USER3_COLUMN_NAME;
         String userMapColumnSector2 = SECTOR_MAP_USER3_COLUMN_NAME;
 
         if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
             userMapColumnSector1 = SECTOR_MAP_USER4_COLUMN_NAME;
             userMapColumnSector2 = SECTOR_MAP_USER4_COLUMN_NAME;
         } else if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_ALL)) {
-            if (perStartDate.isAfter(daysFromToday.minusDays(1))) { // If PerStartDate is >= 30 days from today
+            if (perStartDate.isAfter(daysFromToday.minusDays(1))) {
                 userMapColumnSector1 = SECTOR_MAP_USER4_COLUMN_NAME;
                 userMapColumnSector2 = SECTOR_MAP_USER4_COLUMN_NAME;
             }
-            // else it remains SECTOR_MAP_USER3 for <30 days
         }
-        // If PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS, it's already SECTOR_MAP_USER3
 
         user1 = getSectors(sector1, userMapColumnSector1);
         user2 = getSectors(sector2, userMapColumnSector2);
@@ -3704,7 +3350,6 @@ public class App implements RequestHandler<S3Event, Object> {
             errorsFound.add(lineNum + "Analyst mapping not found for Sector2 (" + sector2 + ") using map column " + userMapColumnSector2 + ".");
         }
 
-        // Determine analystNameToStore
         if (user1 != null && user2 != null) {
             analystNameToStore = user1.equalsIgnoreCase(user2) ? user1 : user1 + SLASH + user2;
         } else if (user1 != null) {
@@ -3712,26 +3357,20 @@ public class App implements RequestHandler<S3Event, Object> {
         } else if (user2 != null) {
             analystNameToStore = user2;
         } else {
-            // Both mappings are null, error already added. analystNameToStore remains "UNKNOWN_ANALYST"
-            // Or specific value like:
             analystNameToStore = "NO_MAPPING_FOUND";
         }
 
-
-        // Access Control Checks (Date bounds and User access)
-        // Date boundary checks based on permissions
         if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
-            if (perStartDate.isAfter(daysFromToday)) { // Record's date is beyond 30 days
+            if (perStartDate.isAfter(daysFromToday)) {
                 errorsFound.add(lineNum + "User with 'TILL_30_DAYS' permission cannot update record for date " + perStartDateStr + " (which is >30 days away).");
             }
         }
         if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_AFTER_30_DAYS)) {
-            if (perStartDate.isBefore(daysFromToday.plusDays(1))) { // Record's date is within 30 days
+            if (perStartDate.isBefore(daysFromToday.plusDays(1))) {
                 errorsFound.add(lineNum + "User with 'AFTER_30_DAYS' permission cannot update record for date " + perStartDateStr + " (which is <=30 days away).");
             }
         }
 
-        // User specific access check for non-admins
         boolean isAdminOrManager = roles.contains(ADMIN) || roles.contains(MANAGER);
         if (!isAdminOrManager) {
             String currentAnalystInitial = userName.split(SPACE)[0].toUpperCase();
@@ -3739,8 +3378,7 @@ public class App implements RequestHandler<S3Event, Object> {
             boolean hasAccessToMappedAnalyst2 = (user2 != null && currentAnalystInitial.equalsIgnoreCase(user2));
 
             if (!hasAccessToMappedAnalyst1 && !hasAccessToMappedAnalyst2) {
-                // If analystNameToStore is UNKNOWN_ANALYST or NO_MAPPING_FOUND, this error might be redundant with mapping errors.
-                if (user1 != null || user2 != null) { // Only add if there was at least one mapping to check against
+                if (user1 != null || user2 != null) {
                     errorsFound.add(lineNum + "User " + currentAnalystInitial + " does not have permission to manage records for sector(s) mapped to analyst(s): " + analystNameToStore + ".");
                 } else {
                     errorsFound.add(lineNum + "User " + currentAnalystInitial + " cannot manage records as no analyst mapping found for sectors.");
@@ -3757,10 +3395,9 @@ public class App implements RequestHandler<S3Event, Object> {
         Set<String> uniqueKeysInCsv = new HashSet<>();
 
         if (csvData.isEmpty()) {
-            return result; // Return empty list if input is empty
+            return result;
         }
 
-        // Add the header row to the intermediate result without processing
         intermediateResult.add(new ArrayList<>(csvData.get(0)));
 
         for (int rowIndex = 1; rowIndex < csvData.size(); rowIndex++) {
@@ -3789,7 +3426,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 startDate = LocalDate.parse(startDateStr, DATE_FORMATTER);
                 endDate = LocalDate.parse(endDateStr, DATE_FORMATTER);
             } catch (Exception e) {
-                errorsFound.add(originalRowNumStr + ": Invalid date format for PerStart/PerEnd ('" + startDateStr + "', '" + endDateStr + "'). Expected MM/dd/yyyy. Error: " + e.getMessage());
+                errorsFound.add(originalRowNumStr + ": Invalid date format for PerStart/PerEnd ('" + startDateStr + "', '" + endDateStr + "'). Expected MM/dd/yyyy.");
                 continue;
             }
 
@@ -3804,17 +3441,18 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (startDate.equals(endDate)) {
-                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7; // 0 for Sunday, 1 for Monday...
+                int dayOfWeek = startDate.getDayOfWeek().getValue() % 7;
                 if (dowPattern.charAt(dayOfWeek) == '1') {
                     String key = sector1 + "|" + flight1 + "|" + sector2 + "|" + flight2 + "|" + startDateStr;
                     if (!uniqueKeysInCsv.add(key)) {
                         errorsFound.add(originalRowNumStr + " (maps to date " + startDateStr + "): Duplicate entry found in CSV file for key: " + key);
+                    } else {
+                        intermediateResult.add(new ArrayList<>(row));
                     }
-                    intermediateResult.add(new ArrayList<>(row));
                 }
             } else {
                 long daysBetween = ChronoUnit.DAYS.between(startDate, endDate);
-                for (long i = 0; i <= daysBetween; i++) { // Use long for i
+                for (long i = 0; i <= daysBetween; i++) {
                     LocalDate currentDate = startDate.plusDays(i);
                     int dayOfWeek = currentDate.getDayOfWeek().getValue() % 7;
 
@@ -3827,29 +3465,27 @@ public class App implements RequestHandler<S3Event, Object> {
                         String key = sector1 + "|" + flight1 + "|" + sector2 + "|" + flight2 + "|" + currentDateStr;
                         if (!uniqueKeysInCsv.add(key)) {
                             errorsFound.add(originalRowNumStr + " (maps to date " + currentDateStr + "): Duplicate entry found in CSV file for key: " + key);
+                        } else {
+                            intermediateResult.add(newRow);
                         }
-                        intermediateResult.add(newRow);
                     }
                 }
             }
         }
 
-        // Add header to final result
         if(!intermediateResult.isEmpty()){
-            result.add(new ArrayList<>(intermediateResult.get(0))); // Add header
+            result.add(new ArrayList<>(intermediateResult.get(0)));
         }
 
-        // Adjust DOW for all data rows in intermediateResult
-        for (int i = 1; i < intermediateResult.size(); i++) { // Start from 1 to skip header
+        for (int i = 1; i < intermediateResult.size(); i++) {
             List<String> row = intermediateResult.get(i);
             try {
                 LocalDate date = LocalDate.parse(row.get(CSV_HEADER_CONNECTIONS_PERSTART), DATE_FORMATTER);
-                // Use the existing adjustDowPattern method if it's suitable, or create a specific one
-                String adjustedDowPattern = adjustDowPattern(date, "9999999"); // Pass a dummy original pattern or modify adjustDowPattern
+                String adjustedDowPattern = adjustDowPattern(date, "9999999");
                 row.set(CSV_HEADER_CONNECTIONS_DOW, adjustedDowPattern);
                 result.add(row);
             } catch (Exception e) {
-                errorsFound.add("Error adjusting DOW for processed row (derived from " + row.get(CSV_HEADER_CONNECTIONS_SECTOR1)+"-"+row.get(CSV_HEADER_CONNECTIONS_FLIGHT1) + " for date " + row.get(CSV_HEADER_CONNECTIONS_PERSTART) + "): " + e.getMessage());
+                errorsFound.add("Error adjusting DOW for processed row (derived from " + row.get(CSV_HEADER_CONNECTIONS_SECTOR1)+"-"+row.get(CSV_HEADER_CONNECTIONS_FLIGHT1) + " for date " + row.get(CSV_HEADER_CONNECTIONS_PERSTART) + ")");
             }
         }
         return result;
@@ -3894,7 +3530,7 @@ public class App implements RequestHandler<S3Event, Object> {
         } catch (Exception e) {
             error_occurred = 1;
             if (listOfErrors.isEmpty()) {
-                listOfErrors.add("An unexpected error occurred: " + e.getMessage());
+                listOfErrors.add("An unexpected error occurred");
             }
             addErrorsToTable(listOfErrors, obj_id);
             throw new RuntimeException(e);
@@ -3903,9 +3539,6 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    /**
-     * Validates a single row from a market_list_salesinv CSV file.
-     */
     private void validationForMarketListSalesInvFile(List<String> record, List<String> listOfErrors, int rowCount, List<Object> listOfCurves) {
         String origin = record.get(CSV_HEADER_SALESINV_ORIGIN);
         String destin = record.get(CSV_HEADER_SALESINV_DESTIN);
@@ -3946,9 +3579,6 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    /**
-     * Creates a MarketListSalesInvEntity from a CSV record and adds it to the list.
-     */
     private static void createMarketListSalesInvEntity(List<String> record, List<MarketListSalesInvEntity> entityList) {
         entityList.add(MarketListSalesInvEntity.builder()
                 .origin(record.get(CSV_HEADER_SALESINV_ORIGIN))
@@ -3962,9 +3592,6 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    /**
-     * Inserts a record into the specified market_list_salesinv (ad-hoc) table.
-     */
     public void insertIntoMarketListSalesInv(MarketListSalesInvEntity entity, String tableName) {
         try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST_SALESINV(tableName))) {
             pstmt.setString(1, entity.getOrigin());
@@ -3978,12 +3605,10 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.executeUpdate();
         } catch (SQLException e) {
             error_occurred = 1;
-            String errorMsg = "Failed to insert salesinv record for sector " + entity.getOrigin() + entity.getDestin() + ": " + e.getMessage();
+            String errorMsg = "Failed to insert salesinv record for sector " + entity.getOrigin() + entity.getDestin();
             listOfErrors.add(errorMsg);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + e.getMessage());
             e.printStackTrace();
         }
     }
-
-
 }

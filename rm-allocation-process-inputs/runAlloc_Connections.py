@@ -79,6 +79,7 @@ class DynAllocConnections:
         self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
         print("**********************************************")
         print("Starting Allocation for row : " + str(mtkIndex))
+        self.redishelper.updateRunAuditReady()
 
         if (self.debugMode):
             print(self.currParams)
@@ -644,7 +645,6 @@ class DynAllocConnections:
 
                 self.AUFileData.append(currRec)
                 if self.inputSource.isUpdateNavitaire:
-                    self.redishelper.setAllRunStatus2Ready()
                     self.updateNavSFTP(currRec)
             current_date1 = datetime.strptime(
                 str(current_date1), DATE_FORMAT_2).date().strftime(DATE_FORMAT)

@@ -657,7 +657,7 @@ class RBDAllocations:
                 
         return brd_counter
 
-    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag):
+    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag,sector):
         """
         Simplified W-series RBD allocation:
         - Allocates only if forecastedPLF < 90 and 8 <= ndo <= 30
@@ -683,34 +683,74 @@ class RBDAllocations:
             forecastedPLF = 0
 
         # Condition 1: Valid range for PLF and NDO
-        is_applicable = 8 <= ndo <= 30 and forecastedPLF < 90 and self.rmdatabasehelper.get_CUG_fares(origin,destin) and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
+        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
 
         if  is_applicable:
             # Find best RBD with fare <= profile_fare_value
-            valid_rbds = w_rbds[w_rbds['Total'] <= profile_fare_value]
-            if not valid_rbds.empty:
-                closest_idx = (valid_rbds['Total'] - profile_fare_value).abs().idxmin()
-                open_rbd = valid_rbds.loc[closest_idx, 'RBD']
-                opening_fare = valid_rbds.loc[closest_idx, 'Total']
+            valid_rbds=w_rbds
+            fare1 = b2copeningfare-(self.constantsutils.CUG_DISCOUNT*b2copeningfare)/100
+            fare2 = profile_fare_value
+            if min(fare1, fare2) == fare2:
+                less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_value]
+                if less_than_profile.empty:
+                    # Handle empty case - could use all data or return None/default
+                    open_rbd = None  # or some other fallback
+                else:
+                    closest_idx = (less_than_profile['Total'] - profile_fare_value).abs().idxmin()
+                    open_rbd = valid_rbds.loc[closest_idx, 'RBD']
+                    opening_fare = valid_rbds.loc[closest_idx, 'Total']
+            else:
+                less_than_profile = valid_rbds[valid_rbds['Total'] < fare1]
+                if less_than_profile.empty:
+                    # Handle empty case
+                    open_rbd = None  # or some other fallback
+                else:
+                    closest_idx = (less_than_profile['Total'] - fare1).abs().idxmin()
+                    open_rbd = valid_rbds.loc[closest_idx, 'RBD']
+                    opening_fare = valid_rbds.loc[closest_idx, 'Total']
 
-                # Condition 2: Fare gap check
-                if ( b2copeningfare-opening_fare) < (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
-                    self.logger.info(f"Skipping allocation: Opening fare too low. Gap exceeds 30% threshold. Selling: {profile_fare_value}, Opening: {opening_fare}")
-                    open_rbd = None  # Invalidate for allocation
+            # Condition 2: Fare gap check
+            if open_rbd is not None:
+                if ( b2copeningfare-opening_fare) > (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
+                    fare = b2copeningfare-(self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
+                    if fare<max(valid_rbds['Total'].tolist()):
+                        
+                        # Get values greater than fare
+                        higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
+                        
+                        if not higher_values.empty:
+                            # Find the minimum of values greater than fare (next highest)
+                            next_higher_value = higher_values.min()
+                            closest_idx = higher_values.idxmin()
+                                                    
+                            open_rbd = valid_rbds.loc[closest_idx, 'RBD']
+                            opening_fare = valid_rbds.loc[closest_idx, 'Total']
 
-                # If both conditions pass, calculate allocation
-                if open_rbd:
-                    try:
-                        open_rbd_bookings = cug_bookings_dict.get(open_rbd, 0) if cug_bookings_dict else 0
-                    except Exception as e:
-                        self.logger.error(f"Error getting bookings for {open_rbd}: {str(e)}")
-                        open_rbd_bookings = 0
+                            print(f"Next higher value: {next_higher_value} at index: {closest_idx}")
+                        else:
+                            print("No values higher than fare found")
+                            open_rbd = None
+                            
+                    else:
+                        self.logger.info(f"Skipping cug allocation: fare ladder is lees than opening fare")
+                        open_rbd = None   
+                    if opening_fare>b2copeningfare:
+                        self.logger.info(f"Skipping cug allocation: Opening fare is greater than b2c selling fare")
+                        open_rbd = None
 
-                    plf_gap = 90 - forecastedPLF
-                    allocation_percent = plf_gap * self.constantsutils.CUG_SEATS_PERCENT
-                    allocation_value = int(round(((allocation_percent / 100) * adjustedCapacity) + open_rbd_bookings))
-                    if allocation_value < 1:
-                        allocation_value = 1
+            # If both conditions pass, calculate allocation
+            if open_rbd:
+                try:
+                    open_rbd_bookings = cug_bookings_dict.get(open_rbd, 0) if cug_bookings_dict else 0
+                except Exception as e:
+                    self.logger.error(f"Error getting bookings for {open_rbd}: {str(e)}")
+                    open_rbd_bookings = 0
+
+                plf_gap = 90 - forecastedPLF
+                allocation_percent = plf_gap * self.constantsutils.CUG_SEATS_PERCENT
+                allocation_value = int(round(((allocation_percent / 100) * adjustedCapacity) + open_rbd_bookings))
+                if allocation_value < 1:
+                    allocation_value = 1
 
             # Final Allocation: only to open_rbd, others get 0
             for rbd in w_rbd_list:

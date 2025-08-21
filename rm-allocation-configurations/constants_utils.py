@@ -67,6 +67,7 @@ class ConstantsUtils:
         self.PRICING_GST_SECTORS = PRICING_GST_SECTORS
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
+        self.CUG_DISCOUNT = CUG_DISCOUNT
 
 
         self.logger = logging.getLogger()
@@ -207,6 +208,8 @@ class ConstantsUtils:
                 self.DOMESTIC_PLF_THRESHOLD = int(parameter_value)
             elif parameter_key == INTERNATIONAL_PLF_THRESHOLD_KEY:
                 self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
+            elif parameter_key == CUG_DISCOUNT_KEY:
+                self.CUG_DISCOUNT = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

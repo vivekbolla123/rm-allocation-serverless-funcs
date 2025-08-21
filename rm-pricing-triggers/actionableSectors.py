@@ -6,9 +6,10 @@ import os
 from sqlalchemy import create_engine, text
 import configsettings
 from constants_utils import ConstantsUtils
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import traceback
 import uuid
+import pytz
 
 
 class ActionSectors:
@@ -38,7 +39,7 @@ class ActionSectors:
 
     def collect_qp_fares(self):
         """Collect QP fares data from rm_rd_conn based on route (domestic or international) handling both fare directions.
-        Filters data to only include active sectors."""
+        Filters data to only include active sectors for domestic routes only."""
         try:
             if(self.route == 'D'):
                 query = f"""
@@ -142,8 +143,8 @@ class ActionSectors:
             # Fetch all QP fares data first
             all_qp_fares = pd.read_sql(query, self.rm_rd_conn)
             
-            # Filter by active sectors if active_sectors data is available
-            if hasattr(self, 'active_sectors') and self.active_sectors is not None and not self.active_sectors.empty:
+            # Filter by active sectors ONLY for domestic routes
+            if self.route == 'D' and hasattr(self, 'active_sectors') and self.active_sectors is not None and not self.active_sectors.empty:
                 # Create active sectors set for faster lookup (both directions)
                 active_sectors_set = set()
                 for _, row in self.active_sectors.iterrows():
@@ -153,9 +154,14 @@ class ActionSectors:
                 
                 # Filter QP fares to only include active sectors
                 self.qp_fares_data = all_qp_fares[all_qp_fares['SECTOR'].isin(active_sectors_set)].copy()
+                self.logger.info(f"Filtered domestic QP fares to {len(self.qp_fares_data)} records based on active sectors")
                 
             else:
-                self.logger.info(" Active sectors data not available. Using all QP fares data.")
+                # For international routes or when active sectors data is not available, use all QP fares data
+                if self.route == 'I':
+                    self.logger.info("International route detected. Using all QP fares data without active sector filtering.")
+                else:
+                    self.logger.info("Active sectors data not available for domestic route. Using all QP fares data.")
                 self.qp_fares_data = all_qp_fares
             
             return self.qp_fares_data
@@ -340,8 +346,6 @@ class ActionSectors:
     def collect_booked_data(self, date_range_days=30):
         """Collect passenger booking data from Navitaire stored procedure for PLF calculation."""
         try:
-            # Calculate date range for next 30 days
-            from datetime import date
             start_date = date.today()
             end_date = start_date + timedelta(days=date_range_days)
             
@@ -413,6 +417,8 @@ class ActionSectors:
             # Collect QP fares based on route
             self.collect_active_sectors()
             self.collect_qp_fares()
+            self.collect_booked_data(booking_days)
+            self.collect_city_pair_data()
             
             # Collect tax master data based on route
             if self.route == 'D':
@@ -422,10 +428,6 @@ class ActionSectors:
             
             # Collect market fares based on route
             self.collect_market_fares()
-            
-            # Collect booking and city pair data (same for both routes)
-            self.collect_booked_data(booking_days)
-            self.collect_city_pair_data()
             
             return True
             
@@ -912,17 +914,12 @@ class ActionSectors:
             
             # Single table for both domestic and international
             table_name = 'QP_DW_PRIAUT.actionable_sectors_output'
-            route_desc = "Domestic" if self.route == 'D' else "International"
-            
-            # Generate unique run ID for this execution
-            from datetime import datetime
-            import uuid
             run_id = str(uuid.uuid4())
             
             # Add metadata columns
             actionable_df = actionable_df.copy()
             actionable_df['run_id'] = run_id
-            actionable_df['created_at'] = datetime.now()
+            actionable_df['created_at'] = datetime.now(pytz.timezone('Asia/Kolkata'))
             actionable_df['route'] = self.route
             actionable_df['analyst'] = self.analystName
             
@@ -982,7 +979,7 @@ class ActionSectors:
             audit_data = {
                 'run_id': [run_id],
                 'start_time': [self.start_time],
-                'end_time': [datetime.now()],
+                'end_time': [datetime.now(pytz.timezone('Asia/Kolkata'))],
                 'table_name': [table_name.split('.')[1] if '.' in table_name else table_name],
                 'total_actionable_records': [total_records],
                 'max_actions': [max_actions],
@@ -1019,8 +1016,7 @@ class ActionSectors:
     def run(self):
         """Main method to run complete actionable sectors analysis."""
         try:
-            from datetime import datetime
-            self.start_time = datetime.now()
+            self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             
             # Get current version information for audit
             self.get_current_version()
