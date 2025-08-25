@@ -17,7 +17,7 @@ class RBDAllocations:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare=None, adjustedCapacity=None):
+    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
         
@@ -152,6 +152,61 @@ class RBDAllocations:
             incremental_list.append(incremental)
             rbdlabel_list.append(RBDLabel)
             price_list.append(price)
+            
+        if is_spoilage_reduction_active and pd.notna(last_seven_avg_fare):
+            self.logger.info("Applying D-0 Spoilage Reduction override.")
+            try:
+                # 1. Find the RBD closest to the last seven sold average fare
+                B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - float(last_seven_avg_fare))
+                target_rbd_df_index = B2CRBDs['FareDiff'].idxmin()
+                
+                opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
+
+                # Ensure the system isn't already opening at a price point higher than the target
+                if opening_rbd_df_index > target_rbd_df_index:
+                    self.logger.info("Spoilage Reduction Skipped: System opening RBD is already higher than the Last 7 Sold RBD.")
+                else:
+                    # 2. Determine the number of seats allocated normally *before* the target RBD
+                    allocated_seats_before_target = 0
+                    if target_rbd_df_index > 0:
+                        # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
+                        au_index_before_target = target_rbd_df_index 
+                        allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
+                        # If the value is None (should not happen but good practice), default to current booked load
+                        if allocated_seats_before_target is None:
+                            allocated_seats_before_target = currBookedLoad
+                    else:
+                        # If the target RBD is the first one, the base is simply the current booked load
+                        allocated_seats_before_target = currBookedLoad
+
+                    # 3. Calculate the pool of seats to be distributed from this point forward
+                    seats_to_distribute = totalCapacity - allocated_seats_before_target
+
+                    if seats_to_distribute > 0:
+                        # 4. Calculate the 97% split based on this *correct* pool of seats
+                        ninety_seven_percent_seats = round(seats_to_distribute * 0.97)
+                        
+                        # The new AU values are cumulative, built upon the allocation of the previous class
+                        au_at_target_rbd = allocated_seats_before_target + ninety_seven_percent_seats
+                        au_at_next_rbds = totalCapacity # The rest will open up fully
+
+                        # 5. Override allocations in currRec from the target RBD onwards
+                        status = "D-0 Spoilage Reduction" # Update the status message
+                        
+                        # Iterate through the DataFrame from the target index to the end
+                        for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
+                            au_class_index_to_update = i + 1
+                            if i == target_rbd_df_index:
+                                # At the target RBD, dump 97% of the remaining seats
+                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(au_at_target_rbd))
+                            else:
+                                # For all subsequent (more expensive) RBDs, open up fully
+                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(au_at_next_rbds))
+                    else:
+                        self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
+
+            except Exception as e:
+                self.logger.error(f"Error during spoilage reduction override: {e}")
         
         data = {
         'jumpingRBDPrice': jumpingRBDPrice_list,
@@ -167,7 +222,7 @@ class RBDAllocations:
 
         return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice, first_rbd_alloc, other_rbd_alloc
 
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, overBookingFare=None, adjustedCapacity=None):
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
@@ -178,7 +233,7 @@ class RBDAllocations:
         _, _, _, df_unique_0, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
+            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         currRec_copy = copy.deepcopy(currRec)
@@ -188,7 +243,7 @@ class RBDAllocations:
         _, _, _, df_unique_1, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
+            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         df_unique_1_modified = df_unique_1.copy()
