@@ -337,6 +337,174 @@ def quick_optimize(mkt_list,navapihelper):
     mkt_list['SecondFlightDepartureDate'] = mkt_list['api_result']
     
     return mkt_list.drop('api_result', axis=1)
+
+def insert_delayed_flights_to_market_fares_table(delayed_flights_df, market_list_table):
+    """
+    Insert delayed flight records into the database market fares table only if they don't already exist
+    """
+    if delayed_flights_df.empty:
+        logger.info("No delayed flights found")
+        return
+    
+    logger.info(f"Processing {len(delayed_flights_df)} delayed flights for database insertion")
+    
+    try:
+        # Get existing records from market list table that match delayed flights
+        delayed_flights_df['DepartureDate'] = pd.to_datetime(delayed_flights_df['DepartureDate']).dt.date
+        delayed_flights_df['FlightNumber'] = delayed_flights_df['FlightNumber'].astype('int64')
+        
+        inserted_count = 0
+        skipped_count = 0
+        
+        for _, delayed_flight in delayed_flights_df.iterrows():
+            departure_date_str = delayed_flight['DepartureDate'].strftime('%m/%d/%Y')
+            
+            # First check if delayed record already exists
+            check_existing_query = f"""
+            SELECT COUNT(*) as count FROM {market_list_table} 
+            WHERE FlightNumber = %s 
+            AND Origin = %s 
+            AND Destin = %s
+            AND PerStart = %s
+            AND PerEnd = %s
+            AND `delayed` = 1
+            """
+            
+            existing_check = pd.read_sql(
+                check_existing_query,
+                conn,
+                params=[
+                    delayed_flight['FlightNumber'],
+                    delayed_flight['Origin'],
+                    delayed_flight['Destination'],
+                    departure_date_str,
+                    departure_date_str
+                ]
+            )
+            
+            if existing_check['count'].iloc[0] > 0:
+                logger.info(f"Delayed record already exists for flight {delayed_flight['FlightNumber']} on {delayed_flight['DepartureDate']}, skipping")
+                skipped_count += 1
+                continue
+            
+            # Query to find matching base records in market list table
+            select_query = f"""
+            SELECT * FROM {market_list_table} 
+            WHERE FlightNumber = %s 
+            AND Origin = %s 
+            AND Destin = %s
+            AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') = %s 
+            AND (`delayed` = 0 OR `delayed` IS NULL)
+            """
+            
+            matching_records = pd.read_sql(
+                select_query, 
+                conn, 
+                params=[
+                    delayed_flight['FlightNumber'],
+                    delayed_flight['Origin'],
+                    delayed_flight['Destination'],
+                    delayed_flight['DepartureDate']
+                    
+                ]
+            )
+            
+            if not matching_records.empty:
+                # Insert delayed records for each matching market list entry
+                for _, record in matching_records.iterrows():
+                    # Prepare insert query with all market list columns plus delayed flag
+                    columns = list(record.index)
+                    if 'delayed' not in columns:
+                        columns.append('delayed')
+
+                    values = list(record.values)
+                    if 'delayed' not in record.index:
+                        values.append(1)
+                    else:
+                        # If delayed column exists, update its value to 1
+                        delayed_idx = columns.index('delayed')
+                        values[delayed_idx] = 1
+                    
+                    # Update PerStart and PerEnd to the specific delayed flight date
+                    if 'PerStart' in columns:
+                        perstart_idx = columns.index('PerStart')
+                        values[perstart_idx] = departure_date_str
+                    if 'PerEnd' in columns:
+                        perend_idx = columns.index('PerEnd')
+                        values[perend_idx] = departure_date_str
+                    
+                    column_names = ', '.join([f"`{col}`" for col in columns])
+                    placeholders = ', '.join(['%s'] * len(values))
+                    
+                    insert_query = f"""
+                    INSERT INTO {market_list_table} ({column_names}) 
+                    VALUES ({placeholders})
+                    """
+                    
+                    try:
+                        wrconn.execute(insert_query, values)
+                        inserted_count += 1
+                        logger.info(f"Inserted delayed record for flight {delayed_flight['FlightNumber']} on {delayed_flight['DepartureDate']}")
+                    except Exception as e:
+                        logger.error(f"Error inserting delayed record: {str(e)}")
+            else:
+                logger.info(f"No matching base records found for delayed flight {delayed_flight['FlightNumber']} on {delayed_flight['DepartureDate']}")
+        
+        logger.info(f"Delayed flights processing completed: {inserted_count} inserted, {skipped_count} skipped (already exist)")
+        
+    except Exception as e:
+        logger.error(f"Error processing delayed flights: {str(e)}")
+        raise
+
+def left_join_with_booked_loads_and_opsuffix(left_df, right_df):
+    """
+    Left join with booked loads data including OpSuffix mapping
+    Only matches records where OpSuffix = 'D' from Navitaire and delayed = 1 from market list
+    """
+    # Create a copy of right_df to avoid modifying the original
+    right_df_copy = right_df.copy()
+    
+    # Convert FlightNumber in right_df to int64 to match left_df
+    right_df_copy['FlightNumber'] = right_df_copy['FlightNumber'].astype('int64')
+    
+    # Filter for delayed flights only (OpSuffix = 'D')
+    delayed_navitaire_data = right_df_copy[right_df_copy['OpSuffix'] == 'D'].copy()
+    
+    # Select the columns we want to map including OpSuffix
+    columns_to_map = ['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 
+                      'bookedPax', 'capacity', 'OpSuffix']
+    
+    # Ensure market list has delayed column, default to 0 if missing
+    if 'delayed' not in left_df.columns:
+        left_df['delayed'] = 0
+    
+    # Filter market list for delayed records only (delayed = 1)
+    delayed_market_data = left_df[left_df['delayed'] == 1].copy()
+    
+    # Join delayed market data with delayed Navitaire data
+    result = delayed_market_data.merge(
+        delayed_navitaire_data[columns_to_map],
+        how='left',
+        left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destin'],
+        right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+    ).drop(columns=['Destination'], errors='ignore')
+    
+    # Also join non-delayed records with non-delayed Navitaire data
+    non_delayed_market_data = left_df[left_df['delayed'] != 1].copy()
+    non_delayed_navitaire_data = right_df_copy[right_df_copy['OpSuffix'] != 'D'].copy()
+    
+    non_delayed_result = non_delayed_market_data.merge(
+        non_delayed_navitaire_data[columns_to_map],
+        how='left',
+        left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destin'],
+        right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+    ).drop(columns=['Destination'], errors='ignore')
+    
+    # Combine both results
+    final_result = pd.concat([result, non_delayed_result], ignore_index=True)
+    
+    return final_result
+
 def lambda_handler(event, context):
     """
     Fetches the market list, integrates Navitaire data, and sends it to SQS.
@@ -464,6 +632,25 @@ def lambda_handler(event, context):
         # Fetch Navitaire data
         booked_loads = nav_helper.getCurrentBookedLoads(
             startDate=min_date, endDate=max_date)
+        
+        delayed_flights = booked_loads[booked_loads['OpSuffix'] == 'D'].copy()
+        
+        # Insert delayed flight records into database market table
+        insert_delayed_flights_to_market_fares_table(delayed_flights, market_list_table)
+        
+        # Update markets count after adding delayed flights
+        
+        
+        mkt_list = read_sql(market_list_query, conn)
+        mkt_list, failCount = clean_markets_optimized(mkt_list,w0_df)
+        mkt_list = mkt_list.reset_index()
+        markets_count = mkt_list.shape[0]
+        mkt_list['DepartureDate'] = pd.to_datetime(
+            mkt_list['PerStart'], format='%m/%d/%Y').dt.date
+        
+        markets_count = mkt_list.shape[0]
+        logger.info(f"Total markets after adding delayed flights: {markets_count}")
+        
         seats_sold_pivot = nav_helper.get_seats_sold_by_class(min_date, max_date)
         rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
         series_seats_data = nav_helper.get_series_seats(min_date, max_date)
@@ -480,7 +667,7 @@ def lambda_handler(event, context):
 
         mkt_list = left_join_with_destination_mapping(mkt_list, forecast_plf_list)
         print(len(mkt_list)," forecast_plf_list")
-        mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
+        mkt_list = left_join_with_booked_loads_and_opsuffix(mkt_list, booked_loads)
         print(len(mkt_list)," booked_loads")
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
         print(len(mkt_list)," seats_sold_pivot")
@@ -1149,18 +1336,18 @@ def get_forecast(min_date, max_date):
     return query
 
 
-# if __name__ == "__main__":
-#     # For local testing; adjust event as needed
-#     event = {
-#         "body": json.dumps({
-#             "start_interval": 0,
-#             "end_interval": 2,
-#             "market_list_table_name": "market_list",
-#             "route_type": "direct",
-#             "run_type": "Scheduled",
-#             "cug_alloc":0
-#         })
-#     }
-#     context = {}
-#     result = lambda_handler(event, context)
-#     print(result)
+if __name__ == "__main__":
+    # For local testing; adjust event as needed
+    event = {
+        "body": json.dumps({
+            "start_interval": 0,
+            "end_interval": 2,
+            "market_list_table_name": "market_list",
+            "route_type": "direct",
+            "run_type": "Scheduled",
+            "cug_alloc":0
+        })
+    }
+    context = {}
+    result = lambda_handler(event, context)
+    print(result)
