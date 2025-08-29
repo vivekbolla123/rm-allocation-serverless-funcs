@@ -3,8 +3,10 @@ package com.akasaair.queues;
 import com.akasaair.queues.common.Validations.*;
 import com.akasaair.queues.common.aws.DependencyFactory;
 import com.akasaair.queues.common.aws.S3FileStorageDao;
+import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
+import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.JdbcConnection;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -14,7 +16,7 @@ import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.YearMonth;
+import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
@@ -28,9 +30,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.text.ParseException;
-import java.time.Duration;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -906,6 +905,12 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListEntityList.isEmpty()) {
+                AuditHelper auditHelper = new AuditHelper(connection);
+                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                }
+
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
                 } else {
@@ -1754,6 +1759,12 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListConnectionsEntityList.isEmpty()) {
+                AuditHelper auditHelper = new AuditHelper(connection);
+                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                }
+
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
                 } else {
