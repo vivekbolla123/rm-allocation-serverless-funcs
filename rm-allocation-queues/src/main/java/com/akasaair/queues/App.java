@@ -907,8 +907,13 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!validMarketListEntityList.isEmpty()) {
                 AuditHelper auditHelper = new AuditHelper(connection);
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+
                 if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                    try {
+                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        System.err.println("Failed to build audit logs for table: " + tableName, e);
+                    }
                 }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
@@ -916,9 +921,11 @@ public class App implements RequestHandler<S3Event, Object> {
                 } else {
                     deleteRecords(validMarketListEntityList, tableName);
                 }
+
                 for (MarketListEntity marketEntity : validMarketListEntityList) {
                     insertIntoMarketList(marketEntity, tableName);
                 }
+
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), uuid);
 
@@ -1761,8 +1768,13 @@ public class App implements RequestHandler<S3Event, Object> {
             if (!validMarketListConnectionsEntityList.isEmpty()) {
                 AuditHelper auditHelper = new AuditHelper(connection);
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+
                 if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                    try {
+                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        System.err.println("Failed to build connection audit logs for table: " + tableName, e);
+                    }
                 }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
