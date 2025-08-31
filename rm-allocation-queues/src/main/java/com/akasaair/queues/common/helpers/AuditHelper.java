@@ -23,7 +23,6 @@ import org.springframework.beans.BeanUtils;
 import static com.akasaair.queues.common.constants.Constants.*;
 import static com.akasaair.queues.common.constants.QueryConstants.INSERT_INTO_ML_AUDIT_LOGS;
 
-@Slf4j
 public class AuditHelper {
 
     private final Connection connection;
@@ -304,8 +303,6 @@ public class AuditHelper {
                         flightNo.replace("-", "") + "_" +
                         date.replace('-', '_');
 
-                log.info("Processing partition: {}", partitionPath);
-
                 // Extract columns from new changes
                 Set<String> newColumns = new HashSet<>();
                 Field[] fields = FieldUtils.getAllFields(entityClass);
@@ -316,7 +313,7 @@ public class AuditHelper {
                             newColumns.add(field.getName());
                         }
                     } catch (IllegalAccessException e) {
-                        log.error("Error accessing field: {}", field.getName(), e);
+                        System.err.println("Error accessing field: " + field.getName());
                     }
                 }
                 newColumns.add("changeType");
@@ -331,14 +328,13 @@ public class AuditHelper {
                         existingColumns.add(rs.getString("column_name"));
                     }
                 } catch (SQLException e) {
-                    log.info("No existing file found at {}: {}", specificFilePath, e.getMessage());
+//                    log.info("No existing file found at {}: {}", specificFilePath, e.getMessage());
                 }
 
                 // Combine schemas
                 Set<String> allColumns = new HashSet<>(newColumns);
                 allColumns.addAll(existingColumns);
                 if (allColumns.isEmpty()) {
-                    log.warn("No columns found for partition {}", partitionPath);
                     continue;
                 }
 
@@ -364,7 +360,7 @@ public class AuditHelper {
                             values.add(value.toString());
                         }
                     } catch (IllegalAccessException e) {
-                        log.error("Error accessing field: {}", fieldName, e);
+                        System.err.println("Error accessing field: " + fieldName);
                     }
                 }
                 columns.add("changeType");
@@ -399,7 +395,7 @@ public class AuditHelper {
                 String copySQL = String.format("COPY %s TO '%s' (FORMAT CSV, HEADER TRUE, OVERWRITE_OR_IGNORE)",
                         tableName, destination);
 
-                log.info("Writing to S3 using query: {}", copySQL);
+//                log.info("Writing to S3 using query: {}", copySQL);
                 SqlHelperFunctions.execute(conn, copySQL, null);
 
                 String dropSQL = "DROP TABLE IF EXISTS " + tableName;
@@ -409,7 +405,7 @@ public class AuditHelper {
             }
             return "Success";
         } catch (Exception e) {
-            log.error("Error processing CSV append: {}", e.getMessage(), e);
+            System.err.println("Error processing CSV append: " + e.getMessage());
             return "Error: " + e.getMessage();
         }
     }
@@ -452,7 +448,6 @@ public class AuditHelper {
 }
 
 
-@Slf4j
 class SqlHelperFunctions {
 
     public static void execute(Connection connection, String query, List<Object> params) {

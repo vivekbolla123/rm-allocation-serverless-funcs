@@ -912,7 +912,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     try {
                         auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
                     } catch (Exception e) {
-                        System.err.println("Failed to build audit logs for table: " + tableName, e);
+                        System.err.println("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
                     }
                 }
 
@@ -1773,7 +1773,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     try {
                         auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
                     } catch (Exception e) {
-                        System.err.println("Failed to build connection audit logs for table: " + tableName, e);
+                        System.err.println("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
                     }
                 }
 
