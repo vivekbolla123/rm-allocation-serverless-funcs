@@ -422,7 +422,18 @@ public class AuditHelper {
         connectionProps.put("s3_endpoint", "s3." + region + ".amazonaws.com");
         connectionProps.put("s3_url_style", "path");
 
-        return DriverManager.getConnection("jdbc:duckdb:", connectionProps);
+        Connection connection = DriverManager.getConnection("jdbc:duckdb:", connectionProps);
+
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute("INSTALL httpfs");
+            stmt.execute("LOAD httpfs");
+        } catch (SQLException e) {
+            System.err.println("Failed to load httpfs extension: " + e.getMessage());
+            connection.close();
+            throw e;
+        }
+
+        return connection;
     }
 
     public void insertIntoMlAuditLogs(String sector, String flightNo, String date, String userName, String changedAtDateTime) {
