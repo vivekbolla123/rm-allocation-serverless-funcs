@@ -412,28 +412,32 @@ public class AuditHelper {
 
     private Connection getS3DuckDBConnection() throws SQLException {
         String region = Region.AP_SOUTH_1.toString();
-
         Properties connectionProps = new Properties();
-        connectionProps.put("s3_use_ssl", "true");
-        connectionProps.put("threads", 8);
-        connectionProps.put("s3_access_key_id", System.getenv("AWS_ACCESS_KEY_ID"));
-        connectionProps.put("s3_secret_access_key", System.getenv("AWS_SECRET_ACCESS_KEY"));
-        connectionProps.put("s3_region", region);
-        connectionProps.put("s3_endpoint", "s3." + region + ".amazonaws.com");
-        connectionProps.put("s3_url_style", "path");
+        connectionProps.put("threads", "8");
 
         Connection connection = DriverManager.getConnection("jdbc:duckdb:", connectionProps);
 
         try (Statement stmt = connection.createStatement()) {
+            // Load httpfs extension
             stmt.execute("INSTALL httpfs");
             stmt.execute("LOAD httpfs");
         } catch (SQLException e) {
-            System.err.println("Failed to load httpfs extension: " + e.getMessage());
             connection.close();
             throw e;
         }
 
-        return connection;
+        connection.close();
+
+        Properties s3ConnectionProps = new Properties();
+        s3ConnectionProps.put("threads", "8");
+        s3ConnectionProps.put("s3_use_ssl", "true");
+        s3ConnectionProps.put("s3_access_key_id", System.getenv("AWS_ACCESS_KEY_ID"));
+        s3ConnectionProps.put("s3_secret_access_key", System.getenv("AWS_SECRET_ACCESS_KEY"));
+        s3ConnectionProps.put("s3_region", region);
+        s3ConnectionProps.put("s3_endpoint", "s3." + region + ".amazonaws.com");
+        s3ConnectionProps.put("s3_url_style", "path");
+
+        return DriverManager.getConnection("jdbc:duckdb:", s3ConnectionProps);
     }
 
     public void insertIntoMlAuditLogs(String sector, String flightNo, String date, String userName, String changedAtDateTime) {
