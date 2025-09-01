@@ -401,7 +401,7 @@ public class AuditHelper {
                 String dropSQL = "DROP TABLE IF EXISTS " + tableName;
                 SqlHelperFunctions.execute(conn, dropSQL, null);
 
-                insertIntoMlAuditLogs(sector, flightNo, date, userName, changedAtDateTime);
+//                insertIntoMlAuditLogs(sector, flightNo, date, userName, changedAtDateTime);
             }
             return "Success";
         } catch (Exception e) {
@@ -440,26 +440,26 @@ public class AuditHelper {
         return DriverManager.getConnection("jdbc:duckdb:", s3ConnectionProps);
     }
 
-    public void insertIntoMlAuditLogs(String sector, String flightNo, String date, String userName, String changedAtDateTime) {
-        try {
-            List<Object> params = Arrays.asList(
-                    sector,
-                    LocalDate.parse(date, DATE_OUTPUT_FORMATTER_3).toString(),
-                    flightNo,
-                    userName,
-                    changedAtDateTime
-            );
-
-            SqlHelperFunctions.execute(connection, INSERT_INTO_ML_AUDIT_LOGS(), params);
-
-        } catch (Exception e) {
-            String errorMsg = "Failed to insert audit log for sector " + sector +
-                    "_" + flightNo +
-                    "_" + date +
-                    "_" + userName;
-            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + errorMsg);
-        }
-    }
+//    public void insertIntoMlAuditLogs(String sector, String flightNo, String date, String userName, String changedAtDateTime) {
+//        try {
+//            List<Object> params = Arrays.asList(
+//                    sector,
+//                    LocalDate.parse(date, DATE_OUTPUT_FORMATTER_3).toString(),
+//                    flightNo,
+//                    userName,
+//                    changedAtDateTime
+//            );
+//
+//            SqlHelperFunctions.execute(connection, INSERT_INTO_ML_AUDIT_LOGS(), params);
+//
+//        } catch (Exception e) {
+//            String errorMsg = "Failed to insert audit log for sector " + sector +
+//                    "_" + flightNo +
+//                    "_" + date +
+//                    "_" + userName;
+//            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + errorMsg);
+//        }
+//    }
 }
 
 
