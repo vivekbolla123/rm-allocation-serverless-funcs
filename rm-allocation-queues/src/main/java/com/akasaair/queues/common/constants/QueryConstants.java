@@ -242,4 +242,8 @@ public class QueryConstants {
         return "INSERT INTO " + tableName + " (Origin, Destin, FlightNumber, PerStart, PerEnd, DOW, CurveID, saleflag) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
     }
 
+    public static String INSERT_INTO_ML_AUDIT_LOGS() {
+        return "INSERT IGNORE INTO `ml_audit_logs` (`sector`, `date`, `flightNo`, `userName`, `changedAt`) VALUES (?, ?, ?, ?, ?)";
+    }
+
 }

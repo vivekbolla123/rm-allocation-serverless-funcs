@@ -126,9 +126,9 @@ if env == 'prod':
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "rm-user"
-    RM_DB_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL = "172.24.87.43"
     RM_DB_APPUSER_USERNAME_READ = "rm-user"
-    RM_DB_APPUSER_URL_READ = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
+    RM_DB_APPUSER_URL_READ = "172.24.87.43"
     RM_DB_APPUSER_PASSWORD_READ=credentials.get('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     NAV_DB_HOST = "10.154.12.19:52900"
     NAV_DB_NAME = "[TST0KOD01]."
@@ -153,20 +153,20 @@ if env == 'uat':
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
     # RM_CACHE_ENDPOINT = "172.24.72.8"
     RM_CACHE_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_CACHE_PASSWORD', '')
-    DW_DB_HOST='uat-qp-dw.cfwwkweqog18.ap-south-1.rds.amazonaws.com'
+    DW_DB_HOST='172.24.87.10'
     DW_DB_PORT='3306'
     DW_DB_USER=credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_USERNAME', '')
     DW_DB_PASSWORD= credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_PASSWORD', '')
     DW_DB_WRITE_SCHEMA='RM_DW_DATA'
  
-    ESB_HOST='uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com'
+    ESB_HOST='172.24.87.43'
     ESB_PORT='3306'
     ESB_USER=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-User', '')
     ESB_PASSWORD=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass', '')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
     
-    RM_DB_WR_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
-    ESB_DB_WR_APPUSER_URL = "uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com"
+    RM_DB_WR_APPUSER_URL = "172.24.87.43"
+    ESB_DB_WR_APPUSER_URL = "172.24.87.43"
     ESB_DB_USERNAME = "DBSAAdmin"
     # ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     # ESB_DB_USERNAME = "appuser-rm"
