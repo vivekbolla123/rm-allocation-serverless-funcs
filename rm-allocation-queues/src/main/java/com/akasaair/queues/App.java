@@ -2700,6 +2700,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(45, marketListEntity.getTbfEnhFlag());
             pstmt.setString(46, marketListEntity.getDefaultMlFlag());
             pstmt.setString(47, marketListEntity.getB2bStrategy());
+            pstmt.setString(48, marketListEntity.getB2bOutbound_Stop());
+            pstmt.setString(49, marketListEntity.getMarketfare_Upsell());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2900,6 +2902,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .tbfEnhFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_ENH_FLAG)))
                 .defaultMlFlag(convertYNToBoolean(record.get(CSV_HEADER_DEFAULT_ML_FLAG)))
                 .b2bStrategy(record.get(CSV_HEADER_B2B_STRATEGY))
+                .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
+                .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .analystName(analystName)
                 .build());
     }
@@ -3192,6 +3196,15 @@ public class App implements RequestHandler<S3Event, Object> {
                     && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
                 listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
             }
+            if (!(isNumeric(record.get(CSV_HEADER_OUTBOUNDSTOP))
+                    && isPositive(record.get(CSV_HEADER_OUTBOUNDSTOP)))) {
+                listOfErrors.add(lineNum + "outboundstop is not a positive number");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_MKTFARE_UPSELL))))
+                     {
+                listOfErrors.add(lineNum + "mktuosell is not a  number");
+            }
+
             if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
                 listOfErrors.add(lineNum + "B2B Factor is not a valid float");
             }

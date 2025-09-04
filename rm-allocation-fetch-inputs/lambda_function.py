@@ -26,10 +26,10 @@ run_log = []
 sqs = boto3.client('sqs')
 
 # Database connection strings
-DB_RD_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
-DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_RD_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_WR_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 USERNAME = "SYS2"
-DW_DB_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
+DW_DB_CONN_STRING = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 # Cache settings
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
@@ -897,7 +897,7 @@ def getMarketListQuery(start_period, end_period, market_list_table):
                 DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
                 Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
                 B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,ProfileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,directFlag,TBFEnhFlag,defaultMlFlag,b2bStrategy,
+                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,directFlag,TBFEnhFlag,defaultMlFlag,b2bStrategy,Marketfare_Upsell,Outbound_Stop,
                 substring(dow, dayofweek(Date), 1) as Flag
             FROM
                 DateRange
