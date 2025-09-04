@@ -531,6 +531,7 @@ LEFT JOIN
 
         origin = currParams.origin
         destination = currParams.destin
+        outboundstop = currParams.outboundstop
         routedSector = self.getRoutedDestination(origin, destination)
 
         if len(routedSector) > 0:
@@ -540,7 +541,7 @@ LEFT JOIN
         # Common query conditions for both tables
         query_conditions = f"""
             source_airport = '{origin}' and destination_airport = '{destination}' 
-            and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop = 0
+            and channel = '{channel}' and outbound_airline_code NOT IN {carr_exclusion_str} AND outbound_stop <= '{outboundstop}'
             AND outbound_airline_code != 'QP' AND outbound_airline_code!='G8' AND outbound_flight!='{flightExclusion}'
         """
 
