@@ -48,6 +48,8 @@ class MarketListRow:
         self.cug_mkt_flag = currParams.get("CugFlag",CONST_NA)
         self.mkt_fare_flag = currParams.get("MktFareFlag",CONST_NA)
         self.tbfenhflag = currParams.get("TBFEnhFlag",CONST_NA)
+        self.outboundstop = currParams.get("Outbound_Stop",CONST_NA)
+        self.market_discount = currParams.get("Marketfare_Upsell",CONST_NA)
         
         self.saleflag = currParams.get("saleflag",CONST_NA)
         

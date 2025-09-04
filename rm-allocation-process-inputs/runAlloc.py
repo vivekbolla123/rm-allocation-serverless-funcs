@@ -1180,7 +1180,10 @@ class DynAlloc:
 				self.logger.info("Reducing overbooking to max 2 seats")
 				overBookingCount = OVERBOOKING_MAX_COUNT
 			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
-				totalCapacity = totalCapacity+overBookingCount
+				if ((int(totalCapacity) - int(adjustedCapacity)) < overBookingCount):
+					totalCapacity = adjustedCapacity+overBookingCount
+				else:
+					totalCapacity = totalCapacity+overBookingCount
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
 					if not totalCapacity == lid:
@@ -1209,7 +1212,7 @@ class DynAlloc:
 		return totalCapacity, self.b2boverbookingflag
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
-		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0
+		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and (int(totalCapacity) >= int(adjustedCapacity)) and (int(totalCapacity) - int(adjustedCapacity)) < overBookingCount and overBookingCount>0
 	
 	def canOverbookManual(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount):
 		return plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0

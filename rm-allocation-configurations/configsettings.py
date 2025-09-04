@@ -125,9 +125,9 @@ if env == 'prod':
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
 if env == 'uat':
-    RM_DB_APPUSER_USERNAME = "rm-user"
+    RM_DB_APPUSER_USERNAME = "app_esb"
     RM_DB_APPUSER_URL = "172.24.87.43"
-    RM_DB_APPUSER_USERNAME_READ = "rm-user"
+    RM_DB_APPUSER_USERNAME_READ = "app_esb"
     RM_DB_APPUSER_URL_READ = "172.24.87.43"
     RM_DB_APPUSER_PASSWORD_READ=credentials.get('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     NAV_DB_HOST = "10.154.12.19:52900"
@@ -167,7 +167,7 @@ if env == 'uat':
     
     RM_DB_WR_APPUSER_URL = "172.24.87.43"
     ESB_DB_WR_APPUSER_URL = "172.24.87.43"
-    ESB_DB_USERNAME = "DBSAAdmin"
+    ESB_DB_USERNAME = "app_esb"
     # ESB_DB_WR_APPUSER_URL = "p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
     # ESB_DB_USERNAME = "appuser-rm"
     SFTP_RBD_QUEUE_URL = "test-rm-allocation-queues-rm-allocation-rbds-ftp"

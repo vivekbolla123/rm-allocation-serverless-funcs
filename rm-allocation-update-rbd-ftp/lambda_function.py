@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-DB_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+DB_WR_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT

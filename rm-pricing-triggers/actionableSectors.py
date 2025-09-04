@@ -454,13 +454,13 @@ class ActionSectors:
                 
                 # Process B2B and B2C separately using pre-aggregated XQP data
                 for channel in ['B2B', 'B2C']:
-                    actionable_record = self._evaluate_channel_actions(
+                    actionable_records = self._evaluate_channel_actions(
                         sector, origin, destination, channel, 
                         sector_qp_fares, self.market_fares_data, {}  # Empty dict since we don't need RBD mappings
                     )
                     
-                    if actionable_record:
-                        final_results.append(actionable_record)
+                    if actionable_records:
+                        final_results.extend(actionable_records)
             
             # Convert to DataFrame
             final_df = pd.DataFrame(final_results)
@@ -483,7 +483,7 @@ class ActionSectors:
             
             if channel_xqp_data.empty:
                 self.logger.debug(f"No market fare data found for {sector} {channel}")
-                return None
+                return []
             
             # Get pre-calculated min/max fares, instances, and carriers
             xqp_record = channel_xqp_data.iloc[0]
@@ -502,7 +502,7 @@ class ActionSectors:
             
             if qp_min_fare is None and qp_max_fare is None:
                 self.logger.debug(f"No QP fares found for {sector} {channel}")
-                return None
+                return []
             
             # Evaluate actions based on comparison logic
             max_action_valid = qp_max_fare is not None and xqp_max_fare > qp_max_fare
@@ -510,24 +510,47 @@ class ActionSectors:
             
             self.logger.debug(f"Action evaluation for {sector} {channel}: max_valid={max_action_valid}, min_valid={min_action_valid}")
             
-            # Determine which action to take (prioritize Max Action if both valid)
+            results = []
+            
+            # Create Max Action record if valid
             if max_action_valid:
-                action_type = "Max_Action"
-                qp_fare = qp_max_fare
-                xqp_fare = xqp_max_fare
-                xqp_carrier = max_carrier
-                fare_diff = xqp_fare - qp_fare
-                action_rbd = max_rbd
-            elif min_action_valid:
-                action_type = "Min_Action"
-                qp_fare = qp_min_fare
-                xqp_fare = xqp_min_fare
-                xqp_carrier = min_carrier
-                fare_diff = qp_fare - xqp_fare
-                action_rbd = min_rbd
-            else:
+                max_action_record = self._create_action_record(
+                    sector, origin, destination, channel, "Max_Action",
+                    qp_max_fare, xqp_max_fare, max_carrier, max_rbd,
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                )
+                if max_action_record:
+                    results.append(max_action_record)
+            
+            # Create Min Action record if valid
+            if min_action_valid:
+                min_action_record = self._create_action_record(
+                    sector, origin, destination, channel, "Min_Action",
+                    qp_min_fare, xqp_min_fare, min_carrier, min_rbd,
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                )
+                if min_action_record:
+                    results.append(min_action_record)
+            
+            if not results:
                 self.logger.debug(f"No actionable condition met for {sector} {channel}")
-                return None  # No actionable condition met
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error evaluating channel actions: {str(e)}")
+            return []
+
+    def _create_action_record(self, sector, origin, destination, channel, action_type, 
+                            qp_fare, xqp_fare, xqp_carrier, action_rbd,
+                            qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances):
+        """Create a single action record for the given parameters."""
+        try:
+            # Calculate fare difference based on action type
+            if action_type == "Max_Action":
+                fare_diff = xqp_fare - qp_fare
+            else:  # Min_Action
+                fare_diff = qp_fare - xqp_fare
             
             # Calculate other metrics
             plf = self._calculate_forward_plf(origin, destination)
@@ -549,7 +572,7 @@ class ActionSectors:
                 instances, fare_diff, yield_value, plf, xqp_carrier
             )
             
-            self.logger.debug(f"Constraints for {sector} {channel}: instances={instances}≥2, fare_diff={fare_diff}≥1, plf={plf}<0.5, satisfied={constraints_satisfied}")
+            self.logger.debug(f"Constraints for {sector} {channel} {action_type}: instances={instances}≥2, fare_diff={fare_diff}≥1, plf={plf}<0.5, satisfied={constraints_satisfied}")
             
             # Build result record with route-specific fields
             result = {
@@ -581,7 +604,7 @@ class ActionSectors:
             return result
             
         except Exception as e:
-            self.logger.error(f"Error evaluating channel actions: {str(e)}")
+            self.logger.error(f"Error creating action record: {str(e)}")
             return None
 
     def _get_qp_min_max_fares(self, sector_qp_fares, origin, destination, channel):

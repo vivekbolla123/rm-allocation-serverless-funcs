@@ -7,3 +7,5 @@ requests==2.28.1
 redis==5.0.1
 numpy==1.26.4
 pymongo
+mysql-connector-python
+pymysql

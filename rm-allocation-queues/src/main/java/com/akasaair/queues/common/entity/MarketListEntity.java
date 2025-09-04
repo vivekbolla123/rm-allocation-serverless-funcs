@@ -112,5 +112,9 @@ public class MarketListEntity {
     public String defaultMlFlag;
     @Column(name = "b2bStrategy")
     public String b2bStrategy;
+    @Column(name = "Marketfare_Upsell")
+    public String Marketfare_Upsell;
+    @Column(name = "Outbound_Stop")
+    public String b2bOutbound_Stop;
 
 }
