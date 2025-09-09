@@ -560,20 +560,13 @@ class FareStatisticalAnalysis:
         for band_id in unique_bands:
             band_mask = statistical_df['band_id'] == band_id
             band_data = statistical_df[band_mask].copy()
-            
-            max_af_last_holiday_dow = band_data['AF_LastHolidayDOW'].max()
-            if pd.isna(max_af_last_holiday_dow):
-                continue
-            
+                
             for idx in band_data.index:
                 profile_q10 = statistical_df.loc[idx, 'profileFaresQ10']
                 
                 if pd.notna(profile_q10) and profile_q10 > 0:
-                    upsell_value = (max_af_last_holiday_dow - profile_q10) / profile_q10
+                    upsell_value = (band_data.loc[idx, 'AF_LastHolidayDOW'] - profile_q10) / profile_q10
                     statistical_df.loc[idx, 'upsell'] = upsell_value
-    # ============================================================================
-    # DATABASE UPDATE METHODS
-    # ============================================================================
     
     def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
         """Update config_profile_fare_station_upsell table with calculated upsell values."""
