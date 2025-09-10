@@ -6,7 +6,7 @@ import com.akasaair.queues.common.aws.S3FileStorageDao;
 import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
-import com.akasaair.queues.common.helpers.AuditHelper;
+//import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.JdbcConnection;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -905,16 +905,16 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListEntityList.isEmpty()) {
-                AuditHelper auditHelper = new AuditHelper(connection);
-                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+//                AuditHelper auditHelper = new AuditHelper(connection);
+//                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
 
-                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    try {
-                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
-                    } catch (Exception e) {
-                        System.err.println("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
-                    }
-                }
+//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+//                    try {
+//                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+//                    } catch (Exception e) {
+//                        System.err.println("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
+//                    }
+//                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
@@ -1766,16 +1766,16 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListConnectionsEntityList.isEmpty()) {
-                AuditHelper auditHelper = new AuditHelper(connection);
-                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
-
-                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-                    try {
-                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
-                    } catch (Exception e) {
-                        System.err.println("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
-                    }
-                }
+//                AuditHelper auditHelper = new AuditHelper(connection);
+//                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+//
+//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+//                    try {
+//                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+//                    } catch (Exception e) {
+//                        System.err.println("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
+//                    }
+//                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
