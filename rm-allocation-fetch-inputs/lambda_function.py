@@ -565,6 +565,24 @@ def lambda_handler(event, context):
             suffixes=('', '_drop')
         ).rename(columns={'forecastPLF': 'forecastPLF2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_varience']],
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecast_varience': 'forecast_varience1'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_varience']],
+            how='left',
+            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecast_varience': 'forecast_varience2'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
