@@ -13,7 +13,7 @@ from runAlloc import DynAlloc
 from runAlloc_SalesInv import DynAllocSalesInv
 
 def testCase1():
-    DB_WR_CONN_STRING = f"mysql+mysqldb://root:root@localhost/localtest"
+    DB_WR_CONN_STRING = f"mysql+pymysql://root:root@localhost/localtest"
     conn = create_engine(DB_WR_CONN_STRING)
 
     inputData = {

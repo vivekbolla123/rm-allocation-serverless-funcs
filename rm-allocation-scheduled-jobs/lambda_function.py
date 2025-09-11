@@ -38,10 +38,10 @@ from defaultMarketlist import defaultMarketlist
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-RM_ALLOC_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-RM_REPORTS_DB = f"mysql+mysqldb://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-ESB_DB = f"mysql+mysqldb://{configsettings.ESB_USER}:{configsettings.ESB_PASSWORD}@{configsettings.ESB_HOST}/{configsettings.ESB_READ_SCHEMA}"
-DB_DW_WR_CONN_STRING = f"mysql+mysqldb://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
+RM_ALLOC_DB = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+RM_REPORTS_DB = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+ESB_DB = f"mysql+pymysql://{configsettings.ESB_USER}:{configsettings.ESB_PASSWORD}@{configsettings.ESB_HOST}/{configsettings.ESB_READ_SCHEMA}"
+DB_DW_WR_CONN_STRING = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
@@ -172,6 +172,14 @@ def lambda_handler(event, context):
 #         "sector": "AMDBLR",
 #     },
 #     "modules": {"historicFares": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "start_time": 2,
+#         "end_time": 3
+#     },
+#     "modules": {"expected_no_shows": 1}
 # }
 
 # messageBody = {

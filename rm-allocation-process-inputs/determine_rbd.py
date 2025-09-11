@@ -84,6 +84,8 @@ class DetermineRBD:
         self.logger.info("Startegy Fare: " + str(strategyFare))
         
         anchorFare, howDetermined, upsell, overBookingFare = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter)
+        if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
+            anchorFare = anchorFare+int(currParams.market_discount)
 
         
             

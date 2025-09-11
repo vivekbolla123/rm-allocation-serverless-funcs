@@ -214,9 +214,11 @@ class ConstantsUtils:
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
+        parameterValue = None  # Initialize with a default value
         try:
             parameterValue = pd.read_sql(parameterValueQuery, self.conn)
         except Exception as e:
             self.logger.error(e)
-
+            return pd.DataFrame()
+        
         return parameterValue

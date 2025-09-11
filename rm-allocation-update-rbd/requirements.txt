@@ -6,3 +6,5 @@ requests==2.28.1
 lambda_multiprocessing==0.3
 redis==5.0.1
 numpy==1.26.4
+mysql-connector-python
+pymysql

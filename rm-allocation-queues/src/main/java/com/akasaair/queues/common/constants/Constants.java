@@ -45,6 +45,10 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final String CONNECTIONS = "Connections";
     public static final String INTERNATIONAL_SYMBOL = "I";
     public static final String DOMESTIC_SYMBOL = "D";
+    public static final String INDIAN_REGION = "Asia/Kolkata";
+    public static final String AUDIT_KEY_DELIMITER = "|";
+    public static final String AUDIT_EMPTY_IDENTIFIER = "<N>";
+    public static final String CHANGE_TYPE_MARKETLIST = "ML";
     public static Map<String, String> STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
     public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");
     public final static String S3_BUCKET_NAME = System.getenv("S3_BUCKET_NAME");

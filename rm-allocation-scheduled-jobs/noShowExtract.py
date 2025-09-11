@@ -28,6 +28,8 @@ class ExpectedNoShows:
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
+        self.start_time = overrides['start_time']
+        self.end_time = overrides['end_time']
 
     def load_noshow_rates_from_dw(self):
         """
@@ -75,9 +77,9 @@ class ExpectedNoShows:
         
         # Get current date and timestamps for the query in IST
         current_date = datetime.now(ist)
-        start_time = current_date.replace(hour=2, minute=0, second=0, microsecond=0)
+        start_time = current_date.replace(hour=self.start_time, minute=0, second=0, microsecond=0)
         next_day = current_date + timedelta(days=1)
-        end_time = next_day.replace(hour=4, minute=0, second=0, microsecond=0)
+        end_time = next_day.replace(hour=self.end_time, minute=59, second=0, microsecond=0)
         
         # Format the timestamps for SQL query
         start_time_str = start_time.strftime('%Y-%m-%d %H:%M:%S')
@@ -603,60 +605,68 @@ class ExpectedNoShows:
 
     def save_flight_summary_to_db(self, flight_summary):
         """
-        Save the flight summary to the database table using upsert
+        Save using bulk delete + bulk insert pattern
         """
-        
         try:
-            # Convert DataFrame to a list of dictionaries for SQL execution
             records = flight_summary.to_dict('records')
             
-            # Use SQLAlchemy to execute an upsert query
             with self.rm_rd_conn.connect() as connection:
-                # Begin a transaction
                 transaction = connection.begin()
                 try:
-                    # First delete any existing records that match the primary key
-                    for record in records:
-                        delete_query = text("""
+                    # Bulk delete using IN clause
+                    keys_to_delete = [(r['DepartureDate'], r['FlightNumber'], r['Sector']) for r in records]
+                    
+                    if keys_to_delete:
+                        # Create parameter placeholders for bulk delete
+                        delete_params = []
+                        for i, (dep_date, flight_num, sector) in enumerate(keys_to_delete):
+                            delete_params.append({
+                                f'dep_date_{i}': dep_date,
+                                f'flight_num_{i}': flight_num,
+                                f'sector_{i}': sector
+                            })
+                        
+                        # Build dynamic WHERE clause for bulk delete
+                        where_conditions = []
+                        flat_params = {}
+                        for i, (dep_date, flight_num, sector) in enumerate(keys_to_delete):
+                            where_conditions.append(
+                                f"(DepartureDate = :dep_date_{i} AND FlightNumber = :flight_num_{i} AND Sector = :sector_{i})"
+                            )
+                            flat_params.update({
+                                f'dep_date_{i}': dep_date,
+                                f'flight_num_{i}': flight_num,
+                                f'sector_{i}': sector
+                            })
+                        
+                        delete_query = text(f"""
                         DELETE FROM QP_DW_RMALLOC.expected_no_shows 
-                        WHERE DepartureDate = :departure_date 
-                        AND FlightNumber = :flight_number
-                        AND Sector = :sector
+                        WHERE {' OR '.join(where_conditions)}
                         """)
                         
-                        connection.execute(delete_query, {
-                            "departure_date": record['DepartureDate'],
-                            "flight_number": record['FlightNumber'],
-                            "sector": record['Sector']
-                        })
+                        connection.execute(delete_query, flat_params)
                     
-                    # Then insert all new records
+                    # Bulk insert
                     columns = ', '.join(flight_summary.columns)
                     placeholders = ', '.join([f":{col}" for col in flight_summary.columns])
                     
-                    # Build the INSERT query using text() for parameterization
                     insert_query = text(f"""
                     INSERT INTO QP_DW_RMALLOC.expected_no_shows 
-                    ({columns}) 
-                    VALUES ({placeholders})
+                    ({columns}) VALUES ({placeholders})
                     """)
                     
-                    # Execute by passing each record as a parameter dictionary
-                    for record in records:
-                        connection.execute(insert_query, record)
+                    # Use executemany for bulk insert
+                    connection.execute(insert_query, records)
                     
-                    # Commit the transaction
                     transaction.commit()
-                    
-                    self.logger.info(f"Successfully upserted {len(flight_summary)} flight records to database")
+                    self.logger.info(f"Successfully upserted {len(records)} records using bulk operations")
                     
                 except Exception as e:
-                    # If an error occurs, rollback the transaction
                     transaction.rollback()
                     raise e
-            
+                    
         except Exception as e:
-            self.logger.error(f"Error upserting flight summary to database: {str(e)}")
+            self.logger.error(f"Error upserting flight summary: {str(e)}")
             raise
         
     def run(self):

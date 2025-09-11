@@ -3,8 +3,10 @@ package com.akasaair.queues;
 import com.akasaair.queues.common.Validations.*;
 import com.akasaair.queues.common.aws.DependencyFactory;
 import com.akasaair.queues.common.aws.S3FileStorageDao;
+import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
+//import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.JdbcConnection;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
@@ -14,7 +16,7 @@ import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.YearMonth;
+import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
@@ -28,9 +30,6 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.text.ParseException;
-import java.time.Duration;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.*;
 import java.util.concurrent.ExecutionException;
@@ -906,14 +905,27 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListEntityList.isEmpty()) {
+//                AuditHelper auditHelper = new AuditHelper(connection);
+//                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+
+//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+//                    try {
+//                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+//                    } catch (Exception e) {
+//                        System.err.println("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
+//                    }
+//                }
+
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
                 } else {
                     deleteRecords(validMarketListEntityList, tableName);
                 }
+
                 for (MarketListEntity marketEntity : validMarketListEntityList) {
                     insertIntoMarketList(marketEntity, tableName);
                 }
+
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), uuid);
 
@@ -1754,6 +1766,17 @@ public class App implements RequestHandler<S3Event, Object> {
             }
 
             if (!validMarketListConnectionsEntityList.isEmpty()) {
+//                AuditHelper auditHelper = new AuditHelper(connection);
+//                LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
+//
+//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+//                    try {
+//                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+//                    } catch (Exception e) {
+//                        System.err.println("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
+//                    }
+//                }
+
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
                 } else {
@@ -2677,6 +2700,8 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(45, marketListEntity.getTbfEnhFlag());
             pstmt.setString(46, marketListEntity.getDefaultMlFlag());
             pstmt.setString(47, marketListEntity.getB2bStrategy());
+            pstmt.setString(48, marketListEntity.getB2bOutbound_Stop());
+            pstmt.setString(49, marketListEntity.getMarketfare_Upsell());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2877,6 +2902,8 @@ public class App implements RequestHandler<S3Event, Object> {
                 .tbfEnhFlag(convertYNToBoolean(record.get(CSV_HEADER_TBF_ENH_FLAG)))
                 .defaultMlFlag(convertYNToBoolean(record.get(CSV_HEADER_DEFAULT_ML_FLAG)))
                 .b2bStrategy(record.get(CSV_HEADER_B2B_STRATEGY))
+                .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
+                .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .analystName(analystName)
                 .build());
     }
@@ -3169,6 +3196,15 @@ public class App implements RequestHandler<S3Event, Object> {
                     && isPositive(record.get(CSV_HEADER_B2C_BACKSTOP)))) {
                 listOfErrors.add(lineNum + "B2C Backstop is not a positive number");
             }
+            if (!(isNumeric(record.get(CSV_HEADER_OUTBOUNDSTOP))
+                    && isPositive(record.get(CSV_HEADER_OUTBOUNDSTOP)))) {
+                listOfErrors.add(lineNum + "outboundstop is not a positive number");
+            }
+            if (!(isNumeric(record.get(CSV_HEADER_MKTFARE_UPSELL))))
+                     {
+                listOfErrors.add(lineNum + "mktuosell is not a  number");
+            }
+
             if (!(isDouble(record.get(CSV_HEADER_B2B_FACTOR)))) {
                 listOfErrors.add(lineNum + "B2B Factor is not a valid float");
             }

@@ -11,7 +11,27 @@ class MarketFareMongoDB:
         self.conn=conn
         self.inputSource=inputSource
 
-    
+    def _convert_gross_fare_to_int(self, df):
+        """Helper method to safely convert gross_fare column to int"""
+        if 'gross_fare' in df.columns and not df.empty:
+            try:
+                # Convert to numeric, replacing any non-numeric values with NaN
+                df['gross_fare'] = pd.to_numeric(df['gross_fare'], errors='coerce')
+                
+                # Drop rows where gross_fare is NaN (was non-numeric)
+                df = df.dropna(subset=['gross_fare'])
+                
+                # Convert to int
+                df['gross_fare'] = df['gross_fare'].astype(int)
+                
+                self.logger.info(f"Successfully converted gross_fare to int for {len(df)} records")
+                
+            except Exception as e:
+                self.logger.error(f"Error converting gross_fare to int: {e}")
+                # Return empty DataFrame with correct columns if conversion fails completely
+                return pd.DataFrame(columns=df.columns)
+        
+        return df
 
     def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
         
@@ -240,6 +260,7 @@ class MarketFareMongoDB:
             
             # Select required columns and sort by gross_fare
             mktFareRange = df_dedup[['gross_fare', 'outbound_airline_code', 'outbound_flight', 'mktFile']].copy()
+            mktFareRange = self._convert_gross_fare_to_int(mktFareRange)
             mktFareRange = mktFareRange.sort_values('gross_fare', ascending=True).reset_index(drop=True)
             
             self.logger.info(f"Returning {len(mktFareRange)} unique market fare records")
@@ -405,6 +426,7 @@ class MarketFareMongoDB:
             
             # Select final columns and sort by price, as in the final SQL ORDER BY
             mktFareRange = df_dedup[['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile']].copy()
+            mktFareRange = self._convert_gross_fare_to_int(mktFareRange)
             mktFareRange = mktFareRange.sort_values('gross_fare', ascending=True).reset_index(drop=True)
             
             self.logger.info(f"Returning {len(mktFareRange)} unique market fare connection records.")
