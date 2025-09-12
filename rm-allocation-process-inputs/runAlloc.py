@@ -729,7 +729,7 @@ class DynAlloc:
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val,
 							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False
 						)
-				elif last_seven_avg_val is not None :
+				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA:
 					# b2b_discount_fare_active = True 
 					# discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
 					# discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
