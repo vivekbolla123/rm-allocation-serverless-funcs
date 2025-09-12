@@ -59,5 +59,5 @@ class MarketListConnectiosnsRow:
         self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
         self.forecastPLF1 = currParams.get("forecastPLF1",CONST_NA)
         self.forecastPLF2 = currParams.get("forecastPLF2",CONST_NA)
-        self.forecast_varience1 = currParams.get("forecast_varience1",CONST_NA)
-        self.forecast_varience2 = currParams.get("forecast_varience2",CONST_NA)
+        self.forecast_variance1 = currParams.get("forecast_variance1",CONST_NA)
+        self.forecast_variance2 = currParams.get("forecast_variance2",CONST_NA)
