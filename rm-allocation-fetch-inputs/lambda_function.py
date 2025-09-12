@@ -1167,18 +1167,18 @@ def get_forecast(min_date, max_date):
     return query
 
 
-if __name__ == "__main__":
-    # For local testing; adjust event as needed
-    event = {
-        "body": json.dumps({
-            "start_interval": 0,
-            "end_interval": 30,
-            "market_list_table_name": "market_list_adhoc_Connections_PB",
-            "route_type": "connections",
-            "run_type": "adhoc",
-            "cug_alloc":0
-        })
-    }
-    context = {}
-    result = lambda_handler(event, context)
-    print(result)
+# if __name__ == "__main__":
+#     # For local testing; adjust event as needed
+#     event = {
+#         "body": json.dumps({
+#             "start_interval": 0,
+#             "end_interval": 30,
+#             "market_list_table_name": "market_list_adhoc_Connections_PB",
+#             "route_type": "connections",
+#             "run_type": "adhoc",
+#             "cug_alloc":0
+#         })
+#     }
+#     context = {}
+#     result = lambda_handler(event, context)
+#     print(result)
