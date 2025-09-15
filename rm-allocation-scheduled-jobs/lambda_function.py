@@ -34,6 +34,7 @@ from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
+from updateImpForecast import update_imputed_forecast
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -95,7 +96,8 @@ module_map = {
     "input_audits": S3CsvCombiner,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
-    "default_ml": defaultMarketlist
+    "default_ml": defaultMarketlist,
+    "imputed_forecast": update_imputed_forecast
 }
 
 

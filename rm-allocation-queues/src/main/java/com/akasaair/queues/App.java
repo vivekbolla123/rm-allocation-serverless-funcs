@@ -2904,6 +2904,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bStrategy(record.get(CSV_HEADER_B2B_STRATEGY))
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
+                .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3099,6 +3100,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_DEFAULT_ML_FLAG))) {
                 listOfErrors.add(lineNum + "defaultMlFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
+                listOfErrors.add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");

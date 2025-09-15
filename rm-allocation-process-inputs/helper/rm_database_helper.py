@@ -148,6 +148,7 @@ GROUP BY
     ml.b2bStrategy,
     ml.Marketfare_Upsell,
     ml.Outbound_Stop,
+    ml.forecastAllocFlag,
     bfd.BookingsCount,
     bfd.BookingToday, 
     bfd.BookingsInHour,
@@ -432,6 +433,16 @@ LEFT JOIN
             self.logger.error(e)
             forecastBand = CONST_NA
         return forecastBand
+    
+    def get_imputed_forecast_band(self, imp_forecast):
+        band_query = "SELECT band FROM imputed_forecast_bands where start <= " + str(imp_forecast) + " and end > " + str(imp_forecast) 
+        try:
+            imp_forecast_band_list = pd.read_sql(band_query, self.conn)
+            imp_forecast_band = int(imp_forecast_band_list['band'][0])
+        except Exception as e:
+            self.logger.error(e)
+            imp_forecast_band = CONST_NA
+        return imp_forecast_band
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)

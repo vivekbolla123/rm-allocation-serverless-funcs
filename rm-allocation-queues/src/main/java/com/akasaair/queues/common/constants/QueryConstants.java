@@ -33,7 +33,7 @@ public class QueryConstants {
                 "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, flightExclusionB2B, flightExclusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, "
                 +
                 "B2BBackstop, B2CBackstop, B2BFactor, obSeats, obFare, SkippingFactor, DaySpan, AutoTimeRangeFlag, " +
-                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,MktFareFlag,UUID, directFlag, TBFEnhFlag, defaultMlFlag, b2bStrategy,Outbound_Stop,Marketfare_Upsell) "
+                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,MktFareFlag,UUID, directFlag, TBFEnhFlag, defaultMlFlag, b2bStrategy,Outbound_Stop,Marketfare_Upsell,forecastAllocFlag) "
                 +
 
                 "VALUES " +
