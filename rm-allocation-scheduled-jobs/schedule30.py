@@ -471,6 +471,8 @@ class ScheduleThirty:
             else:
                 self.logger.warning("PerStart column not found in result set")
                 
+            combined_df.drop("Day", inplace=True)
+                
             return combined_df
         
         except Exception as e:
