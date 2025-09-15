@@ -414,7 +414,7 @@ class ScheduleThirty:
             config_query = text("""
                 SELECT columns 
                 FROM QP_DW_RMALLOC.config_column_names 
-                WHERE tableName = 'market_list'
+                WHERE tableName = 'market_list_s3'
             """)
             
             with self.rm_rd_conn.connect() as connection:
@@ -470,8 +470,6 @@ class ScheduleThirty:
                 combined_df['PerStart_DT'] = pd.to_datetime(combined_df['PerStart'])
             else:
                 self.logger.warning("PerStart column not found in result set")
-                
-            combined_df.drop("Day", inplace=True)
                 
             return combined_df
         
