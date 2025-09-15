@@ -410,47 +410,66 @@ class ScheduleThirty:
 
     def get_combined_market_list(self):
         try:
-            # Define specific columns to select in the same order for both tables
-            # This list is based on your provided column information
-            specific_columns = [
-                "Origin", "Destin", "FlightNumber", "PerType", "PerStart", "PerEnd", 
-                "DOW", "TimeWindowStart", "TimeWindowEnd", "DaySpan", "CurveID",
-                "CarrExlusionB2C", "CarrExlusionB2B", "flightExclusionB2C", "flightExclusionB2B",
-                "fareAnchor", "hardAnchor", "plfThreshold", "fareOffset", "FirstRBDAlloc",
-                "OtherRBDAlloc", "B2BBackstop", "B2CBackstop", "B2BFactor", "obSeats",
-                "obFare","SkippingFactor", "UUID", "OwnFareFlag", "analystName", "AutoTimeRangeFlag",
-                "OverBooking", "openingFares", "profileFares", "rbdPushFlag", "B2CTolerance",
-                "B2BTolerance", "distressInventoryFlag", "seriesBlock", "autoGroup",
-                "autoBackstopFlag", "tbfFlag", "CugFlag", "MktFareFlag", "directFlag", "TBFEnhFlag", "defaultMlFlag", "b2bStrategy","forecastAllocFlag"
-            ]
-            
-            # Create a comma-separated list of columns
-            columns_str = ", ".join(specific_columns)
-            
-            # Create a combined query using UNION ALL with the specific columns
-            combined_query = text(f"""
-                SELECT {columns_str}
-                FROM QP_DW_RMALLOC.market_list
-                WHERE STR_TO_DATE(PerStart, '%m/%d/%Y') > CURDATE() + INTERVAL 30 DAY
-                
-                UNION ALL
-                
-                SELECT {columns_str}
-                FROM QP_DW_RMALLOC.market_list_international
-                WHERE STR_TO_DATE(PerStart, '%m/%d/%Y') > CURDATE() + INTERVAL 30 DAY
-                
-                ORDER BY PerStart ASC
+            # First, fetch the column configuration from config_column_names table
+            config_query = text("""
+                SELECT columns 
+                FROM QP_DW_RMALLOC.config_column_names 
+                WHERE tableName = 'market_list'
             """)
             
-            # Execute the query
             with self.rm_rd_conn.connect() as connection:
+                config_result = connection.execute(config_query)
+                config_row = config_result.fetchone()
+                
+                if not config_row:
+                    # Fallback to hardcoded columns if config not found
+                    self.logger.warning("No column configuration found for market_list, using fallback columns")
+                    columns_str = """Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, 
+                        DOW, TimeWindowStart, TimeWindowEnd, DaySpan, CurveID,
+                        CarrExlusionB2C, CarrExlusionB2B, flightExclusionB2C, flightExclusionB2B,
+                        fareAnchor, hardAnchor, plfThreshold, fareOffset, FirstRBDAlloc,
+                        OtherRBDAlloc, B2BBackstop, B2CBackstop, B2BFactor, obSeats,
+                        obFare, SkippingFactor, UUID, OwnFareFlag, analystName, AutoTimeRangeFlag,
+                        OverBooking, openingFares, profileFares, rbdPushFlag, B2CTolerance,
+                        B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup,
+                        autoBackstopFlag, tbfFlag, CugFlag, MktFareFlag, directFlag, TBFEnhFlag, defaultMlFlag, b2bStrategy, Outbound_Stop, Marketfare_Upsell"""
+                        
+                else:
+                    # Use the columns from the config table
+                    columns_str = config_row[0]
+                    self.logger.info(f"Retrieved column configuration from config_column_names table")
+                
+                # Create a combined query using UNION ALL with the configured columns
+                combined_query = text(f"""
+                    SELECT {columns_str}
+                    FROM QP_DW_RMALLOC.market_list
+                    WHERE STR_TO_DATE(PerStart, '%m/%d/%Y') > CURDATE() + INTERVAL 30 DAY
+                    
+                    UNION ALL
+                    
+                    SELECT {columns_str}
+                    FROM QP_DW_RMALLOC.market_list_international
+                    WHERE STR_TO_DATE(PerStart, '%m/%d/%Y') > CURDATE() + INTERVAL 30 DAY
+                    
+                    ORDER BY PerStart ASC
+                """)
+                
+                # Execute the query
                 combined_result = connection.execute(combined_query)
-                combined_df = pd.DataFrame(combined_result.fetchall(), columns=specific_columns)
+                
+                # Get column names from the result (handles aliases like 'Day' properly)
+                column_names = list(combined_result.keys())
+                
+                # Fetch all results
+                combined_df = pd.DataFrame(combined_result.fetchall(), columns=column_names)
             
-            self.logger.info(f"Combined market list has {len(combined_df)} records")
+            self.logger.info(f"Combined market list has {len(combined_df)} records with {len(column_names)} columns")
             
-            # Convert PerStart to datetime for later comparison
-            combined_df['PerStart_DT'] = pd.to_datetime(combined_df['PerStart'])
+            # Convert PerStart to datetime for later comparison (if PerStart column exists)
+            if 'PerStart' in combined_df.columns:
+                combined_df['PerStart_DT'] = pd.to_datetime(combined_df['PerStart'])
+            else:
+                self.logger.warning("PerStart column not found in result set")
                 
             return combined_df
         

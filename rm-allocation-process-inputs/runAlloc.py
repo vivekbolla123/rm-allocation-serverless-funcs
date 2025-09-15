@@ -734,17 +734,17 @@ class DynAlloc:
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
 							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band
 						)
-				elif B2C_opening_price_val is not None and not self.B2B_thresholdflag and 0 <= dplfBand_full <= 3:
-					b2b_discount_fare_active = True 
-					discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
-					discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
+				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA:
+					# b2b_discount_fare_active = True 
+					# discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
+					# discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
 					
-					if '%' in discount_str_val: 
-						current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
-					else: 
-						current_discount_amount = float(discount_str_val)
+					# if '%' in discount_str_val: 
+					# 	current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
+					# else: 
+					# 	current_discount_amount = float(discount_str_val)
 					
-					derived_b2b_anchor_fare = B2C_opening_price_val - current_discount_amount
+					derived_b2b_anchor_fare = last_seven_avg_val
 					self.outputSummaryRow_b2b.anchorFare = derived_b2b_anchor_fare
 					self.outputSummaryRow_b2b.fareOffset = 0 
 

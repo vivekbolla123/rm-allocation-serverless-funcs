@@ -565,6 +565,24 @@ def lambda_handler(event, context):
             suffixes=('', '_drop')
         ).rename(columns={'forecastPLF': 'forecastPLF2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecast_variance': 'forecast_variance1'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        mkt_list = mkt_list.merge(
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
+            how='left',
+            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_drop')
+        ).rename(columns={'forecast_variance': 'forecast_variance2'}).drop(
+            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
         mkt_list = mkt_list.merge(
             booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
             how='left',
@@ -1154,10 +1172,10 @@ def get_forecast(min_date, max_date):
 #     event = {
 #         "body": json.dumps({
 #             "start_interval": 0,
-#             "end_interval": 2,
-#             "market_list_table_name": "market_list",
-#             "route_type": "direct",
-#             "run_type": "Scheduled",
+#             "end_interval": 30,
+#             "market_list_table_name": "market_list_adhoc_Connections_PB",
+#             "route_type": "connections",
+#             "run_type": "adhoc",
 #             "cug_alloc":0
 #         })
 #     }
