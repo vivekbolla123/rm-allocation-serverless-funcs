@@ -68,7 +68,7 @@ class ConstantsUtils:
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
         self.CUG_DISCOUNT = CUG_DISCOUNT
-
+        self.TBF_RBD_ALLOC_CAP = TBF_RBD_ALLOC_CAP
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
@@ -210,6 +210,8 @@ class ConstantsUtils:
                 self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
             elif parameter_key == CUG_DISCOUNT_KEY:
                 self.CUG_DISCOUNT = int(parameter_value)
+            elif parameter_key == TBF_RBD_ALLOC_CAP_KEY:
+                self.TBF_RBD_ALLOC_CAP = int(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"

@@ -512,6 +512,7 @@ class RBDAllocations:
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):
         max_au = currBookedLoad-currtbfBookedLoad+int(self.constantsutils.TBF_SEATS)
+        TBF_RBD_ALLOC_CAP = self.constantsutils.TBF_RBD_ALLOC_CAP
         rbd_list = self.constantsutils.TBF_RBD.split(',')
         tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE,depdate)
@@ -622,6 +623,9 @@ class RBDAllocations:
                 else:
                     # Update the last known non-'NA' index
                     last_index = value['index']
+            
+            prev_rbd_au = currtbfBookedLoad
+
             for nearest_rbd, allocation in result.items():
                 idx=allocation['index']
                 currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
@@ -637,7 +641,16 @@ class RBDAllocations:
                     if nearest_rbd=="TF":
                         open=currBookedLoad+self.constantsutils.TBF_OPEN_SEATS
                         class_au = max(open,min(incremental_value, max_au))
-                    
+                
+                au_increment = class_au - prev_rbd_au
+                if au_increment > TBF_RBD_ALLOC_CAP:
+                    #cap the au
+                    class_au = prev_rbd_au + TBF_RBD_ALLOC_CAP
+
+                if class_au > 0:
+                    # store previous rbd's au for cap check on next rbd
+                    prev_rbd_au = class_au
+
                 currRec.set_class_attribute(brd_counter, 'class_au', class_au)
                 brd_counter += 1
             # for _, tbf_row in tbf_rbds.iterrows():
