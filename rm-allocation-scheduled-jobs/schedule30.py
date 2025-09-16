@@ -414,7 +414,7 @@ class ScheduleThirty:
             config_query = text("""
                 SELECT columns 
                 FROM QP_DW_RMALLOC.config_column_names 
-                WHERE tableName = 'market_list'
+                WHERE tableName = 'market_list_s3'
             """)
             
             with self.rm_rd_conn.connect() as connection:
