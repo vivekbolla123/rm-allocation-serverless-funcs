@@ -172,9 +172,11 @@ GROUP BY
     bl1.bookedPax AS BookedPax1,
     bl1.Lid AS Lid1,
     fr1.forecastPLF AS forecastPLF1,
+    fr1.variance AS forecast_variance1,
     bl2.bookedPax AS BookedPax2,
     bl2.Lid AS Lid2,
     fr2.forecastPLF AS forecastPLF2,
+    fr2.variance AS forecast_variance2,
     crb1_b2b.OpeningRBD AS OpeningRBDB2B1,
     crb1_b2c.OpeningRBD AS OpeningRBDB2C1,
     crb2_b2b.OpeningRBD AS OpeningRBDB2B2,
@@ -1142,9 +1144,9 @@ LEFT JOIN
             
             insertQuery = text(""" 
                 INSERT INTO run_summary_connections 
-                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate,mktFile,firstrbd,otherrbd,Backstop_INR) 
+                (Id, RunId, Sector1, Sector2, FltNum1, FltNum2, DepDate1, DepDate2, BookedLoad, BookedLoad1, SellingFare1, SellingFare2, BookedLoad2, OpenRBD1, OpenRBD2, Discount, anchorFare, OpenRBD, SellingFare, Channel, HowDetermined, allocationStatus, Backstop, CreatedAt, analystName, Variance1, Variance2, strategyFare, criteria, fareOffset, MktFare_Min, AirlineCode_Min, FlightNumber_Min, MktFare_Max, AirlineCode_Max, FlightNumber_Max, outBoundStop, outboundDuration, DiscountedFare, Currency, conversionRate,mktFile,firstrbd,otherrbd,Backstop_INR, ImputedForecast1, ImputedForecast2)
                 VALUES (
-                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate,:mktFile,:firstrbd,:otherrbd,:Backstop_INR
+                    :Id, :RunId, :Sector1, :Sector2, :FltNum1, :FltNum2, :DepDate1, :DepDate2, :BookedLoad, :BookedLoad1, :SellingFare1, :SellingFare2, :BookedLoad2, :OpenRBD1, :OpenRBD2, :Discount, :anchorFare, :OpenRBD, :SellingFare, :Channel, :HowDetermined, :allocationStatus, :Backstop, :CreatedAt, :analystName, :Variance1, :Variance2, :strategyFare, :criteria, :fareOffset, :MktFare_Min, :AirlineCode_Min, :FlightNumber_Min, :MktFare_Max, :AirlineCode_Max, :FlightNumber_Max, :outBoundStop, :outboundDuration, :DiscountedFare, :Currency, :conversionRate,:mktFile,:firstrbd,:otherrbd,:Backstop_INR, :ImputedForecast1, :ImputedForecast2
                 )
             """)
 
@@ -1193,7 +1195,9 @@ LEFT JOIN
                 "mktFile": str(latest_row.mktFile),
                 "firstrbd":str(latest_row.firstrbd),
                 "otherrbd":str(latest_row.otherrbd),
-                "Backstop_INR":str(latest_row.Backstop_INR)
+                "Backstop_INR":str(latest_row.Backstop_INR),
+                "ImputedForecast1": str(latest_row.ImputedForecast1),
+                "ImputedForecast2": str(latest_row.ImputedForecast2)
             }
 
             try:

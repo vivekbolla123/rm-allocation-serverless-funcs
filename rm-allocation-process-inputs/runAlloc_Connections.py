@@ -1,5 +1,6 @@
 import copy
 import json
+import math
 import traceback
 
 import numpy as np
@@ -306,6 +307,8 @@ class DynAllocConnections:
         flight2 = self.currParams.flight2
         forecasted_plf_sector1 = self.currParams.forecastPLF1
         forecasted_plf_sector2 = self.currParams.forecastPLF2
+        forecasted_varience_sector1 = self.currParams.forecast_variance1
+        forecasted_varience_sector2 = self.currParams.forecast_variance2
         is_sector1_domestic, is_sector2_domestic = self.rmdatabasehelper.check_sector_types(sector1, sector2)
         domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         international_plf_threshold = self.constantsUtils.INTERNATIONAL_PLF_THRESHOLD
@@ -466,6 +469,10 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
                 self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Lid1
                 self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
+                
+                self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1)
+                self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2)
+                
                 offset=self.currParams.offset
                 if self.qpcurrency!='INR':
                     B2CBackstop = self.convert_currency('INR',self.qpcurrency,B2CBackstop)
@@ -902,3 +909,13 @@ class DynAllocConnections:
             
         
         return converted_value
+
+    def getParsedImputedForecast(self,variance, forecastPLF, forecast_variance):
+        try:
+            forecastPLF = float(forecastPLF)
+            forecast_variance = float(forecast_variance)
+            if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
+                return forecastPLF+variance-forecast_variance
+            return CONST_NA
+        except (ValueError, TypeError):
+            return CONST_NA

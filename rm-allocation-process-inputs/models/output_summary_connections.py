@@ -18,6 +18,8 @@ class OutputSummaryConnections:
         self.SellingFare2=CONST_NA
         self.variance1=CONST_NA
         self.variance2=CONST_NA
+        self.ImputedForecast1=CONST_NA
+        self.ImputedForecast2=CONST_NA
         self.BookedLoad = CONST_NA 
         self.Discount= CONST_NA
         self.discountedFare=CONST_NA
