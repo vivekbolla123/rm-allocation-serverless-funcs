@@ -208,6 +208,12 @@ class DetermineRBD:
         overBookingFare = 0
         TOLERANCE_MAP = self.constantsutils.TOLERANCE_MAP
         B2B_FACTOR_MAP = self.constantsutils.B2B_FACTOR_MAP
+
+        def values_exist(*values):
+            return all(pd.isna(value) == False and 
+                    value != CONST_NA and 
+                    value != '' 
+                    for value in values)
         
         # Helper functions to reduce code duplication
         def has_tolerance(tolerance_fare):
@@ -256,10 +262,10 @@ class DetermineRBD:
                 "_AvgStrategyAndProfileFare": avgStrategyProfile,
             }
             
-            valid_fares = {k: v for k, v in fares.items() if v is not None}
+            valid_fares = {k: v for k, v in fares.items() if values_exist(v)}
             
             if not valid_fares:
-                return None, ""
+                return 0, ""
             
             anchorFare = func(valid_fares.values())
             fareType = next(name for name, value in valid_fares.items() if value == anchorFare)
@@ -348,7 +354,7 @@ class DetermineRBD:
                 )
             howDetermined += fareType
 
-            if lastSoldFare != CONST_NA and last7AvgVal != CONST_NA:
+            if values_exist(lastSoldFare, last7AvgVal, strategyFare, profileFare):
                 isLastSoldMax = (lastSoldFare > max(strategyFare, profileFare)) or (last7AvgVal > max(strategyFare, profileFare))
 
                 if float(BookingsInHour) > 0 and isLastSoldMax:
@@ -369,7 +375,7 @@ class DetermineRBD:
         elif imp_forecast_band == 3:
 
             howDetermined = f'{imp_forecast_band}_AllocationY'
-            if strategyFare > max(last7AvgVal, profileFare):
+            if values_exist(strategyFare, last7AvgVal, profileFare) and strategyFare > max(last7AvgVal, profileFare):
                 avgLast7Strategy = (last7AvgVal + strategyFare) / 2
 
                 anchorFare, fareType = get_fare_and_type(profileFare=profileFare, avgLast7Strategy=avgLast7Strategy)
@@ -381,7 +387,7 @@ class DetermineRBD:
 
                 anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
 
-            elif profileFare > strategyFare > last7AvgVal:
+            elif values_exist(strategyFare, last7AvgVal, profileFare) and profileFare > strategyFare > last7AvgVal:
                 avgLast7Strategy = (last7AvgVal + strategyFare) / 2
                 anchorFare, fareType = get_fare_and_type(avgLast7Strategy=avgLast7Strategy)
 
@@ -411,10 +417,10 @@ class DetermineRBD:
 
         elif imp_forecast_band == 1:
             howDetermined = f'{imp_forecast_band}_AllocationY'
-            if strategyFare > last7AvgVal > profileFare or last7AvgVal > strategyFare > profileFare:
+            if values_exist(strategyFare, last7AvgVal, profileFare) and (strategyFare > last7AvgVal > profileFare or last7AvgVal > strategyFare > profileFare):
 
                 diff = get_imp_fcs_diff()
-                if diff < -1: # imp_forecast drops by > 1% in last 6H
+                if values_exist(diff) and diff < -1: # imp_forecast drops by > 1% in last 6H
                     avgStrategyProfile = (strategyFare + profileFare) / 2
                     anchorFare, fareType = get_fare_and_type(avgStrategyProfile=avgStrategyProfile)
 
@@ -425,7 +431,7 @@ class DetermineRBD:
                                                           last7AvgVal=last7AvgVal, profileFare=profileFare, func=statistics.median)
                     howDetermined += fareType + '_UpsellN'
 
-            else:
+            elif values_exist(strategyFare, last7AvgVal, profileFare):
                 anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,
                                                           last7AvgVal=last7AvgVal, profileFare=profileFare, func=min)
                 howDetermined += fareType + '_UpsellN'
