@@ -829,7 +829,7 @@ class DynAlloc:
 				isUpsell_b2b, current_brd_counter = self.allocations.b2BAllocation(
 					float(initial_currBookedLoad), openDataB2B_details, currRec_fullalloc, final_totalCapacity, variance_full, b2cAllocUnits_val,
 					skip_b2b_factor, self.b2boverbookingflag, current_brd_counter, openDataB2C_details,
-					self.currParams, overBookingCount
+					self.currParams, overBookingCount,self.B2B_thresholdflag
 				)
 
 				if isUpsell_b2b: openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B skipped - Flight in Upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
