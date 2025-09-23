@@ -710,7 +710,7 @@ class DynAlloc:
 						self.logger.info(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
 				
 				# B2B RBD determination
-				if isB2BMarketFareAvailable:
+				if isB2BMarketFareAvailable and not (self.B2B_thresholdflag):
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
 						self.outputSummaryRow_b2b.mktFile = himktFileb2b
@@ -729,7 +729,7 @@ class DynAlloc:
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val,
 							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False
 						)
-				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA:
+				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA and not (self.B2B_thresholdflag):
 					# b2b_discount_fare_active = True 
 					# discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
 					# discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
@@ -753,7 +753,7 @@ class DynAlloc:
 							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False
 						) 
 				else: 
-					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
+					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable or b2b threshold hit'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else: 
 				openDataB2C_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data & L7D Avg NA'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [0]}
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data NA - Skip B2B'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
@@ -829,7 +829,7 @@ class DynAlloc:
 				isUpsell_b2b, current_brd_counter = self.allocations.b2BAllocation(
 					float(initial_currBookedLoad), openDataB2B_details, currRec_fullalloc, final_totalCapacity, variance_full, b2cAllocUnits_val,
 					skip_b2b_factor, self.b2boverbookingflag, current_brd_counter, openDataB2C_details,
-					self.currParams, overBookingCount
+					self.currParams, overBookingCount,self.B2B_thresholdflag
 				)
 
 				if isUpsell_b2b: openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B skipped - Flight in Upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
