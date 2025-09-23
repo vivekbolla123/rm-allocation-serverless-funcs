@@ -780,11 +780,6 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
                 
-        elif not (10 <= ndo <= 30 and forecastedPLF < 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1):
-            for rbd in w_rbd_list:
-                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
-                currRec.set_class_attribute(brd_counter, 'class_au', 0)
-                brd_counter += 1
         else:
             for rbd in w_rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
