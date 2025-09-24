@@ -209,11 +209,28 @@ class DetermineRBD:
         TOLERANCE_MAP = self.constantsutils.TOLERANCE_MAP
         B2B_FACTOR_MAP = self.constantsutils.B2B_FACTOR_MAP
 
-        def values_exist(*values):
+        def value_exist(*values):
             return all(pd.isna(value) == False and 
                     value != CONST_NA and 
                     value != '' 
                     for value in values)
+
+        def is_greater(val1, *others):
+            """Check if val1 is greater than all other values."""
+            if len(others) == 0:
+                return True
+            
+            if val1 is None:
+                return False
+            
+            for other in others:
+                if other is None:
+                    continue 
+                if val1 <= other:
+                    return False
+            
+            return True
+
         
         # Helper functions to reduce code duplication
         def has_tolerance(tolerance_fare):
@@ -251,18 +268,17 @@ class DetermineRBD:
         def reduce_by_per(value, percentage):
             return value * (1 - percentage / 100)
         
-        def get_fare_and_type(strategyFare=None, last7AvgVal=None, lastSoldFare=None, profileFare=None, avgLast7Strategy=None, avgStrategyProfile=None, func=max):
+        def get_fare_and_type(strategyFare=None, maxLastSoldFare=None, profileFare=None, avgLastSoldStrategy=None, avgStrategyProfile=None, func=max):
             
             fares = {
                 "_StrategyFare": strategyFare,
-                "_Last7SoldFare": last7AvgVal,
-                "_Last3SoldFare": lastSoldFare,
+                "_LastSoldFare": maxLastSoldFare,
                 "_ProfileFare": profileFare,
-                "_AvgLast7AndStrategyFare": avgLast7Strategy,
+                "_AvgLastSoldAndStrategyFare": avgLastSoldStrategy,
                 "_AvgStrategyAndProfileFare": avgStrategyProfile,
             }
             
-            valid_fares = {k: v for k, v in fares.items() if values_exist(v)}
+            valid_fares = {k: v for k, v in fares.items() if value_exist(v)}
             
             if not valid_fares:
                 return 0, ""
@@ -344,25 +360,33 @@ class DetermineRBD:
 
             return hour_to_value.get(target_hour)
         
+        if value_exist(lastSoldFare) and value_exist(last7AvgVal):
+            maxLastSoldFare = max(lastSoldFare, last7AvgVal)
+        elif value_exist(lastSoldFare):
+            maxLastSoldFare = lastSoldFare
+        elif value_exist(last7AvgVal):
+            maxLastSoldFare = last7AvgVal
+        else:
+            maxLastSoldFare = None
+        
         # ------
         if imp_forecast_band == 4:
 
             howDetermined = f'{imp_forecast_band}_AllocationY'
             anchorFare, fareType = get_fare_and_type(
-                strategyFare=strategyFare, last7AvgVal=last7AvgVal,
-                lastSoldFare=lastSoldFare, profileFare=profileFare
+                strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare
                 )
             howDetermined += fareType
 
-            if values_exist(lastSoldFare, last7AvgVal, strategyFare, profileFare):
-                isLastSoldMax = (lastSoldFare > max(strategyFare, profileFare)) or (last7AvgVal > max(strategyFare, profileFare))
+            # Check if either lastSoldFare or last7AvgVal is the highest fare
+            isLastSoldMax = value_exist(maxLastSoldFare) and is_greater(maxLastSoldFare, strategyFare, profileFare)
 
-                if float(BookingsInHour) > 0 and isLastSoldMax:
-                    upsell_value = upsell_by_per(anchorFare, 2.5)
-                    anchorFare = max(upsell_value, anchorFare + 200)
-                    howDetermined += '_UpsellY'
-                else:
-                    howDetermined += '_UpsellN'
+            if float(BookingsInHour) > 0 and isLastSoldMax:
+                upsell_value = upsell_by_per(anchorFare, 2.5)
+                anchorFare = max(upsell_value, anchorFare + 200)
+                howDetermined += '_UpsellY'
+            else:
+                howDetermined += '_UpsellN'
             
             tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
             b2b_factor_value = B2B_FACTOR_MAP[str(imp_forecast_band)]
@@ -370,44 +394,55 @@ class DetermineRBD:
             assign_b2b_factor(currParams, b2b_factor_value)
             anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
 
-            anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         
         elif imp_forecast_band == 3:
 
             howDetermined = f'{imp_forecast_band}_AllocationY'
-            if values_exist(strategyFare, last7AvgVal, profileFare) and strategyFare > max(last7AvgVal, profileFare):
-                avgLast7Strategy = (last7AvgVal + strategyFare) / 2
 
-                anchorFare, fareType = get_fare_and_type(profileFare=profileFare, avgLast7Strategy=avgLast7Strategy)
-
+            if not value_exist(maxLastSoldFare) and not value_exist(profileFare):
+                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare)
+                howDetermined += fareType + '_UpsellN'
+            
+            elif not value_exist(maxLastSoldFare):
+                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, profileFare=profileFare)
                 howDetermined += fareType + '_UpsellN'
 
-                tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
-                anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
-
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
-
-            elif values_exist(strategyFare, last7AvgVal, profileFare) and profileFare > strategyFare > last7AvgVal:
-                avgLast7Strategy = (last7AvgVal + strategyFare) / 2
-                anchorFare, fareType = get_fare_and_type(avgLast7Strategy=avgLast7Strategy)
-
+            elif not value_exist(profileFare):
+                avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
+                anchorFare, fareType = get_fare_and_type(avgLastSoldStrategy=avgLastSoldStrategy)
                 howDetermined += fareType + '_UpsellN'
 
-                tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
-                anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
-
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
-        
             else:
-                anchorFare, fareType = get_fare_and_type(lastSoldFare=lastSoldFare, last7AvgVal=last7AvgVal)
-                howDetermined += fareType
+                # all 3 fares exist
+                if is_greater(strategyFare, maxLastSoldFare, profileFare):
+                    avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
+                    anchorFare, fareType = get_fare_and_type(profileFare=profileFare, avgLastSoldStrategy=avgLastSoldStrategy)
+                        
+                    howDetermined += fareType + '_UpsellN'
 
-                if float(BookingsInHour) > 0:
-                    upsell_value = upsell_by_per(anchorFare, 2.5)
-                    anchorFare = max(upsell_value, anchorFare + 200)
-                    howDetermined += '_UpsellY'
+                    tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
+                    anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+
+                elif is_greater(profileFare, strategyFare) and is_greater(strategyFare, maxLastSoldFare):
+                    avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
+                    anchorFare, fareType = get_fare_and_type(avgLastSoldStrategy=avgLastSoldStrategy)
+
+                    howDetermined += fareType + '_UpsellN'
+
+                    tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
+                    anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+            
                 else:
-                    howDetermined += '_UpsellN'
+                    anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare)
+                    howDetermined += fareType
+
+                    if float(BookingsInHour) > 0:
+                        upsell_value = upsell_by_per(anchorFare, 2.5)
+                        anchorFare = max(upsell_value, anchorFare + 200)
+                        howDetermined += '_UpsellY'
+                    else:
+                        howDetermined += '_UpsellN'
+            
             
             b2b_factor_value = B2B_FACTOR_MAP[str(imp_forecast_band)]
             assign_b2b_factor(currParams, b2b_factor_value)
@@ -417,23 +452,22 @@ class DetermineRBD:
 
         elif imp_forecast_band == 1:
             howDetermined = f'{imp_forecast_band}_AllocationY'
-            if values_exist(strategyFare, last7AvgVal, profileFare) and (strategyFare > last7AvgVal > profileFare or last7AvgVal > strategyFare > profileFare):
-
+            lowestFare, _ = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
+            
+            if (lowestFare == profileFare):
                 diff = get_imp_fcs_diff()
-                if values_exist(diff) and diff < -1: # imp_forecast drops by > 1% in last 6H
+                if value_exist(diff) and diff < -1: # imp_forecast drops by > 1% in last 6H
                     avgStrategyProfile = (strategyFare + profileFare) / 2
                     anchorFare, fareType = get_fare_and_type(avgStrategyProfile=avgStrategyProfile)
 
                     howDetermined += fareType + '_UpsellN'
 
                 else:
-                    anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,
-                                                          last7AvgVal=last7AvgVal, profileFare=profileFare, func=statistics.median)
+                    anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=statistics.median)
                     howDetermined += fareType + '_UpsellN'
 
-            elif values_exist(strategyFare, last7AvgVal, profileFare):
-                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,
-                                                          last7AvgVal=last7AvgVal, profileFare=profileFare, func=min)
+            else:
+                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
                 howDetermined += fareType + '_UpsellN'
             
             tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
@@ -442,12 +476,11 @@ class DetermineRBD:
             assign_b2b_factor(currParams, b2b_factor_value)
             anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
 
-            anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
 
         elif imp_forecast_band == 0:
             howDetermined = f'{imp_forecast_band}_AllocationY'
             anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,
-                                                          last7AvgVal=last7AvgVal, profileFare=profileFare, func=min)
+                                                          maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
             howDetermined += fareType + '_UpsellN'
 
             tolerance_per = TOLERANCE_MAP[str(imp_forecast_band)]
@@ -456,8 +489,8 @@ class DetermineRBD:
             assign_b2b_factor(currParams, b2b_factor_value)
             anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
 
-            anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
-
+        
+        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         # ------
 
         # Overbooking logic & Final Adjustments

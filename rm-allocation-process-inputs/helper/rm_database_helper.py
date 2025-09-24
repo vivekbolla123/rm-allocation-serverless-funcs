@@ -437,7 +437,8 @@ LEFT JOIN
         return forecastBand
     
     def get_imputed_forecast_band(self, imp_forecast):
-        band_query = "SELECT band FROM imputed_forecast_bands where start <= " + str(imp_forecast) + " and end > " + str(imp_forecast) 
+        rounded_imp_fcst = round(imp_forecast)
+        band_query = "SELECT band FROM imputed_forecast_bands where start <= " + str(rounded_imp_fcst) + " and end >= " + str(rounded_imp_fcst) 
         try:
             imp_forecast_band_list = pd.read_sql(band_query, self.conn)
             imp_forecast_band = int(imp_forecast_band_list['band'][0])
