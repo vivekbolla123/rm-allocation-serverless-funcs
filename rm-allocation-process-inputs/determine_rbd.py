@@ -59,7 +59,7 @@ class DetermineRBD:
 
             anchorFare, howDetermined, upsell, overBookingFare = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band)
 
-            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + howDetermined
+            howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_' + howDetermined
             
         else:
             value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
