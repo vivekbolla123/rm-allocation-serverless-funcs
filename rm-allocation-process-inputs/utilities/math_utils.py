@@ -28,7 +28,7 @@ class MathUtils:
         return math.log(maxRBDPrice/openingRBDPirce, (1+jumpPercent/100))
     
     def calc_forecast_factor(self, imp_forecast):
-        return 0.01 * (imp_forecast - 0.85)
+        return 0.01 * imp_forecast - 0.85
     
     def calculate_forecast_d3(self, forecast_factor, remainingCapacity, remainingRBD, ndocounter):
         return round(((remainingCapacity / remainingRBD) * (1 / (1 + forecast_factor + 0.001))) * (remainingCapacity / (1 + ndocounter)))

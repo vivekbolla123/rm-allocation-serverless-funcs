@@ -370,14 +370,14 @@ class RBDAllocations:
                             break
 
                     if min_band == 'H':
-                        min_d3_value = 5
-                    elif min_band == 'L':
                         min_d3_value = 3
+                    elif min_band == 'L':
+                        min_d3_value = 5
                     else:
                         min_d3_value = None
 
                     if min_d3_value is not None:
-                        d3Allocation = max(d3Allocation, min_d3_value)
+                        d3Allocation = round(max(d3Allocation, min_d3_value))
                     else:
                         d3Allocation = DEFAULT_D3_VALUE
 
@@ -396,14 +396,14 @@ class RBDAllocations:
                     elif max_band == 'M':
                         max_d3_value = max(0.4 * remainingCapacity, 10)
                     elif max_band == 'H1':
-                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 7)
-                    elif max_band == 'H2':
                         max_d3_value = max(0.2 * remainingCapacity, 7)
+                    elif max_band == 'H2':
+                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 7)
                     else:
                         max_d3_value = None
 
                     if max_d3_value is not None:
-                        d3Allocation = min(d3Allocation, max_d3_value)
+                        d3Allocation = round(min(d3Allocation, max_d3_value))
                     else:
                         d3Allocation = DEFAULT_D3_VALUE
 
