@@ -2705,6 +2705,7 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(47, marketListEntity.getB2bStrategy());
             pstmt.setString(48, marketListEntity.getB2bOutbound_Stop());
             pstmt.setString(49, marketListEntity.getMarketfare_Upsell());
+            pstmt.setString(50, marketListEntity.getForecastAllocFlag());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
