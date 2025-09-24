@@ -361,7 +361,7 @@ class RBDAllocations:
 
         return openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD
 
-    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount):
+    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
         openingB2CRBD = openDataB2C['RBD'][0]
@@ -382,7 +382,7 @@ class RBDAllocations:
             price = B2BRBDs['Total'][b2bctr]
             b2bStatus = openDataB2B['statusInd'][0]
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            if overBookingCount>0:
+            if overBookingCount>0 or B2B_thresholdflag:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
             else:
                 if b2bSkipFlag:
@@ -693,8 +693,24 @@ class RBDAllocations:
             if min(fare1, fare2) == fare2:
                 less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_value]
                 if less_than_profile.empty:
-                    # Handle empty case - could use all data or return None/default
-                    open_rbd = None  # or some other fallback
+                    fare = b2copeningfare-(self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
+                    if fare<max(valid_rbds['Total'].tolist()):
+                        
+                        # Get values greater than fare
+                        higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
+                        
+                        if not higher_values.empty:
+                            # Find the minimum of values greater than fare (next highest)
+                            next_higher_value = higher_values.min()
+                            closest_idx = higher_values.idxmin()
+                                                    
+                            open_rbd = valid_rbds.loc[closest_idx, 'RBD']
+                            opening_fare = valid_rbds.loc[closest_idx, 'Total']
+
+                            print(f"Next higher value: {next_higher_value} at index: {closest_idx}")
+                        else:
+                            print("No values higher than fare found")
+                            open_rbd = None
                 else:
                     closest_idx = (less_than_profile['Total'] - profile_fare_value).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
@@ -757,6 +773,13 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
                 currRec.set_class_attribute(brd_counter, 'class_au', allocation_value if rbd == open_rbd else 0)
                 brd_counter += 1
+                
+        elif (10 <= ndo <= 30 and forecastedPLF > 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1):
+            for rbd in w_rbd_list:
+                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
+                currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                brd_counter += 1
+                
         else:
             for rbd in w_rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
