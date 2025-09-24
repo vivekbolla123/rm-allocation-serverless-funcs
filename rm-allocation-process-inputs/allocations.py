@@ -267,27 +267,6 @@ class RBDAllocations:
             first_rbd_alloc = d3Allocation
             other_rbd_alloc = d4Allocation
 
-        # # Negative -1 Allocation
-        # elif firstRDBAllocation == DEFICIT_xALLOCATION:
-        #     bookedDef = int(round(bookedDeficit, 0))
-        #     if bookedDef <= 0:
-        #         bookedDef = 0
-        #     openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, bookedDef, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-        #     first_rbd_alloc = bookedDef
-        #     other_rbd_alloc = otherRDBAllocation
-
-        # # Negative -2 Allocation
-        # elif firstRDBAllocation == LINEAR_ALLOCATION:
-        #     allocation = int(round(remainingCapacity/otherRDBAllocation, 0))
-        #     openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-        #     first_rbd_alloc = other_rbd_alloc = allocation
-
-        # # Negative -3 Allocation
-        # elif firstRDBAllocation == LINEAR_ALLOCATION_WITH_JUMP:
-        #     allocation = int(round(remainingCapacity/otherRDBAllocation, 0))
-        #     openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-        #     first_rbd_alloc = other_rbd_alloc = allocation
-
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc
 
     def jumpingAllocation(self, currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b):
