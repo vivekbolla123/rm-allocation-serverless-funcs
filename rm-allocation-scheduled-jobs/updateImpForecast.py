@@ -156,7 +156,6 @@ class update_imputed_forecast:
       SELECT forecastPLF, Variance as forecast_variance, Origin, Destination, FlightNumber, DepartureDate 
       FROM RM_DW_DATA.forecast_results
       WHERE DepartureDate >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-      AND DepartureDate <= '2025-09-11'
         AND forecastPLF IS NOT NULL AND Variance IS NOT NULL
       """
       forecast_list = pd.read_sql(query, self.dw_conn)
