@@ -1,9 +1,9 @@
 import sys
 
 DYNAMIC_D3_D4 = -99
-DEFICIT_ALLOCATION = -1
-LINEAR_ALLOCATION = -2
-LINEAR_ALLOCATION_WITH_JUMP = -3
+FORECAST_ALLOCATION = -1
+# LINEAR_ALLOCATION = -2
+# LINEAR_ALLOCATION_WITH_JUMP = -3
 AU_COLUMN_LENGTH = 118
 AU_COLUMN_LENGTH_CONNECTIONS = 84
 B2B_RDB_COUNT = 20
@@ -124,6 +124,9 @@ CUG_DISCOUNT_KEY = 'CUG_DISCOUNT'
 IMP_FORECAST_DEDUCTION_KEY = 'IMP_FORECAST_DEDUCTION'
 TOLERANCE_MAP_KEY = 'TOLERANCE_MAP'
 B2B_FACTOR_MAP_KEY = 'B2B_FACTOR_MAP'
+DEFAULT_D3_VALUE_KEY = 'DEFAULT_D3_VALUE'
+D3_MIN_RULES_KEY = 'D3_MIN_RULES'
+D3_MAX_RULES_KEY = 'D3_MAX_RULES'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
@@ -338,3 +341,7 @@ CUG_DISCOUNT = 5
 IMP_FORECAST_DEDUCTION = 2
 TOLERANCE_MAP = '{"4": -1, "3": 10, "2": 15, "1": 25, "0": 25}'
 B2B_FACTOR_MAP = '{"4": 0, "3": 0, "2": 0.5, "1": 1, "0": 1}'
+
+DEFAULT_D3_VALUE = 4
+D3_MIN_RULES = '{"L": {"forecast_start":-9999, "forecast_end":69}, "H": {"forecast_start":70, "forecast_end":9999}}'
+D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84}, "M": {"forecast_start":85, "forecast_end":95}, "H1": {"forecast_start":96, "forecast_end":9999, "ndo_start":0, "ndo_end":3}, "H2": {"forecast_start":96, "forecast_end":9999, "ndo_start":4, "ndo_end":9999}}'

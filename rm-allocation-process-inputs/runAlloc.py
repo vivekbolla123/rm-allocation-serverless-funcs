@@ -797,11 +797,12 @@ class DynAlloc:
 				bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 
+				imp_forecast = self.getParsedImputedForecast(variance_full)
 				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
-						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full,
+						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,
 						determined_overBookingFare, base_adjustedCapacity
 					)
 
@@ -810,7 +811,7 @@ class DynAlloc:
 					float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
-					determined_overBookingFare, base_adjustedCapacity
+					imp_forecast, determined_overBookingFare, base_adjustedCapacity
 				)
 
 				self.outputSummaryRow_b2c.status = b2c_status_val

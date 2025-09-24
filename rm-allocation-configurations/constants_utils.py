@@ -70,7 +70,11 @@ class ConstantsUtils:
         self.CUG_DISCOUNT = CUG_DISCOUNT
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
-        self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)
+        self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
+        self.DEFAULT_D3_VALUE = DEFAULT_D3_VALUE
+        self.D3_MIN_RULES = json.loads(D3_MIN_RULES)
+        self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
+
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
@@ -218,6 +222,12 @@ class ConstantsUtils:
                 self.TOLERANCE_MAP = json.loads(parameter_value)
             elif parameter_key == B2B_FACTOR_MAP_KEY:
                 self.B2B_FACTOR_MAP = json.loads(parameter_value)
+            elif parameter_key == DEFAULT_D3_VALUE_KEY:
+                self.DEFAULT_D3_VALUE = int(parameter_value)
+            elif parameter_key == D3_MIN_RULES_KEY:
+                self.D3_MIN_RULES = json.loads(parameter_value)
+            elif parameter_key == D3_MAX_RULES_KEY:
+                self.D3_MAX_RULES = json.loads(parameter_value)
                 
     def get_parameters(self):
         parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
