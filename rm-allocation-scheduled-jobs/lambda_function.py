@@ -19,12 +19,7 @@ from run_adhocs_class import SchedulerHandler
 from cleanup import CleanUpConfig
 from sftp_error_rate import SFTPErrorRate
 from scheduled_job_run_audit import AuditScheduledJob
-from pushRBDToS3 import pushRBDToS3
 from daily_rolling import DailyRolling
-from faresUpdate import Fares
-from historicFares import HistoricFaresModule
-from profileFares import ProfileFaresModule
-from noShowProb import NoShowProbs
 from qcTableGen import QCProcess
 from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
@@ -34,6 +29,7 @@ from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
+from updateImpForecast import update_imputed_forecast
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -80,12 +76,7 @@ module_map = {
     "alloc_summary": AllocationSummaryReport,
     "clean_up": CleanUpConfig,
     "sftp_error": SFTPErrorRate,
-    "s3_push": pushRBDToS3,
     "daily_rolling": DailyRolling,
-    "fares": Fares,
-    "historicFares": HistoricFaresModule,
-    "profileFares": ProfileFaresModule,
-    "noShowProb" : NoShowProbs,
     "run_adhocs_queue":SchedulerHandler,
     "gen_qc_fares_table": QCProcess,
     "qc_fares_check": QCCheck,
@@ -95,7 +86,8 @@ module_map = {
     "input_audits": S3CsvCombiner,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
-    "default_ml": defaultMarketlist
+    "default_ml": defaultMarketlist,
+    "imputed_forecast": update_imputed_forecast
 }
 
 

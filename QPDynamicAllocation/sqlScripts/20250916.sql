@@ -1,0 +1,3 @@
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('DEFAULT_D3_VALUE', '4');
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('D3_MIN_RULES', '{\"L\": {\"forecast_start\":-9999, \"forecast_end\":69}, \"H\": {\"forecast_start\":70, \"forecast_end\":9999}}');
+INSERT INTO `QP_DW_RMALLOC`.`rm_parameter_values` (`parameterKey`, `parameterValue`) VALUES ('D3_MAX_RULES', '{\"L\": {\"forecast_start\":-9999, \"forecast_end\":84}, \"M\": {\"forecast_start\":85, \"forecast_end\":95}, \"H1\": {\"forecast_start\":96, \"forecast_end\":9999, \"ndo_start\":0, \"ndo_end\":3}, \"H2\": {\"forecast_start\":96, \"forecast_end\":9999, \"ndo_start\":4, \"ndo_end\":9999}}');

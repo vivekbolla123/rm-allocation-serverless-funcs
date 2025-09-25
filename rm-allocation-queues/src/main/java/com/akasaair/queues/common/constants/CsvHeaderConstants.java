@@ -48,6 +48,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_B2B_STRATEGY = 43;
     int CSV_HEADER_OUTBOUNDSTOP = 44;
     int CSV_HEADER_MKTFARE_UPSELL = 45;
+    int CSV_HEADER_FORECAST_ALLOC_FLAG = 46;
 
 
     public static final int CSV_SALES_STARTDATE_IDX = 0; // Assuming "startdate" is the first column
