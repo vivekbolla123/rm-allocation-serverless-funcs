@@ -1549,14 +1549,17 @@ public class App implements RequestHandler<S3Event, Object> {
             tableName = tableName.substring("QP_DW_PRIAUT.".length());
         }
 
-        String query = "SELECT table_name FROM information_schema. tables WHERE table_type = 'BASE TABLE' AND table_name = '"+ tableName+ "'";
+        String query = "SELECT table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_name = ?";
 
-        try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(query)) {
-            while (resultSet.next()) {
-                Map<String, Object> row = new HashMap<>();
-                row.put("tableName", resultSet.getString(1));
-                listObj.add(row);
+        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
+            pstmt.setString(1, tableName);
+
+            try (ResultSet resultSet = pstmt.executeQuery()) {
+                while (resultSet.next()) {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("tableName", resultSet.getString(1));
+                    listObj.add(row);
+                }
             }
         } catch (SQLException e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
@@ -2702,6 +2705,7 @@ public class App implements RequestHandler<S3Event, Object> {
             pstmt.setString(47, marketListEntity.getB2bStrategy());
             pstmt.setString(48, marketListEntity.getB2bOutbound_Stop());
             pstmt.setString(49, marketListEntity.getMarketfare_Upsell());
+            pstmt.setString(50, marketListEntity.getForecastAllocFlag());
             pstmt.executeUpdate();
         } catch (SQLException e) {
             System.out.println(e.getMessage());
@@ -2904,6 +2908,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bStrategy(record.get(CSV_HEADER_B2B_STRATEGY))
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
+                .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3099,6 +3104,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_DEFAULT_ML_FLAG))) {
                 listOfErrors.add(lineNum + "defaultMlFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
+                listOfErrors.add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");
