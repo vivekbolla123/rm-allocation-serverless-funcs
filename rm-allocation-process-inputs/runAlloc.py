@@ -625,46 +625,46 @@ class DynAlloc:
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
 			
 			is_spoilage_reduction_active = False
-			if ndocounter == 0:
+			if ndocounter == 0 :
 				self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
 				try:
 					# 1. Check for last seven sold fare availability
 					if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
 						# 2. Check PLF threshold to avoid dilution
-						if final_plf < self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD:
+						if final_plf <= self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD:
 							# 3. Check timing trigger
 							departure_time_obj = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
 							current_time_obj = datetime.strptime(self.currentTime, TIME_FORMAT).time()
 		
 							
 							# Combine with a date to properly calculate difference
-							current_ist_time = datetime.now(self.ist_zone)
-							today = current_ist_time.date()
-							departure_datetime = datetime.combine(today, departure_time_obj)
+							
+							today = self.timeutils.getCurrentDate()
+							departure_datetime = datetime.combine(currFltDate_dt, departure_time_obj)
 							current_datetime = datetime.combine(today, current_time_obj)
 
 							# Handle overnight case where departure is on the "next" day relative to current time
-							if departure_datetime < current_datetime:
-								departure_datetime += timedelta(days=1)
+							if departure_datetime > current_datetime:
+								
 
-							hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
+								hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
 
-							trigger_hours = 0
-							time_8am = time(8, 0)
-							time_12pm = time(12, 0)
+								trigger_hours = 0
+								time_8am = time(8, 0)
+								time_12pm = time(12, 0)
 
-							if time_8am <= departure_time_obj < time_12pm:
-								# For flights departing between 8 AM and 12 PM
-								trigger_hours = 12
-							else:
-								# For flights departing between 12 PM and 8 AM (next day)
-								trigger_hours = 14
+								if time_8am <= departure_time_obj < time_12pm:
+									# For flights departing between 8 AM and 12 PM
+									trigger_hours = 12
+								else:
+									# For flights departing between 12 PM and 8 AM (next day)
+									trigger_hours = 8
 
-							if hours_to_departure <= trigger_hours:
-								self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
-								is_spoilage_reduction_active = True
-							else:
-								self.logger.info(f"Spoilage Reduction Inactive: Outside time window. Hours to departure: {hours_to_departure:.2f} > Trigger: {trigger_hours}hrs.")
+								if hours_to_departure <= trigger_hours:
+									self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
+									is_spoilage_reduction_active = True
+								else:
+									self.logger.info(f"Spoilage Reduction Inactive: Outside time window. Hours to departure: {hours_to_departure:.2f} > Trigger: {trigger_hours}hrs.")
 						else:
 							self.logger.info(f"Spoilage Reduction Skipped: PLF ({final_plf:.2f}%) is above threshold ({self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD}%).")
 					else:

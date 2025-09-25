@@ -157,14 +157,43 @@ class RBDAllocations:
             self.logger.info("Applying D-0 Spoilage Reduction override.")
             try:
                 # 1. Find the RBD closest to the last seven sold average fare
-                B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - float(last_seven_avg_fare))
-                target_rbd_df_index = B2CRBDs['FareDiff'].idxmin()
+                B2CRBDs['FareDiff'] = B2CRBDs['Total'] - float(last_seven_avg_fare)
+                higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] > 0]
+                target_rbd_df_index = higher_fares['FareDiff'].idxmin()
                 
                 opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
 
                 # Ensure the system isn't already opening at a price point higher than the target
                 if opening_rbd_df_index > target_rbd_df_index:
-                    self.logger.info("Spoilage Reduction Skipped: System opening RBD is already higher than the Last 7 Sold RBD.")
+                    self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
+            
+                    # Calculate 97% of total capacity for the target RBD
+                    ninety_seven_percent_seats = round(totalCapacity * 0.97)
+                    remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
+                    
+                    # Find the next level RBD (one level higher in price than target)
+                    next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
+                    
+                    # Override allocations in currRec
+                    status = "D-0 Spoilage Reduction - 97% at Target RBD"
+                    
+                    # Set allocations for all RBDs
+                    for i in range(B2CRBDs.shape[0]):
+                        au_class_index_to_update = i + 1
+                        
+                        if i < target_rbd_df_index:
+                            # For RBDs below target: set to current booked load (restrictive)
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
+                        elif i == target_rbd_df_index:
+                            # At target RBD: allocate 97% of total capacity
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
+                        elif i == next_level_rbd_df_index and i != target_rbd_df_index:
+                            # At next level RBD: allocate remaining 3% (cumulative, so 97% + 3% = 100%)
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+                        else:
+                            # For all other higher RBDs: open up fully
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+                    
                 else:
                     # 2. Determine the number of seats allocated normally *before* the target RBD
                     allocated_seats_before_target = 0

@@ -68,7 +68,7 @@ class ConstantsUtils:
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
         self.CUG_DISCOUNT = CUG_DISCOUNT
-        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 96
+        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
 
 
         self.logger = logging.getLogger()
