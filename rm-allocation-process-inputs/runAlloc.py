@@ -630,7 +630,7 @@ class DynAlloc:
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
 			
 			is_spoilage_reduction_active = False
-			if ndocounter == 0 :
+			if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
 				self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
 				try:
 					# 1. Check for last seven sold fare availability

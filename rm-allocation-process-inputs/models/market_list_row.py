@@ -98,3 +98,4 @@ class MarketListRow:
         self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
         self.forecastAllocFlag = currParams.get("forecastAllocFlag", 0)
+        self.Spoilage_Flag = currParams.get("Spoilage_Flag", 0)

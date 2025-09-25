@@ -149,6 +149,7 @@ GROUP BY
     ml.Marketfare_Upsell,
     ml.Outbound_Stop,
     ml.forecastAllocFlag,
+    ml.Spoilage_Flag,
     bfd.BookingsCount,
     bfd.BookingToday, 
     bfd.BookingsInHour,
