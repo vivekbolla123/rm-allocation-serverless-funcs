@@ -224,7 +224,7 @@ class DetermineRBD:
                 return False
             
             for other in others:
-                if other is None:
+                if not value_exist(other):
                     continue 
                 if val1 <= other:
                     return False
@@ -306,7 +306,7 @@ class DetermineRBD:
         def get_imp_forecast_history(hours):
             try:
                 try:
-                    origin = str(currParams.origin).strip()  # Fixed: strip() not trim()
+                    origin = str(currParams.origin).strip()
                     destin = str(currParams.destin).strip()
                     flight_number = str(currParams.flight_number).strip()
                     departure_date = datetime.strptime(currParams.per_start, DATE_FORMAT).date()
