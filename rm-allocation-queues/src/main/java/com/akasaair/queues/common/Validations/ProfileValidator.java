@@ -7,8 +7,7 @@ import static com.akasaair.queues.common.constants.Constants.*;
 public class ProfileValidator implements Validator {
 
     private static final List<String> VALID_MONTHS = Arrays.asList(
-            "January", "February", "March", "April", "May", "June", 
-            "July", "August", "September", "October", "November", "December"
+            "January_H1", "January_H2", "February_H1", "February_H2", "March_H1", "March_H2", "April_H1", "April_H2", "May_H1", "May_H2", "June_H1", "June_H2", "July_H1", "July_H2", "August_H1", "August_H2", "September_H1", "September_H2", "October_H1", "October_H2", "November_H1", "November_H2", "December_H1", "December_H2"
     );
 
     @Override
