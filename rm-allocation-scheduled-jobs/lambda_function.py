@@ -34,6 +34,7 @@ from input_audits import S3CsvCombiner
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
+from cugReport import CugReport
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -95,7 +96,8 @@ module_map = {
     "input_audits": S3CsvCombiner,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
-    "default_ml": defaultMarketlist
+    "default_ml": defaultMarketlist,
+    "cug_report": CugReport
 }
 
 
@@ -183,7 +185,7 @@ def lambda_handler(event, context):
 # }
 
 # messageBody = {
-#   "body": "{\"modules\":{\"default_ml\": 1}}"
+#   "body": "{\"modules\":{\"cug_report\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

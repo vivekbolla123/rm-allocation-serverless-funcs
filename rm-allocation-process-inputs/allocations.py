@@ -683,13 +683,13 @@ class RBDAllocations:
             forecastedPLF = 0
 
         # Condition 1: Valid range for PLF and NDO
-        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
+        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and int(cug_flag)==1 and int(cug_mkt_flag)==1
 
         if  is_applicable:
             # Find best RBD with fare <= profile_fare_value
             valid_rbds=w_rbds
             fare1 = b2copeningfare-(self.constantsutils.CUG_DISCOUNT*b2copeningfare)/100
-            fare2 = profile_fare_value
+            fare2 = profile_fare_value if profile_fare_value != 'NA' else b2copeningfare-(self.constantsutils.CUG_DISCOUNT*b2copeningfare)/100
             if min(fare1, fare2) == fare2:
                 less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_value]
                 if less_than_profile.empty:
@@ -718,8 +718,14 @@ class RBDAllocations:
             else:
                 less_than_profile = valid_rbds[valid_rbds['Total'] < fare1]
                 if less_than_profile.empty:
-                    # Handle empty case
-                    open_rbd = None  # or some other fallback
+                    # Handle empty case - open at 'WE'
+                    we_rbd = valid_rbds[valid_rbds['RBD'] == 'WE']
+                    if not we_rbd.empty:
+                        open_rbd = 'WE'
+                        opening_fare = we_rbd.iloc[0]['Total']
+                    else:
+                        open_rbd = None
+                        opening_fare = None
                 else:
                     closest_idx = (less_than_profile['Total'] - fare1).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
