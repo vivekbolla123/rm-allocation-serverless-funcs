@@ -118,5 +118,7 @@ public class MarketListEntity {
     public String b2bOutbound_Stop;
     @Column(name = "forecastAllocFlag")
     public String forecastAllocFlag;
+    @Column(name = "Spoilage_Flag")
+    public String Spoilage_Flag;
 
 }
