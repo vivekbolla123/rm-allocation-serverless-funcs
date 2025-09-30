@@ -18,8 +18,6 @@ class ActionSectors:
         self.logger = logger
         self.rm_rd_conn = params['wrconn']
         self.nav_conn = params['navconn']
-        self.dw_conn = params['dwconn']
-        self.cache_client = params['cache_client']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
