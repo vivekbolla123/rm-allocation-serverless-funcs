@@ -17,7 +17,7 @@ class RBDAllocations:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
 
-    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, overBookingFare=None, adjustedCapacity=None):
+    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
         
@@ -107,7 +107,7 @@ class RBDAllocations:
                     maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, 
                     incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, 
                     jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, 
-                    price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile
+                    price, b2bFactor, nextPrice, newProfileFares, counter, bookloadPercentile, imp_forecast
                 )
 
                 if first_rbd_alloc == CONST_NA:
@@ -152,6 +152,90 @@ class RBDAllocations:
             incremental_list.append(incremental)
             rbdlabel_list.append(RBDLabel)
             price_list.append(price)
+            
+        if is_spoilage_reduction_active and pd.notna(last_seven_avg_fare):
+            self.logger.info("Applying D-0 Spoilage Reduction override.")
+            try:
+                # 1. Find the RBD closest to the last seven sold average fare
+                B2CRBDs['FareDiff'] = B2CRBDs['Total'] - float(last_seven_avg_fare)
+                higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] > 0]
+                target_rbd_df_index = higher_fares['FareDiff'].idxmin()
+                
+                opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
+
+                # Ensure the system isn't already opening at a price point higher than the target
+                if opening_rbd_df_index > target_rbd_df_index:
+                    self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
+            
+                    # Calculate 97% of total capacity for the target RBD
+                    ninety_seven_percent_seats = round(totalCapacity * 0.97)
+                    remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
+                    
+                    # Find the next level RBD (one level higher in price than target)
+                    next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
+                    
+                    # Override allocations in currRec
+                    status = "D-0 Spoilage Reduction - 97% at Target RBD"
+                    
+                    # Set allocations for all RBDs
+                    for i in range(B2CRBDs.shape[0]):
+                        au_class_index_to_update = i + 1
+                        
+                        if i < target_rbd_df_index:
+                            # For RBDs below target: set to current booked load (restrictive)
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
+                        elif i == target_rbd_df_index:
+                            # At target RBD: allocate 97% of total capacity
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
+                        elif i == next_level_rbd_df_index and i != target_rbd_df_index:
+                            # At next level RBD: allocate remaining 3% (cumulative, so 97% + 3% = 100%)
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+                        else:
+                            # For all other higher RBDs: open up fully
+                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+                    
+                else:
+                    # 2. Determine the number of seats allocated normally *before* the target RBD
+                    allocated_seats_before_target = 0
+                    if target_rbd_df_index > 0:
+                        # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
+                        au_index_before_target = target_rbd_df_index 
+                        allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
+                        # If the value is None (should not happen but good practice), default to current booked load
+                        if allocated_seats_before_target is None:
+                            allocated_seats_before_target = currBookedLoad
+                    else:
+                        # If the target RBD is the first one, the base is simply the current booked load
+                        allocated_seats_before_target = currBookedLoad
+
+                    # 3. Calculate the pool of seats to be distributed from this point forward
+                    seats_to_distribute = totalCapacity - allocated_seats_before_target
+
+                    if seats_to_distribute > 0:
+                        # 4. Calculate the 97% split based on this *correct* pool of seats
+                        ninety_seven_percent_seats = round(seats_to_distribute * 0.97)
+                        
+                        # The new AU values are cumulative, built upon the allocation of the previous class
+                        au_at_target_rbd = allocated_seats_before_target + ninety_seven_percent_seats
+                        au_at_next_rbds = totalCapacity # The rest will open up fully
+
+                        # 5. Override allocations in currRec from the target RBD onwards
+                        status = "D-0 Spoilage Reduction" # Update the status message
+                        
+                        # Iterate through the DataFrame from the target index to the end
+                        for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
+                            au_class_index_to_update = i + 1
+                            if i == target_rbd_df_index:
+                                # At the target RBD, dump 97% of the remaining seats
+                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(au_at_target_rbd))
+                            else:
+                                # For all subsequent (more expensive) RBDs, open up fully
+                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(au_at_next_rbds))
+                    else:
+                        self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
+
+            except Exception as e:
+                self.logger.error(f"Error during spoilage reduction override: {e}")
         
         data = {
         'jumpingRBDPrice': jumpingRBDPrice_list,
@@ -167,7 +251,7 @@ class RBDAllocations:
 
         return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice, first_rbd_alloc, other_rbd_alloc
 
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, overBookingFare=None, adjustedCapacity=None):
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
@@ -178,7 +262,7 @@ class RBDAllocations:
         _, _, _, df_unique_0, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
+            bookloadPercentile, upsellValue, imp_forecast, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         currRec_copy = copy.deepcopy(currRec)
@@ -188,7 +272,7 @@ class RBDAllocations:
         _, _, _, df_unique_1, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, overBookingFare, adjustedCapacity
+            bookloadPercentile, upsellValue, imp_forecast, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         df_unique_1_modified = df_unique_1.copy()
@@ -208,18 +292,18 @@ class RBDAllocations:
         # Return results of both allocations
         return final_df
 
-    def getIncrementalValue(self, currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, profileExtract, counter, bookloadPercentile):
+    def getIncrementalValue(self, currBookedLoad, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, profileExtract, counter, bookloadPercentile, imp_forecast):
         first_rbd_alloc = firstRDBAllocation
         other_rbd_alloc = otherRDBAllocation
         if int(currParams.rbdPushFlag) == 0:
             status = 'Normal AU allocation'
-            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice)
+            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, imp_forecast)
         if int(currParams.rbdPushFlag) == 1:
             if profileFare == CONST_NA or profileFare == 0:
                 status = 'Normal AU allocation-profileFare NA'
                 if int(currParams.profileFares) == 0:
                     status = 'Normal AU allocation-profileFare skipped'
-                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice)
+                openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc = self.calculateD3D4Values(currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, imp_forecast)
             elif len(profileExtract) == 0 and profileFare != CONST_NA:
                 status = 'AU allocation based on quartiles'
                 if profileFare <= openingRBDPrice:
@@ -246,7 +330,7 @@ class RBDAllocations:
 
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, counter, status, bookloadPercentile, first_rbd_alloc, other_rbd_alloc
 
-    def calculateD3D4Values(self, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice):
+    def calculateD3D4Values(self, currBookedLoad, bookedDeficit, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, incremental, incrementalb2b, jumpingRBDPrice, entryRDB, d3Allocation, jumpPercent, remainingRBD, firstRDBAllocation, otherRDBAllocation, price, b2bFactor, nextPrice, imp_forecast):
         first_rbd_alloc = firstRDBAllocation
         other_rbd_alloc = otherRDBAllocation
         # Positive Allocation
@@ -261,25 +345,11 @@ class RBDAllocations:
             other_rbd_alloc = d4Allocation
 
         # Negative -1 Allocation
-        elif firstRDBAllocation == DEFICIT_ALLOCATION:
-            bookedDef = int(round(bookedDeficit, 0))
-            if bookedDef <= 0:
-                bookedDef = 0
-            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, bookedDef, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-            first_rbd_alloc = bookedDef
-            other_rbd_alloc = otherRDBAllocation
-
-        # Negative -2 Allocation
-        elif firstRDBAllocation == LINEAR_ALLOCATION:
-            allocation = int(round(remainingCapacity/otherRDBAllocation, 0))
-            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-            first_rbd_alloc = other_rbd_alloc = allocation
-
-        # Negative -3 Allocation
-        elif firstRDBAllocation == LINEAR_ALLOCATION_WITH_JUMP:
-            allocation = int(round(remainingCapacity/otherRDBAllocation, 0))
-            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, allocation, allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
-            first_rbd_alloc = other_rbd_alloc = allocation
+        elif firstRDBAllocation == FORECAST_ALLOCATION:
+            openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD = self.d3d4_forecast_calculations(dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, entryRDB, remainingRBD, d3Allocation, jumpPercent, imp_forecast)
+            openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
+            first_rbd_alloc = d3Allocation
+            other_rbd_alloc = d4Allocation
 
         return openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b, first_rbd_alloc, other_rbd_alloc
 
@@ -337,6 +407,86 @@ class RBDAllocations:
 
         return openRBDIndex, incremental, profileFare, incrementalb2b, counter, bookloadPercentile
 
+    def d3d4_forecast_calculations(self, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, entryRDB, remainingRBD, d3Allocation, jumpPercent, imp_forecast):
+        maxLimit = self.mathutils.generateMaxValue(remainingCapacity, ndocounter)
+        if entryRDB:
+            if jumpPercent > 0 and openingRBDPrice - maxRBDPrice != 0:
+                remainingRBD = self.mathutils.calculateLogValueForD3(maxRBDPrice, openingRBDPrice, jumpPercent)
+
+            DEFAULT_D3_VALUE = self.constantsutils.DEFAULT_D3_VALUE
+            D3_MIN_RULES = self.constantsutils.D3_MIN_RULES
+            D3_MAX_RULES = self.constantsutils.D3_MAX_RULES
+
+            d3Allocation = DEFAULT_D3_VALUE
+            if imp_forecast != CONST_NA:
+                try:
+                    forecast_factor = self.mathutils.calc_forecast_factor(imp_forecast)
+                    d3Allocation = self.mathutils.calculate_forecast_d3(
+                        forecast_factor, remainingCapacity, remainingRBD, ndocounter
+                    )
+
+                    # ---------- MIN RULE ----------
+                    min_band = None
+                    for rule_name, rule in D3_MIN_RULES.items():
+                        if rule['forecast_start'] <= imp_forecast <= rule['forecast_end']:
+                            min_band = rule_name
+                            break
+
+                    if min_band == 'H':
+                        min_d3_value = 3
+                    elif min_band == 'L':
+                        min_d3_value = 5
+                    else:
+                        min_d3_value = None
+
+                    if min_d3_value is not None:
+                        d3Allocation = round(max(d3Allocation, min_d3_value))
+                    else:
+                        d3Allocation = DEFAULT_D3_VALUE
+
+                    # ---------- MAX RULE ----------
+                    max_band = None
+                    for rule_name, rule in D3_MAX_RULES.items():
+                        if rule['forecast_start'] <= imp_forecast <= rule['forecast_end']:
+                            if 'ndo_start' in rule and 'ndo_end' in rule:
+                                if not (rule['ndo_start'] <= ndocounter <= rule['ndo_end']):
+                                    continue
+                            max_band = rule_name
+                            break
+
+                    if max_band == 'L':
+                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 0.5 * remainingCapacity)
+                    elif max_band == 'M':
+                        max_d3_value = max(0.4 * remainingCapacity, 10)
+                    elif max_band == 'H1':
+                        max_d3_value = max(0.2 * remainingCapacity, 7)
+                    elif max_band == 'H2':
+                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 7)
+                    else:
+                        max_d3_value = None
+
+                    if max_d3_value is not None:
+                        d3Allocation = round(min(d3Allocation, max_d3_value))
+                    else:
+                        d3Allocation = DEFAULT_D3_VALUE
+
+                except Exception as e:
+                    self.logger.error(f'Defaulting to default D3 value {DEFAULT_D3_VALUE}, error: {e}')
+                    d3Allocation = DEFAULT_D3_VALUE
+            
+            entryRDB = False
+
+        openRBDIndex = openRBDIndex + 1
+
+        d4Allocation = self.mathutils.dynamicAllocationD4Formula(dPLF, openRBDIndex, d3Allocation)
+
+        if d4Allocation <= self.constantsutils.MIN_D3_D4_VALUE:
+            d4Allocation = self.constantsutils.MIN_D3_D4_VALUE
+        elif d4Allocation >= maxLimit:
+            d4Allocation = maxLimit
+
+        return openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD
+    
     def d3d4Calculations(self, dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, entryRDB, remainingRBD, d3Allocation, jumpPercent):
         maxLimit = self.mathutils.generateMaxValue(remainingCapacity, ndocounter)
         if entryRDB:
@@ -361,7 +511,7 @@ class RBDAllocations:
 
         return openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD
 
-    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount):
+    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
         openingB2CRBD = openDataB2C['RBD'][0]
@@ -382,7 +532,7 @@ class RBDAllocations:
             price = B2BRBDs['Total'][b2bctr]
             b2bStatus = openDataB2B['statusInd'][0]
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-            if overBookingCount>0:
+            if overBookingCount>0 or B2B_thresholdflag:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
             else:
                 if b2bSkipFlag:
@@ -786,11 +936,6 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
                 
-        elif not (10 <= ndo <= 30 and forecastedPLF < 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1):
-            for rbd in w_rbd_list:
-                currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
-                currRec.set_class_attribute(brd_counter, 'class_au', 0)
-                brd_counter += 1
         else:
             for rbd in w_rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
