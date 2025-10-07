@@ -857,7 +857,7 @@ class DynAllocConnections:
             self.runId, self.cache_client, self.inputSource)
         self.logger = OwnLogger(self.runId, self.inputSource)
         self.rmdatabasehelper = RMDatabaseHelper(
-            self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
+            self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
         self.constantsUtils = ConstantsUtils(self.conn)
         self.utils = Utils(self.inputSource)
         self.mathutils = MathUtils(self.inputSource)

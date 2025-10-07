@@ -78,7 +78,7 @@ class ConstantsUtils:
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
-        self.conn = conn
+        self.db = conn
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
@@ -230,10 +230,10 @@ class ConstantsUtils:
                 self.D3_MAX_RULES = json.loads(parameter_value)
                 
     def get_parameters(self):
-        parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
         parameterValue = None  # Initialize with a default value
         try:
-            parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+            results = list(self.db.rm_parameter_values.find({}, {"parameterKey": 1, "parameterValue": 1, "_id": 0}))
+            parameterValue = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()

@@ -11,11 +11,13 @@ from sqlalchemy import create_engine
 from load_tests_db_data import Schema
 from runAlloc import DynAlloc
 from runAlloc_SalesInv import DynAllocSalesInv
+from pymongo import MongoClient
 
 def testCase1():
-    DB_WR_CONN_STRING = f"mysql+pymysql://root:root@localhost/localtest"
-    conn = create_engine(DB_WR_CONN_STRING)
-
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['rm_database']
+    
+    
     inputData = {
         "debugMode": False,
         "isUpdateNavitaire": False,
@@ -45,9 +47,10 @@ def testCase1():
         "runId": "Test12345",
         "runSingleMarket": False,
         "NavitaireConnection": None,
-        "dbconn": conn,
-        "wrconn": conn,
-        "dwconn":conn,
+        "dbconn": None,
+        "wrconn": None,
+        "dwconn":None,
+        "mongodbclient":db,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
@@ -58,7 +61,7 @@ def testCase1():
     }
     outputData = {}
 
-    schema = Schema(conn)
+    schema = Schema(db)
     schema.initializTables()
 
     DynAlloc(inputData, currParams)

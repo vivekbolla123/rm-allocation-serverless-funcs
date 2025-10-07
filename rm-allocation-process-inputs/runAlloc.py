@@ -1369,7 +1369,7 @@ class DynAlloc:
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
+		self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
 		self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
 		self.constantsUtils = ConstantsUtils(self.conn)
 		self.utils = Utils(self.inputSource)
