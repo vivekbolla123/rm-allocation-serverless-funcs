@@ -119,7 +119,7 @@ class Schema:
         # self.transform_numeric_fields()
         
         # Transform time fields
-        self.transform_time_fields()
+        # self.transform_time_fields()
         
         print("Transformations completed")
     def transform_bookload(self):
@@ -154,107 +154,6 @@ class Schema:
         except Exception as e:
             print(f"Error transforming bookload: {e}")
 
-    def transform_numeric_fields(self):
-        """Transform numeric fields to proper types"""
-        
-        # d1_d2_strategies: convert to integers
-        try:
-            docs = list(self.db.d1_d2_strategies.find())
-            for doc in docs:
-                updates = {}
-                if 'ndo_band' in doc:
-                    updates['ndo_band'] = int(doc['ndo_band']) if doc['ndo_band'] else None
-                if 'dplf_band' in doc:
-                    updates['dplf_band'] = int(doc['dplf_band']) if doc['dplf_band'] else None
-                if 'offset' in doc:
-                    updates['offset'] = int(doc['offset']) if doc['offset'] else None
-                
-                if updates:
-                    self.db.d1_d2_strategies.update_one(
-                        {'_id': doc['_id']},
-                        {'$set': updates}
-                    )
-        except Exception as e:
-            print(f"Error transforming d1_d2_strategies: {e}")
-        
-        # dplf_bands: convert to integers
-        try:
-            docs = list(self.db.dplf_bands.find())
-            for doc in docs:
-                updates = {}
-                if 'dplf_band' in doc:
-                    updates['dplf_band'] = int(doc['dplf_band']) if doc['dplf_band'] else None
-                if 'start' in doc:
-                    updates['start'] = int(doc['start']) if doc['start'] else None
-                if 'end' in doc:
-                    updates['end'] = int(doc['end']) if doc['end'] else None
-                
-                if updates:
-                    self.db.dplf_bands.update_one(
-                        {'_id': doc['_id']},
-                        {'$set': updates}
-                    )
-        except Exception as e:
-            print(f"Error transforming dplf_bands: {e}")
-        
-        # ndo_bands: convert to integers
-        try:
-            docs = list(self.db.ndo_bands.find())
-            for doc in docs:
-                updates = {}
-                if 'ndo_band' in doc:
-                    updates['ndo_band'] = int(doc['ndo_band']) if doc['ndo_band'] else None
-                if 'start' in doc:
-                    updates['start'] = int(doc['start']) if doc['start'] else None
-                if 'end' in doc:
-                    updates['end'] = int(doc['end']) if doc['end'] else None
-                
-                if updates:
-                    self.db.ndo_bands.update_one(
-                        {'_id': doc['_id']},
-                        {'$set': updates}
-                    )
-        except Exception as e:
-            print(f"Error transforming ndo_bands: {e}")
-
-    def transform_time_fields(self):
-        """Transform time fields in config_ownFares"""
-        try:
-            docs = list(self.db.config_ownFares.find())
-            for doc in docs:
-                updates = {}
-                
-                # Convert startTime and endTime to proper time format
-                if 'startTime' in doc and isinstance(doc['startTime'], str):
-                    try:
-                        time_obj = datetime.strptime(doc['startTime'], '%H:%M:%S').time()
-                        updates['startTime'] = time_obj
-                    except:
-                        pass
-                
-                if 'endTime' in doc and isinstance(doc['endTime'], str):
-                    try:
-                        time_obj = datetime.strptime(doc['endTime'], '%H:%M:%S').time()
-                        updates['endTime'] = time_obj
-                    except:
-                        pass
-                
-                # Convert numeric columns (0-6) to integers
-                for i in range(7):
-                    col = str(i)
-                    if col in doc:
-                        try:
-                            updates[col] = int(doc[col]) if doc[col] else None
-                        except:
-                            pass
-                
-                if updates:
-                    self.db.config_ownFares.update_one(
-                        {'_id': doc['_id']},
-                        {'$set': updates}
-                    )
-        except Exception as e:
-            print(f"Error transforming config_ownFares: {e}")
 
     def __del__(self):
         # MongoDB connections are typically managed by the client
