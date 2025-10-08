@@ -66,6 +66,25 @@ class Schema:
         """Load a CSV file into a MongoDB Collection"""
         rawdata = pd.read_csv(f"{sys.path[0]}/testcases/input/" + dataFile)
         
+        if collectionName in ["market_fares_ag", "market_fares_rg"]:
+            # Convert departure_date to full datetime (MongoDB compatible)
+            if "departure_date" in rawdata.columns:
+                rawdata["departure_date"] = pd.to_datetime(
+                    rawdata["departure_date"], errors="coerce", format="%Y-%m-%d"
+                )
+
+            # Convert outbound_departuretime (e.g., "5:45") to datetime
+            if "outbound_stop" in rawdata.columns:
+                def parse_time(t):
+                    try:
+                        # Pad single-digit hour with 0
+                        t_str = str(t).strip()
+                        return t_str
+                    except:
+                        return None
+
+                rawdata["outbound_stop"] = rawdata["outbound_stop"].apply(parse_time)
+
         # Select the appropriate database
         db = self.dw_db if use_dw else self.db
         
@@ -95,14 +114,14 @@ class Schema:
         # Transform bookload - convert DepartureDate strings to dates
         self.transform_bookload()
         
+        
         # Transform numeric fields in various collections
-        self.transform_numeric_fields()
+        # self.transform_numeric_fields()
         
         # Transform time fields
         self.transform_time_fields()
         
         print("Transformations completed")
-
     def transform_bookload(self):
         """Transform bookload collection date and flight number fields"""
         try:

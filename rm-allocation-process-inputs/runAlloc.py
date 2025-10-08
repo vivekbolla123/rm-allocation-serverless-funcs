@@ -1415,10 +1415,11 @@ class DynAlloc:
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
 		booked_seats = self.currParams.total_series_seats
 		total_count = 0
-		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)):
-			total_count = blocked_seats['blocked'][0]-booked_seats
-		elif (blocked_seats['blocked'][0] is not None):
-			total_count = blocked_seats['blocked'][0]
+		if len(blocked_seats)>0:
+			if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)) and (not CONST_NA):
+				total_count = blocked_seats['blocked'][0]-booked_seats
+			elif (blocked_seats['blocked'][0] is not None):
+				total_count = blocked_seats['blocked'][0]
 		return currBookedLoad+total_count
 
 	def recommend_action(self, row):
