@@ -9,7 +9,7 @@ import time
 import logging
 import configsettings
 from datetime import datetime 
-from sqlalchemy import create_engine,text
+from pymongo import MongoClient
 import pandas as pd
 from redis import Redis
 
@@ -18,7 +18,8 @@ warnings.filterwarnings('ignore')
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-DB_WR_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+# MongoDB connection string
+MONGO_CONNECTION_STRING = f"mongodb://localhost:27017/"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -35,12 +36,18 @@ KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 try:
-    conn = create_engine(DB_WR_CONN_STRING)
+    mongo_client = MongoClient(MONGO_CONNECTION_STRING)
+    db = mongo_client["qp_dw_rmalloc"]
+    
+    # Collections
+    allocation_run_audit_col = db['allocation_run_audit']
+    run_flight_date_audit_col = db['run_flight_date_audit']
+    
 except Exception as e:
     logger.error(e)
     sys.exit()
 
-logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+logger.info("SUCCESS: Connection to MongoDB instance succeeded")
 
 
 def lambda_handler(event, context):
@@ -53,12 +60,12 @@ def lambda_handler(event, context):
 
     }
     records = event['Records']
-    processor = DataProcessor(data,context)
+    processor = DataProcessor(data, context)
     
     for record in records:
         content = record['body']
         data = json.loads(content)
-        runid=data["run_id"]
+        runid = data["run_id"]
         logger.info(f"started ftp upload: {runid}")
         processor.fetch_data(runid)
     return {
@@ -68,9 +75,9 @@ def lambda_handler(event, context):
 
 
 class DataProcessor:
-    def __init__(self, configData,context):
+    def __init__(self, configData, context):
         # Define your instance variables here
-        self.context=context
+        self.context = context
         self.starttime = configData["starttime"]
         self.refresh_time = configData["refresh_time"]
         self.chunk_size = configData["chunk_size"]
@@ -119,15 +126,13 @@ class DataProcessor:
                 
                 if all_done:
                     actual_end_time = datetime.now()
-                    update_query = text("""
-                        UPDATE allocation_run_audit 
-                        SET is_sftp_pushed = '1', actual_end_time = :actual_end_time 
-                        WHERE run_id = :runid
-                    """)
-                    conn.execute(update_query, {
-                        "actual_end_time": actual_end_time.strftime('%Y-%m-%d %H:%M:%S'),
-                        "runid": runid
-                    })
+                    allocation_run_audit_col.update_one(
+                        {"run_id": runid},
+                        {"$set": {
+                            "is_sftp_pushed": "1",
+                            "actual_end_time": actual_end_time
+                        }}
+                    )
                 
                 sftp.close()
                 transport.close()
@@ -142,21 +147,17 @@ class DataProcessor:
         
         if timeout == 900:
             logger.info("Time limit exceeded 13 minutes")
-    # Check if the remote file already exists
-    
-        # Upload the local file to the SFTP server
-    
 
-    def pad_rbd_value(self,rbd_value):
+    def pad_rbd_value(self, rbd_value):
         return f"{rbd_value:04}"
 
-    def format_date(self,date_string):
+    def format_date(self, date_string):
         # Assuming date_string is in the format YYYY-MM-DD
         date_obj = datetime.strptime(date_string, "%Y-%m-%d")
         return date_obj.strftime("%Y%m%d")
 
     # Define a function to generate the file content
-    def generate_file_content_conn(self,departurdate, flightno1, sector1, flightno2, sector2, rbds):
+    def generate_file_content_conn(self, departurdate, flightno1, sector1, flightno2, sector2, rbds):
         file_content = ""
         for rbd_value in rbds:
             if int(rbds[rbd_value]) >= 0:
@@ -170,9 +171,9 @@ class DataProcessor:
     def generate_file_content_direct(self, departurdate, flightno, sector, rbds):
         file_content = ""
         for rbd_value in rbds:
-            if int(rbds[rbd_value])>=0:
-                rbd, rbd_value = rbd_value,self.pad_rbd_value(int(rbds[rbd_value]))
-                final_date=self.format_date(departurdate)
+            if int(rbds[rbd_value]) >= 0:
+                rbd, rbd_value = rbd_value, self.pad_rbd_value(int(rbds[rbd_value]))
+                final_date = self.format_date(departurdate)
                 line = f"{final_date} QP   {flightno.rjust(4, ' ')} {sector}{' ' * (41 - len(sector))}"
                 line += f"C {rbd}{' ' * (9 - len(rbd))}{rbd_value} {rbd_value}\n"
                 file_content += line
@@ -181,18 +182,18 @@ class DataProcessor:
     # Function to upload the file to SFTP
     def push_message_back_to_sqs(self, runid):
         # Check current retry count
-        retry_query = text("SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = :runid")
-        retry_count_result = pd.read_sql(retry_query, conn, params={"runid": runid})
+        retry_count_result = allocation_run_audit_col.find_one(
+            {"run_id": runid},
+            {"sftp_retry_count": 1}
+        )
         
         # Only push back to SQS if retry count is less than 2
-        if int(retry_count_result['sftp_retry_count'].iloc[0]) < 2:
+        if retry_count_result and int(retry_count_result.get('sftp_retry_count', 0)) < 2:
             # Increment retry count
-            update_query = text("""
-                UPDATE allocation_run_audit 
-                SET sftp_retry_count = sftp_retry_count + 1 
-                WHERE run_id = :runid
-            """)
-            conn.execute(update_query, {"runid": runid})
+            allocation_run_audit_col.update_one(
+                {"run_id": runid},
+                {"$inc": {"sftp_retry_count": 1}}
+            )
             
             sqs_client = boto3.client('sqs')
             message_body = {
@@ -207,26 +208,32 @@ class DataProcessor:
             logger.info(f"Maximum retry attempts reached for run_id: {runid}")
         
     def fetch_data(self, runid):
-        retry_query = text("SELECT sftp_retry_count FROM allocation_run_audit WHERE run_id = :runid")
-        retry_count_result = pd.read_sql(retry_query, conn, params={"runid": runid})
+        retry_count_result = allocation_run_audit_col.find_one(
+            {"run_id": runid},
+            {"sftp_retry_count": 1}
+        )
         
         # If retry count is already 2 or more, stop processing
-        if int(retry_count_result['sftp_retry_count'].iloc[0]) >= 2:
+        if retry_count_result and int(retry_count_result.get('sftp_retry_count', 0)) >= 2:
             logger.info(f"Maximum retry attempts reached for run_id: {runid}")
             return
         
-        data_query = text("""
-            SELECT result, flightNumber, flightDate 
-            FROM run_flight_date_audit 
-            WHERE runId = :runid 
-            AND (b2cstatus != 'Done' OR b2bstatus != 'Done')
-        """)
-        data = conn.execute(data_query, {"runid": runid})
+        # Fetch data from MongoDB
+        data_cursor = run_flight_date_audit_col.find(
+            {
+                "runId": runid,
+                "$or": [
+                    {"b2cstatus": {"$ne": "Done"}},
+                    {"b2bstatus": {"$ne": "Done"}}
+                ]
+            },
+            {"result": 1, "flightNumber": 1, "flightDate": 1}
+        )
         
         # Generate and write data to the AUUPDATE file
         file_name = configsettings.TEMP_FILE_NAME  # Use Lambda's /tmp directory
         with open(file_name, 'w') as file:
-            for row in data:
+            for row in data_cursor:
                 file_size = os.path.getsize(file_name)
                 if (self.context.get_remaining_time_in_millis() < configsettings.EXP_TIME or file_size > configsettings.MAX_FILE_SIZE):
                     logger.error("Lambda is about to time out, message pushed back to SQS.")
@@ -234,23 +241,23 @@ class DataProcessor:
                     self.push_message_back_to_sqs(runid)
                     return
                 
-                update_query = text("""
-                    UPDATE run_flight_date_audit 
-                    SET b2cstatus = 'Done', b2bstatus = 'Done' 
-                    WHERE runId = :runid 
-                    AND flightNumber = :flightNumber 
-                    AND flightDate = :flightDate
-                """)
-                conn.execute(update_query, {
-                    "runid": runid,
-                    "flightNumber": row['flightNumber'],
-                    "flightDate": row['flightDate']
-                })
+                # Update the document
+                run_flight_date_audit_col.update_one(
+                    {
+                        "runId": runid,
+                        "flightNumber": row['flightNumber'],
+                        "flightDate": row['flightDate']
+                    },
+                    {"$set": {
+                        "b2cstatus": "Done",
+                        "b2bstatus": "Done"
+                    }}
+                )
                 
                 cache_client.incr(KEY_B2B_DONE_COUNT + runid, 1)
                 cache_client.incr(KEY_B2C_DONE_COUNT + runid, 1)
 
-                if row["result"] is not None:
+                if row.get("result") is not None:
                     data = json.loads(row["result"])
                     if data["type"] == "R":
                         departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"], data["sector1"], data["flightNo2"], data["sector2"]
@@ -268,17 +275,31 @@ class DataProcessor:
         self.upload_to_sftp(file_name, runid)
 
     def is_all_allocation_done(self, run_id):
-        # b2b_pending_count = cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
-        # b2c_pending_count = cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
-        # b2b_done_count = cache_client.get(KEY_B2B_DONE_COUNT + run_id)
-        # b2c_done_count = cache_client.get(KEY_B2C_DONE_COUNT + run_id)
+        # Count total documents and documents with 'Done' status
+        pipeline = [
+            {"$match": {"runId": run_id}},
+            {"$group": {
+                "_id": None,
+                "total_count": {"$sum": 1},
+                "b2c_done_count": {
+                    "$sum": {"$cond": [{"$eq": ["$b2cstatus", "Done"]}, 1, 0]}
+                },
+                "b2b_done_count": {
+                    "$sum": {"$cond": [{"$eq": ["$b2bstatus", "Done"]}, 1, 0]}
+                }
+            }}
+        ]
         
-        # return int(b2b_pending_count) + int(b2c_pending_count) <= int(b2b_done_count) + int(b2c_done_count)
-    
-        query=f'''SELECT CASE WHEN COUNT(*) = SUM(b2cstatus = 'Done') AND COUNT(*) = SUM(b2bstatus = 'Done') THEN TRUE ELSE FALSE END AS all_done FROM QP_DW_RMALLOC.run_flight_date_audit WHERE runid = "{run_id}"'''
-        all_done = pd.read_sql(query,conn)
-        return all_done["all_done"][0] == 1
+        result = list(run_flight_date_audit_col.aggregate(pipeline))
         
-# messageBody = {"run_id":"dcae96e5-c754-4006-8895-b7dba03edab0"}
+        if result:
+            total = result[0]['total_count']
+            b2c_done = result[0]['b2c_done_count']
+            b2b_done = result[0]['b2b_done_count']
+            return total == b2c_done and total == b2b_done
+        
+        return False
+        
+# messageBody = {"run_id":"c9e3ce37-d40f-4580-8a8c-f5609d897f06"}
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
 # lambda_handler(event, None)
