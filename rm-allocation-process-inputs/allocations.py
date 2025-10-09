@@ -807,7 +807,7 @@ class RBDAllocations:
                 
         return brd_counter
 
-    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo,b2copeningfare,cug_bookings_dict,cug_flag,cug_mkt_flag,sector):
+    def cug_allocation(self, brd_counter, currParams, currRec, B2CRBDs, adjustedCapacity, profile_fare_value, currFltDate, ndo, b2copeningfare, cug_bookings_dict, cug_flag, cug_mkt_flag, sector):
         """
         Simplified W-series RBD allocation:
         - Allocates only if forecastedPLF < 90 and 8 <= ndo <= 30
@@ -824,27 +824,47 @@ class RBDAllocations:
         try:
             origin, destin, flight_number = currParams.origin, currParams.destin, currParams.flight_number
             departure_date = currFltDate
-            if currParams.forecastPLF!=CONST_NA:
+            if currParams.forecastPLF != CONST_NA:
                 forecastedPLF = currParams.forecastPLF
             else:
-                forecastedPLF=0
+                forecastedPLF = 0
         except Exception as e:
             self.logger.error(f"Error getting flight forecast data: {str(e)}")
             forecastedPLF = 0
 
-        # Condition 1: Valid range for PLF and NDO
-        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1
+        # Convert profile_fare_value to numeric
+        try:
+            if profile_fare_value == CONST_NA or profile_fare_value is None:
+                profile_fare_numeric = None
+            else:
+                profile_fare_numeric = float(profile_fare_value)
+        except (ValueError, TypeError):
+            profile_fare_numeric = None
 
-        if  is_applicable:
+        # Condition 1: Valid range for PLF and NDO
+        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and int(cug_flag) == 1 and int(cug_mkt_flag) == 1
+
+        if is_applicable:
             # Find best RBD with fare <= profile_fare_value
-            valid_rbds=w_rbds
-            fare1 = b2copeningfare-(self.constantsutils.CUG_DISCOUNT*b2copeningfare)/100
-            fare2 = profile_fare_value
+            valid_rbds = w_rbds
+            fare1 = b2copeningfare - (self.constantsutils.CUG_DISCOUNT * b2copeningfare) / 100
+            
+            # Set fare2 to numeric value or default to fare1
+            if profile_fare_numeric is not None:
+                fare2 = profile_fare_numeric
+            else:
+                fare2 = b2copeningfare - (self.constantsutils.CUG_DISCOUNT * b2copeningfare) / 100
+            
             if min(fare1, fare2) == fare2:
-                less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_value]
+                # Only filter if profile_fare_numeric is valid
+                if profile_fare_numeric is not None:
+                    less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_numeric]
+                else:
+                    less_than_profile = pd.DataFrame()  # Empty DataFrame
+                    
                 if less_than_profile.empty:
-                    fare = b2copeningfare-(self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
-                    if fare<max(valid_rbds['Total'].tolist()):
+                    fare = b2copeningfare - (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
+                    if fare < max(valid_rbds['Total'].tolist()):
                         
                         # Get values greater than fare
                         higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
@@ -862,14 +882,20 @@ class RBDAllocations:
                             print("No values higher than fare found")
                             open_rbd = None
                 else:
-                    closest_idx = (less_than_profile['Total'] - profile_fare_value).abs().idxmin()
+                    closest_idx = (less_than_profile['Total'] - profile_fare_numeric).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
                     opening_fare = valid_rbds.loc[closest_idx, 'Total']
             else:
                 less_than_profile = valid_rbds[valid_rbds['Total'] < fare1]
                 if less_than_profile.empty:
-                    # Handle empty case
-                    open_rbd = None  # or some other fallback
+                    # Handle empty case - open at 'WE'
+                    we_rbd = valid_rbds[valid_rbds['RBD'] == 'WE']
+                    if not we_rbd.empty:
+                        open_rbd = 'WE'
+                        opening_fare = we_rbd.iloc[0]['Total']
+                    else:
+                        open_rbd = None
+                        opening_fare = None
                 else:
                     closest_idx = (less_than_profile['Total'] - fare1).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
@@ -877,9 +903,9 @@ class RBDAllocations:
 
             # Condition 2: Fare gap check
             if open_rbd is not None:
-                if ( b2copeningfare-opening_fare) > (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
-                    fare = b2copeningfare-(self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
-                    if fare<max(valid_rbds['Total'].tolist()):
+                if (b2copeningfare - opening_fare) > (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
+                    fare = b2copeningfare - (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
+                    if fare < max(valid_rbds['Total'].tolist()):
                         
                         # Get values greater than fare
                         higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
@@ -898,9 +924,9 @@ class RBDAllocations:
                             open_rbd = None
                             
                     else:
-                        self.logger.info(f"Skipping cug allocation: fare ladder is lees than opening fare")
+                        self.logger.info(f"Skipping cug allocation: fare ladder is less than opening fare")
                         open_rbd = None   
-                    if opening_fare>b2copeningfare:
+                    if opening_fare and opening_fare > b2copeningfare:
                         self.logger.info(f"Skipping cug allocation: Opening fare is greater than b2c selling fare")
                         open_rbd = None
 
@@ -924,7 +950,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', allocation_value if rbd == open_rbd else 0)
                 brd_counter += 1
                 
-        elif (10 <= ndo <= 30 and forecastedPLF > 90 and profile_fare_value!='NA' and int(cug_flag)==1 and int(cug_mkt_flag)==1):
+        elif (10 <= ndo <= 30 and forecastedPLF > 90 and profile_fare_numeric is not None and int(cug_flag) == 1 and int(cug_mkt_flag) == 1):
             for rbd in w_rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
@@ -936,7 +962,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', -1)
                 brd_counter += 1
 
-        return brd_counter 
+        return brd_counter
 
 
     def b2CAllocation_connections(self, openDataB2C, currRec, minLid, currBookedLoad, SkippingFactor, currParams,should_allocate_to_y):
