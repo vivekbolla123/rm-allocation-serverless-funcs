@@ -834,7 +834,7 @@ class RBDAllocations:
 
         # Convert profile_fare_value to numeric
         try:
-            if profile_fare_value == 'NA' or profile_fare_value is None:
+            if profile_fare_value == CONST_NA or profile_fare_value is None:
                 profile_fare_numeric = None
             else:
                 profile_fare_numeric = float(profile_fare_value)

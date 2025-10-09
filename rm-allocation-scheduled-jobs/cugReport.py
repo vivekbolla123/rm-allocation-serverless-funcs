@@ -88,7 +88,6 @@ class CugReport:
                 Body=csv_content
             )
             
-            print(f"Successfully uploaded CUG report data to S3: s3://{bucket_name}/{s3_file_path}")
             return True
             
         except Exception as e:
@@ -100,8 +99,6 @@ class CugReport:
     def run(self):
         """Main method to run daily file generation."""
         try:
-            print("Starting CUG report generation...")
-            
             # Get the CUG run data (run_id is determined by the subquery in get_cug_run)
             df = self.get_cug_run()
             
@@ -112,13 +109,11 @@ class CugReport:
             # Extract run_id from the first row
             run_id = df['run_id'].iloc[0] if 'run_id' in df.columns else 'unknown'
             
-            print(f"Retrieved {len(df)} records for run_id: {run_id}")
-            
             # Upload to S3
             upload_success = self.upload_to_s3(df, run_id)
             
             if upload_success:
-                print(f"CUG report generation completed successfully for run_id: {run_id}")
+                self.logger.info(f"CUG report generation completed successfully for run_id: {run_id}")
                 return True
             else:
                 self.logger.error("Failed to upload CUG report to S3")
