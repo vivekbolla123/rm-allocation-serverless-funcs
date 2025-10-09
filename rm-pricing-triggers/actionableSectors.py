@@ -234,12 +234,12 @@ class ActionSectors:
             """
             
             if self.route == 'D':
-                # Add domestic route filter using station master
+                # Add domestic route filter
                 route_filter = """
                 AND outbound_stop = 0
                 """
             elif self.route == 'I':
-                # Add international route filter using station master
+                # Add international route filter
                 route_filter = """
                 AND outbound_stop >= 0
                 """
@@ -253,8 +253,7 @@ class ActionSectors:
                     outbound_airline_code, 
                     destination_airport,
                     source_airport,
-                    channel,
-                    created_at
+                    channel
                 FROM market_fares_ag
                 {base_conditions}
                 {route_filter}
@@ -266,71 +265,45 @@ class ActionSectors:
                     outbound_airline_code,
                     destination_airport,
                     source_airport,
-                    channel,
-                    created_at
+                    channel
                 FROM market_fares_rg
                 {base_conditions}
                 {route_filter}
             ),
-            latest_records AS (
+            min_max_fares AS (
                 SELECT 
-                    gross_fare,
-                    outbound_airline_code,
                     source_airport,
                     destination_airport,
                     channel,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY channel, destination_airport, source_airport, outbound_airline_code
-                        ORDER BY created_at DESC
-                    ) as row_num
+                    MIN(gross_fare) as min_fare,
+                    MAX(gross_fare) as max_fare,
+                    COUNT(DISTINCT gross_fare) as instances
                 FROM combined_data
-            ),
-            sector_channel_data AS (
-                SELECT 
-                    source_airport,
-                    destination_airport,
-                    channel,
-                    gross_fare,
-                    outbound_airline_code
-                FROM latest_records
-                WHERE row_num = 1
-            ),
-            min_max_with_carriers AS (
-                SELECT 
-                    scd1.source_airport,
-                    scd1.destination_airport,
-                    scd1.channel,
-                    MIN(scd1.gross_fare) as min_fare,
-                    MAX(scd1.gross_fare) as max_fare,
-                    COUNT(DISTINCT scd1.gross_fare) as instances,
-                    (SELECT outbound_airline_code 
-                     FROM sector_channel_data scd2 
-                     WHERE scd2.source_airport = scd1.source_airport 
-                       AND scd2.destination_airport = scd1.destination_airport 
-                       AND scd2.channel = scd1.channel 
-                       AND scd2.gross_fare = MIN(scd1.gross_fare) 
-                     LIMIT 1) as min_carrier,
-                    (SELECT outbound_airline_code 
-                     FROM sector_channel_data scd3 
-                     WHERE scd3.source_airport = scd1.source_airport 
-                       AND scd3.destination_airport = scd1.destination_airport 
-                       AND scd3.channel = scd1.channel 
-                       AND scd3.gross_fare = MAX(scd1.gross_fare) 
-                     LIMIT 1) as max_carrier
-                FROM sector_channel_data scd1
                 GROUP BY source_airport, destination_airport, channel
             )
             SELECT 
-                source_airport,
-                destination_airport,
-                channel,
-                min_fare,
-                max_fare,
-                instances,
-                min_carrier,
-                max_carrier
-            FROM min_max_with_carriers
-            ORDER BY source_airport, destination_airport, channel
+                mmf.source_airport,
+                mmf.destination_airport,
+                mmf.channel,
+                mmf.min_fare,
+                mmf.max_fare,
+                mmf.instances,
+                (SELECT outbound_airline_code 
+                FROM combined_data cd
+                WHERE cd.source_airport = mmf.source_airport
+                AND cd.destination_airport = mmf.destination_airport
+                AND cd.channel = mmf.channel
+                AND cd.gross_fare = mmf.min_fare
+                LIMIT 1) as min_carrier,
+                (SELECT outbound_airline_code 
+                FROM combined_data cd
+                WHERE cd.source_airport = mmf.source_airport
+                AND cd.destination_airport = mmf.destination_airport
+                AND cd.channel = mmf.channel
+                AND cd.gross_fare = mmf.max_fare
+                LIMIT 1) as max_carrier
+            FROM min_max_fares mmf
+            ORDER BY mmf.source_airport, mmf.destination_airport, mmf.channel
             """
             
             self.market_fares_data = pd.read_sql(query, self.rm_rd_conn)
