@@ -2,12 +2,13 @@ import logging
 import boto3
 import pymssql
 import configsettings
+from sqlalchemy import create_engine
 import sys
 import json
 
 from redis import Redis
 from datetime import datetime
-from sqlalchemy import create_engine
+from pymongo import MongoClient
 
 from constants_utils import ConstantsUtils
 
@@ -34,11 +35,12 @@ from updateImpForecast import update_imputed_forecast
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-RM_ALLOC_DB = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-RM_REPORTS_DB = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_WR_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+# MongoDB connection string
+MONGO_CONNECTION_STRING = f"mongodb://localhost:27017/"
+
+# Keep ESB and DW connections if still needed
 ESB_DB = f"mysql+pymysql://{configsettings.ESB_USER}:{configsettings.ESB_PASSWORD}@{configsettings.ESB_HOST}/{configsettings.ESB_READ_SCHEMA}"
 DB_DW_WR_CONN_STRING = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
-
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -47,11 +49,13 @@ CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
 cache_client = None
 
 try:
-    rm_rd_conn = create_engine(RM_ALLOC_DB)
-    rm_wr_conn = create_engine(RM_REPORTS_DB)
-    rm_rd_esb_conn = create_engine(ESB_DB)
-    dw_conn =  create_engine(DB_DW_WR_CONN_STRING)
-
+    # MongoDB connection (single connection for both read and write)
+    mongo_client = MongoClient(MONGO_CONNECTION_STRING)
+    mongo_db = mongo_client["qp_dw_rmalloc"]
+    
+    # Keep other connections if still needed
+    rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
+    dw_conn = create_engine(DB_DW_WR_CONN_STRING) if hasattr(configsettings, 'DW_DB_USER') else None
 
     NavitaireConnection = pymssql.connect(
             host=configsettings.NAV_DB_HOST,
@@ -60,9 +64,9 @@ try:
         )
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+    
     # Initialize AWS resources
     sqs = boto3.client('sqs')
-    
     s3 = boto3.client("s3")
 
 except Exception as e:
@@ -77,7 +81,7 @@ module_map = {
     "clean_up": CleanUpConfig,
     "sftp_error": SFTPErrorRate,
     "daily_rolling": DailyRolling,
-    "run_adhocs_queue":SchedulerHandler,
+    "run_adhocs_queue": SchedulerHandler,
     "gen_qc_fares_table": QCProcess,
     "qc_fares_check": QCCheck,
     "update_calendar": CalendarUpdate,
@@ -116,22 +120,24 @@ def lambda_handler(event, context):
         overrides = data["overrides"]
 
     for module_key in modules.keys():
+        # Single MongoDB connection for both read and write
+        params["mongoconn"] = mongo_client
+        
+        # Keep other connections if still needed
         params["dwconn"] = dw_conn
         params["rdEsbConn"] = rm_rd_esb_conn
-        params['rdconn'] = rm_rd_conn
-        params['wrconn'] = rm_wr_conn
         params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['s3'] = s3
         params['cache_client'] = cache_client
         params['events'] = events 
-        params['constantutils'] = ConstantsUtils(rm_rd_conn)
+        params['constantutils'] = ConstantsUtils(mongo_db)
         
         Module = module_map[module_key]
         Module_obj = Module(logger, params, overrides, context)
 
         logger.info(f"{module_key} :: START")
-        audit_schedule_run = AuditScheduledJob(rm_wr_conn, logger, module_key, datetime.now())
+        audit_schedule_run = AuditScheduledJob(mongo_client, logger, module_key, datetime.now())
 
         Module_obj.run()
 
@@ -174,9 +180,10 @@ def lambda_handler(event, context):
 #     "modules": {"expected_no_shows": 1}
 # }
 
-# messageBody = {
-#   "body": "{\"modules\":{\"default_ml\": 1}}"
-# }
 
-# event = {'Records':[{'body':json.dumps(messageBody)}]}
-# lambda_handler(messageBody,None)
+messageBody = {
+  "body": "{\"modules\":{\"sftp_error\": 1}}"
+}
+
+event = {'Records':[{'body':json.dumps(messageBody)}]}
+lambda_handler(messageBody,None)

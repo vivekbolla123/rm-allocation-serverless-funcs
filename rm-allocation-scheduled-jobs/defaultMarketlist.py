@@ -13,10 +13,11 @@ class defaultMarketlist:
     def __init__(self, logger, params, overrides, context):
         self.context = context
         self.logger = logger
-        self.navconn = params['navconn']
-        self.rm_wr_conn = params['wrconn']
+        self.navconn = params['navconn']  # Keep SQL for Navitaire
+        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
+        self.db = self.mongo_conn["qp_dw_rmalloc"]
         self.cache_client = params['cache_client']
-        self.constants = ConstantsUtils(self.rm_wr_conn)
+        self.constants = ConstantsUtils(self.mongo_conn)  # Pass mongo_conn to ConstantsUtils
         self.default_list = json.loads(self.constants.DEFAULT_MARKET_LIST)
         self.max_days = self.constants.DEFAULT_MARKET_LIST_DAYS
         self.session = requests.Session()
@@ -31,6 +32,7 @@ class defaultMarketlist:
             endDate = currDate + timedelta(days=self.max_days)
             endDate = endDate.date()
 
+            # Navitaire query remains SQL (different system)
             NavitaireQuery = f"""
                 SELECT
                     IL.DepartureStation as Origin,
@@ -51,24 +53,8 @@ class defaultMarketlist:
             if navFlights.empty or len(navFlights) == 0:
                 raise ValueError("No flights found in NavODS")
 
-            MLQuery = f"""
-                SELECT Origin, Destin AS Destination,
-                    STR_TO_DATE(PerStart, '%%m/%%d/%%Y') as DepartureDate,
-                    TRIM(FlightNumber) as FlightNumber
-                FROM QP_DW_RMALLOC.market_list
-                WHERE STR_TO_DATE(PerStart, '%%m/%%d/%%Y') >= CURDATE()
-                    AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') <= '{endDate}'
-
-                UNION
-
-                SELECT Origin, Destin AS Destination,
-                    STR_TO_DATE(PerStart, '%%m/%%d/%%Y') as DepartureDate,
-                    TRIM(FlightNumber) as FlightNumber
-                FROM QP_DW_RMALLOC.market_list_international
-                WHERE STR_TO_DATE(PerStart, '%%m/%%d/%%Y') >= CURDATE()
-                    AND STR_TO_DATE(PerStart, '%%m/%%d/%%Y') <= '{endDate}';
-            """
-            mlFlights = pd.read_sql(MLQuery, self.rm_wr_conn)
+            # Fetch market_list from MongoDB
+            mlFlights = self._fetch_marketlist_flights(endDate)
 
             if mlFlights.empty or len(mlFlights) == 0:
                 raise ValueError("No flights found in Marketlist")
@@ -88,25 +74,25 @@ class defaultMarketlist:
             unmatched_navFlights = merge_indicator[merge_indicator['_merge'] == 'left_only'].drop('_merge', axis=1)
             unmatched_navFlights['sector'] = unmatched_navFlights['Origin'] + unmatched_navFlights['Destination']
             
-            analyst_query = "SELECT sector, user1 FROM QP_DW_RMALLOC.config_user_sector_map;"
-            analyst_sector_map = pd.read_sql(analyst_query, self.rm_wr_conn)
+            # Fetch analyst sector map from MongoDB
+            analyst_sector_map = self._fetch_analyst_sector_map()
             if analyst_sector_map.empty:
                 raise ValueError("No columns found for market_list table")
             
-            station_master_query = "SELECT * FROM QP_DW_RMALLOC.config_station_master;"
-            station_master_map = pd.read_sql(station_master_query, self.rm_wr_conn)
+            # Fetch station master from MongoDB
+            station_master_map = self._fetch_station_master()
             if station_master_map.empty:
                 raise ValueError("No columns found for market_list table")
             
             unmatched_navFlights = unmatched_navFlights.merge(
-                analyst_sector_map[['sector','user1']],
+                analyst_sector_map[['sector', 'user1']],
                 on=['sector'],
                 how='left'
             )
 
             # Get default values
             default_list = self.default_list
-            if len(default_list)==0:
+            if len(default_list) == 0:
                 raise ValueError("No default values found for market_list")
             column_names = list(default_list.keys())
 
@@ -120,7 +106,7 @@ class defaultMarketlist:
                 record['PerEnd'] = row['DepartureDate'].strftime('%m/%d/%Y')
                 record['FlightNumber'] = row['FlightNumber']
                 record['analystName'] = row['user1']
-                record['UUID'] = uuid.uuid4()
+                record['UUID'] = str(uuid.uuid4())
                 record['defaultMlFlag'] = "1"
                 weekday_num = row['DepartureDate'].weekday()
 
@@ -159,25 +145,163 @@ class defaultMarketlist:
             international_df = international_df.drop(columns=['origin_route', 'destin_route', 'station_x', 'station_y'], errors='ignore')
             domestic_df = domestic_df.drop(columns=['origin_route', 'destin_route', 'station_x', 'station_y'], errors='ignore')
 
-
-            # Insert unmatched records into market_list
-            domestic_df.to_sql(
-                name='market_list',
-                con=self.rm_wr_conn,
-                schema='QP_DW_RMALLOC',
-                if_exists='append',
-                index=False
-            )
-            international_df.to_sql(
-                name='market_list_international',
-                con=self.rm_wr_conn,
-                schema='QP_DW_RMALLOC',
-                if_exists='append',
-                index=False
-            )
+            # Insert into MongoDB collections
+            self._insert_to_mongodb('market_list', domestic_df)
+            self._insert_to_mongodb('market_list_international', international_df)
 
             self.logger.info(f"Inserted {len(domestic_df)} unmatched records into market_list.")
             self.logger.info(f"Inserted {len(international_df)} unmatched records into market_list_international.")
             self.logger.info("Run method completed.")
+            
         except Exception as e:
             self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
+
+    def _fetch_marketlist_flights(self, endDate):
+        """
+        Fetch flights from market_list and market_list_international collections.
+        Equivalent to UNION query in MySQL.
+        """
+        try:
+            current_date = datetime.now().date()
+            
+            # Helper function to fetch from a collection
+            def fetch_from_collection(collection_name):
+                collection = self.db[collection_name]
+                
+                # MongoDB query
+                # Note: Handling both string and datetime formats for PerStart
+                cursor = collection.find(
+                    {},
+                    {
+                        '_id': 0,
+                        'Origin': 1,
+                        'Destin': 1,
+                        'PerStart': 1,
+                        'FlightNumber': 1
+                    }
+                )
+                
+                df = pd.DataFrame(list(cursor))
+                if df.empty:
+                    return pd.DataFrame(columns=['Origin', 'Destination', 'DepartureDate', 'FlightNumber'])
+                
+                # Rename Destin to Destination for consistency
+                df = df.rename(columns={'Destin': 'Destination'})
+                
+                # Convert PerStart to datetime (handle both string and datetime)
+                df['DepartureDate'] = df['PerStart'].apply(
+                    lambda x: pd.to_datetime(x, format='%m/%d/%Y', errors='coerce') 
+                    if isinstance(x, str) else pd.to_datetime(x, errors='coerce')
+                )
+                
+                # Filter by date range
+                df = df[
+                    (df['DepartureDate'].dt.date >= current_date) &
+                    (df['DepartureDate'].dt.date <= endDate)
+                ]
+                
+                # Clean FlightNumber (trim whitespace)
+                df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
+                
+                return df[['Origin', 'Destination', 'DepartureDate', 'FlightNumber']]
+            
+            # Fetch from both collections
+            domestic_flights = fetch_from_collection('market_list')
+            international_flights = fetch_from_collection('market_list_international')
+            
+            # Union (concatenate) the results
+            mlFlights = pd.concat([domestic_flights, international_flights], ignore_index=True)
+            
+            # Remove duplicates
+            mlFlights = mlFlights.drop_duplicates()
+            
+            self.logger.info(f"Fetched {len(mlFlights)} flights from market_list collections")
+            return mlFlights
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching marketlist flights from MongoDB: {e}")
+            return pd.DataFrame()
+
+    def _fetch_analyst_sector_map(self):
+        """Fetch analyst sector mapping from MongoDB."""
+        try:
+            collection = self.db['config_user_sector_map']
+            cursor = collection.find({}, {'_id': 0, 'sector': 1, 'user1': 1})
+            df = pd.DataFrame(list(cursor))
+            
+            self.logger.info(f"Fetched {len(df)} records from config_user_sector_map")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching analyst sector map from MongoDB: {e}")
+            return pd.DataFrame()
+
+    def _fetch_station_master(self):
+        """Fetch station master from MongoDB."""
+        try:
+            collection = self.db['config_station_master']
+            cursor = collection.find({})
+            df = pd.DataFrame(list(cursor))
+            
+            # Remove MongoDB _id field
+            if '_id' in df.columns:
+                df = df.drop('_id', axis=1)
+            
+            self.logger.info(f"Fetched {len(df)} records from config_station_master")
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching station master from MongoDB: {e}")
+            return pd.DataFrame()
+
+    def _insert_to_mongodb(self, collection_name, df):
+        """
+        Insert DataFrame records into MongoDB collection.
+        
+        Args:
+            collection_name: Name of the collection
+            df: DataFrame to insert
+        """
+        try:
+            if df.empty:
+                self.logger.info(f"No records to insert into {collection_name}")
+                return
+            
+            collection = self.db[collection_name]
+            
+            # Convert DataFrame to list of dictionaries
+            records = df.to_dict('records')
+            
+            # Convert date strings to datetime objects for MongoDB
+            for record in records:
+                # Convert PerStart and PerEnd to datetime
+                # if 'PerStart' in record and isinstance(record['PerStart'], str):
+                #     try:
+                #         record['PerStart'] = datetime.strptime(record['PerStart'], '%m/%d/%Y')
+                #     except:
+                #         pass
+                
+                # if 'PerEnd' in record and isinstance(record['PerEnd'], str):
+                #     try:
+                #         record['PerEnd'] = datetime.strptime(record['PerEnd'], '%m/%d/%Y')
+                #     except:
+                #         pass
+                
+                # Ensure UUID is string
+                if 'UUID' in record:
+                    record['UUID'] = str(record['UUID'])
+                
+                # Convert numeric fields if needed
+                if 'FlightNumber' in record:
+                    try:
+                        record['FlightNumber'] = int(record['FlightNumber'])
+                    except:
+                        pass
+            
+            # Bulk insert
+            result = collection.insert_many(records)
+            self.logger.info(f"Inserted {len(result.inserted_ids)} records into {collection_name}")
+            
+        except Exception as e:
+            self.logger.error(f"Error inserting into {collection_name}: {e}")
+            raise

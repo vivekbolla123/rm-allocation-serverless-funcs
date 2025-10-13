@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import logging
 import time
-from sqlalchemy import text, create_engine
 from datetime import datetime, timedelta
 from typing import Tuple, List, Dict, Optional
 from heuristicCalc import FareStatisticalAnalysis
@@ -21,9 +20,13 @@ class CalUpsell:
     def __init__(self, logger: logging.Logger, params: Dict, overrides: Dict, context: Dict):
         """Initialize with required connections and dynamic date calculation."""
         self.logger = logger
-        self.rm_rd_conn = params['wrconn']
-        self.dw_conn = params['dwconn']
-        self.esb_conn = params['rdEsbConn']
+        # Get MongoDB client
+        self.mongo_client = params['mongoconn']
+        self.mongo_db = self.mongo_client['qp_dw_rmalloc']
+        
+        # DW and ESB connections (if still using MySQL for these)
+        self.dw_conn = params.get('dwconn')
+        self.esb_conn = params.get('rdEsbConn')
         
         # Calculate dynamic dates
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -47,30 +50,84 @@ class CalUpsell:
         )
 
     def get_table_date_range(self) -> Tuple[Optional[datetime], Optional[datetime], int]:
-        """Get the current date range and month count in the table."""
-        query = """
-        SELECT 
-            MIN(DepartureDate) as min_date,
-            MAX(DepartureDate) as max_date,
-            COUNT(DISTINCT DATE_FORMAT(DepartureDate, '%%Y-%%m')) as month_count,
-            COUNT(*) as total_records
-        FROM QP_DW_RMALLOC.calendar_AF
-        """
+        """Get the current date range and month count in the collection."""
         try:
-            result = pd.read_sql(query, self.rm_rd_conn)
+            # Get total count
+            total_records = self.mongo_db.calendar_af.count_documents({})
             
-            if result.empty or result['total_records'].iloc[0] == 0:
+            if total_records == 0:
                 return None, None, 0
-                
-            min_date = pd.to_datetime(result['min_date'].iloc[0]) if result['min_date'].iloc[0] else None
-            max_date = pd.to_datetime(result['max_date'].iloc[0]) if result['max_date'].iloc[0] else None
-            month_count = result['month_count'].iloc[0] or 0
             
-            self.logger.info(f"Table contains {month_count} months from {min_date} to {max_date}")
+            # Aggregation to get min, max dates and month count
+            pipeline = [
+    {
+        "$addFields": {
+            "DepartureDateObj": {
+                "$dateFromString": {
+                    "dateString": "$DepartureDate",
+                    "format": "%Y-%m-%d",  # adjust if needed
+                    "onError": None,
+                    "onNull": None
+                }
+            }
+        }
+    },
+    {
+        "$group": {
+            "_id": None,
+            "min_date": {"$min": "$DepartureDateObj"},
+            "max_date": {"$max": "$DepartureDateObj"},
+            "dates": {"$addToSet": "$DepartureDateObj"}
+        }
+    },
+    {
+        "$project": {
+            "_id": 0,
+            "min_date": 1,
+            "max_date": 1,
+            "month_count": {
+                "$size": {
+                    "$setUnion": [
+                        {
+                            "$map": {
+                                "input": "$dates",
+                                "as": "date",
+                                "in": {
+                                    "$dateToString": {
+                                        "format": "%Y-%m",
+                                        "date": "$$date"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    }
+]
+
+            
+            result = list(self.mongo_db.calendar_af.aggregate(pipeline))
+            
+            if not result:
+                return None, None, 0
+            
+            min_date = result[0]['min_date']
+            max_date = result[0]['max_date']
+            month_count = result[0]['month_count']
+            
+            # Convert to pandas datetime if they're datetime objects
+            if isinstance(min_date, datetime):
+                min_date = pd.to_datetime(min_date)
+            if isinstance(max_date, datetime):
+                max_date = pd.to_datetime(max_date)
+            
+            self.logger.info(f"Collection contains {month_count} months from {min_date} to {max_date}")
             return min_date, max_date, month_count
             
         except Exception as e:
-            self.logger.error(f"Error getting table date range: {e}")
+            self.logger.error(f"Error getting collection date range: {e}")
             return None, None, 0
 
     @staticmethod
@@ -91,21 +148,26 @@ class CalUpsell:
         return first_day, last_day
 
     def get_oldest_month_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
-        """Get the date range of the oldest month in the table."""
-        query = """
-        SELECT 
-            DATE_FORMAT(MIN(DepartureDate), '%%Y-%%m-01') as oldest_month_start,
-            LAST_DAY(MIN(DepartureDate)) as oldest_month_end
-        FROM QP_DW_RMALLOC.calendar_AF
-        """
+        """Get the date range of the oldest month in the collection."""
         try:
-            result = pd.read_sql(query, self.rm_rd_conn)
+            # Find the minimum date
+            result = list(self.mongo_db.calendar_af.find(
+                {},
+                {"DepartureDate": 1, "_id": 0}
+            ).sort("DepartureDate", 1).limit(1))
             
-            if result.empty or pd.isna(result['oldest_month_start'].iloc[0]):
+            if not result:
                 return None, None
             
-            oldest_start = pd.to_datetime(result['oldest_month_start'].iloc[0])
-            oldest_end = pd.to_datetime(result['oldest_month_end'].iloc[0])
+            min_date = result[0]['DepartureDate']
+            
+            # Calculate first and last day of that month
+            oldest_start = min_date.replace(day=1)
+            
+            if oldest_start.month == 12:
+                oldest_end = datetime(oldest_start.year + 1, 1, 1) - timedelta(days=1)
+            else:
+                oldest_end = datetime(oldest_start.year, oldest_start.month + 1, 1) - timedelta(days=1)
             
             return oldest_start, oldest_end
             
@@ -115,19 +177,15 @@ class CalUpsell:
 
     def remove_month_data(self, start_date: datetime, end_date: datetime) -> int:
         """Remove data for a specific month range."""
-        delete_query = """
-        DELETE FROM QP_DW_RMALLOC.calendar_AF 
-        WHERE DepartureDate >= :start_date AND DepartureDate <= :end_date
-        """
-        
         try:
-            with self.rm_rd_conn.connect() as connection:
-                result = connection.execute(
-                    text(delete_query),
-                    {'start_date': start_date, 'end_date': end_date}
-                )
-                rows_deleted = result.rowcount
+            result = self.mongo_db.calendar_af.delete_many({
+                "DepartureDate": {
+                    "$gte": start_date,
+                    "$lte": end_date
+                }
+            })
             
+            rows_deleted = result.deleted_count
             self.logger.info(f"Removed {rows_deleted} records from {start_date.strftime('%Y-%m')} month")
             return rows_deleted
             
@@ -137,19 +195,14 @@ class CalUpsell:
 
     def remove_target_month_if_exists(self, start_date: datetime, end_date: datetime) -> int:
         """Remove existing data for the target month to prevent duplicates."""
-        check_query = """
-        SELECT COUNT(*) as count FROM QP_DW_RMALLOC.calendar_AF
-        WHERE DepartureDate >= :start_date AND DepartureDate <= :end_date
-        """
-        
         try:
             # Check if target month data exists
-            with self.rm_rd_conn.connect() as connection:
-                result = connection.execute(
-                    text(check_query),
-                    {'start_date': start_date, 'end_date': end_date}
-                )
-                existing_count = result.fetchone()[0]
+            existing_count = self.mongo_db.calendar_af.count_documents({
+                "DepartureDate": {
+                    "$gte": start_date,
+                    "$lte": end_date
+                }
+            })
             
             if existing_count > 0:
                 self.logger.info(f"Found {existing_count} existing records for target month {start_date.strftime('%Y-%m')}, removing them")
@@ -164,6 +217,7 @@ class CalUpsell:
 
     def extract_fare_data_with_sectors(self, start_date: datetime, end_date: datetime) -> Tuple[pd.DataFrame, List[str]]:
         """Extract fare data and return both the data and unique sectors found."""
+        # This still uses ESB connection (assuming it's MySQL)
         query = """
         SELECT 
             CONCAT(PX.Origin, PX.Destination) AS Sector,
@@ -199,16 +253,16 @@ class CalUpsell:
 
     def get_existing_sectors(self) -> List[str]:
         """Get existing sectors from current data."""
-        query = """
-        SELECT DISTINCT Sector FROM QP_DW_RMALLOC.calendar_AF
-        WHERE DepartureDate >= %s
-        ORDER BY Sector
-        """
-        
         try:
-            recent_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
-            result = pd.read_sql(query, self.rm_rd_conn, params=[recent_date])
-            return result['Sector'].tolist() if not result.empty else []
+            recent_date = datetime.now() - timedelta(days=90)
+            
+            sectors = self.mongo_db.calendar_af.distinct(
+                "Sector",
+                {"DepartureDate": {"$gte": recent_date}}
+            )
+            
+            return sorted(sectors) if sectors else []
+            
         except Exception as e:
             self.logger.warning(f"Could not fetch existing sectors: {e}")
             return []
@@ -223,19 +277,18 @@ class CalUpsell:
             
             self.logger.info(f"Creating complete month data for {len(sectors)} sectors from {start_date.date()} to {end_date.date()}")
             
-            # Create date range as a list of date objects (not datetime)
-            date_range = pd.date_range(start=start_date.date(), end=end_date.date(), freq='D')
-            date_list = [d.date() for d in date_range]
+            # Create date range as datetime objects
+            date_range = pd.date_range(start=start_date, end=end_date, freq='D')
             
-            self.logger.info(f"Date range contains {len(date_list)} days")
+            self.logger.info(f"Date range contains {len(date_range)} days")
             
-            # Create records using list comprehension for better control
+            # Create records using list comprehension
             records = []
             for sector in sectors:
-                for date_obj in date_list:
+                for date_obj in date_range:
                     records.append({
-                        'Sector': str(sector),  # Ensure string type
-                        'DepartureDate': date_obj,  # Use date object, not datetime
+                        'Sector': str(sector),
+                        'DepartureDate': date_obj.to_pydatetime(),  # Convert to datetime for MongoDB
                         'AverageFare': 0.0
                     })
             
@@ -253,11 +306,12 @@ class CalUpsell:
                 try:
                     actual_processed = actual_data.copy()
                     
-                    # Normalize actual data date format
-                    if pd.api.types.is_datetime64_dtype(actual_processed['DepartureDate']):
-                        actual_processed['DepartureDate'] = actual_processed['DepartureDate'].dt.date
-                    elif isinstance(actual_processed['DepartureDate'].iloc[0], str):
-                        actual_processed['DepartureDate'] = pd.to_datetime(actual_processed['DepartureDate']).dt.date
+                    # Normalize actual data date format to datetime
+                    if not pd.api.types.is_datetime64_dtype(actual_processed['DepartureDate']):
+                        actual_processed['DepartureDate'] = pd.to_datetime(actual_processed['DepartureDate'])
+                    
+                    # Normalize complete_df dates
+                    complete_df['DepartureDate'] = pd.to_datetime(complete_df['DepartureDate'])
                     
                     # Simple merge approach
                     complete_df = complete_df.set_index(['Sector', 'DepartureDate'])
@@ -279,19 +333,19 @@ class CalUpsell:
                 self.logger.error("DataFrame became empty after processing")
                 return pd.DataFrame(columns=['Sector', 'DepartureDate', 'AverageFare'])
             
-            # Ensure proper column order
+            # Ensure proper column order and convert dates to datetime for MongoDB
             complete_df = complete_df[['Sector', 'DepartureDate', 'AverageFare']].copy()
+            complete_df['DepartureDate'] = pd.to_datetime(complete_df['DepartureDate'])
             
             self.logger.info(f"Returning complete dataset with {len(complete_df)} rows")
             return complete_df
             
         except Exception as e:
             self.logger.error(f"Critical error in create_complete_month_data: {str(e)[:200]}")
-            # Return empty DataFrame instead of raising to prevent cascade failures
             return pd.DataFrame(columns=['Sector', 'DepartureDate', 'AverageFare'])
 
     def insert_fare_data(self, df: pd.DataFrame) -> int:
-        """Insert fare data into calendar_AF table with robust error handling."""
+        """Insert fare data into calendar_af collection with robust error handling."""
         if df.empty:
             self.logger.warning("DataFrame is empty, nothing to insert")
             return 0
@@ -315,7 +369,7 @@ class CalUpsell:
             # Log DataFrame state before processing
             self.logger.info(f"Pre-processing: {len(df_insert)} rows, columns: {list(df_insert.columns)}")
             
-            # Check if DataFrame got corrupted (common sign: wrong data types)
+            # Check sample data
             try:
                 sample_sector = df_insert['Sector'].iloc[0]
                 sample_date = df_insert['DepartureDate'].iloc[0]
@@ -332,7 +386,7 @@ class CalUpsell:
             # Ensure proper data types
             df_insert['AverageFare'] = pd.to_numeric(df_insert['AverageFare'], errors='coerce')
             
-            # Handle date conversion carefully
+            # Handle date conversion for MongoDB
             if not pd.api.types.is_datetime64_dtype(df_insert['DepartureDate']):
                 try:
                     df_insert['DepartureDate'] = pd.to_datetime(df_insert['DepartureDate'])
@@ -356,39 +410,39 @@ class CalUpsell:
                            f"Date range: {df_insert['DepartureDate'].min()} to {df_insert['DepartureDate'].max()}, "
                            f"Sectors: {df_insert['Sector'].nunique()}")
             
-            # Insert with error handling
-            chunk_size = min(self.DEFAULT_CHUNK_SIZE, len(df_insert))
+            # Convert DataFrame to list of dictionaries for MongoDB insertion
+            records = df_insert.to_dict('records')
             
-            df_insert.to_sql(
-                'calendar_AF', 
-                self.rm_rd_conn, 
-                schema='QP_DW_RMALLOC',
-                if_exists='append', 
-                index=False, 
-                chunksize=chunk_size,
-                method='multi'
-            )
+            # Insert in chunks
+            chunk_size = min(self.DEFAULT_CHUNK_SIZE, len(records))
+            inserted_count = 0
             
-            self.logger.info(f"Successfully inserted {len(df_insert)} records")
-            return len(df_insert)
+            for i in range(0, len(records), chunk_size):
+                chunk = records[i:i + chunk_size]
+                result = self.mongo_db.calendar_af.insert_many(chunk, ordered=False)
+                inserted_count += len(result.inserted_ids)
+                self.logger.info(f"Inserted chunk {i//chunk_size + 1}: {len(result.inserted_ids)} records")
+            
+            self.logger.info(f"Successfully inserted {inserted_count} records")
+            return inserted_count
             
         except ValueError as ve:
             self.logger.error(f"Data validation error: {ve}")
             return 0
         except Exception as e:
-            self.logger.error(f"Insertion failed: {str(e)[:200]}...")  # Truncate long error messages
+            self.logger.error(f"Insertion failed: {str(e)[:200]}...")
             self.logger.error(f"DataFrame type: {type(df)}, Shape: {getattr(df, 'shape', 'unknown')}")
             return 0
 
     def perform_rolling_update(self) -> Dict:
         """Perform the rolling monthly update - core logic."""
-        # Get current table state
+        # Get current collection state
         min_date, max_date, month_count = self.get_table_date_range()
         
         # Get target month (last completed month)
         target_start, target_end = self.get_last_completed_month()
         
-        self.logger.info(f"Rolling update: Current table has {month_count} months")
+        self.logger.info(f"Rolling update: Current collection has {month_count} months")
         self.logger.info(f"Target month: {target_start.strftime('%Y-%m')} ({target_start.date()} to {target_end.date()})")
         
         # Extract data for target month
@@ -414,7 +468,7 @@ class CalUpsell:
         target_rows_removed = self.remove_target_month_if_exists(target_start, target_end)
         rows_removed_total += target_rows_removed
         
-        # Step 2: Remove oldest month if we have enough months (after accounting for target month removal)
+        # Step 2: Remove oldest month if we have enough months
         adjusted_month_count = month_count - (1 if target_rows_removed > 0 else 0)
         if adjusted_month_count >= self.MIN_MONTHS_FOR_ROLLING:
             oldest_start, oldest_end = self.get_oldest_month_range()
@@ -427,7 +481,7 @@ class CalUpsell:
                 else:
                     self.logger.info("Oldest month is same as target month (already removed)")
         else:
-            self.logger.info(f"Table has only {adjusted_month_count} effective months, skipping oldest month removal")
+            self.logger.info(f"Collection has only {adjusted_month_count} effective months, skipping oldest month removal")
         
         # Step 3: Insert new month data
         records_added = self.insert_fare_data(complete_month_data)
@@ -442,7 +496,7 @@ class CalUpsell:
         }
 
     def perform_initial_load(self) -> Dict:
-        """Perform initial data load for empty table."""
+        """Perform initial data load for empty collection."""
         self.logger.info("Performing initial data load")
         
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -508,17 +562,17 @@ class CalUpsell:
         }
         
         try:
-            # Check current table state
+            # Check current collection state
             min_date, max_date, month_count = self.get_table_date_range()
             
             if month_count == 0:
-                # Empty table - perform initial load
-                self.logger.info("Table is empty - performing initial load")
+                # Empty collection - perform initial load
+                self.logger.info("Collection is empty - performing initial load")
                 action_result = self.perform_initial_load()
                 results["extraction_type"] = "initial_load"
             else:
-                # Table has data - perform rolling update
-                self.logger.info("Table has data - performing rolling update")
+                # Collection has data - perform rolling update
+                self.logger.info("Collection has data - performing rolling update")
                 action_result = self.perform_rolling_update()
                 results["extraction_type"] = "rolling_update"
             
@@ -541,14 +595,12 @@ class CalUpsell:
         except Exception as e:
             results["status"] = "error"
             error_msg = str(e)
-            # Truncate very long error messages but keep the essential part
+            # Truncate very long error messages
             if len(error_msg) > 500:
                 error_msg = error_msg[:250] + " ... " + error_msg[-250:]
             
             results["error_summary"] = error_msg
             self.logger.error(f"EXTRACTION FAILED: {error_msg}")
-            
-            # Don't re-raise - let the statistical analysis still run
         
         finally:
             # Always run statistical analysis

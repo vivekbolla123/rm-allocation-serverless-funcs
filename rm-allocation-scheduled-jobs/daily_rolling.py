@@ -8,9 +8,9 @@ class DailyRolling:
     def __init__(self, logger, params, overrides, context):
         self.context = context
         self.logger = logger
-        self.rm_rd_conn = params['rdconn']
-        self.rm_wr_conn = params['wrconn']
-        self.nav_conn = params['navconn']
+        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
+        self.db = self.mongo_conn["qp_dw_rmalloc"]
+        self.nav_conn = params['navconn']  # Keep NAV SQL connection
 
     def run(self):
         self.logger.info("Starting the run method.")
@@ -29,13 +29,50 @@ class DailyRolling:
         # df_market_list=self.create_new_row(df_market_list,current_date,df_sector_map)
         print(len(df_market_list))
         self.logger.info("Writing modified DataFrame back to the database.")
-        self.rm_wr_conn.execute("TRUNCATE TABLE market_list")
-        self.rm_wr_conn.execute("TRUNCATE TABLE market_list_international")
-        self.rm_wr_conn.execute("TRUNCATE TABLE market_list_connections")
-        df_market_list.to_sql('market_list', self.rm_wr_conn, if_exists='append', index=False)
-        df_market_list_int.to_sql('market_list_international', self.rm_wr_conn, if_exists='append', index=False)
-        df_market_list_conn.to_sql('market_list_connections', self.rm_wr_conn, if_exists='append', index=False)
         
+        # Replace TRUNCATE and to_sql with MongoDB operations
+        self._replace_collection('market_list', df_market_list)
+        self._replace_collection('market_list_international', df_market_list_int)
+        self._replace_collection('market_list_connections', df_market_list_conn)
+
+    def _replace_collection(self, collection_name, df):
+        """
+        Replace entire collection with new data (equivalent to TRUNCATE + INSERT).
+        
+        Args:
+            collection_name: Name of MongoDB collection
+            df: DataFrame to write
+        """
+        try:
+            collection = self.db[collection_name]
+            
+            # Delete all documents (equivalent to TRUNCATE)
+            delete_result = collection.delete_many({})
+            self.logger.info(f"Deleted {delete_result.deleted_count} documents from {collection_name}")
+            
+            # Insert new documents
+            if not df.empty:
+                # Convert DataFrame to list of dictionaries
+                records = df.to_dict('records')
+                
+                # Convert date columns to datetime objects if needed
+                # for record in records:
+                #     for key, value in record.items():
+                #         # Handle date strings
+                #         if isinstance(value, str) and '/' in value:
+                #             try:
+                #                 record[key] = datetime.strptime(value, '%m/%d/%Y')
+                #             except:
+                #                 pass  # Keep as string if not a date
+                
+                insert_result = collection.insert_many(records)
+                self.logger.info(f"Inserted {len(insert_result.inserted_ids)} documents into {collection_name}")
+            else:
+                self.logger.info(f"No records to insert into {collection_name}")
+                
+        except Exception as e:
+            self.logger.error(f"Error replacing collection {collection_name}: {e}")
+            raise
 
     def get_current_date_ist(self):
         local_tz = pytz.timezone('Asia/Kolkata')  # IST timezone
@@ -43,33 +80,105 @@ class DailyRolling:
         return local_datetime.date()
     
     def fetch_market_list(self):
-        query_market_list = "SELECT * FROM market_list"
-        self.logger.info(f"Executing query_market_list: {query_market_list}")
-        df_market_list = pd.read_sql(query_market_list, self.rm_wr_conn)
-        self.logger.info("Retrieved data from market_list")
-        return df_market_list
+        """Fetch all documents from market_list collection."""
+        try:
+            collection = self.db['market_list']
+            self.logger.info("Fetching data from market_list collection")
+            
+            cursor = collection.find({})
+            df_market_list = pd.DataFrame(list(cursor))
+            
+            # Remove MongoDB _id field if present
+            if '_id' in df_market_list.columns:
+                df_market_list = df_market_list.drop('_id', axis=1)
+            
+            # Convert datetime fields back to string format if they were stored as datetime
+            for col in ['PerStart', 'PerEnd']:
+                if col in df_market_list.columns:
+                    df_market_list[col] = df_market_list[col].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
+                    )
+            
+            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list")
+            return df_market_list
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching market_list: {e}")
+            return pd.DataFrame()
     
     def fetch_market_list_int(self):
-        query_market_list = "SELECT * FROM market_list_international"
-        self.logger.info(f"Executing query_market_list: {query_market_list}")
-        df_market_list = pd.read_sql(query_market_list, self.rm_wr_conn)
-        self.logger.info("Retrieved data from market_list_international")
-        return df_market_list
+        """Fetch all documents from market_list_international collection."""
+        try:
+            collection = self.db['market_list_international']
+            self.logger.info("Fetching data from market_list_international collection")
+            
+            cursor = collection.find({})
+            df_market_list = pd.DataFrame(list(cursor))
+            
+            # Remove MongoDB _id field if present
+            if '_id' in df_market_list.columns:
+                df_market_list = df_market_list.drop('_id', axis=1)
+            
+            # Convert datetime fields back to string format
+            for col in ['PerStart', 'PerEnd']:
+                if col in df_market_list.columns:
+                    df_market_list[col] = df_market_list[col].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
+                    )
+            
+            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list_international")
+            return df_market_list
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching market_list_international: {e}")
+            return pd.DataFrame()
     
     def fetch_market_list_conn(self):
-        query_market_list = "SELECT * FROM market_list_connections"
-        self.logger.info(f"Executing query_market_list: {query_market_list}")
-        df_market_list = pd.read_sql(query_market_list, self.rm_wr_conn)
-        self.logger.info("Retrieved data from market_list_connections")
-        return df_market_list
-
+        """Fetch all documents from market_list_connections collection."""
+        try:
+            collection = self.db['market_list_connections']
+            self.logger.info("Fetching data from market_list_connections collection")
+            
+            cursor = collection.find({})
+            df_market_list = pd.DataFrame(list(cursor))
+            
+            # Remove MongoDB _id field if present
+            if '_id' in df_market_list.columns:
+                df_market_list = df_market_list.drop('_id', axis=1)
+            
+            # Convert datetime fields back to string format
+            for col in ['PerStart', 'PerEnd']:
+                if col in df_market_list.columns:
+                    df_market_list[col] = df_market_list[col].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if isinstance(x, datetime) else x
+                    )
+            
+            self.logger.info(f"Retrieved {len(df_market_list)} records from market_list_connections")
+            return df_market_list
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching market_list_connections: {e}")
+            return pd.DataFrame()
 
     def fetch_sector_map(self):
-        query_sector_map = "SELECT * FROM config_user_sector_map"
-        self.logger.info(f"Executing query_sector_map: {query_sector_map}")
-        df_sector_map = pd.read_sql(query_sector_map, self.rm_wr_conn)
-        self.logger.info("Retrieved data from config_user_sector_map")
-        return df_sector_map
+        """Fetch all documents from config_user_sector_map collection."""
+        try:
+            collection = self.db['config_user_sector_map']
+            self.logger.info("Fetching data from config_user_sector_map collection")
+            
+            cursor = collection.find({})
+            df_sector_map = pd.DataFrame(list(cursor))
+            
+            # Remove MongoDB _id field if present
+            if '_id' in df_sector_map.columns:
+                df_sector_map = df_sector_map.drop('_id', axis=1)
+            
+            self.logger.info(f"Retrieved {len(df_sector_map)} records from config_user_sector_map")
+            return df_sector_map
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching config_user_sector_map: {e}")
+            return pd.DataFrame()
 
     def process_market_list(self, df_market_list, df_sector_map, current_date):
         new_rows = []
@@ -92,8 +201,8 @@ class DailyRolling:
         return df_market_list
 
     def should_delete_record(self, start_date, end_date, current_date):
-        c1 =  (start_date < current_date and end_date < current_date)
-        c2 = start_date==end_date
+        c1 = (start_date < current_date and end_date < current_date)
+        c2 = start_date == end_date
         # c3= (start_date-current_date).days==30
         return c1 and c2 
 
@@ -174,7 +283,7 @@ class DailyRolling:
                         new_row[column] = [corresponding_row[column]]
                 new_row = pd.DataFrame(new_row)
                 # Concat the new row to the DataFrame
-                df_market_list = pd.concat([df_market_list,new_row], ignore_index=True)
+                df_market_list = pd.concat([df_market_list, new_row], ignore_index=True)
 
         return df_market_list
             
@@ -194,8 +303,8 @@ class DailyRolling:
             (previous_rows['PerStart'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date()) < target_date) &
             (previous_rows['PerEnd'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date()) < target_date)
         ]
-        if previous_rows.shape[0]!=0:
-        # Convert 'PerStart' to datetime format for sorting
+        if previous_rows.shape[0] != 0:
+            # Convert 'PerStart' to datetime format for sorting
             previous_rows['PerStart'] = previous_rows['PerStart'].apply(lambda x: datetime.strptime(x, '%m/%d/%Y').date())
 
             # Sort by PerStart date in descending order
@@ -213,7 +322,7 @@ class DailyRolling:
 
         return None
     
-    def update_dow(self,start_date, end_date):
+    def update_dow(self, start_date, end_date):
         # Initialize DOW string to all '9's indicating closed
         dow_list = ['9'] * 7
 
@@ -229,13 +338,29 @@ class DailyRolling:
 
         return ''.join(dow_list)
     
-    def get_nav_dump(self,depDate):
-        station_master_query="select station from config_station_master where route='I'"
-        station_master=pd.read_sql(station_master_query,self.rm_rd_conn)
-        int_stations=tuple(f"{val}" for val in station_master["station"])
-        if (len(int_stations)==1):
-            int_stations=f"('{int_stations[0]}')"
-        query=f"""SELECT IL.DepartureStation as Origin,IL.ArrivalStation as Destination, 
+    def get_nav_dump(self, depDate):
+        """
+        Fetch navigation dump from SQL Server (NAV connection remains SQL).
+        This method stays unchanged as it queries a different database.
+        """
+        # First get station list from MongoDB
+        try:
+            collection = self.db['config_station_master']
+            station_cursor = collection.find({'route': 'I'}, {'station': 1, '_id': 0})
+            station_master = pd.DataFrame(list(station_cursor))
+        except Exception as e:
+            self.logger.error(f"Error fetching station master from MongoDB: {e}")
+            station_master = pd.DataFrame()
+        
+        if station_master.empty:
+            int_stations = "()"
+        else:
+            int_stations = tuple(f"{val}" for val in station_master["station"])
+            if len(int_stations) == 1:
+                int_stations = f"('{int_stations[0]}')"
+        
+        # NAV query remains SQL Server query
+        query = f"""SELECT IL.DepartureStation as Origin,IL.ArrivalStation as Destination, 
 		IL.DepartureDate,
          TRIM(IL.FlightNumber) as FlightNumber 
          FROM 
@@ -248,6 +373,6 @@ class DailyRolling:
          and IL.DepartureDate <= '{depDate.strftime('%Y-%m-%d')}'
          and IL.DepartureStation NOT IN {int_stations} and IL.ArrivalStation NOT IN{int_stations};
          """
-        dump=pd.read_sql(query,self.nav_conn)
-        self.logger.info(f"dump legth {len(dump)}")
+        dump = pd.read_sql(query, self.nav_conn)
+        self.logger.info(f"dump length {len(dump)}")
         return dump
