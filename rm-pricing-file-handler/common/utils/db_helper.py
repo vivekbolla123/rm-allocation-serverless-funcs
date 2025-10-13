@@ -78,24 +78,6 @@ class DbHelper:
         except Exception as e:
             logger.error(f"Failed to copy data from {temp_table_name} to {table_name}: {e}")
 
-
-    def insert_audit_statement(self, table_name, start_time, user_name, uuid):
-        """Insert audit record into file_upload_audit table"""
-        try:
-            with write_db() as db:
-                db.execute(
-                    text(insert_file_upload_query()),
-                    {
-                        "table_name": table_name,
-                        "curr_version": uuid,
-                        "start_time": start_time,
-                        "user_name": user_name
-                    }
-                )
-            
-        except Exception as e:
-            logger.error(f"Error inserting audit record: {e}")
-
     def insert_statement(self, csv_df, column_headers, table_name):
         try:
             if len(csv_df.columns) != len(column_headers):
@@ -136,18 +118,12 @@ class DbHelper:
             logger.error(f"Error updating audit for table '{table_name}': {e}")
             raise
         
-    def update_audit_statement(self, table_name: str, end_time: str, uuid: str):
+    def update_audit_statement(self, table_name: str, uuid: str):
         """
         Updates audit records and maintains current version tracking.
         """
         try:
             with write_db() as db:
-                # Update audit table
-                db.execute(
-                    text(UPDATE_FILE_UPLOAD()),
-                    {"end_time": end_time, "uuid": uuid, "table_name": table_name},
-                )
-
                 # Count current versions for this table
                 result = db.execute(
                     text(GET_CURRENT_VERSION_COUNT()), {"table_name": table_name}

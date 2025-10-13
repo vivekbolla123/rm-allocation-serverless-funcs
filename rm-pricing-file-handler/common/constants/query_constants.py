@@ -13,9 +13,6 @@ def status_in_progress():
 def get_column_headers_query():
     return "SELECT column_names, id_column_names FROM config_column_names WHERE table_name = :table_name"
 
-def insert_file_upload_query():
-    return "INSERT INTO file_upload_audit (table_name, curr_table_version, start_time, user_name) VALUES (:table_name, :curr_version, :start_time, :user_name)"
-
 def copy_values_table_to_table(table_name, temp_table_name):
     return f"INSERT INTO {table_name} SELECT * FROM {temp_table_name}"
 
@@ -32,15 +29,6 @@ def delete_key_values_query(table_name, temp_table_name, id_columns):
 
 def insert_values_query(table_name, column_names, placeholders):
     return f"INSERT INTO {table_name} ({column_names}) VALUES ({placeholders})"
-
-def UPDATE_FILE_UPLOAD():
-    return """
-        UPDATE file_upload_audit
-        SET end_time = :end_time
-        WHERE curr_table_version = :uuid
-          AND table_name = :table_name
-    """
-
 
 def GET_CURRENT_VERSION_COUNT():
     return """

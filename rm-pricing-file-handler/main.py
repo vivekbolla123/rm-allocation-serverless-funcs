@@ -35,7 +35,7 @@ class FileHandler:
             
             self.db_helper.copy_from_temp_to_main_table(table_name, temp_table_name, data)
             
-            self.db_helper.update_audit_statement(table_name, datetime.now(), uuid)
+            self.db_helper.update_audit_statement(table_name, uuid)
             
             # Delete temp table
             self.db_helper.delete_table(temp_table_name)

@@ -4,15 +4,6 @@ CREATE TABLE QP_DW_PRIAUT.`current_table_version` (
   PRIMARY KEY (`table_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE TABLE QP_DW_PRIAUT.`file_upload_audit` (
-  `table_name` varchar(255) NOT NULL,
-  `curr_table_version` varchar(255) NOT NULL,
-  `start_time` varchar(45) DEFAULT NULL,
-  `end_time` varchar(45) DEFAULT NULL,
-  `user_name` varchar(45) DEFAULT NULL,
-  PRIMARY KEY (`curr_table_version`,`table_name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
 CREATE TABLE `inputs_file_upload` (
   `obj_id` varchar(50) NOT NULL,
   `status` varchar(100) DEFAULT NULL,
