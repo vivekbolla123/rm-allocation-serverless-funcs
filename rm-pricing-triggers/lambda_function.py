@@ -8,9 +8,10 @@ import json
 from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
+from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
-from constants_utils import ConstantsUtils
+from salesFare import SalesFare
 
 
 logger = logging.getLogger()
@@ -42,7 +43,8 @@ except Exception as e:
 
 module_map = {
     'action_sect' : ActionSectors,
-    'ladder_gen' : LadderGen
+    'ladder_gen' : LadderGen,
+    'sales_fare' : SalesFare
 }
 
 
@@ -110,6 +112,13 @@ def lambda_handler(event, context):
 #         "sector": "BOMDEL"
 #     },
 #     "modules": {"ladder_gen": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes"
+#     },
+#     "modules": {"sales_fare": 1}
 # }
  
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
