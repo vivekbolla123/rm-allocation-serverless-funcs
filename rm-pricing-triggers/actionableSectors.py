@@ -225,24 +225,11 @@ class ActionSectors:
     def collect_market_fares(self):
         """Collect market fares min/max data based on route (domestic/international) with carrier info."""
         try:
-            # Base query components
-            base_conditions = """
-            WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5','QP','G8') 
-                AND CAST(departure_date AS DATE) >= CURDATE()
-                AND CAST(departure_date AS DATE) <= CURDATE() + INTERVAL 365 DAY
-                AND created_at > NOW() - INTERVAL 24 HOUR
-            """
-            
+            # Build route filter based on route type
             if self.route == 'D':
-                # Add domestic route filter
-                route_filter = """
-                AND outbound_stop = 0
-                """
+                route_filter = "AND outbound_stop = 0"
             elif self.route == 'I':
-                # Add international route filter
-                route_filter = """
-                AND outbound_stop >= 0
-                """
+                route_filter = "AND outbound_stop >= 0"
             else:
                 raise ValueError(f"Invalid route: {self.route}")
             
@@ -255,8 +242,11 @@ class ActionSectors:
                     source_airport,
                     channel
                 FROM market_fares_ag
-                {base_conditions}
-                {route_filter}
+                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
+                    AND departure_date >= CURDATE()
+                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
+                    AND created_at > NOW() - INTERVAL 24 HOUR
+                    {route_filter}
                 
                 UNION ALL
                 
@@ -267,8 +257,28 @@ class ActionSectors:
                     source_airport,
                     channel
                 FROM market_fares_rg
-                {base_conditions}
-                {route_filter}
+                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
+                    AND departure_date >= CURDATE()
+                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
+                    AND created_at > NOW() - INTERVAL 24 HOUR
+                    {route_filter}
+            ),
+            ranked_fares AS (
+                SELECT 
+                    source_airport,
+                    destination_airport,
+                    channel,
+                    gross_fare,
+                    outbound_airline_code,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY source_airport, destination_airport, channel 
+                        ORDER BY gross_fare ASC
+                    ) as rn_min,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY source_airport, destination_airport, channel 
+                        ORDER BY gross_fare DESC
+                    ) as rn_max
+                FROM combined_data
             ),
             min_max_fares AS (
                 SELECT 
@@ -276,10 +286,19 @@ class ActionSectors:
                     destination_airport,
                     channel,
                     MIN(gross_fare) as min_fare,
-                    MAX(gross_fare) as max_fare,
-                    COUNT(DISTINCT gross_fare) as instances
+                    MAX(gross_fare) as max_fare
                 FROM combined_data
                 GROUP BY source_airport, destination_airport, channel
+            ),
+            fare_counts AS (
+                SELECT
+                    cd.source_airport,
+                    cd.destination_airport,
+                    cd.channel,
+                    cd.gross_fare,
+                    COUNT(*) as fare_count
+                FROM combined_data cd
+                GROUP BY cd.source_airport, cd.destination_airport, cd.channel, cd.gross_fare
             )
             SELECT 
                 mmf.source_airport,
@@ -287,22 +306,33 @@ class ActionSectors:
                 mmf.channel,
                 mmf.min_fare,
                 mmf.max_fare,
-                mmf.instances,
-                (SELECT outbound_airline_code 
-                FROM combined_data cd
-                WHERE cd.source_airport = mmf.source_airport
-                AND cd.destination_airport = mmf.destination_airport
-                AND cd.channel = mmf.channel
-                AND cd.gross_fare = mmf.min_fare
-                LIMIT 1) as min_carrier,
-                (SELECT outbound_airline_code 
-                FROM combined_data cd
-                WHERE cd.source_airport = mmf.source_airport
-                AND cd.destination_airport = mmf.destination_airport
-                AND cd.channel = mmf.channel
-                AND cd.gross_fare = mmf.max_fare
-                LIMIT 1) as max_carrier
+                COALESCE(min_fc.fare_count, 0) as min_instances,
+                COALESCE(max_fc.fare_count, 0) as max_instances,
+                min_rf.outbound_airline_code as min_carrier,
+                max_rf.outbound_airline_code as max_carrier
             FROM min_max_fares mmf
+            LEFT JOIN fare_counts min_fc
+                ON mmf.source_airport = min_fc.source_airport
+                AND mmf.destination_airport = min_fc.destination_airport
+                AND mmf.channel = min_fc.channel
+                AND mmf.min_fare = min_fc.gross_fare
+            LEFT JOIN fare_counts max_fc
+                ON mmf.source_airport = max_fc.source_airport
+                AND mmf.destination_airport = max_fc.destination_airport
+                AND mmf.channel = max_fc.channel
+                AND mmf.max_fare = max_fc.gross_fare
+            LEFT JOIN ranked_fares min_rf
+                ON mmf.source_airport = min_rf.source_airport
+                AND mmf.destination_airport = min_rf.destination_airport
+                AND mmf.channel = min_rf.channel
+                AND mmf.min_fare = min_rf.gross_fare
+                AND min_rf.rn_min = 1
+            LEFT JOIN ranked_fares max_rf
+                ON mmf.source_airport = max_rf.source_airport
+                AND mmf.destination_airport = max_rf.destination_airport
+                AND mmf.channel = max_rf.channel
+                AND mmf.max_fare = max_rf.gross_fare
+                AND max_rf.rn_max = 1
             ORDER BY mmf.source_airport, mmf.destination_airport, mmf.channel
             """
             
@@ -313,7 +343,7 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Error collecting market fares data: {str(e)}")
             raise
-
+            
     def collect_booked_data(self, date_range_days=30):
         """Collect passenger booking data from Navitaire stored procedure for PLF calculation."""
         try:
@@ -460,11 +490,12 @@ class ActionSectors:
             xqp_record = channel_xqp_data.iloc[0]
             xqp_min_fare = float(xqp_record['min_fare'])
             xqp_max_fare = float(xqp_record['max_fare'])
-            instances = int(xqp_record['instances'])
+            min_instances = int(xqp_record['min_instances'])
+            max_instances = int(xqp_record['max_instances'])
             min_carrier = xqp_record['min_carrier']
             max_carrier = xqp_record['max_carrier']
             
-            self.logger.debug(f"Market data for {sector} {channel}: min={xqp_min_fare}, max={xqp_max_fare}, instances={instances}")
+            self.logger.debug(f"Market data for {sector} {channel}: min={xqp_min_fare} (instances={min_instances}), max={xqp_max_fare} (instances={max_instances})")
             
             # Get QP min and max fares based on fare amounts
             qp_min_fare, qp_max_fare, min_rbd, max_rbd = self._get_qp_min_max_fares(sector_qp_fares, origin, destination, channel)
@@ -488,7 +519,7 @@ class ActionSectors:
                 max_action_record = self._create_action_record(
                     sector, origin, destination, channel, "Max_Action",
                     qp_max_fare, xqp_max_fare, max_carrier, max_rbd,
-                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, max_instances
                 )
                 if max_action_record:
                     results.append(max_action_record)
@@ -498,7 +529,7 @@ class ActionSectors:
                 min_action_record = self._create_action_record(
                     sector, origin, destination, channel, "Min_Action",
                     qp_min_fare, xqp_min_fare, min_carrier, min_rbd,
-                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, min_instances
                 )
                 if min_action_record:
                     results.append(min_action_record)
