@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
 import org.springframework.beans.BeanUtils;
 
 import static com.akasaair.queues.common.constants.Constants.*;
-import static com.akasaair.queues.common.constants.QueryConstants.INSERT_INTO_ML_AUDIT_LOGS;
 
 public class AuditHelper {
 

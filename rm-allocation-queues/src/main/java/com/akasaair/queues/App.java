@@ -7,10 +7,15 @@ import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
 //import com.akasaair.queues.common.helpers.AuditHelper;
-import com.akasaair.queues.common.helpers.JdbcConnection;
+import com.akasaair.queues.common.helpers.MongoConnection;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.result.DeleteResult;
 import com.nimbusds.jose.shaded.json.JSONArray;
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
 import java.nio.file.Files;
@@ -20,6 +25,9 @@ import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
+
+import org.bson.Document;
+import org.bson.conversions.Bson;
 import software.amazon.awssdk.core.async.AsyncResponseTransformer;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
@@ -49,10 +57,13 @@ import static com.akasaair.queues.common.constants.TableNamesConstants.*;
 import static com.akasaair.queues.common.helpers.CsvHelper.convertToCSV;
 import static com.akasaair.queues.common.helpers.CsvHelper.getDataFromCSVFile;
 import static com.akasaair.queues.common.helpers.QpFaresFileConverter.convertToCSVReader;
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.set;
 
 public class App implements RequestHandler<S3Event, Object> {
-    final Connection connection = new JdbcConnection().connection();
-    final Connection connection2 = new JdbcConnection().connection();
+    private final MongoDatabase database;
+    private final MongoDatabase database2;  // if you need second connection
     List<String> listOfErrors = new ArrayList<>();
     private final S3AsyncClient s3Client;
     final S3FileStorageDao s3FileStorageDao = new S3FileStorageDao();
@@ -65,8 +76,10 @@ public class App implements RequestHandler<S3Event, Object> {
         UPSELL,
         DISTRESS
     }
-    public App() throws SQLException {
-        s3Client = DependencyFactory.s3Client();
+    public App() {
+        this.database = MongoConnection.getDatabase();
+        this.database2 = MongoConnection.getDatabase();  // if needed
+        this.s3Client = DependencyFactory.s3Client();
     }
 
     public static void main(String[] args) throws SQLException {
@@ -106,19 +119,24 @@ public class App implements RequestHandler<S3Event, Object> {
         LocalDateTime startTime = null;
         AtomicLong numOfRows = new AtomicLong();
 
-        try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_INSERT())) {
-            pstmt.setString(1, obj_id);
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                if (resultSet.next()) {
-                    tableName = resultSet.getString("tableName");
-                    role = resultSet.getObject("role");
-                    usern = resultSet.getString("username");
-                    nameForadhoc = resultSet.getString("name");
-                    startTime = resultSet.getTimestamp("init_timestamp").toLocalDateTime();
-                    routeStr = resultSet.getString("route_for_adhoc");
+        try {
+            MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+            Document result = collection.find(eq("obj_id", obj_id)).first();
+
+            if (result != null) {
+                tableName = result.getString("tableName");
+                role = result.get("role");
+                usern = result.getString("username");
+                nameForadhoc = result.getString("name");
+
+                Object timestampObj = result.get("init_timestamp");
+                if (timestampObj instanceof Date) {
+                    startTime = ((Date) timestampObj).toInstant()
+                            .atZone(ZoneId.systemDefault()).toLocalDateTime();
                 }
+                routeStr = result.getString("route_for_adhoc");
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             error_occurred = 1;
             listOfErrors.add(DATABASE_ACCESS_ERROR_MESSAGE);
             addErrorsToTable(listOfErrors, obj_id);
@@ -164,15 +182,19 @@ public class App implements RequestHandler<S3Event, Object> {
         String formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
         System.out.println("Status--->" + status);
 
-        try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE())) {
-            pstmt.setString(1, status);
-            pstmt.setObject(2, endTime);
-            pstmt.setInt(3, rNum);
-            pstmt.setString(4, formattedDuration);
-            pstmt.setString(5, obj_id);
-            pstmt.executeUpdate();
+        try {
+            MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+            collection.updateOne(
+                    eq("obj_id", obj_id),
+                    combine(
+                            set("status", status),
+                            set("done_timestamp", Date.from(endTime.atZone(ZoneId.systemDefault()).toInstant())),
+                            set("total_rows", rNum),
+                            set("total_time_taken", formattedDuration)
+                    )
+            );
             System.out.println("Status Updated");
-        } catch (SQLException e) {
+        } catch (Exception e) {
             listOfErrors.add(DATABASE_ACCESS_ERROR_MESSAGE);
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
@@ -215,11 +237,17 @@ public class App implements RequestHandler<S3Event, Object> {
                         route = DOMESTIC;
                     }
                     System.out.println("Route is ->" + route);
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     String finalRoute = route;
@@ -254,11 +282,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 case STRATEGY_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
@@ -282,11 +316,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 case AUTO_B2B_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
@@ -309,11 +349,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 case DATE_EVENT_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
@@ -337,11 +383,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 case DISTRESS_CLAENDAR -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
@@ -365,11 +417,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 case SALES_INVENTORY_TABLE_NAME-> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     String finalTableName1 = tableName;
@@ -405,11 +463,17 @@ public class App implements RequestHandler<S3Event, Object> {
                     break;
                 }
                 case SALESINV_RBD_DISTRIBUTION_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
                     String finalTableNameRbd = tableName;
                     s3Client.getObject(GetObjectRequest.builder()
@@ -444,11 +508,17 @@ public class App implements RequestHandler<S3Event, Object> {
                     break;
                 }
                 case GROUP_POTENTIAL_SEATS_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     String finalTableName2 = tableName;
@@ -484,11 +554,17 @@ public class App implements RequestHandler<S3Event, Object> {
                     break;
                 }
                 case MARKET_LIST_SALESINV_TABLE_NAME,MARKET_LIST_SALESINV_ADHOC_TABLE_NAME -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     if (tableName.startsWith(MARKET_LIST_SALESINV_ADHOC_TABLE_NAME)) {
@@ -517,11 +593,17 @@ public class App implements RequestHandler<S3Event, Object> {
                             .join();
                 }
                 default -> {
-                    try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_UPDATE())) {
-                        pstmt.setString(1, status);
-                        pstmt.setObject(2, LocalDateTime.now());
-                        pstmt.setString(3, obj_id);
-                        pstmt.executeUpdate();
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        e.printStackTrace();
                     }
 
                     s3Client.getObject(GetObjectRequest.builder()
@@ -808,51 +890,50 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    private void deleteSalesInvRbdDistributionBySeatType(Set<String> seatTypeCombinations, String tableName) {
+    private void deleteSalesInvRbdDistributionBySeatType(Set<String> seatTypeCombinations, String collectionName) {
         if (seatTypeCombinations == null || seatTypeCombinations.isEmpty()) {
             return;
         }
-        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SI_RBD_SEATS_COLUMN_NAME + " = ? AND " + SI_RBD_TYPE_COLUMN_NAME + " = ?";
 
-        System.out.println("Preparing to delete from " + tableName + " for " + seatTypeCombinations.size() + " (seats, type) combinations.");
+        System.out.println("Preparing to delete from " + collectionName +
+                " for " + seatTypeCombinations.size() + " seats, type combinations.");
+
         int totalDeletedRows = 0;
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
 
-        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            connection.setAutoCommit(false);
             for (String combo : seatTypeCombinations) {
-                String[] parts = combo.split("\\|");
+                String[] parts = combo.split(",");
                 if (parts.length == 2) {
                     try {
                         int seats = Integer.parseInt(parts[0]);
                         String type = parts[1];
 
-                        pstmt.setInt(1, seats);
-                        pstmt.setString(2, type);
-                        pstmt.addBatch();
+                        Bson filter = and(
+                                eq(SI_RBD_SEATS_COLUMN_NAME, seats),
+                                eq(SI_RBD_TYPE_COLUMN_NAME, type)
+                        );
+
+                        DeleteResult result = collection.deleteMany(filter);
+                        totalDeletedRows += result.getDeletedCount();
+
                     } catch (NumberFormatException e) {
                         listOfErrors.add("Skipping deletion for invalid seat format in combo: " + combo);
                         System.err.println("Skipping deletion for invalid seat format in combo: " + combo);
                     }
                 } else {
-                    System.err.println("Skipping deletion for malformed (seats,type) combo: " + combo);
+                    System.err.println("Skipping deletion for malformed seats,type combo: " + combo);
                 }
             }
-            int[] batchResult = pstmt.executeBatch();
-            connection.commit();
 
-            for(int count : batchResult) {
-                if (count > 0) totalDeletedRows += count;
-            }
-            System.out.println("Total deleted approximately " + totalDeletedRows + " records from " + tableName + " based on CSV (seats,type) groups.");
+            System.out.println("Total deleted " + totalDeletedRows +
+                    " records from " + collectionName + " based on CSV seats,type groups.");
 
-        } catch (SQLException e) {
-            try { connection.rollback(); } catch (SQLException ex) { System.err.println("Rollback failed: " + ex.getMessage());}
+        } catch (Exception e) {
             error_occurred = 1;
             String errorMsg = "Failed to delete existing Sales RBD Distribution data";
-            System.err.println(errorMsg + ":"+ e.getMessage());
+            System.err.println(errorMsg + ": " + e.getMessage());
             listOfErrors.add(errorMsg);
-        } finally {
-            try { connection.setAutoCommit(true); } catch (SQLException ex) { System.err.println("Failed to reset auto-commit: " + ex.getMessage());}
         }
     }
 
@@ -894,7 +975,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 int errorCountBefore = listOfErrors.size();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i,
                         role, userName, listOfCurves, listOfStrategies, listOfB2BStrategies, listOfCriteria);
-                if (listOfErrors.size() == errorCountBefore) {
+                if (listOfErrors.size() != errorCountBefore) {
                     createMarketListEntity(csvData.get(i), validMarketListEntityList, uuidForEntries, analystName);
                 }
             }
@@ -1014,20 +1095,22 @@ public class App implements RequestHandler<S3Event, Object> {
         return adjustedPattern.toString();
     }
 
-    public void addErrorsToTable(List<String> errorsList, String obj_id) {
+    public void addErrorsToTable(List<String> errorsList, String objid) {
         if (errorsList == null || errorsList.isEmpty()) {
             return;
         }
         String errorsString = String.join(", ", errorsList);
-        try (PreparedStatement pstmt = connection.prepareStatement(INPUT_FILE_UPLOAD_ERROR_OCCURRED())) {
-            pstmt.setObject(1, errorsString);
-            pstmt.setString(2, obj_id);
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
+
+        try {
+            MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+            collection.updateOne(
+                    eq("obj_id", objid),
+                    set("errors", errorsString)
+            );
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
-
     }
 
     public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws Exception {
@@ -1413,48 +1496,66 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    private void deleteSalesInventoryByExactDates(Set<String> datesToDelete, String tableName) {
+    private void deleteSalesInventoryByExactDates(Set<String> datesToDelete, String collectionName) {
         if (datesToDelete == null || datesToDelete.isEmpty()) {
+            System.out.println("No dates to delete. Skipping deletion.");
             return;
         }
-        String placeholders = String.join(",", Collections.nCopies(datesToDelete.size(), "?"));
-        String deleteQuery = "DELETE FROM " + tableName + " WHERE " + SALES_DB_DATE + " IN (" + placeholders + ")";
-        System.out.println("Executing delete on " + tableName + " for exact dates: " + datesToDelete);
-        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            int i = 1;
-            for (String dateValue : datesToDelete) {
-                pstmt.setString(i++, dateValue);
-            }
-            int deletedRows = pstmt.executeUpdate();
-            System.out.println("Deleted " + deletedRows + " exact date records from " + tableName + " matching: " + datesToDelete);
-        } catch (SQLException e) {
-            error_occurred = 1;
-            String errorMsg = "Failed to delete exact sales inventory data for dates " + datesToDelete;
-            System.err.println(errorMsg);
-            listOfErrors.add(errorMsg);
-            throw new RuntimeException(errorMsg, e);
-        }
-    }
-    private void deleteSalesInventoryDailyByDateRange(String startDateYYYYMMDD, String endDateYYYYMMDD, String tableName) {
-        String deleteQuery = "DELETE FROM " + tableName + " WHERE " +
-                SALES_DB_DATE + " >= ? AND " +
-                SALES_DB_DATE + " <= ? AND " +
-                SALES_DB_DATE + " NOT LIKE '%00'";
 
-        System.out.println("Executing delete for daily records (not ending in '00') on " + tableName + " from " + startDateYYYYMMDD + " to " + endDateYYYYMMDD);
-        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            pstmt.setString(1, startDateYYYYMMDD);
-            pstmt.setString(2, endDateYYYYMMDD);
-            int deletedRows = pstmt.executeUpdate();
-            System.out.println("Deleted " + deletedRows + " existing daily records (not ending in '00') from " + tableName + " in the range.");
-        } catch (SQLException e) {
+        System.out.println("Executing delete on " + collectionName + " for exact dates: " + datesToDelete);
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            // WHERE date IN (date1, date2, date3, ...)
+            Bson filter = in(SALES_DB_DATE, datesToDelete);
+
+            DeleteResult result = collection.deleteMany(filter);
+
+            System.out.println("Deleted " + result.getDeletedCount() + " exact date records from " +
+                    collectionName + " matching: " + datesToDelete);
+
+        } catch (Exception e) {
             error_occurred = 1;
-            String errorMsg = "Failed to delete existing daily sales inventory data for range " + startDateYYYYMMDD + "-" + endDateYYYYMMDD;
+            String errorMsg = "Failed to delete exact sales inventory data for dates " + datesToDelete +
+                    ". Error: " + e.getMessage();
             System.err.println(errorMsg);
             listOfErrors.add(errorMsg);
             throw new RuntimeException(errorMsg, e);
         }
     }
+
+    private void deleteSalesInventoryDailyByDateRange(String startDateYYYYMMDD, String endDateYYYYMMDD,
+                                                      String collectionName) {
+        System.out.println("Executing delete for daily records (not ending in '00') on " + collectionName +
+                " from " + startDateYYYYMMDD + " to " + endDateYYYYMMDD);
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            // Build filter: date >= start AND date <= end AND date NOT LIKE '%00'
+            Bson filter = and(
+                    gte(SALES_DB_DATE, startDateYYYYMMDD),
+                    lte(SALES_DB_DATE, endDateYYYYMMDD),
+                    not(regex(SALES_DB_DATE, "00$"))  // NOT LIKE '%00' = does NOT end with '00'
+            );
+
+            DeleteResult result = collection.deleteMany(filter);
+
+            System.out.println("Deleted " + result.getDeletedCount() +
+                    " existing daily records (not ending in '00') from " +
+                    collectionName + " in the range.");
+
+        } catch (Exception e) {
+            error_occurred = 1;
+            String errorMsg = "Failed to delete existing daily sales inventory data for range " +
+                    startDateYYYYMMDD + "-" + endDateYYYYMMDD + ". Error: " + e.getMessage();
+            System.err.println(errorMsg);
+            listOfErrors.add(errorMsg);
+            throw new RuntimeException(errorMsg, e);
+        }
+    }
+
 
     private boolean isNumeric(String str) {
         if (str == null || str.trim().isEmpty()) {
@@ -1497,22 +1598,26 @@ public class App implements RequestHandler<S3Event, Object> {
     public List<Map<String, Object>> retrieveStrategyGrid(String value) {
         int limit = getCountOfEntries(DPLF_BANDS_TABLE);
         List<Map<String, Object>> listObj = new ArrayList<>();
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_STRATEGY_GRID(limit, value))) {
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    row.put(STRATEGY_COLUMN_NAME, resultSet.getString(STRATEGY_COLUMN_NAME));
-                    row.put(CHANNEL_COLUMN_NAME, resultSet.getString(CHANNEL_COLUMN_NAME));
-                    row.put(DECISION_COLUMN_NAME, resultSet.getString(DECISION_COLUMN_NAME));
-                    row.put(BAND_COLUMN_NAME, resultSet.getString(BAND_COLUMN_NAME));
-                    for (int i = 0; i <= 6; i++) {
-                        row.put(String.valueOf(i), resultSet.getString(String.valueOf(i)));
-                    }
 
+        try {
+            MongoCollection<Document> collection = database.getCollection("strategy_grid");
+            Bson filter = value != null ? eq("strategy", value) : new Document();
+
+            try (MongoCursor<Document> cursor = collection.find(filter).limit(limit).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
+                    Map<String, Object> row = new HashMap<>();
+                    row.put(STRATEGY_COLUMN_NAME, doc.getString(STRATEGY_COLUMN_NAME));
+                    row.put(CHANNEL_COLUMN_NAME, doc.getString(CHANNEL_COLUMN_NAME));
+                    row.put(DECISION_COLUMN_NAME, doc.getString(DECISION_COLUMN_NAME));
+                    row.put(BAND_COLUMN_NAME, doc.getString(BAND_COLUMN_NAME));
+                    for (int i = 0; i <= 6; i++) {
+                        row.put(String.valueOf(i), doc.getString(String.valueOf(i)));
+                    }
                     listObj.add(row);
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -1522,50 +1627,47 @@ public class App implements RequestHandler<S3Event, Object> {
     public List<Map<String, Object>> retrieveAutoB2BGrid(String value) {
         int limit = getCountOfEntries(DPLF_BANDS_TABLE);
         List<Map<String, Object>> listObj = new ArrayList<>();
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_AUTO_B2B_FACTOR_GRID(limit))) {
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    row.put(AUTO_B2B_NAME_COLUMN_NAME, resultSet.getString(AUTO_B2B_NAME_COLUMN_NAME));
-                    row.put(NDO_BAND_COLUMN_NAME, resultSet.getString(NDO_BAND_COLUMN_NAME));
-                    row.put(FORECAST_BAND_COLUMN_NAME, resultSet.getString(FORECAST_BAND_COLUMN_NAME));
-                    for (int i = 0; i <= 6; i++) {
-                        row.put(String.valueOf(i), resultSet.getString(String.valueOf(i)));
-                    }
 
+        try {
+            MongoCollection<Document> collection = database.getCollection("auto_b2b_grid");
+
+            try (MongoCursor<Document> cursor = collection.find().limit(limit).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
+                    Map<String, Object> row = new HashMap<>();
+                    row.put(AUTO_B2B_NAME_COLUMN_NAME, doc.getString(AUTO_B2B_NAME_COLUMN_NAME));
+                    row.put(NDO_BAND_COLUMN_NAME, doc.getString(NDO_BAND_COLUMN_NAME));
+                    row.put(FORECAST_BAND_COLUMN_NAME, doc.getString(FORECAST_BAND_COLUMN_NAME));
+                    for (int i = 0; i <= 6; i++) {
+                        row.put(String.valueOf(i), doc.getString(String.valueOf(i)));
+                    }
                     listObj.add(row);
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
         return listObj;
     }
 
-    public int findIfTableExists(String tableName) {
-        List<Map<String, Object>> listObj = new ArrayList<>();
-        if (tableName.toUpperCase().startsWith("QP_DW_PRIAUT.")) {
-            tableName = tableName.substring("QP_DW_PRIAUT.".length());
+    public int findIfTableExists(String collectionName) {
+        if (collectionName.toUpperCase().startsWith("QPDWPRIAUT.")) {
+            collectionName = collectionName.substring("QPDWPRIAUT.".length());
         }
 
-        String query = "SELECT table_name FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_name = ?";
-
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            pstmt.setString(1, tableName);
-
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    row.put("tableName", resultSet.getString(1));
-                    listObj.add(row);
+        try {
+            for (String name : database.listCollectionNames()) {
+                if (name.equals(collectionName)) {
+                    return 1;
                 }
             }
-        } catch (SQLException e) {
+            return 0;
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
+            return 0;
         }
-        return listObj.size();
     }
 
     private Set<String> getUniqueValues(List<Map<String, String>> data, String columnName) {
@@ -1586,14 +1688,14 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public String searchResults(String value) {
         String listObj = null;
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_PARAMETER_VALUES())) {
-            pstmt.setString(1, value);
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                if (resultSet.next()) {
-                    listObj = resultSet.getString(PARAMETER_VALUE_COLUMN_NAME);
-                }
+        try {
+            MongoCollection<Document> collection = database.getCollection("system_parameters");
+            Document doc = collection.find(eq("param_key", value)).first();
+
+            if (doc != null) {
+                listObj = doc.getString(PARAMETER_VALUE_COLUMN_NAME);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
@@ -1801,19 +1903,13 @@ public class App implements RequestHandler<S3Event, Object> {
                     System.out.println(FILE_UPLOAD_ERROR_MESSAGE + ": No valid connection records to upload.");
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             error_occurred = 1;
             String sqlErrorMsg = "Database operation failed during market list connections upload";
             if (this.listOfErrors.isEmpty() || !this.listOfErrors.get(this.listOfErrors.size()-1).contains(e.getMessage())) {
                 this.listOfErrors.add(sqlErrorMsg);
             }
             System.out.println("SQL Exception in uploadMarketListConnectionsFile: " + e.getMessage());
-            e.printStackTrace();
-        } catch (Exception e) {
-            error_occurred = 1;
-            String unexpectedErrorMsg = "Unexpected error during market list connections upload";
-            this.listOfErrors.add(unexpectedErrorMsg);
-            System.out.println("Unexpected error: " + e.getMessage());
             e.printStackTrace();
         } finally {
             if (!this.listOfErrors.isEmpty()) {
@@ -1824,78 +1920,82 @@ public class App implements RequestHandler<S3Event, Object> {
     }
 
 
-    private void deleteSpecificConnectionRecords(List<MarketListConnectionsEntity> marketListConnectionsEntityList, String tableName) throws SQLException {
-        if (marketListConnectionsEntityList.isEmpty()) {
+    private void deleteSpecificConnectionRecords(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
+                                                 String collectionName) {
+        if (marketListConnectionsEntityList == null || marketListConnectionsEntityList.isEmpty()) {
             return;
         }
-        String deleteSQL = "DELETE FROM " + tableName + " WHERE sector1 = ? AND flight1 = ? AND sector2 = ? AND flight2 = ? AND PerStart = ?";
 
-        boolean autoCommitOriginalStatus = connection.getAutoCommit();
         try {
-            connection.setAutoCommit(false);
+            MongoCollection<Document> collection = database.getCollection(collectionName);
 
-            try (PreparedStatement pstmt = connection.prepareStatement(deleteSQL)) {
-                for (MarketListConnectionsEntity entity : marketListConnectionsEntityList) {
-                    pstmt.setString(1, entity.getSector1());
-                    pstmt.setString(2, entity.getFlight1());
-                    pstmt.setString(3, entity.getSector2());
-                    pstmt.setString(4, entity.getFlight2());
-                    pstmt.setString(5, entity.getStartDate());
-                    pstmt.addBatch();
-                }
-                pstmt.executeBatch();
+            // Build single filter with $or for all conditions
+            List<Bson> orConditions = new ArrayList<>();
+            for (MarketListConnectionsEntity entity : marketListConnectionsEntityList) {
+                orConditions.add(and(
+                        eq("sector1", entity.getSector1()),
+                        eq("flight1", entity.getFlight1()),
+                        eq("sector2", entity.getSector2()),
+                        eq("flight2", entity.getFlight2()),
+                        eq("PerStart", entity.getStartDate())
+                ));
             }
-            connection.commit();
-        } catch (SQLException e) {
-            connection.rollback();
+
+            // Single delete operation with $or
+            Bson filter = or(orConditions);
+            DeleteResult result = collection.deleteMany(filter);
+
+            System.out.println("Deleted " + result.getDeletedCount() +
+                    " connection records for replacement");
+
+        } catch (Exception e) {
             error_occurred = 1;
             String errorMsg = "Error deleting existing connection records for replacement";
-            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + " " + errorMsg);
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + errorMsg);
             e.printStackTrace();
             this.listOfErrors.add(errorMsg);
-            throw e;
-        } finally {
-            connection.setAutoCommit(autoCommitOriginalStatus);
+            throw new RuntimeException(errorMsg, e);
         }
     }
 
-    public void insertIntoMarketListConnections(MarketListConnectionsEntity marketListEntity, String tableName) {
-        try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST_CONNECTIONS(tableName))) {
-            pstmt.setString(1, marketListEntity.getSector1());
-            pstmt.setString(2, marketListEntity.getSector2());
-            pstmt.setString(3, marketListEntity.getFlight1());
-            pstmt.setString(4, marketListEntity.getFlight2());
-            pstmt.setString(5, marketListEntity.getPerType());
-            pstmt.setString(6, marketListEntity.getStartDate());
-            pstmt.setString(7, marketListEntity.getEndDate());
-            pstmt.setInt(8, new BigInteger(marketListEntity.getDayOfWeek()).intValue());
-            pstmt.setString(9, marketListEntity.getPriceStrategy());
-            pstmt.setString(10, marketListEntity.getDiscountValue());
-            pstmt.setInt(11, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
-            pstmt.setInt(12, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
-            pstmt.setInt(13, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
-            pstmt.setInt(14, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
-            pstmt.setString(15, marketListEntity.getB2bFactor());
-            pstmt.setString(16, marketListEntity.getSkippingFactor());
-            pstmt.setString(17, marketListEntity.getAnalystName());
-            pstmt.setString(18, marketListEntity.getUuid());
-            pstmt.setString(19, marketListEntity.getOutboundStop());
-            pstmt.setString(20, marketListEntity.getOutboundDuration());
-            pstmt.setString(21, marketListEntity.getCarrierExclusionB2B());
-            pstmt.setString(22, marketListEntity.getCarrierExclusionB2C());
-            pstmt.setString(23, marketListEntity.getCurrency());
-            pstmt.setString(24, marketListEntity.getFareAnchor());
-            pstmt.setString(25, marketListEntity.getOffset());
-            pstmt.setString(26, marketListEntity.getDiscountFlag());
-            pstmt.setString(27, marketListEntity.getSosFlag());
 
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
+    public void insertIntoMarketListConnections(MarketListConnectionsEntity marketListEntity, String collectionName) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            Document doc = new Document()
+                    .append("sector1", marketListEntity.getSector1())
+                    .append("sector2", marketListEntity.getSector2())
+                    .append("Flight1", marketListEntity.getFlight1())
+                    .append("Flight2", marketListEntity.getFlight2())
+                    .append("Pertype", marketListEntity.getPerType())
+                    .append("PerStart", marketListEntity.getStartDate())
+                    .append("PerEnd", marketListEntity.getEndDate())
+                    .append("DOW", new BigInteger(marketListEntity.getDayOfWeek()).intValue())
+                    .append("Price_Strategy", marketListEntity.getPriceStrategy())
+                    .append("Discount_Value", marketListEntity.getDiscountValue())
+                    .append("FirstRBDAlloc", new BigInteger(marketListEntity.getFirstAllocation()).intValue())
+                    .append("OtherRBDAlloc", new BigInteger(marketListEntity.getOtherAllocation()).intValue())
+                    .append("B2BBackstop", new BigInteger(marketListEntity.getB2bBackstop()).intValue())
+                    .append("B2CBackstop", new BigInteger(marketListEntity.getB2cBackstop()).intValue())
+                    .append("B2BFactor", marketListEntity.getB2bFactor())
+                    .append("SkippingFactor", marketListEntity.getSkippingFactor())
+                    .append("analystName", marketListEntity.getAnalystName())
+                    .append("UUID", marketListEntity.getUuid())
+                    .append("Outbound_stop", marketListEntity.getOutboundStop())
+                    .append("Outbound_duration", marketListEntity.getOutboundDuration())
+                    .append("CarrierExclusionB2B", marketListEntity.getCarrierExclusionB2B())
+                    .append("CarrierExclusionB2C", marketListEntity.getCarrierExclusionB2C())
+                    .append("Currency", marketListEntity.getCurrency())
+                    .append("fareAnchor", marketListEntity.getFareAnchor())
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
             error_occurred = 1;
-            String errorMsg = "Failed to insert market list connection for sectors " + marketListEntity.getSector1() + "/" + marketListEntity.getSector2() +
-                    ", flights " + marketListEntity.getFlight1() + "/" + marketListEntity.getFlight2() +
-                    " on " + marketListEntity.getStartDate();
-            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + errorMsg);
+            String errorMsg = "Failed to insert market list connection for sectors " +
+                    marketListEntity.getSector1() + "-" + marketListEntity.getSector2();
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + errorMsg);
             e.printStackTrace();
             this.listOfErrors.add(errorMsg);
         }
@@ -1913,24 +2013,30 @@ public class App implements RequestHandler<S3Event, Object> {
         deleteValues(uuid, tableName, UUID_COLUMN_NAME);
     }
 
-    public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity,
-                                                                 String tableName) {
+    public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity, String collectionName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-        try (PreparedStatement pstmt = connection.prepareStatement(SELECT_MARKET_LIST_CONNECTIONS(tableName))) {
-            pstmt.setString(1, marketListEntity.getSector1());
-            pstmt.setString(2, marketListEntity.getSector2());
-            pstmt.setString(3, marketListEntity.getAnalystName());
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            Bson filter = and(
+                    eq("sector1", marketListEntity.getSector1()),
+                    eq("sector2", marketListEntity.getSector2()),
+                    eq("analystName", marketListEntity.getAnalystName())
+            );
+
+            try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
                     Map<String, Object> row = new HashMap<>();
-                    row.put(UUID_COLUMN_NAME, resultSet.getObject(UUID_COLUMN_NAME));
+                    row.put(UUID_COLUMN_NAME, doc.get(UUID_COLUMN_NAME));
                     listObj.add(row);
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
+
         return listObj;
     }
 
@@ -2080,25 +2186,20 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    public void deletePartialSectorValues(Set<String> dates, String sector, String tableName) {
-        if (dates.isEmpty()) return;
+    public void deletePartialSectorValues(Set<String> dates, String sector, String collectionName) {
+        if (dates.isEmpty()) {
+            return;
+        }
 
-        String placeholders = dates.stream().map(v -> "?").collect(Collectors.joining(", "));
-
-        String deleteQuery = "DELETE FROM " + tableName +
-                " WHERE " + DATE_COLUMN_NAME + " IN (" + placeholders + ")" +
-                " AND " + SECTOR_COLUMN_NAME.toLowerCase() + " = ?";
-
-        try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-            int index = 1;
-            for (String date : dates) {
-                pstmt.setString(index++, date);
-            }
-
-            pstmt.setString(index, sector);
-
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            Bson filter = and(
+                    in(DATE_COLUMN_NAME, dates),
+                    eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+            );
+            DeleteResult result = collection.deleteMany(filter);
+            System.out.println("Deleted " + result.getDeletedCount() + " records for sector " + sector);
+        } catch (Exception e) {
             System.out.println("Error deleting sector values: " + e.getMessage());
         }
     }
@@ -2171,21 +2272,30 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public void deleteTable(String tableName) {
-        try (Statement stmt = connection.createStatement()) {
-            stmt.execute(DELETE_TABLE(tableName));
-        } catch (SQLException e) {
-            System.out.println("Failed to delete table");
+    public void deleteTable(String collectionName) {
+        try {
+            database.getCollection(collectionName).drop();
+            System.out.println("Dropped collection: " + collectionName);
+        } catch (Exception e) {
+            System.out.println("Failed to delete collection");
             e.printStackTrace();
         }
     }
 
-    public void copyFromTempToMainTable(String tableName, String tempTableName) {
-        String sql = COPY_DATA_INTO_MAIN_TABLE(tableName, tempTableName);
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate(sql);
-        } catch (SQLException e) {
-            System.out.println("Failed to copy data from temp to main table");
+
+    public void copyFromTempToMainTable(String collectionName, String tempCollectionName) {
+        try {
+            MongoCollection<Document> tempColl = database.getCollection(tempCollectionName);
+            MongoCollection<Document> mainColl = database.getCollection(collectionName);
+
+            List<Document> docs = tempColl.find().into(new ArrayList<>());
+            if (!docs.isEmpty()) {
+                mainColl.insertMany(docs);
+                System.out.println("Copied " + docs.size() + " documents from " +
+                        tempCollectionName + " to " + collectionName);
+            }
+        } catch (Exception e) {
+            System.out.println("Failed to copy data from temp to main collection");
             e.printStackTrace();
         }
     }
@@ -2243,113 +2353,110 @@ public class App implements RequestHandler<S3Event, Object> {
         return strategyMap;
     }
 
-    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String tableName)
-            throws Exception {
-        StringBuilder columnNames = new StringBuilder();
-        StringBuilder placeholders = new StringBuilder();
-        for (String header : columnHeaders) {
-            columnNames.append("`"+header+"`").append(",");
-            placeholders.append("?,");
-        }
-
-        String insertSql = "INSERT INTO " + tableName + " (" + columnNames.substring(0, columnNames.length() - 1)
-                + ") VALUES (" + placeholders.substring(0, placeholders.length() - 1) + ")";
-
+    public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String collectionName) throws Exception {
         try {
-            connection2.setAutoCommit(false);
-            try (PreparedStatement pstmt = connection2.prepareStatement(insertSql)) {
-                int count = 0;
-                for (Map<String, String> dataMap : data) {
-                    for (int i = 0; i < columnHeaders.size(); i++) {
-                        pstmt.setString(i + 1, dataMap.get(columnHeaders.get(i)));
-                    }
-                    pstmt.addBatch();
-                    if (++count % 10000 == 0) {
-                        pstmt.executeBatch();
-                        connection2.commit();
-                        System.out.println("10000 records inserted successfully.");
-                    }
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            List<Document> documents = new ArrayList<>();
+
+            for (Map<String, String> dataMap : data) {
+                Document doc = new Document();
+                for (String header : columnHeaders) {
+                    doc.append(header, dataMap.get(header));
                 }
-                if (count % 10000 != 0) {
-                    pstmt.executeBatch();
-                    connection2.commit();
-                    System.out.println(count % 10000 + " records inserted successfully.");
-                }
-            } catch (SQLException e) {
-                connection2.rollback();
-                System.out.println("Failed to execute batch insert, transaction rolled back.");
-                e.printStackTrace();
-                throw e;
+                documents.add(doc);
             }
-        } catch (SQLException e) {
-            System.out.println("Database connection or transaction error:");
-            e.printStackTrace();
+
+            if (!documents.isEmpty()) {
+                collection.insertMany(documents);
+                System.out.println("Inserted " + documents.size() + " documents into " + collectionName);
+            }
+        } catch (Exception e) {
+            error_occurred = 1;
+            System.err.println("Insert failed into " + collectionName + ": " + e.getMessage());
             throw e;
         }
     }
 
     public String getColumnHeaders(String value) {
         String listObj = null;
+
         if (SALESINV_RBD_DISTRIBUTION_TABLE_NAME.equalsIgnoreCase(value)) {
-            return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME, SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
+            return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME,
+                    SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
         }
+
         if (SALES_INVENTORY_TABLE_NAME.equalsIgnoreCase(value)) {
-            return String.join(",", SALES_DB_DATE, SALES_DB_MINVALUE, SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
+            return String.join(",", SALES_DB_DATE, SALES_DB_MINVALUE,
+                    SALES_DB_MAXVALUE, SALES_DB_SEATSALLOCATION);
         }
+
         if (value.startsWith(MARKET_LIST_SALESINV_TABLE_NAME)) {
             return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
         }
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_COLUMN_HEADERS())) {
-            pstmt.setString(1, value);
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                if (resultSet.next()) {
-                    listObj = resultSet.getString(COLUMNS_COLUMN_NAME);
-                }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection("config_column_names");
+            Document doc = collection.find(eq("tableName", value)).first();
+
+            if (doc != null) {
+                listObj = doc.getString(COLUMNS_COLUMN_NAME);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
+
         if (listObj == null) {
-            System.err.println("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
+            System.err.println("Warning: Column headers not found for table identifier '" + value + "'. Returning empty string.");
             return "";
         }
         return listObj;
     }
 
-    public void deleteValuesStrategyTable(Set<String> value, String tableName, String strategyColumnName,
-                                          String channelColumnName) {
+    public void deleteValuesStrategyTable(Set<String> value, String collectionName,
+                                          String strategyColumnName, String channelColumnName) {
         if (!value.isEmpty()) {
-            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE concat(" + strategyColumnName + ","
-                    + channelColumnName + ") IN (" + placeholders + ")";
-            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                int index = 1;
+            try {
+                MongoCollection<Document> collection = database.getCollection(collectionName);
+
+                // For each concatenated value, split and delete
+                List<Bson> filters = new ArrayList<>();
                 for (String val : value) {
-                    pstmt.setString(index++, val);
+                    // Assuming val is "strategyChannel" concatenated
+                    filters.add(
+                            Filters.regex(strategyColumnName, "^" + val)
+                    );
                 }
-                pstmt.executeUpdate();
-            } catch (SQLException e) {
+
+                Bson finalFilter = or(filters);
+                DeleteResult result = collection.deleteMany(finalFilter);
+                System.out.println("Deleted " + result.getDeletedCount() + " documents");
+            } catch (Exception e) {
                 System.out.println(e.getMessage());
             }
         }
     }
 
     public void deleteValuesAutoB2BTable(Set<String> value, String tableName, String columnName) {
-        if (!value.isEmpty()) {
-            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
-            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                int index = 1;
-                for (String val : value) {
-                    pstmt.setString(index++, val);
-                }
-                pstmt.executeUpdate();
-            } catch (SQLException e) {
-                System.out.println(e.getMessage());
-            }
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(tableName);
+
+            // One-line filter - MongoDB handles Set directly
+            Bson filter = in(columnName, value);
+
+            DeleteResult result = collection.deleteMany(filter);
+
+            System.out.println("Deleted " + result.getDeletedCount() + " records from " + tableName);
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
         }
     }
+
 
     private Set<String> getUniqueStrategies(Map<String, Map<String, String>> strategyMap) {
         Set<String> strategy = new HashSet<>();
@@ -2489,18 +2596,15 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public int getCountOfEntries(String tableName) {
+    public int getCountOfEntries(String collectionName) {
         int count = 0;
-        try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(COUNT_OF_RECORDS(tableName))) {
-            if (resultSet.next()) {
-                count = resultSet.getInt(COUNT_COLUMN_NAME);
-            }
-        } catch (SQLException e) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            count = (int) collection.countDocuments();
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
-
         return count;
     }
 
@@ -2545,25 +2649,32 @@ public class App implements RequestHandler<S3Event, Object> {
                 .collect(Collectors.toList());
     }
 
-    public List<Map<String, Object>> findAllRecordsFromTable(String tableName, List<String> headers, int limit) {
+    public List<Map<String, Object>> findAllRecordsFromTable(String collectionName, List<String> headers, int limit) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-
         List<String> booleanHeaders = Arrays.asList(
                 "OwnFareFlag", "AutoTimeRangeFlag", "openingFares", "OverBooking",
                 "profileFares", "rbdPushFlag", "distressInventoryFlag", "seriesBlock",
-                "autoGroup", "autoBackstopFlag");
+                "autoGroup", "autoBackstopFlag"
+        );
 
-        String headerValues = "`" + String.join("`,`", headers) + "`";
-        String limitCondition = (limit > 0) ? " LIMIT " + limit : "";
-        String query = "SELECT " + headerValues + " FROM " + tableName + limitCondition;
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
 
-        try (Statement stmt = connection.createStatement();
-             ResultSet resultSet = stmt.executeQuery(query)) {
-            while (resultSet.next()) {
+            MongoCursor<Document> cursor;
+            if (limit > 0) {
+                cursor = collection.find().limit(limit).iterator();
+            } else {
+                cursor = collection.find().iterator();
+            }
+
+            while (cursor.hasNext()) {
+                Document doc = cursor.next();
                 Map<String, Object> row = new HashMap<>();
-                for (String header : headers) {
-                    Object value = resultSet.getObject(header);
 
+                for (String header : headers) {
+                    Object value = doc.get(header);
+
+                    // Convert boolean headers from 1/0 to Y/N
                     if (booleanHeaders.contains(header) && value != null) {
                         String stringValue = value.toString();
                         if (stringValue.equals("1")) {
@@ -2572,16 +2683,15 @@ public class App implements RequestHandler<S3Event, Object> {
                             value = "N";
                         }
                     }
-
                     row.put(header, value);
                 }
                 listObj.add(row);
             }
-        } catch (SQLException e) {
+            cursor.close();
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
-
         return listObj;
     }
 
@@ -2591,21 +2701,18 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public int getCurrentInputStatus(String name) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-        try (PreparedStatement preparedStatement = connection.prepareStatement(GET_CURRENT_INPUT_STATUS())) {
-            preparedStatement.setString(1, name);
-            try (ResultSet resultSet = preparedStatement.executeQuery()) {
-                while (resultSet.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    int columnCount = resultSet.getMetaData().getColumnCount();
-                    for (int i = 1; i <= columnCount; i++) {
-                        String column = resultSet.getMetaData().getColumnName(i);
-                        Object value = resultSet.getObject(i);
-                        row.put(column, value);
-                    }
-                    listObj.add(row);
+        try {
+            MongoCollection<Document> collection = database.getCollection("inputs_status");
+            Document doc = collection.find(eq("name", name)).first();
+
+            if (doc != null) {
+                Map<String, Object> row = new HashMap<>();
+                for (String key : doc.keySet()) {
+                    row.put(key, doc.get(key));
                 }
+                listObj.add(row);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
         return listObj.size();
@@ -2613,134 +2720,148 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void updateInputStatus(String name) {
         int value = 0;
-        try (PreparedStatement preparedStatement = connection.prepareStatement(UPDATE_INPUT_STATUS(value, name))) {
-            preparedStatement.executeUpdate();
-        } catch (SQLException e) {
-            System.out.println(e.getMessage());
-        }
-    }
-
-    public void updateAuditStatement(String tableName, String endTime, String uuid) {
         try {
-            try (PreparedStatement pstmt = connection.prepareStatement(UPDATE_FILE_UPLOAD())) {
-                pstmt.setString(1, endTime);
-                pstmt.setString(2, uuid);
-                pstmt.setString(3, tableName);
-                pstmt.executeUpdate();
-            }
-            int count = 0;
-            try (PreparedStatement pstmt = connection.prepareStatement(GET_CURRENT_VERSION_COUNT())) {
-                pstmt.setString(1, tableName);
-                ResultSet rs = pstmt.executeQuery();
-                if (rs.next()) {
-                    count = rs.getInt(COUNT_COLUMN_NAME);
-                }
-            }
-            if (count == 1) {
-                try (PreparedStatement pstmt = connection.prepareStatement(UPDATE_CURRENT_VERSION())) {
-                    pstmt.setString(1, uuid);
-                    pstmt.setString(2, tableName);
-                    pstmt.executeUpdate();
-                }
+            MongoCollection<Document> collection = database.getCollection("inputs_status");
+            Bson filter = eq("name", name);
+            Bson update = set("is_running", value);
+            collection.updateOne(filter, update);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    public void updateAuditStatement(String collectionName, String endTime, String uuid) {
+        try {
+            // Update file_upload_audit
+            MongoCollection<Document> auditCollection = database.getCollection("file_upload_audit");
+            Bson auditFilter = and(
+                    eq("uuid", uuid),
+                    eq("tableName", collectionName)
+            );
+            Bson auditUpdate = set("end_time", endTime);
+            auditCollection.updateOne(auditFilter, auditUpdate);
+
+            // Check if version exists
+            MongoCollection<Document> versionCollection = database.getCollection("currentVersion");
+            long count = versionCollection.countDocuments(eq("tableName", collectionName));
+
+            if (count >= 1) {
+                // Update existing version
+                Bson versionFilter = eq("tableName", collectionName);
+                Bson versionUpdate = set("curr_version", uuid);
+                versionCollection.updateOne(versionFilter, versionUpdate);
             } else {
-                try (PreparedStatement pstmt = connection.prepareStatement(INSERT_CURRENT_VERSION())) {
-                    pstmt.setString(1, uuid);
-                    pstmt.setString(2, tableName);
-                    pstmt.executeUpdate();
-                }
+                // Insert new version
+                Document versionDoc = new Document()
+                        .append("curr_version", uuid)
+                        .append("tableName", collectionName)
+                        .append("createdAt", new Date());
+                versionCollection.insertOne(versionDoc);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
     }
 
-    public void insertIntoMarketList(MarketListEntity marketListEntity, String tableName) {
-        try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST(tableName))) {
-            pstmt.setString(1, marketListEntity.getOrigin());
-            pstmt.setString(2, marketListEntity.getDestination());
-            pstmt.setString(3, marketListEntity.getFlightNo());
-            pstmt.setString(4, marketListEntity.getPerType());
-            pstmt.setString(5, marketListEntity.getStartDate());
-            pstmt.setString(6, marketListEntity.getEndDate());
-            pstmt.setInt(7, new BigInteger(marketListEntity.getDayOfWeek()).intValue());
-            pstmt.setString(8, marketListEntity.getHardAnchor());
-            pstmt.setString(9, marketListEntity.getPlfThreshold());
-            pstmt.setString(10, marketListEntity.getStartTime());
-            pstmt.setString(11, marketListEntity.getEndTime());
-            pstmt.setString(12, marketListEntity.getCurveId());
-            pstmt.setString(13, marketListEntity.getCarrExclusionB2B());
-            pstmt.setString(14, marketListEntity.getCarrExclusionB2C());
-            pstmt.setString(15, marketListEntity.getFlightExclusionB2B());
-            pstmt.setString(16, marketListEntity.getFlightExclusionB2C());
-            pstmt.setString(17, marketListEntity.getFareAnchor());
-            pstmt.setString(18, marketListEntity.getFareOffset());
-            pstmt.setInt(19, new BigInteger(marketListEntity.getFirstAllocation()).intValue());
-            pstmt.setInt(20, new BigInteger(marketListEntity.getOtherAllocation()).intValue());
-            pstmt.setInt(21, new BigInteger(marketListEntity.getB2bBackstop()).intValue());
-            pstmt.setInt(22, new BigInteger(marketListEntity.getB2cBackstop()).intValue());
-            pstmt.setString(23, marketListEntity.getB2bFactor());
-            pstmt.setString(24, marketListEntity.getOBSeats());
-            pstmt.setString(25, marketListEntity.getOBFare());
-            pstmt.setString(26, marketListEntity.getSkippingFactor());
-            pstmt.setString(27, marketListEntity.getDaySpan());
-            pstmt.setString(28, marketListEntity.getAutoTimeRangeFlag());
-            pstmt.setString(29, marketListEntity.getAnalystName());
-            pstmt.setString(30, marketListEntity.getOpeningFares());
-            pstmt.setString(31, marketListEntity.getOverBooking());
-            pstmt.setString(32, marketListEntity.getRbdPushFlag());
-            pstmt.setString(33, marketListEntity.getProfileFares());
-            pstmt.setString(34, marketListEntity.getB2cTolerance());
-            pstmt.setString(35, marketListEntity.getB2bTolerance());
-            pstmt.setString(36, marketListEntity.getDistressInventoryFlag());
-            pstmt.setString(37, marketListEntity.getSeriesBlock());
-            pstmt.setString(38, marketListEntity.getAutoGroup());
-            pstmt.setString(39, marketListEntity.getAutoBackstopFlag());
-            pstmt.setString(40, marketListEntity.getTbfFlag());
-            pstmt.setString(41, marketListEntity.getCugFlag());
-            pstmt.setString(42, marketListEntity.getMktFareFlag());
-            pstmt.setString(43, marketListEntity.getUuid());
-            pstmt.setString(44, marketListEntity.getDirectFlag());
-            pstmt.setString(45, marketListEntity.getTbfEnhFlag());
-            pstmt.setString(46, marketListEntity.getDefaultMlFlag());
-            pstmt.setString(47, marketListEntity.getB2bStrategy());
-            pstmt.setString(48, marketListEntity.getB2bOutbound_Stop());
-            pstmt.setString(49, marketListEntity.getMarketfare_Upsell());
-            pstmt.setString(50, marketListEntity.getForecastAllocFlag());
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
+    public void insertIntoMarketList(MarketListEntity marketListEntity, String collectionName) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            Document doc = new Document()
+                    .append("Origin", marketListEntity.getOrigin())
+                    .append("Destin", marketListEntity.getDestination())
+                    .append("FlightNumber", marketListEntity.getFlightNo())
+                    .append("PerType", marketListEntity.getPerType())
+                    .append("PerStart", marketListEntity.getStartDate())
+                    .append("PerEnd", marketListEntity.getEndDate())
+                    .append("DOW", marketListEntity.getDayOfWeek())
+                    .append("hardAnchor", marketListEntity.getHardAnchor())
+                    .append("plfThreshold", marketListEntity.getPlfThreshold())
+                    .append("TimeWindowStart", marketListEntity.getStartTime())
+                    .append("TimeWindowEnd", marketListEntity.getEndTime())
+                    .append("CurveID", marketListEntity.getCurveId())
+                    .append("CarrExlusionB2B", marketListEntity.getCarrExclusionB2B())
+                    .append("CarrExlusionB2C", marketListEntity.getCarrExclusionB2C())
+                    .append("flightExclusionB2B", marketListEntity.getFlightExclusionB2B())
+                    .append("flightExclusionB2C", marketListEntity.getFlightExclusionB2C())
+                    .append("fareAnchor", marketListEntity.getFareAnchor())
+                    .append("fareOffset", marketListEntity.getFareOffset())
+                    .append("FirstRBDAlloc", marketListEntity.getFirstAllocation())
+                    .append("OtherRBDAlloc", marketListEntity.getOtherAllocation())
+                    .append("B2BBackstop", marketListEntity.getB2bBackstop())
+                    .append("B2CBackstop", marketListEntity.getB2cBackstop())
+                    .append("B2BFactor", marketListEntity.getB2bFactor())
+                    .append("obSeats", marketListEntity.getOBSeats())
+                    .append("obFare", marketListEntity.getOBFare())
+                    .append("SkippingFactor", marketListEntity.getSkippingFactor())
+                    .append("DaySpan", marketListEntity.getDaySpan())
+                    .append("AutoTimeRangeFlag", marketListEntity.getAutoTimeRangeFlag())
+                    .append("analystName", marketListEntity.getAnalystName())
+                    .append("openingFares", marketListEntity.getOpeningFares())
+                    .append("OverBooking", marketListEntity.getOverBooking())
+                    .append("rbdPushFlag", marketListEntity.getRbdPushFlag())
+                    .append("profileFares", marketListEntity.getProfileFares())
+                    .append("B2CTolerance", marketListEntity.getB2cTolerance())
+                    .append("B2BTolerance", marketListEntity.getB2bTolerance())
+                    .append("distressInventoryFlag", marketListEntity.getDistressInventoryFlag())
+                    .append("seriesBlock", marketListEntity.getSeriesBlock())
+                    .append("autoGroup", marketListEntity.getAutoGroup())
+                    .append("autoBackstopFlag", marketListEntity.getAutoBackstopFlag())
+                    .append("tbfFlag", marketListEntity.getTbfFlag())
+                    .append("CugFlag", marketListEntity.getCugFlag())
+                    .append("MktFareFlag", marketListEntity.getMktFareFlag())
+                    .append("UUID", marketListEntity.getUuid())
+                    .append("directFlag", marketListEntity.getDirectFlag())
+                    .append("TBFEnhFlag", marketListEntity.getTbfEnhFlag())
+                    .append("defaultMlFlag", marketListEntity.getDefaultMlFlag())
+                    .append("b2bStrategy", marketListEntity.getB2bStrategy())
+                    .append("Outbound_Stop", marketListEntity.getB2bOutbound_Stop())
+                    .append("Marketfare_Upsell", marketListEntity.getMarketfare_Upsell())
+                    .append("forecastAllocFlag", marketListEntity.getForecastAllocFlag())
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
     }
 
-    public void deleteValues(Set<String> value, String tableName, String columnName) {
-        if (!value.isEmpty()) {
-            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
-            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                int index = 1;
-                for (String val : value) {
-                    pstmt.setString(index++, val);
-                }
-                pstmt.executeUpdate();
-            } catch (SQLException e) {
+    public void deleteValues(Set<String> uniqueValues, String collectionName, String fieldName) {
+        if (!uniqueValues.isEmpty()) {
+            try {
+                MongoCollection<Document> collection = database.getCollection(collectionName);
+                Bson filter = in(fieldName, uniqueValues);
+                DeleteResult result = collection.deleteMany(filter);
+                System.out.println("Deleted " + result.getDeletedCount() + " documents from " + collectionName);
+            } catch (Exception e) {
                 System.out.println(e.getMessage());
             }
         }
     }
 
-    public void deleteValuesFare(Set<String> value, String tableName) {
+    public void deleteValuesFare(Set<String> value, String collectionName) {
         if (!value.isEmpty()) {
-            String placeholders = value.stream().map(v -> "?").collect(Collectors.joining(", "));
-            String deleteQuery = "DELETE FROM " + tableName + " WHERE CONCAT(" + SECTOR_COLUMN_NAME + ","
-                    + ROUTE_COLUMN_NAME + ") IN ("
-                    + placeholders + ")";
-            try (PreparedStatement pstmt = connection.prepareStatement(deleteQuery)) {
-                int index = 1;
-                for (String val : value) {
-                    pstmt.setString(index++, val);
+            try {
+                MongoCollection<Document> collection = database.getCollection(collectionName);
+
+                // For concat(sector, route) matching, we need to query and filter
+                List<Bson> filters = new ArrayList<>();
+                for (String concatValue : value) {
+                    // MongoDB doesn't have direct CONCAT in filter, use $expr
+                    filters.add(
+                            Filters.expr(
+                                    new Document("$eq", Arrays.asList(
+                                            new Document("$concat", Arrays.asList("$" + SECTOR_COLUMN_NAME, "$" + ROUTE_COLUMN_NAME)),
+                                            concatValue
+                                    ))
+                            )
+                    );
                 }
-                pstmt.executeUpdate();
-            } catch (SQLException e) {
+
+                Bson finalFilter = or(filters);
+                DeleteResult result = collection.deleteMany(finalFilter);
+                System.out.println("Deleted " + result.getDeletedCount() + " fare records");
+            } catch (Exception e) {
                 System.out.println(e.getMessage());
             }
         }
@@ -2757,29 +2878,32 @@ public class App implements RequestHandler<S3Event, Object> {
         deleteValues(uuid, tableName, UUID_COLUMN_NAME);
     }
 
-    public List<Map<String, Object>> searchMarketList(MarketListEntity marketListEntity, String tableName) {
+    public List<Map<String, Object>> searchMarketList(MarketListEntity marketListEntity, String collectionName) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-        String query = SELECT_MARKET_LIST(tableName);
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            pstmt.setString(1, marketListEntity.getOrigin());
-            pstmt.setString(2, marketListEntity.getDestination());
-            pstmt.setString(3, marketListEntity.getAnalystName());
-            pstmt.setString(4, marketListEntity.getStartDate());
-            pstmt.setString(5, marketListEntity.getFlightNo());
 
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+            Bson filter = and(
+                    eq("Origin", marketListEntity.getOrigin()),
+                    eq("Destin", marketListEntity.getDestination()),
+                    eq("analystName", marketListEntity.getAnalystName()),
+                    eq("PerStart", marketListEntity.getStartDate()),
+                    eq("FlightNumber", marketListEntity.getFlightNo())
+            );
+
+            try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
                     Map<String, Object> row = new HashMap<>();
-                    int columnCount = resultSet.getMetaData().getColumnCount();
-                    for (int i = 1; i <= columnCount; i++) {
-                        String column = resultSet.getMetaData().getColumnName(i);
-                        Object value = resultSet.getObject(i);
-                        row.put(column, value);
+
+                    // Put all fields from document into map
+                    for (String key : doc.keySet()) {
+                        row.put(key, doc.get(key));
                     }
                     listObj.add(row);
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
         return listObj;
@@ -2791,68 +2915,92 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public List<String> getRoleAccess(Object role) {
         List<String> permissions = new ArrayList<>();
-        role = role.toString().replaceAll("\\[", "")
-                .replaceAll("]", "");
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_ROLE_PERMISSION_LIST(role))) {
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
-                    permissions.add(resultSet.getString(PERMISSION_COLUMN_NAME));
+        role = role.toString().replaceAll("\\[", "").replaceAll("\\]", "");
+
+        try {
+            MongoCollection<Document> collection = database.getCollection("role_permissions");
+            Bson filter = eq("role", role);
+
+            try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
+                    permissions.add(doc.getString(PERMISSION_COLUMN_NAME));
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
         return permissions;
     }
 
-    public void createTable(String tableName, String newTableName) {
-        String createTableSQL = "CREATE TABLE IF NOT EXISTS " + tableName + " LIKE " + newTableName;
-        try (Statement stmt = connection.createStatement()) {
-            stmt.executeUpdate(createTableSQL);
-        } catch (SQLException e) {
+    public void createTable(String collectionName, String templateCollectionName) {
+        try {
+            // Drop existing collection if it exists
+            database.getCollection(collectionName).drop();
+
+            // MongoDB creates collections automatically on first insert
+            // Optional: Create with schema validation like template
+            if (collectionExists(templateCollectionName)) {
+                database.createCollection(collectionName);
+            }
+        } catch (Exception e) {
+            System.out.println("Failed to create collection");
+            e.printStackTrace();
+        }
+    }
+
+    private boolean collectionExists(String collectionName) {
+        for (String name : database.listCollectionNames()) {
+            if (name.equals(collectionName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void insertAuditStatement(String collectionName, String startTime, String userName, String uuid) {
+        try {
+            MongoCollection<Document> collection = database.getCollection("file_upload_audit");
+
+            Document doc = new Document()
+                    .append("tableName", collectionName)
+                    .append("uuid", uuid)
+                    .append("start_time", startTime)
+                    .append("userName", userName)
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
     }
 
-    public void insertAuditStatement(String tableName, String startTime, String userName, String uuid) {
-        try (PreparedStatement pstmt = connection.prepareStatement(INSERT_FILE_UPLOAD())) {
-            pstmt.setString(1, tableName);
-            pstmt.setString(2, uuid);
-            pstmt.setString(3, startTime);
-            pstmt.setString(4, userName);
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
-            System.out.println(e.getMessage());
-        }
-    }
-
-    public void insertInputStatusTable(String tableName) {
-        List<Map<String, Object>> listObj = new ArrayList<>();
+    public void insertInputStatusTable(String collectionName) {
         int value = 1;
-        if(tableName.contains("QP_DW_PRIAUT.")){
+        if (collectionName.contains("QPDWPRIAUT.")) {
             value = 0;
         }
-        try (PreparedStatement countStmt = connection.prepareStatement(GET_INPUT_STATUS_COUNT())) {
-            countStmt.setString(1, tableName);
-            try (ResultSet resultSet = countStmt.executeQuery()) {
-                if (resultSet.next()) {
-                    Map<String, Object> row = new HashMap<>();
-                    row.put(COUNT_COLUMN_NAME, resultSet.getInt(COUNT_COLUMN_NAME));
-                    listObj.add(row);
-                }
-            }
-            if (!listObj.isEmpty() && Integer.parseInt(listObj.get(0).get(COUNT_COLUMN_NAME).toString()) == 1) {
-                try (PreparedStatement updateStmt = connection.prepareStatement(UPDATE_INPUT_STATUS(value,tableName))) {
-                    updateStmt.executeUpdate();
-                }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection("inputs_status");
+
+            // Check if record exists
+            long count = collection.countDocuments(eq("name", collectionName));
+
+            if (count >= 1) {
+                // Update existing
+                Bson filter = eq("name", collectionName);
+                Bson update = set("is_running", value);
+                collection.updateOne(filter, update);
             } else {
-                try (PreparedStatement insertStmt = connection.prepareStatement(INSERT_INPUT_STATUS())) {
-                    insertStmt.setString(1,tableName);
-                    insertStmt.setInt(2,value);
-                    insertStmt.executeUpdate();
-                }
+                // Insert new
+                Document doc = new Document()
+                        .append("name", collectionName)
+                        .append("is_running", value)
+                        .append("createdAt", new Date());
+                collection.insertOne(doc);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
     }
@@ -2917,17 +3065,13 @@ public class App implements RequestHandler<S3Event, Object> {
         return "Y".equalsIgnoreCase(value) ? "1" : "0";
     }
 
-    public List<Object> searchDistinctResults(String columnName, String tableName) {
+    public List<Object> searchDistinctResults(String fieldName, String collectionName) {
         List<Object> listObj = new ArrayList<>();
-        String query = "SELECT DISTINCT " + columnName + " FROM " + tableName;
 
-        try (PreparedStatement pstmt = connection.prepareStatement(query)) {
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
-                    listObj.add(resultSet.getObject(columnName));
-                }
-            }
-        } catch (SQLException e) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            listObj = collection.distinct(fieldName, String.class).into(new ArrayList<>());
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
         return listObj;
@@ -2935,33 +3079,44 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public List<Map<String, Object>> getJourneyDestination(String origin, String destination, String flag) {
         List<Map<String, Object>> listObj = new ArrayList<>();
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_STATION_MASTER_LIST())) {
-            pstmt.setString(1, origin);
-            pstmt.setString(2, destination);
-            pstmt.setString(3, flag);
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                while (resultSet.next()) {
+
+        try {
+            MongoCollection<Document> collection = database.getCollection("config_station_master");
+
+            // Build filter: station IN (origin, destination) AND route = flag
+            Bson filter = and(
+                    in("station", Arrays.asList(origin, destination)),
+                    eq("route", flag)
+            );
+
+            // Execute query
+            try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
+                while (cursor.hasNext()) {
+                    Document doc = cursor.next();
                     Map<String, Object> row = new HashMap<>();
-                    row.put(STATION_COLUMN_NAME, resultSet.getObject(STATION_COLUMN_NAME));
+                    row.put(STATION_COLUMN_NAME, doc.get("station"));
                     listObj.add(row);
                 }
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(e.getMessage());
         }
+
         return listObj;
     }
 
+
     public String getSectors(String sector, String users) {
         String listObj = null;
-        try (PreparedStatement pstmt = connection.prepareStatement(GET_USER_SECTOR_MAP(users))) {
-            pstmt.setString(1, sector);
-            try (ResultSet resultSet = pstmt.executeQuery()) {
-                if (resultSet.next()) {
-                    listObj = resultSet.getString(USER_COLUMN_NAME);
-                }
+        try {
+            MongoCollection<Document> collection = database.getCollection("config_user_sector_map");
+            Document projection = new Document(users, 1).append("_id", 0);
+            Document doc = collection.find(eq("sector", sector)).projection(projection).first();
+
+            if (doc != null) {
+                listObj = doc.getString(users);
             }
-        } catch (SQLException e) {
+        } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
             return null;
@@ -3636,22 +3791,28 @@ public class App implements RequestHandler<S3Event, Object> {
                 .build());
     }
 
-    public void insertIntoMarketListSalesInv(MarketListSalesInvEntity entity, String tableName) {
-        try (PreparedStatement pstmt = connection.prepareStatement(INSERT_INTO_MARKET_LIST_SALESINV(tableName))) {
-            pstmt.setString(1, entity.getOrigin());
-            pstmt.setString(2, entity.getDestin());
-            pstmt.setLong(3, Long.parseLong(entity.getFlightNumber()));
-            pstmt.setString(4, entity.getPerStart());
-            pstmt.setString(5, entity.getPerEnd());
-            pstmt.setLong(6, Long.parseLong(entity.getDow()));
-            pstmt.setString(7, entity.getCurveId());
-            pstmt.setString(8, entity.getSaleFlag());
-            pstmt.executeUpdate();
-        } catch (SQLException e) {
+    public void insertIntoMarketListSalesInv(MarketListSalesInvEntity entity, String collectionName) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName);
+
+            Document doc = new Document()
+                    .append("Origin", entity.getOrigin())
+                    .append("Destin", entity.getDestin())
+                    .append("FlightNumber", Long.parseLong(entity.getFlightNumber()))
+                    .append("PerStart", entity.getPerStart())
+                    .append("PerEnd", entity.getPerEnd())
+                    .append("DOW", Long.parseLong(entity.getDow()))
+                    .append("CurveID", entity.getCurveId())
+                    .append("saleflag", entity.getSaleFlag())
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
             error_occurred = 1;
-            String errorMsg = "Failed to insert salesinv record for sector " + entity.getOrigin() + entity.getDestin();
+            String errorMsg = "Failed to insert salesinv record for sector " +
+                    entity.getOrigin() + entity.getDestin();
             listOfErrors.add(errorMsg);
-            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE + ": " + e.getMessage());
+            System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
         }
     }
