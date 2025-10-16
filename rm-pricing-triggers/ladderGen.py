@@ -90,14 +90,15 @@ class LadderGen:
             if self.city_pair_data.empty:
                 self.failure_reason = f"No city pair data found for sector {self.sector}"
                 self.logger.warning(self.failure_reason)
-                # Don't raise exception, this is not critical for ladder generation
                 
             return self.city_pair_data
             
         except Exception as e:
             self.logger.error(f"Error collecting city pair data: {str(e)}")
-            self.failure_reason = f"City pair data collection failed: {str(e)}"
-            raise
+            # City pair is not critical - just log and continue
+            self.logger.warning("City pair data unavailable but not critical for ladder generation")
+            self.city_pair_data = pd.DataFrame()
+            return self.city_pair_data
 
     def collect_market_fares(self):
         """Collect individual market fares for constraint checking."""
@@ -156,11 +157,9 @@ class LadderGen:
             start_date = date.today()
             end_date = start_date + timedelta(days=date_range_days)
             
-            # Format dates for SQL Server stored procedure
             start_date_str = start_date.strftime('%Y-%m-%d')
             end_date_str = end_date.strftime('%Y-%m-%d')
             
-            # Execute stored procedure
             query = f"""
             EXEC {self.nav_db_wb_name}[dbo].[SP_Bookeddata]
             @DepartureDate_from = N'{start_date_str}',
@@ -173,8 +172,10 @@ class LadderGen:
             
         except Exception as e:
             self.logger.error(f"Error collecting booked data: {str(e)}")
-            self.failure_reason = f"Booked data collection failed: {str(e)}"
-            raise
+            # Booked data is not critical for ladder generation - just log and continue
+            self.logger.warning("Booked data unavailable but not critical for ladder generation")
+            self.booked_data = pd.DataFrame()
+            return self.booked_data
 
     def collect_combined_booking_data(self, start_date, end_date):
         """Optimized single query for both flown and booked data."""
@@ -252,7 +253,6 @@ class LadderGen:
             if distinct_fares_prev >= self.min_distinct_fares_required:
                 return combined_prev, "Previous year same period"
             
-            # Set failure reason with specific details
             self.failure_reason = f"Insufficient distinct fares across all periods. Found: 30-day: {distinct_fares_30}, 60-day: {distinct_fares_60}, Previous year: {distinct_fares_prev}. Required: {self.min_distinct_fares_required}"
             self.logger.warning(self.failure_reason)
             return pd.DataFrame(), "Insufficient distinct fares"
@@ -313,13 +313,11 @@ class LadderGen:
             
             adjusted_fares = fare_points.copy()
             
-            # Check each fare against the NEXT fare and adjust the NEXT fare if needed
             for i in range(len(adjusted_fares) - 1):
                 current_fare = adjusted_fares[i]
                 next_fare = adjusted_fares[i + 1]
                 min_threshold = threshold_func(current_fare)
                 
-                # If difference is less than threshold, adjust the NEXT fare upward
                 if next_fare - current_fare < min_threshold:
                     adjusted_fares[i + 1] = current_fare + min_threshold
                     self.logger.debug(f"Adjusted fare {i+1}: {next_fare} -> {adjusted_fares[i + 1]}")
@@ -331,7 +329,7 @@ class LadderGen:
             self.failure_reason = f"Minimum threshold application failed: {str(e)}"
             raise
 
-    # Helper Methods for Constraint Checking
+    # Helper Methods
     def _get_distance(self, origin, destination):
         """Get distance for sector."""
         try:
@@ -345,15 +343,15 @@ class LadderGen:
         except Exception:
             return 0
 
-    def _calculate_base_domestic_fare(self, gross_fare, origin, destination):
-        """Calculate base domestic fare using reverse tax calculation."""
+    def _calculate_taxes_domestic(self, base_fare, origin, destination):
+        """Calculate all taxes for domestic fare to get all-in fare."""
         try:
             if self.tax_master_dom_data is None or self.tax_master_dom_data.empty:
-                return gross_fare
+                return 0
                 
             tax_data = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
             if tax_data.empty:
-                return gross_fare
+                return 0
             
             tax_row = tax_data.iloc[0]
             gst_rate = float(tax_row.get('GST', 0)) / 100
@@ -367,44 +365,75 @@ class LadderGen:
             if destination in self.constants.PRICING_RCS_SECTORS:
                 rcs = 0
             
-            adjusted_gross_fare = gross_fare
-            
-            # Special handling for DUF sectors
+            # Add DUF for specific sectors
+            duf = 0
             if destination in self.constants.PRICING_DUF_SECTORS:
-                adjusted_gross_fare -= float(self.constants.PRICING_DUF_SECTORS[destination])
+                duf = float(self.constants.PRICING_DUF_SECTORS[destination])
             
-            # GST exempt sectors
+            # Calculate GST
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                return adjusted_gross_fare - (asf + psf + udf_df + rcs + cute)
+                gst = 0
             else:
-                gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes = asf + psf + udf_df + cute
-                return (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
+                gst = gst_rate * (base_fare + rcs + cute)
+            
+            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf
+            return total_taxes
             
         except Exception:
-            return gross_fare
+            return 0
 
-    def _calculate_base_xqp_fare(self, gross_fare, origin, destination):
-        """Calculate base fare based on route."""
-        if self.route == 'D':
-            return self._calculate_base_domestic_fare(gross_fare, origin, destination)
-        return gross_fare  # International routes use gross fare
-
-
-    def _check_all_constraints(self, instances, yield_value, carrier):
-        """Check constraints - only instances and yield (for domestic)."""
+    def _calculate_taxes_international(self, base_fare, origin, destination):
+        """Calculate all taxes for international fare to get all-in fare."""
         try:
-            min_instances_ok = instances >= 2
-            carrier_ok = True  # Already filtered at SQL level
+            if self.tax_master_intl_data is None or self.tax_master_intl_data.empty:
+                return 0
+                
+            sector_key = f"{origin}{destination}"
+            tax_data = self.tax_master_intl_data[self.tax_master_intl_data['Sectors'] == sector_key]
+            if tax_data.empty:
+                return 0
             
-            if self.route == 'D':
-                min_yield_ok = yield_value >= 1.5
-                return min_instances_ok and min_yield_ok and carrier_ok
-            else:
-                return min_instances_ok and carrier_ok
+            tax_row = tax_data.iloc[0]
+            
+            # Extract all tax components
+            gst_rate = float(tax_row.get('GST', 0)) / 100
+            cute = float(tax_row.get('CUTE', 0)) if pd.notna(tax_row.get('CUTE')) else 0
+            asf = float(tax_row.get('ASF', 0)) if pd.notna(tax_row.get('ASF')) else 0
+            psf_adf = float(tax_row.get('PSF_ADF', 0)) if pd.notna(tax_row.get('PSF_ADF')) else 0
+            udf = float(tax_row.get('UDF', 0)) if pd.notna(tax_row.get('UDF')) else 0
+            psc_pz = float(tax_row.get('PSC_PZ', 0)) if pd.notna(tax_row.get('PSC_PZ')) else 0
+            rcs_cute = float(tax_row.get('RCS_CUTE', 0)) if pd.notna(tax_row.get('RCS_CUTE')) else 0
+            rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
+            
+            # Additional taxes
+            tax1 = float(tax_row.get('Tax1', 0)) if pd.notna(tax_row.get('Tax1')) else 0
+            tax2 = float(tax_row.get('Tax2', 0)) if pd.notna(tax_row.get('Tax2')) else 0
+            tax3 = float(tax_row.get('Tax3', 0)) if pd.notna(tax_row.get('Tax3')) else 0
+            tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
+            tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
+            
+            # Calculate GST
+            gst = gst_rate * (base_fare + rcs + cute + rcs_cute)
+            
+            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
+            return total_taxes
             
         except Exception:
-            return False
+            return 0
+
+    def calculate_all_in_fare(self, base_fare, origin, destination):
+        """Calculate all-in fare based on route type."""
+        try:
+            if self.route == 'D':
+                taxes = self._calculate_taxes_domestic(base_fare, origin, destination)
+            else:
+                taxes = self._calculate_taxes_international(base_fare, origin, destination)
+            
+            return base_fare + taxes
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating all-in fare: {str(e)}")
+            return base_fare
 
     def _find_valid_market_fare(self, market_data, fare_type):
         """Find valid market fare that satisfies constraints by iterating through individual fares."""
@@ -412,7 +441,6 @@ class LadderGen:
             if market_data.empty:
                 return None
             
-            # Filter for B2C channel and sort appropriately
             b2c_data = market_data[market_data['channel'] == 'B2C'].copy()
             
             if b2c_data.empty:
@@ -420,25 +448,19 @@ class LadderGen:
                 return None
             
             if fare_type == 'min':
-                # For minimum: start with lowest fare and go higher until constraint satisfied
                 sorted_data = b2c_data.sort_values('gross_fare', ascending=True)
             else:
-                # For maximum: start with highest fare and go lower until constraint satisfied  
                 sorted_data = b2c_data.sort_values('gross_fare', ascending=False)
             
-            # Iterate through fares in order
             for _, row in sorted_data.iterrows():
                 fare = row['gross_fare']
                 carrier = row['outbound_airline_code']
                 instances = row['instances']
-                origin = row['source_airport']
-                destination = row['destination_airport']
                 
                 if pd.isna(fare) or pd.isna(carrier):
                     continue
                 
                 try:
-                    # Check only instances constraint
                     if instances >= 2:
                         return fare
                     else:
@@ -448,7 +470,6 @@ class LadderGen:
                     self.logger.warning(f"Error checking constraints for market fare {fare}: {str(e)}")
                     continue
             
-            # No valid fare found after checking all fares
             self.logger.warning(f"No valid {fare_type} market fare found that satisfies constraints")
             return None
             
@@ -477,22 +498,18 @@ class LadderGen:
             max_booking_fare = booking_data['Fare'].max()
             f4, f61 = core_fares[0], core_fares[-1]
             
-            # Find valid market fares
             valid_min_market_fare = self._find_valid_market_fare(b2c_market_data, 'min')
             valid_max_market_fare = self._find_valid_market_fare(b2c_market_data, 'max')
             
-            # STOP if no valid market fares found
             if valid_min_market_fare is None and valid_max_market_fare is None:
                 self.failure_reason = "No valid market fares found that satisfy constraints for buffer calculation"
                 return None
             
-            # Calculate lower buffer (f1-f3)
             f2 = valid_min_market_fare if (valid_min_market_fare and valid_min_market_fare < min_booking_fare) else min_booking_fare
             threshold = max(0.02 * f2, 50) if self.route == 'D' else 0.02 * f2
             f1 = f2 - threshold
             f3 = (f2 + f4) / 2
             
-            # Calculate upper buffer (f62-f64)
             f63 = valid_max_market_fare if (valid_max_market_fare and valid_max_market_fare > max_booking_fare) else max_booking_fare
             threshold = max(0.02 * f63, 50) if self.route == 'D' else 0.02 * f63
             f64 = f63 + threshold
@@ -510,14 +527,12 @@ class LadderGen:
     def generate_saver_ladder(self):
         """Main ladder generation method."""
         try:
-            # Get historical booking data
             booking_data, data_period = self.get_historical_booking_data()
             if booking_data.empty:
                 if not self.failure_reason:
                     self.failure_reason = "No booking data available for ladder generation"
                 return None
             
-            # Create and adjust fare bins
             fare_points = self.create_fare_bins(booking_data)
             if not fare_points:
                 if not self.failure_reason:
@@ -566,21 +581,15 @@ class LadderGen:
             self.failure_reason = f"Version info collection failed: {str(e)}"
             raise
 
-    def _get_fare_point_types(self, total_points):
-        """Generate fare point types."""
-        return ['Lower_Buffer' if i <= 3 else 'Upper_Buffer' if i >= 62 else 'Core_Ladder' 
-                for i in range(1, total_points + 1)]
-
-    def save_ladder_to_csv(self, ladder_result):
-        """Save ladder to database with current QP fares and RBD mapping."""
+    def save_ladder_to_csv(self, ladder_result, run_id):
+        """Save ladder to database with current QP fares, RBD mapping, and all-in fares."""
         try:
             if not ladder_result:
-                return None, None
+                return None
+            origin = self.sector[:3]
+            destination = self.sector[3:]
             
-            run_id = str(uuid.uuid4())
-            
-            # Get current QP fares for the sector (64 RBDs ordered ascending)
-            # Handle fare direction properly - need to check both F and T directions
+            # Get current QP fares for the sector
             current_fares_query = f"""
             SELECT Fare_Amount as fare_amount, LEFT(Fare_Basis_Code, 2) as RBD
             FROM QP_DW_PRIAUT.qp_fares 
@@ -616,7 +625,7 @@ class LadderGen:
             current_qp_fares = current_qp_fares[:64]
             current_rbds = current_rbds[:64]
             
-            # Get RBD names from rm_parameter_values (fallback if QP fares don't have 64 RBDs)
+            # Get RBD names from rm_parameter_values
             rbd_query = """
             SELECT parameterValue 
             FROM QP_DW_PRIAUT.rm_parameter_values 
@@ -626,9 +635,7 @@ class LadderGen:
             try:
                 rbd_result = pd.read_sql(rbd_query, self.rm_rd_conn)
                 if not rbd_result.empty:
-                    # Use parameter RBDs if available, otherwise use RBDs from QP fares
                     parameter_rbds = rbd_result.iloc[0]['parameterValue'].split(',')
-                    # Use current RBDs from QP fares if we have them, otherwise use parameter RBDs
                     if len([rbd for rbd in current_rbds if not rbd.startswith('RBD_')]) >= 10:
                         rbd_names = current_rbds
                     else:
@@ -644,6 +651,21 @@ class LadderGen:
                 rbd_names.append(f"RBD_{len(rbd_names)+1}")
             rbd_names = rbd_names[:64]
             
+            # Calculate all-in fares for both current and new fares
+            current_all_in_fares = []
+            new_all_in_fares = []
+            
+            for i in range(64):
+                current_base = current_qp_fares[i]
+                new_base = ladder_result['ladder_fares'][i]
+                
+                # Calculate all-in fares with taxes
+                current_all_in = self.calculate_all_in_fare(current_base, origin, destination)
+                new_all_in = self.calculate_all_in_fare(new_base, origin, destination)
+                
+                current_all_in_fares.append(round(current_all_in, 2))
+                new_all_in_fares.append(round(new_all_in, 2))
+            
             # Create the ladder DataFrame for database insert
             ladder_df = pd.DataFrame({
                 'sector': [ladder_result['sector']] * 64,
@@ -651,7 +673,9 @@ class LadderGen:
                 'fare_point_number': range(1, 65),
                 'rbd_name': rbd_names,
                 'current_qp_fare': current_qp_fares,
+                'current_all_in_fare': current_all_in_fares,
                 'new_ladder_fare': ladder_result['ladder_fares'],
+                'new_all_in_fare': new_all_in_fares,
                 'data_period': [ladder_result['data_period']] * 64,
                 'distinct_fares_count': [ladder_result['distinct_fares_count']] * 64,
                 'run_id': [run_id] * 64,
@@ -664,92 +688,140 @@ class LadderGen:
             ladder_df.to_sql(table_name, self.rm_rd_conn, schema='QP_DW_PRIAUT', 
                         if_exists='append', index=False, method='multi')
             
-            return f"QP_DW_PRIAUT.{table_name}", run_id
+            return f"QP_DW_PRIAUT.{table_name}"
             
         except Exception as e:
             self.logger.error(f"Error saving ladder to database: {str(e)}")
             self.failure_reason = f"Failed to save ladder to database: {str(e)}"
             raise
 
-    def save_run_audit(self, run_id, ladder_result, file_path, status='SUCCESS'):
-        """Save audit information with enhanced failure tracking."""
+    def save_run_audit(self, run_id, ladder_result, file_path, status='SUCCESS', is_initial=False):
+        """Save or update audit information with enhanced failure tracking.
+        
+        Args:
+            run_id: Unique identifier for this run
+            ladder_result: Result dictionary from ladder generation (None for initial insert)
+            file_path: Path where output was saved
+            status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
+            is_initial: If True, performs INSERT for initial audit record
+        """
         try:
-            if status == 'SUCCESS' and not ladder_result:
-                status = 'FAILED'
+            if is_initial:
+                # Initial audit record - insert with IN_PROGRESS status
+                tax_table = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
                 
-            total_points = len(ladder_result['ladder_fares']) if ladder_result else 0
-            tax_table = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
-            
-            # Get version info safely
-            qp_fares_version = None
-            tax_master_version = None
-            
-            try:
-                if hasattr(self, 'currVersion') and self.currVersion is not None and not self.currVersion.empty:
-                    qp_version_rows = self.currVersion[self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares']
-                    tax_version_rows = self.currVersion[self.currVersion['tableName'] == tax_table]
-                    
-                    qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
-                    tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
-            except Exception:
-                pass
-            
-            audit_data = pd.DataFrame({
-                'run_id': [run_id],
-                'sector': [self.sector],
-                'start_time': [getattr(self, 'start_time', datetime.now())],
-                'end_time': [datetime.now(pytz.timezone('Asia/Kolkata'))],
-                'total_ladder_points': [total_points],
-                'core_ladder_points': [58 if total_points > 0 else 0],
-                'buffer_ladder_points': [6 if total_points > 0 else 0],
-                'min_ladder_fare': [round(min(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None],
-                'max_ladder_fare': [round(max(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None],
-                'data_period_used': [ladder_result['data_period'] if ladder_result else None],
-                'total_booking_records': [ladder_result['total_booking_records'] if ladder_result else 0],
-                'distinct_fares_count': [ladder_result['distinct_fares_count'] if ladder_result else 0],
-                'route': [self.route],
-                'qp_fares': [qp_fares_version],
-                'tax_master': [tax_master_version],
-                'analyst': [self.analystName],
-                'status': [status],
-                'failure_reason': [self.failure_reason if status == 'FAILED' else None]
-            })
-            
-            audit_data.to_sql('ladder_generation_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
-                            if_exists='append', index=False, method='multi')
-            
-            return 'QP_DW_PRIAUT.ladder_generation_audits'
-            
-        except Exception as e:
-            self.logger.error(f"Error saving audit: {str(e)}")
-            try:
-                # Fallback minimal audit record
-                minimal_audit = pd.DataFrame({
+                # Get version info safely
+                qp_fares_version = None
+                tax_master_version = None
+                
+                try:
+                    if hasattr(self, 'currVersion') and self.currVersion is not None and not self.currVersion.empty:
+                        qp_version_rows = self.currVersion[self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares']
+                        tax_version_rows = self.currVersion[self.currVersion['tableName'] == tax_table]
+                        
+                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
+                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                except Exception:
+                    pass
+                
+                initial_audit_data = pd.DataFrame({
                     'run_id': [run_id],
                     'sector': [self.sector],
-                    'start_time': [getattr(self, 'start_time', datetime.now())],
-                    'end_time': [datetime.now(pytz.timezone('Asia/Kolkata'))],
-                    'total_ladder_points': [0],
-                    'core_ladder_points': [0],
-                    'buffer_ladder_points': [0],
+                    'start_time': [self.start_time],
+                    'end_time': [None],
+                    'status': ['IN_PROGRESS'],
+                    'total_ladder_points': [None],
+                    'core_ladder_points': [None],
+                    'buffer_ladder_points': [None],
                     'min_ladder_fare': [None],
                     'max_ladder_fare': [None],
                     'data_period_used': [None],
-                    'total_booking_records': [0],
-                    'distinct_fares_count': [0],
+                    'total_booking_records': [None],
+                    'distinct_fares_count': [None],
                     'route': [self.route],
-                    'qp_fares': [None],
-                    'tax_master': [None],
+                    'qp_fares': [qp_fares_version],
+                    'tax_master': [tax_master_version],
                     'analyst': [self.analystName],
-                    'status': ['FAILED'],
-                    'failure_reason': [f"Audit save failed: {str(e)}. Original failure: {self.failure_reason}"]
+                    'failure_reason': [None]
                 })
                 
-                minimal_audit.to_sql('ladder_generation_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
+                initial_audit_data.to_sql('ladder_generation_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
                                 if_exists='append', index=False, method='multi')
+                
+                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
                 return 'QP_DW_PRIAUT.ladder_generation_audits'
-            except:
-                self.logger.error("Failed to save even minimal audit record")
+                
+            else:
+                # Update existing audit record with final results
+                if status == 'SUCCESS' and not ladder_result:
+                    status = 'FAILED'
+                    
+                total_points = len(ladder_result['ladder_fares']) if ladder_result else 0
+                
+                update_query = text("""
+                    UPDATE QP_DW_PRIAUT.ladder_generation_audits
+                    SET 
+                        end_time = :end_time,
+                        status = :status,
+                        total_ladder_points = :total_ladder_points,
+                        core_ladder_points = :core_ladder_points,
+                        buffer_ladder_points = :buffer_ladder_points,
+                        min_ladder_fare = :min_ladder_fare,
+                        max_ladder_fare = :max_ladder_fare,
+                        data_period_used = :data_period_used,
+                        total_booking_records = :total_booking_records,
+                        distinct_fares_count = :distinct_fares_count,
+                        failure_reason = :failure_reason
+                    WHERE run_id = :run_id
+                """)
+                
+                params = {
+                    'run_id': run_id,
+                    'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                    'total_ladder_points': total_points,
+                    'core_ladder_points': 58 if total_points > 0 else 0,
+                    'buffer_ladder_points': 6 if total_points > 0 else 0,
+                    'min_ladder_fare': round(min(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None,
+                    'max_ladder_fare': round(max(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None,
+                    'data_period_used': ladder_result['data_period'] if ladder_result else None,
+                    'total_booking_records': ladder_result['total_booking_records'] if ladder_result else 0,
+                    'distinct_fares_count': ladder_result['distinct_fares_count'] if ladder_result else 0,
+                    'status': status,
+                    'failure_reason': self.failure_reason if status == 'FAILED' else None
+                }
+                
+                with self.rm_rd_conn.begin() as conn:
+                    conn.execute(update_query, params)
+                
+                self.logger.info(f"Audit record updated with status {status} for run_id: {run_id}")
+                return 'QP_DW_PRIAUT.ladder_generation_audits'
+            
+        except Exception as e:
+            self.logger.error(f"Error saving/updating audit: {str(e)}")
+            if not is_initial:
+                # For update failures, try minimal fallback
+                try:
+                    minimal_update = text("""
+                        UPDATE QP_DW_PRIAUT.ladder_generation_audits
+                        SET 
+                            end_time = :end_time,
+                            status = 'FAILED',
+                            failure_reason = :failure_reason
+                        WHERE run_id = :run_id
+                    """)
+                    
+                    with self.rm_rd_conn.begin() as conn:
+                        conn.execute(minimal_update, {
+                            'run_id': run_id,
+                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                            'failure_reason': f"Audit update failed: {str(e)}. Original failure: {self.failure_reason}"
+                        })
+                    
+                    return 'QP_DW_PRIAUT.ladder_generation_audits'
+                except:
+                    self.logger.error("Failed to save even minimal audit update")
+                    return None
+            else:
                 return None
 
     def collect_all_data(self):
@@ -758,7 +830,6 @@ class LadderGen:
             success_count = 0
             total_operations = 4
             
-            # Track individual collection operations
             try:
                 self.collect_market_fares()
                 success_count += 1
@@ -775,19 +846,18 @@ class LadderGen:
                 if not self.failure_reason:
                     self.failure_reason = f"Tax master data collection failed: {str(e)}"
             
+            # Non-critical data collections
             try:
                 self.collect_city_pair_data()
                 success_count += 1
             except Exception as e:
-                self.logger.error(f"City pair data collection failed: {str(e)}")
-                # City pair data is not critical, so don't set failure_reason
+                self.logger.error(f"City pair data collection failed (non-critical): {str(e)}")
                 
             try:
                 self.collect_booked_data()
                 success_count += 1
             except Exception as e:
-                self.logger.error(f"Booked data collection failed: {str(e)}")
-                # This is handled separately in get_historical_booking_data()
+                self.logger.error(f"Booked data collection failed (non-critical): {str(e)}")
             
             # Check if critical data is missing
             critical_failures = []
@@ -802,7 +872,7 @@ class LadderGen:
                 self.failure_reason = f"Critical data collection failed: {', '.join(critical_failures)}"
                 return False
             
-            return success_count >= 2  # At least market fares and tax master should succeed
+            return success_count >= 2
             
         except Exception as e:
             self.logger.error(f"Error in data collection: {str(e)}")
@@ -817,17 +887,24 @@ class LadderGen:
         try:
             self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             
-            # Get version info and collect data
+            # Get version info
             try:
                 self.get_current_version()
             except Exception as e:
                 self.logger.warning(f"Version info collection failed: {str(e)}")
-                # Continue without version info
-                
+            
+            # Insert initial audit record with IN_PROGRESS status BEFORE data collection
+            try:
+                self.save_run_audit(run_id, None, None, 'IN_PROGRESS', is_initial=True)
+            except Exception as e:
+                self.logger.error(f"Failed to create initial audit record: {str(e)}")
+            
+            # Collect all data
             data_collection_success = self.collect_all_data()
+            
             if not data_collection_success:
-                # Save failure audit
-                self.save_run_audit(run_id, None, None, 'FAILED')
+                # Update audit with failure
+                self.save_run_audit(run_id, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
@@ -840,8 +917,8 @@ class LadderGen:
             ladder_result = self.generate_saver_ladder()
             
             if not ladder_result:
-                # Save failure audit
-                self.save_run_audit(run_id, None, None, 'FAILED')
+                # Update audit with failure
+                self.save_run_audit(run_id, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
@@ -852,15 +929,16 @@ class LadderGen:
             
             # Save results
             try:
-                file_path, save_run_id = self.save_ladder_to_csv(ladder_result)
-                # Use the run_id from save operation if available
-                if save_run_id:
-                    run_id = save_run_id
-                self.save_run_audit(run_id, ladder_result, file_path, 'SUCCESS')
+                file_path = self.save_ladder_to_csv(ladder_result, run_id)
+                # Update audit with success - use original run_id
+                self.save_run_audit(run_id, ladder_result, file_path, 'SUCCESS', is_initial=False)
+                
             except Exception as e:
                 self.logger.error(f"Error saving results: {str(e)}")
                 self.failure_reason = f"Failed to save results: {str(e)}"
-                self.save_run_audit(run_id, ladder_result, None, 'FAILED')
+                
+                # Update audit with failure
+                self.save_run_audit(run_id, ladder_result, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': ladder_result,
                     'file_path': None,
@@ -875,7 +953,7 @@ class LadderGen:
             return {
                 'ladder_result': ladder_result,
                 'file_path': file_path,
-                'run_id': run_id,
+                'run_id': run_id,  # Return the save_run_id for output table reference
                 'route': self.route,
                 'route_description': route_desc,
                 'sector': self.sector,
@@ -897,15 +975,14 @@ class LadderGen:
             self.logger.error(f"Error in main execution: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             
-            # Ensure failure reason is set
             if not self.failure_reason:
                 self.failure_reason = f"Unexpected error in main execution: {str(e)}"
             
-            # Save failure audit
+            # Update audit with failure
             try:
-                self.save_run_audit(run_id, None, None, 'FAILED')
+                self.save_run_audit(run_id, None, None, 'FAILED', is_initial=False)
             except Exception as audit_error:
-                self.logger.error(f"Failed to save failure audit: {str(audit_error)}")
+                self.logger.error(f"Failed to update failure audit: {str(audit_error)}")
             
             return {
                 'ladder_result': None,

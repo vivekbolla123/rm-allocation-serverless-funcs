@@ -926,9 +926,10 @@ class RBDAllocations:
                     else:
                         self.logger.info(f"Skipping cug allocation: fare ladder is less than opening fare")
                         open_rbd = None   
-                    if opening_fare and opening_fare > b2copeningfare:
-                        self.logger.info(f"Skipping cug allocation: Opening fare is greater than b2c selling fare")
-                        open_rbd = None
+                        
+                if opening_fare and opening_fare > b2copeningfare:
+                    self.logger.info(f"Skipping cug allocation: Opening fare is greater than b2c selling fare")
+                    open_rbd = None
 
             # If both conditions pass, calculate allocation
             if open_rbd:

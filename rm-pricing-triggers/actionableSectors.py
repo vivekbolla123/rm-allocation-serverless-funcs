@@ -931,15 +931,14 @@ class ActionSectors:
             self.logger.error(f"Error checking constraints: {str(e)}")
             return False
 
-    def save_actionable_sectors_to_database(self, actionable_df):
+    def save_actionable_sectors_to_database(self, actionable_df, run_id):
         """Save actionable sectors to single database table for both domestic and international."""
         try:
             if actionable_df.empty:
-                return None, None
+                return None
             
             # Single table for both domestic and international
             table_name = 'QP_DW_PRIAUT.actionable_sectors_output'
-            run_id = str(uuid.uuid4())
             
             # Add metadata columns
             actionable_df = actionable_df.copy()
@@ -959,7 +958,7 @@ class ActionSectors:
             )
             
             
-            return table_name, run_id
+            return table_name
             
         except Exception as e:
             self.logger.error(f"Error saving actionable sectors to database: {str(e)}")
@@ -978,73 +977,150 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Unable to get current version: {str(e)}")
             raise
-
         
-    def save_run_audit(self, run_id, actionable_df, table_name):
-        """Save run audit information to pricing_run_audits table."""
+    def save_run_audit(self, run_id, actionable_df, status='SUCCESS', is_initial=False):
+        """Save or update audit information with enhanced failure tracking.
+        
+        Args:
+            run_id: Unique identifier for this run
+            actionable_df: Result DataFrame from actionable sectors generation (None for initial insert)
+            status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
+            is_initial: If True, performs INSERT for initial audit record
+        """
         try:
-            total_records = len(actionable_df)
-            max_actions = len(actionable_df[actionable_df['Action_required'] == 'Max_Action'])
-            min_actions = len(actionable_df[actionable_df['Action_required'] == 'Min_Action'])
-            constraints_satisfied = len(actionable_df[actionable_df['Constraint'] == 'Satisfied'])
+            if is_initial:
+                # Initial audit record - insert with IN_PROGRESS status
+                tax_table = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
+                
+                # Get version info safely
+                qp_fares_version = None
+                tax_master_version = None
+                
+                try:
+                    if hasattr(self, 'currVersion') and self.currVersion is not None and not self.currVersion.empty:
+                        qp_version_rows = self.currVersion[self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares']
+                        tax_version_rows = self.currVersion[self.currVersion['tableName'] == tax_table]
+                        
+                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
+                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                except Exception:
+                    pass
+                
+                initial_audit_data = pd.DataFrame({
+                    'run_id': [run_id],
+                    'start_time': [self.start_time],
+                    'end_time': [None],
+                    'status': ['IN_PROGRESS'],
+                    'total_actionable_records': [None],
+                    'max_actions': [None],
+                    'min_actions': [None],
+                    'constraints_satisfied': [None],
+                    'route': [self.route],
+                    'qp_fares': [qp_fares_version],
+                    'tax_master': [tax_master_version],
+                    'analyst': [self.analystName],
+                    'failure_reason': [None]
+                })
+                
+                initial_audit_data.to_sql('pricing_run_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
+                                if_exists='append', index=False, method='multi')
+                
+                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
+                return 'QP_DW_PRIAUT.pricing_run_audits'
+                
+            else:
+                # Update existing audit record with final results
+                if status == 'SUCCESS' and actionable_df is None:
+                    status = 'FAILED'
+                    
+                total_records = len(actionable_df) if actionable_df is not None else 0
+                max_actions = len(actionable_df[actionable_df['Action_required'] == 'Max_Action']) if actionable_df is not None else 0
+                min_actions = len(actionable_df[actionable_df['Action_required'] == 'Min_Action']) if actionable_df is not None else 0
+                constraints_satisfied = len(actionable_df[actionable_df['Constraint'] == 'Satisfied']) if actionable_df is not None else 0
+                
+                self._execute_update_audit(
+                    run_id, 
+                    total_records, 
+                    max_actions, 
+                    min_actions, 
+                    constraints_satisfied, 
+                    status
+                )
+                
+                self.logger.info(f"Audit record updated with status {status} for run_id: {run_id}")
+                return 'QP_DW_PRIAUT.pricing_run_audits'
+            
+        except Exception as e:
+            self.logger.error(f"Error saving/updating audit: {str(e)}")
+            if not is_initial:
+                # For update failures, try minimal fallback
+                try:
+                    minimal_update = text("""
+                        UPDATE QP_DW_PRIAUT.pricing_run_audits
+                        SET 
+                            end_time = :end_time,
+                            status = 'FAILED',
+                            failure_reason = :failure_reason
+                        WHERE run_id = :run_id
+                    """)
+                    
+                    with self.rm_rd_conn.begin() as conn:
+                        conn.execute(minimal_update, {
+                            'run_id': run_id,
+                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                            'failure_reason': f"Audit update failed: {str(e)}"
+                        })
+                    
+                    return 'QP_DW_PRIAUT.pricing_run_audits'
+                except:
+                    self.logger.error("Failed to save even minimal audit update")
+                    return None
+            else:
+                return None
 
-            # Determine tax table name based on route
-            tax_table_name = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
-
-            # Extract version values from self.currVersion DataFrame
-            qp_fares_version = self.currVersion.loc[
-                self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares', 'curr_version'
-            ].values[0]
-
-            tax_file_version = self.currVersion.loc[
-                self.currVersion['tableName'] == tax_table_name, 'curr_version'
-            ].values[0]
-
-            # Create audit record
-            audit_data = {
-                'run_id': [run_id],
-                'start_time': [self.start_time],
-                'end_time': [datetime.now(pytz.timezone('Asia/Kolkata'))],
-                'table_name': [table_name.split('.')[1] if '.' in table_name else table_name],
-                'total_actionable_records': [total_records],
-                'max_actions': [max_actions],
-                'min_actions': [min_actions],
-                'constraints_satisfied': [constraints_satisfied],
-                'route': [self.route],
-                'qp_fares': [qp_fares_version],
-                'tax_master': [tax_file_version],
-                'analyst' : [self.analystName]
+    def _execute_update_audit(self, run_id, total_records, max_actions, min_actions, constraints_satisfied, status):
+        """Execute the audit update query with parameters."""
+        try:
+            update_query = text("""
+                UPDATE QP_DW_PRIAUT.pricing_run_audits
+                SET 
+                    end_time = :end_time,
+                    total_actionable_records = :total_records,
+                    max_actions = :max_actions,
+                    min_actions = :min_actions,
+                    constraints_satisfied = :constraints_satisfied,
+                    status = :status
+                WHERE run_id = :run_id
+            """)
+            
+            params = {
+                'run_id': run_id,
+                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                'total_records': total_records,
+                'max_actions': max_actions,
+                'min_actions': min_actions,
+                'constraints_satisfied': constraints_satisfied,
+                'status': status
             }
-
-            # Convert to DataFrame
-            audit_df = pd.DataFrame(audit_data)
-
-            # Save to database
-            audit_df.to_sql(
-                name='pricing_run_audits',
-                con=self.rm_rd_conn,
-                schema='QP_DW_PRIAUT',
-                if_exists='append',
-                index=False,
-                method='multi'
-            )
-
-            audit_table_name = 'QP_DW_PRIAUT.pricing_run_audits'
-
-            return audit_table_name
+            
+            with self.rm_rd_conn.begin() as conn:
+                conn.execute(update_query, params)
 
         except Exception as e:
-            self.logger.error(f"Error saving run audit: {str(e)}")
-            return None
-
+            self.logger.error(f"Error executing audit update: {str(e)}")
+            raise
 
     def run(self):
         """Main method to run complete actionable sectors analysis."""
         try:
             self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             
-            # Get current version information for audit
+            # Get current version information
             self.get_current_version()
+            
+            # Create initial audit record with IN_PROGRESS status
+            run_id = str(uuid.uuid4())
+            self.save_run_audit(run_id, None, is_initial=True)
             
             # Collect all data
             self.collect_all_data()
@@ -1052,14 +1128,11 @@ class ActionSectors:
             # Generate actionable sectors
             actionable_sectors = self.generate_actionable_sectors()
             
-            if actionable_sectors.empty:
-                return {'actionable_sectors': actionable_sectors, 'table_name': None, 'run_id': None}
+            # Save to database
+            table_name = self.save_actionable_sectors_to_database(actionable_sectors, run_id)
             
-            # Save to database table
-            table_name, run_id = self.save_actionable_sectors_to_database(actionable_sectors)
-            
-            # Save audit information
-            self.save_run_audit(run_id, actionable_sectors, table_name)
+            # Update audit record with final results
+            self.save_run_audit(run_id, actionable_sectors, status='SUCCESS')
             
             # Log summary
             route_desc = "Domestic" if self.route == 'D' else "International"
@@ -1080,4 +1153,6 @@ class ActionSectors:
             
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
+            # Update audit with FAILED status
+            self.save_run_audit(run_id, None, status='FAILED')
             raise
