@@ -194,8 +194,8 @@ if env == 'uat':
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
-    MONGO_USERNAME = "test_user"
-    MONGO_DB = "test_db"
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "qp_dw_rmalloc"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "172.24.72.35"
 

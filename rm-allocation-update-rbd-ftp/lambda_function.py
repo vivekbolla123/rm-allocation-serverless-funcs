@@ -19,7 +19,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # MongoDB connection string
-MONGO_CONNECTION_STRING = f"mongodb://localhost:27017/"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -36,7 +35,13 @@ KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 try:
-    mongo_client = MongoClient(MONGO_CONNECTION_STRING)
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_DB
+        )
     db = mongo_client["qp_dw_rmalloc"]
     
     # Collections

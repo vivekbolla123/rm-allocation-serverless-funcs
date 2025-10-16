@@ -57,11 +57,15 @@ try:
     # NEW: MongoDB Connection Setup
     # Assuming configsettings has been updated with Mongo connection details,
     # or reusing the existing variables if they now point to Mongo.
-    MONGO_URI = f"mongodb://localhost:27017/qp_dw_rmalloc"
-    MONGO_DB_NAME = "qp_dw_rmalloc"
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_DB
+        )
+    mongo_db=mongo_client[configsettings.MONGO_DB]
     
-    mongo_client = MongoClient(MONGO_URI)
-    mongo_db = mongo_client[MONGO_DB_NAME]
     
     # REMOVED: MySQL connections
     # conn = create_engine(DB_RD_CONN_STRING)

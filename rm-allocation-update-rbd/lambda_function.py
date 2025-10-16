@@ -15,7 +15,6 @@ from constants_utils import ConstantsUtils
 warnings.filterwarnings('ignore')
 
 # MongoDB settings
-MONGO_CONNECTION_STRING = f"mongodb://localhost:27017/"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -246,7 +245,13 @@ logger.setLevel(logging.INFO)
 # create the database connection outside of the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
-    mongo_client = MongoClient(MONGO_CONNECTION_STRING)
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_DB
+        )
     db = mongo_client["qp_dw_rmalloc"]
     
     # Collections

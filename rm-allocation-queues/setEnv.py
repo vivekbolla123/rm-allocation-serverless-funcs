@@ -14,6 +14,8 @@ env = os.getenv('ENVN', default="uat")
 if env == "uat":
     RM_DB_URL = "jdbc:mysql://172.24.87.43:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "app_esb"
+    RM_MONGO_URI ="mongodb://rmuser:rmuser%40123@172.24.72.35:27017/test_db?authSource=admin&maxPoolSize=1&minPoolSize=0"
+    RM_DB_NAME="qp_dw_rmalloc"
     FILE_PATH_NAME = "test/rm-admin/"
     S3_BUCKET_NAME = "uat-qp-applications"
     ENV_NAME_LAMBDA = "uat-"
@@ -22,6 +24,8 @@ if env == "uat":
 if env == "prod":
     RM_DB_URL = "jdbc:mysql://prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "rmappuser"
+    RM_MONGO_URI ="mongodb://Vivek_b:Vivbla%231345@10.16.6.179:27017/?authMechanism=DEFAULT&authSource=rm_mongo"
+    RM_DB_NAME="qp_dw_rmalloc"
     FILE_PATH_NAME = "prod/rm-admin/"
     S3_BUCKET_NAME = "qp-applications"
     ENV_NAME_LAMBDA = ""

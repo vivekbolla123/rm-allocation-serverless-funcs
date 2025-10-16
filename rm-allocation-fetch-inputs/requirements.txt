@@ -8,3 +8,4 @@ pymssql==2.2.5
 requests==2.32.4
 mysql-connector-python
 pymysql
+pymongo

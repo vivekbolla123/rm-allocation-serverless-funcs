@@ -35,8 +35,6 @@ from updateImpForecast import update_imputed_forecast
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-# MongoDB connection string
-MONGO_CONNECTION_STRING = f"mongodb://localhost:27017/"
 
 # Keep ESB and DW connections if still needed
 ESB_DB = f"mysql+pymysql://{configsettings.ESB_USER}:{configsettings.ESB_PASSWORD}@{configsettings.ESB_HOST}/{configsettings.ESB_READ_SCHEMA}"
@@ -50,7 +48,13 @@ cache_client = None
 
 try:
     # MongoDB connection (single connection for both read and write)
-    mongo_client = MongoClient(MONGO_CONNECTION_STRING)
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_DB
+        )
     mongo_db = mongo_client["qp_dw_rmalloc"]
     
     # Keep other connections if still needed
