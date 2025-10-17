@@ -65,13 +65,16 @@ class FileUploadWorker:
                     sales_df, discounts_df = pivot_sale_fares(csv_df)
                     self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name)
                     self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name)
+
+                    self.s3_helper.store_file(file_content, SALE_DATES_TABLE, self.obj_id)
+                    self.s3_helper.store_file(file_content, SALE_DISCOUNTS_TABLE, self.obj_id)
                 except Exception as e:
-                    self.list_of_errors.append("Error Uploading Strategy File to DB. Please check file content")
-                    raise RuntimeError(f"Error processing strategy file content: {str(e)}")
+                    self.list_of_errors.append("Error Uploading Sale_fare_discount to DB")
+                    raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
             else:
                 try:
                     self.insert_file_data(csv_df, table, user_name)
-                    self.s3_helper.store_file(file_content.encode("utf-8"), table, self.obj_id)
+                    self.s3_helper.store_file(file_content, table, self.obj_id)
                 except Exception as e:
                     raise RuntimeError(f"Error processing file content: {str(e)}")
                     

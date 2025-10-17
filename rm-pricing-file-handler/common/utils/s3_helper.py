@@ -56,7 +56,7 @@ class S3Helper:
                 response = self.s3_client.put_object(
                     Bucket=self.bucket_name,
                     Key=file_path,
-                    Body=file_bytes
+                    Body=file_bytes.encode("utf-8")
                 )
 
                 # Check if ETag is present → successful upload

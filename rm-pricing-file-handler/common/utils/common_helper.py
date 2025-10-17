@@ -1,3 +1,5 @@
+import pandas as pd
+
 def calculate_duration(start_time, end_time):
     if start_time:
         duration = end_time - start_time
@@ -10,3 +12,9 @@ def calculate_duration(start_time, end_time):
         formatted_duration = "00:00:00"
 
     return formatted_duration
+
+def strip_df(df):
+    str_cols = df.select_dtypes(include=["object", "string"]).columns
+    df[str_cols] = df[str_cols].apply(pd.Series.str.strip)
+
+    return df

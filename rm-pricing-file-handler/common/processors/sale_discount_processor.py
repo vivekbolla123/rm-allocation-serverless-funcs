@@ -40,7 +40,7 @@ def pivot_sale_fares(df):
                 'sale_id': sale_id,
                 'departure_start': dept_start,
                 'departure_end': dept_end_dates[col_idx],
-                'discount': discount_values[row_idx, col_idx]
+                'discount': discount_values[row_idx, col_idx].rstrip('%')
             })
     
     discounts_df = pd.DataFrame(discounts_data)
