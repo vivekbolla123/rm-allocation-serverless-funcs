@@ -6,8 +6,8 @@ ENV env $ENVN
 RUN echo "Creating image for $env Environment"
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
-RUN yum install -y gcc
-RUN yum install -y mysql-devel
+RUN yum install -y gcc freetds-devel && \
+    yum clean all
 
 COPY requirements.txt  .
 RUN  pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"

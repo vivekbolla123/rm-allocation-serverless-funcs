@@ -1,6 +1,5 @@
 sqlalchemy==1.4.39
 pandas==1.4.3
-mysqlclient==2.1.1
 boto3
 pymssql==2.2.5
 requests==2.32.4
