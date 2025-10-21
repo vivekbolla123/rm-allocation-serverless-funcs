@@ -1530,9 +1530,14 @@ class RMDatabaseHelper:
     def getArea(self, currentHour):
         try:
             pipeline = [
-                {"$match": {"hours": {"$lte": currentHour}}},
-                {"$group": {"_id": None, "sum": {"$sum": "$shareOfBooking"}}}
-            ]
+    {"$match": {"hours": {"$lte": currentHour}}},
+    {
+        "$group": {
+            "_id": None, 
+            "sum": {"$sum": {"$toDouble": "$shareOfBooking"}}
+        }
+    }
+]
             results = list(self.db.config_share_of_booking.aggregate(pipeline))
             return pd.DataFrame(results)
         except Exception as e:
