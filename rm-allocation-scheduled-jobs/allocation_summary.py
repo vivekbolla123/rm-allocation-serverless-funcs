@@ -5,8 +5,8 @@ class AllocationSummaryReport:
     def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.mongo_db = params['mongoconn']["qp_dw_rmalloc"]
-        self.mongo_db_archives = params['mongoconn']["qp_rm_archives"]
-        self.interval_time = 6  # hours
+        self.mongo_db_archives = params['mongoconn']["qp_rm_reports"]
+        self.interval_time = 10  # hours
 
         if 'interval_time' in overrides:
             self.interval_time = overrides['interval_time']
@@ -101,12 +101,12 @@ class AllocationSummaryReport:
                     },
                     "total_count": {"$size": "$navitaire_data"},
                     "run_time_seconds": {
-                        "$dateDiff": {
-                            "startDate": "$start_time",
-                            "endDate": {"$max": "$navitaire_data.end_time"},
-                            "unit": "second"
-                        }
-                    }
+    "$dateDiff": {
+        "startDate": {"$dateFromString": {"dateString": "$start_time"}},
+        "endDate": {"$max": "$navitaire_data.end_time"},
+        "unit": "second"
+    }
+}
                 }
             },
             {
@@ -237,13 +237,13 @@ class AllocationSummaryReport:
         try:
             # Calculate time threshold
             time_threshold = datetime.now() - timedelta(hours=self.interval_time)
-            
+            time_threshold_str = time_threshold.strftime("%Y-%m-%d %H:%M:%S")
             # Get latest run_ids with navitaire update method as API
             allocation_run_ids = list(
                 self.mongo_db.allocation_run_audit.find(
                     {
                         "update_navitaire_method": "api",
-                        "start_time": {"$gt": time_threshold}
+                        "start_time": {"$gt": time_threshold_str}
                     },
                     {"run_id": 1, "_id": 0}
                 )

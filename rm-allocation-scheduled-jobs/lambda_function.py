@@ -187,9 +187,9 @@ def lambda_handler(event, context):
 # }
 
 
-messageBody = {
-  "body": "{\"modules\":{\"sftp_error\": 1}}"
-}
+# messageBody = {
+#   "body": "{\"modules\":{\"alloc_summary\": 1}}"
+# }
 
-event = {'Records':[{'body':json.dumps(messageBody)}]}
-lambda_handler(messageBody,None)
+# event = {'Records':[{'body':json.dumps(messageBody)}]}
+# lambda_handler(messageBody,None)
