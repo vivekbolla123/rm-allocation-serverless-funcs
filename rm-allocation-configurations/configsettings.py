@@ -122,6 +122,7 @@ if env == 'prod':
     MONGO_DB = "rm_mongo"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
+    MONGO_AUTH_SOURCE="admin"
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
@@ -200,6 +201,7 @@ if env == 'uat':
     MONGO_DB = "qp_dw_rmalloc"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "172.24.72.35"
+    MONGO_AUTH_SOURCE="admin"
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
 
