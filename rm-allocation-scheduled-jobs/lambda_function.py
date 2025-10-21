@@ -31,6 +31,7 @@ from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
 from updateImpForecast import update_imputed_forecast
+from cugReport import CugReport
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -95,7 +96,8 @@ module_map = {
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
     "default_ml": defaultMarketlist,
-    "imputed_forecast": update_imputed_forecast
+    "imputed_forecast": update_imputed_forecast,
+    "cug_report": CugReport
 }
 
 

@@ -15,6 +15,8 @@ from datetime import timedelta
 from datetime import datetime
 from datetime import time
 
+import pytz
+
 from Constants import *
 from ownlogger import OwnLogger
 from allocations import RBDAllocations
@@ -627,6 +629,54 @@ class DynAlloc:
 					fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
 			
+			is_spoilage_reduction_active = False
+			if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
+				self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
+				try:
+					# 1. Check for last seven sold fare availability
+					if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
+						# 2. Check PLF threshold to avoid dilution
+						if final_plf <= self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD:
+							# 3. Check timing trigger
+							departure_time_obj = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
+							current_time_obj = datetime.strptime(self.currentTime, TIME_FORMAT).time()
+		
+							
+							# Combine with a date to properly calculate difference
+							
+							today = self.timeutils.getCurrentDate()
+							departure_datetime = datetime.combine(currFltDate_dt, departure_time_obj)
+							current_datetime = datetime.combine(today, current_time_obj)
+
+							# Handle overnight case where departure is on the "next" day relative to current time
+							if departure_datetime > current_datetime:
+								
+
+								hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
+
+								trigger_hours = 0
+								time_8am = time(8, 0)
+								time_12pm = time(12, 0)
+
+								if time_8am <= departure_time_obj < time_12pm:
+									# For flights departing between 8 AM and 12 PM
+									trigger_hours = 12
+								else:
+									# For flights departing between 12 PM and 8 AM (next day)
+									trigger_hours = 8
+
+								if hours_to_departure <= trigger_hours:
+									self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
+									is_spoilage_reduction_active = True
+								else:
+									self.logger.info(f"Spoilage Reduction Inactive: Outside time window. Hours to departure: {hours_to_departure:.2f} > Trigger: {trigger_hours}hrs.")
+						else:
+							self.logger.info(f"Spoilage Reduction Skipped: PLF ({final_plf:.2f}%) is above threshold ({self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD}%).")
+					else:
+						self.logger.info("Spoilage Reduction Skipped: Last 7 average fare not available.")
+				except Exception as e:
+					self.logger.error(f"Error during spoilage reduction check: {e}")
+			
 			# Determine RBD to Open
 			b2b_discount_fare_active = False; current_discount_amount = 0.0; determined_overBookingFare = 0.0
 			openDataB2C_details = {}; openDataB2B_details = {} # To store results from determineRBDToOpen
@@ -803,7 +853,8 @@ class DynAlloc:
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,
-						determined_overBookingFare, base_adjustedCapacity
+						determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
+						last_seven_avg_fare=last_seven_avg_val
 					)
 
 				# This call also modifies currRec_fullalloc, for TBF.
@@ -811,7 +862,8 @@ class DynAlloc:
 					float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
-					imp_forecast, determined_overBookingFare, base_adjustedCapacity
+					imp_forecast, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
+						last_seven_avg_fare=last_seven_avg_val
 				)
 
 				self.outputSummaryRow_b2c.status = b2c_status_val
@@ -1329,6 +1381,8 @@ class DynAlloc:
 					return min(lower_time, start_time), max(upper_time, end_time), dayspan
 
 	def _initialize_params(self, inputData, currParams):
+		self.ist_zone = pytz.timezone("Asia/Kolkata")
+		self.starttime = datetime.now(self.ist_zone)
 		self.currParams = MarketListRow(currParams)
 		self.inputSource = InputSource(inputData)
 		self.debugMode = inputData["debugMode"]

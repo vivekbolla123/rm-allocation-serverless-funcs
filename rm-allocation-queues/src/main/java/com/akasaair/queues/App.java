@@ -3057,6 +3057,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
+                .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .analystName(analystName)
                 .build());
     }
@@ -3262,6 +3263,9 @@ public class App implements RequestHandler<S3Event, Object> {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
+                listOfErrors.add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");
             }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.add(lineNum + "Fare Anchor must be one of the valid strategies");

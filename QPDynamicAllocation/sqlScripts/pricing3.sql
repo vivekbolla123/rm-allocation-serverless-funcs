@@ -1,0 +1,2 @@
+UPDATE `QP_DW_PRIAUT`.`config_column_names` SET `column_names` = 'sector,route,fare_point_number,rbd_name,current_qp_fare,current_all_in_fare,new_ladder_fare,new_all_in_fare,data_period,distinct_fares_count,run_id,created_at,analyst' WHERE (`config_id` = '7');
+UPDATE `QP_DW_RMALLOC`.`rm_parameter_values` SET `parameterValue` = '{\"excluded_class_prefixes\": [], \"excluded_classes\": [\"G9\", \"G8\", \"G7\"]}' WHERE (`parameterKey` = 'fare_filter_allfares');
