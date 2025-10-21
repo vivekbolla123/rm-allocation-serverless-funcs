@@ -250,7 +250,7 @@ try:
             port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_DB
+            authSource=configsettings.MONGO_AUTH_SOURCE
         )
     db = mongo_client["qp_dw_rmalloc"]
     

@@ -27,7 +27,7 @@ mongoclient = MongoClient(
             port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_DB
+            authSource=configsettings.MONGO_AUTH_SOURCE
         )
 mongodb=mongoclient[configsettings.MONGO_DB]
 # DB settings
