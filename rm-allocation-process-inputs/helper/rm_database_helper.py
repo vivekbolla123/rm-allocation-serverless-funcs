@@ -304,197 +304,334 @@ class RMDatabaseHelper:
                 # Connections query
                 try:
                     pipeline = [
-                        # Convert date format
-                        {
-                            "$addFields": {
-                                "perStartFormatted": {
-                                    "$concat": [
-                                        {"$substr": ["$PerStart", 6, 4]},
-                                        "-",
-                                        {"$substr": ["$PerStart", 0, 2]},
-                                        "-",
-                                        {"$substr": ["$PerStart", 3, 2]}
-                                    ]
-                                }
-                            }
-                        },
-                        # Lookup connections_details (note the typo in your collection: Destnination)
-                        {
-                            "$lookup": {
-                                "from": "connections_details",
-                                "let": {
-                                    "s1_org": {"$substr": ["$Sector1", 0, 3]},
-                                    "s1_dst": {"$substr": ["$Sector1", 3, 3]},
-                                    "s2_org": {"$substr": ["$Sector2", 0, 3]},
-                                    "s2_dst": {"$substr": ["$Sector2", 3, 3]},
-                                    "flt1": "$Flight1",
-                                    "flt2": "$Flight2",
-                                    "date": "$perStartFormatted"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$and": [
-                                                    {"$eq": ["$Origin1", "$$s1_org"]},
-                                                    {"$eq": ["$Destnination1", "$$s1_dst"]},  # Keep typo if it exists in collection
-                                                    {"$eq": ["$Origin2", "$$s2_org"]},
-                                                    {"$eq": ["$Destnination2", "$$s2_dst"]},  # Keep typo if it exists in collection
-                                                    {"$eq": ["$FlightNo1", "$$flt1"]},
-                                                    {"$eq": ["$FlightNo2", "$$flt2"]},
-                                                    {"$eq": ["$Departuredate1", "$$date"]}
-                                                ]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "dt"
-                            }
-                        },
-                        {"$unwind": {"path": "$dt", "preserveNullAndEmptyArrays": True}},
-                        # Lookup Bookload for Sector 1
-                        {
-                            "$lookup": {
-                                "from": "bookload",
-                                "let": {
-                                    "s1_org": {"$substr": ["$Sector1", 0, 3]},
-                                    "s1_dst": {"$substr": ["$Sector1", 3, 3]},
-                                    "flt1": "$Flight1",
-                                    "date": "$perStartFormatted"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$and": [
-                                                    {"$eq": ["$Origin", "$$s1_org"]},
-                                                    {"$eq": ["$Destination", "$$s1_dst"]},
-                                                    {"$eq": ["$FlightNumber", "$$flt1"]},
-                                                    {"$eq": ["$DepartureDate", "$$date"]}
-                                                ]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "bl1"
-                            }
-                        },
-                        {"$unwind": {"path": "$bl1", "preserveNullAndEmptyArrays": True}},
-                        # Lookup Bookload for Sector 2
-                        {
-                            "$lookup": {
-                                "from": "bookload",
-                                "let": {
-                                    "s2_org": {"$substr": ["$Sector2", 0, 3]},
-                                    "s2_dst": {"$substr": ["$Sector2", 3, 3]},
-                                    "flt2": "$Flight2",
-                                    "date": "$perStartFormatted"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$and": [
-                                                    {"$eq": ["$Origin", "$$s2_org"]},
-                                                    {"$eq": ["$Destination", "$$s2_dst"]},
-                                                    {"$eq": ["$FlightNumber", "$$flt2"]},
-                                                    {"$eq": ["$DepartureDate", "$$date"]}
-                                                ]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "bl2"
-                            }
-                        },
-                        {"$unwind": {"path": "$bl2", "preserveNullAndEmptyArrays": True}},
-                        # Lookup forecast_results for connection
-                        {
-                            "$lookup": {
-                                "from": "forecast_results",
-                                "let": {
-                                    "s1_org": {"$substr": ["$Sector1", 0, 3]},
-                                    "s2_dst": {"$substr": ["$Sector2", 3, 3]},
-                                    "flt1": "$Flight1",
-                                    "date": "$perStartFormatted"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$and": [
-                                                    {"$eq": ["$Origin", "$$s1_org"]},
-                                                    {"$eq": ["$Destination", "$$s2_dst"]},
-                                                    {"$eq": ["$FlightNumber", "$$flt1"]},
-                                                    {"$eq": ["$DepartureDate", "$$date"]}
-                                                ]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "fr"
-                            }
-                        },
-                        {"$unwind": {"path": "$fr", "preserveNullAndEmptyArrays": True}},
-                        # Lookup current_rbd (opening RBD) for connections
-                        {
-                            "$lookup": {
-                                "from": "current_opening_rbd",
-                                "let": {
-                                    "s1_org": {"$substr": ["$Sector1", 0, 3]},
-                                    "s2_dst": {"$substr": ["$Sector2", 3, 3]},
-                                    "flt1": "$Flight1",
-                                    "date": "$perStartFormatted"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$and": [
-                                                    {"$eq": ["$Origin", "$$s1_org"]},
-                                                    {"$eq": ["$Destination", "$$s2_dst"]},
-                                                    {"$eq": ["$FlightNumber", "$$flt1"]},
-                                                    {"$eq": ["$DepartureDate", "$$date"]}
-                                                ]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "cr"
-                            }
-                        },
-                        {"$unwind": {"path": "$cr", "preserveNullAndEmptyArrays": True}},
-                        # Add fields with proper null handling
-                        {
-                            "$addFields": {
-    "bookedPax_S1": "$bl1.bookedPax",
-    "capacity_S1": "$bl1.Lid",
-    "DepartureTime_S1": "$bl1.DepartureTime",
-    "adjustedCapacity_S1": "$bl1.adjustedCapacity",
-    "bookedPax_S2": "$bl2.bookedPax",
-    "capacity_S2": "$bl2.Lid",
-    "DepartureTime_S2": "$bl2.DepartureTime",
-    "adjustedCapacity_S2": "$bl2.adjustedCapacity",
-    "forecastPLF": "$fr.ForecastPLF",
-    "forecast_variance": "$fr.variance",
-    "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
-"current_rbd_P": {"$ifNull": ["$cr.current_rbd_P", 0]},
-"seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
-"seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]}
-}
-                        },
-                        # Remove temporary fields and nested objects
-                        {
-                            "$project": {
-                                "perStartFormatted": 0,
-                                "dt": 0,
-                                "bl1": 0,
-                                "bl2": 0,
-                                "fr": 0,
-                                "cr": 0
-                            }
+    {
+        "$addFields": {
+            # Convert PerStart from MM/DD/YYYY to YYYY-MM-DD string format to match other collections
+            "perStartDateStr": {
+                "$dateToString": {
+                    "format": "%Y-%m-%d",
+                    "date": {
+                        "$dateFromString": {
+                            "dateString": "$PerStart",
+                            "format": "%m/%d/%Y"
                         }
-                    ]
+                    }
+                }
+            },
+            # Extract origin and destination from Sector1 and Sector2
+            "sector1Origin": {"$substr": ["$Sector1", 0, 3]},
+            "sector1Dest": {"$substr": ["$Sector1", 3, 3]},
+            "sector2Origin": {"$substr": ["$Sector2", 0, 3]},
+            "sector2Dest": {"$substr": ["$Sector2", 3, 3]},
+            # Convert Flight numbers to integers for matching
+            "flight1Int": {"$toInt": "$Flight1"},
+            "flight2Int": {"$toInt": "$Flight2"}
+        }
+    },
+    {
+        "$lookup": {
+            "from": "connections_details",
+            "let": {
+                "s1Origin": "$sector1Origin",
+                "s1Dest": "$sector1Dest",
+                "flight1": "$flight1Int",
+                "perStart": "$perStartDateStr",
+                "s2Origin": "$sector2Origin",
+                "s2Dest": "$sector2Dest",
+                "flight2": "$flight2Int"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin1", "$$s1Origin"]},
+                                {"$eq": ["$Destnination1", "$$s1Dest"]},
+                                {"$eq": ["$FlightNo1", "$$flight1"]},
+                                {"$eq": ["$Departuredate1", "$$perStart"]},
+                                {"$eq": ["$Origin2", "$$s2Origin"]},
+                                {"$eq": ["$Destnination2", "$$s2Dest"]},
+                                {"$eq": ["$FlightNo2", "$$flight2"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "connections_details"
+        }
+    },
+    {
+        "$unwind": {
+            "path": "$connections_details",
+            "preserveNullAndEmptyArrays": True
+        }
+    },
+    {
+        "$lookup": {
+            "from": "bookload",
+            "let": {
+                "origin": "$sector1Origin",
+                "dest": "$sector1Dest",
+                "flight": "$flight1Int",
+                "depDate": "$perStartDateStr"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$FlightNumber", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "bookload1"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "forecast_results",
+            "let": {
+                "origin": "$sector1Origin",
+                "dest": "$sector1Dest",
+                "flight": "$flight1Int",
+                "depDate": "$perStartDateStr"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$FlightNumber", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "forecast1"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "forecast_results",
+            "let": {
+                "origin": "$sector2Origin",
+                "dest": "$sector2Dest",
+                "flight": "$flight2Int",
+                "depDate": "$connections_details.Departuredate2"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$FlightNumber", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "forecast2"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "bookload",
+            "let": {
+                "origin": "$sector2Origin",
+                "dest": "$sector2Dest",
+                "flight": "$flight2Int",
+                "depDate": "$connections_details.Departuredate2"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$FlightNumber", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "bookload2"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "current_opening_rbd",
+            "let": {
+                "origin": "$sector1Origin",
+                "dest": "$sector1Dest",
+                "flight": "$flight1Int",
+                "depDate": "$perStartDateStr"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$flightno", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]},
+                                {"$eq": ["$Channel", "B2B"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "crb1_b2b"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "current_opening_rbd",
+            "let": {
+                "origin": "$sector1Origin",
+                "dest": "$sector1Dest",
+                "flight": "$flight1Int",
+                "depDate": "$perStartDateStr"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$flightno", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]},
+                                {"$eq": ["$Channel", "B2C"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "crb1_b2c"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "current_opening_rbd",
+            "let": {
+                "origin": "$sector2Origin",
+                "dest": "$sector2Dest",
+                "flight": "$flight2Int",
+                "depDate": "$connections_details.Departuredate2"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$flightno", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]},
+                                {"$eq": ["$Channel", "B2B"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "crb2_b2b"
+        }
+    },
+    {
+        "$lookup": {
+            "from": "current_opening_rbd",
+            "let": {
+                "origin": "$sector2Origin",
+                "dest": "$sector2Dest",
+                "flight": "$flight2Int",
+                "depDate": "$connections_details.Departuredate2"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$and": [
+                                {"$eq": ["$Origin", "$$origin"]},
+                                {"$eq": ["$Destination", "$$dest"]},
+                                {"$eq": ["$flightno", "$$flight"]},
+                                {"$eq": ["$DepartureDate", "$$depDate"]},
+                                {"$eq": ["$Channel", "B2C"]}
+                            ]
+                        }
+                    }
+                }
+            ],
+            "as": "crb2_b2c"
+        }
+    },
+    {
+        "$replaceRoot": {
+            "newRoot": {
+                "$mergeObjects": [
+                    "$$ROOT",
+                    {
+                        # bookload 1
+                        "BookedPax1": {"$arrayElemAt": ["$bookload1.bookedPax", 0]},
+                        "Lid1": {"$arrayElemAt": ["$bookload1.Lid", 0]},
+                        
+                        # Forecast 1
+                        "forecastPLF1": {"$arrayElemAt": ["$forecast1.ForecastPLF", 0]},
+                        "forecast_variance1": {"$arrayElemAt": ["$forecast1.variance", 0]},
+                        
+                        # bookload 2
+                        "BookedPax2": {"$arrayElemAt": ["$bookload2.bookedPax", 0]},
+                        "Lid2": {"$arrayElemAt": ["$bookload2.Lid", 0]},
+                        
+                        # Forecast 2
+                        "forecastPLF2": {"$arrayElemAt": ["$forecast2.ForecastPLF", 0]},
+                        "forecast_variance2": {"$arrayElemAt": ["$forecast2.variance", 0]},
+                        
+                        # Current Opening RBD
+                        "OpeningRBDB2B1": {"$arrayElemAt": ["$crb1_b2b.OpeningRBD", 0]},
+                        "OpeningRBDB2C1": {"$arrayElemAt": ["$crb1_b2c.OpeningRBD", 0]},
+                        "OpeningRBDB2B2": {"$arrayElemAt": ["$crb2_b2b.OpeningRBD", 0]},
+                        "OpeningRBDB2C2": {"$arrayElemAt": ["$crb2_b2c.OpeningRBD", 0]}
+                    }
+                ]
+            }
+        }
+    },
+    {
+        "$project": {
+            # Remove the temporary fields and lookup arrays
+            "perStartDateStr": 0,
+            "sector1Origin": 0,
+            "sector1Dest": 0,
+            "sector2Origin": 0,
+            "sector2Dest": 0,
+            "flight1Int": 0,
+            "flight2Int": 0,
+            "bookload1": 0,
+            "bookload2": 0,
+            "forecast1": 0,
+            "forecast2": 0,
+            "crb1_b2b": 0,
+            "crb1_b2c": 0,
+            "crb2_b2b": 0,
+            "crb2_b2c": 0,
+            "connections_details": 0
+        }
+    }
+]
                     
                     self.logger.info("Executing connections route aggregation pipeline")
                     results = list(self.db.market_list_connections.aggregate(pipeline))
@@ -1109,7 +1246,7 @@ class RMDatabaseHelper:
             projection = {
                 "_id": 0,
                 "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
-                "currency": 1, "destination_airport": 1, "source_airport": 1,
+                "currency": "$Currency", "destination_airport": 1, "source_airport": 1,
                 "channel": 1, "outbound_departuretime": 1, "departure_date": 1,
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
@@ -1749,8 +1886,8 @@ class RMDatabaseHelper:
 
             sector1_total = sector1_result["TOTAL"]
             sector2_total = sector2_result["TOTAL"]
-            currency1 = sector1_result["currency"]
-            currency2 = sector2_result["currency"]
+            currency1 = sector1_result["Currency"]
+            currency2 = sector2_result["Currency"]
             total = sector1_total + sector2_total
 
             return total, sector1_total, sector2_total, currency1, currency2
@@ -1957,27 +2094,54 @@ class RMDatabaseHelper:
     #         return pd.DataFrame()
     
     def fetch_all_conversion_data(self):
-        query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
-        df = pd.read_sql(query, self.dwconn)
+        if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+            query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
+            df = pd.read_sql(query, self.dwconn)
+        else:
+            collection = self.db['currency_conversion']
+
+            # Using find() to get all documents with only specific fields
+            cursor = collection.find(
+                {},  # Empty filter means select all documents
+                {
+                    'FromCurrencyCode': 1,
+                    'ToCurrencyCode': 1,
+                    'ConversionRate': 1,
+                    '_id': 0  # Exclude the _id field
+                }
+            )
+
+            # Convert to pandas DataFrame
+            df = pd.DataFrame(list(cursor))
         return df
 
     def get_curveids(self, sector1, sector2, fltno1, fltno2, dep1, dep2):
         try:
+            dep1 = datetime.strptime(dep1, "%Y-%m-%d")  # Converts "2025-01-15" to datetime
+            dep2 = datetime.strptime(dep2, "%Y-%m-%d")
             # Query both market_list and market_list_international
             query1 = {
-                "$or": [
-                    {
-                        "$expr": {"$eq": [{"$concat": ["$Origin", "$Destin"]}, sector1]},
-                        "$expr": {"$eq": [{"$dateFromString": {"dateString": "$PerStart", "format": "%m/%d/%Y"}}, dep1]},
-                        "FlightNumber": fltno1
-                    },
-                    {
-                        "$expr": {"$eq": [{"$concat": ["$Origin", "$Destin"]}, sector2]},
-                        "$expr": {"$eq": [{"$dateFromString": {"dateString": "$PerStart", "format": "%m/%d/%Y"}}, dep2]},
-                        "FlightNumber": fltno2
-                    }
+    "$or": [
+        {
+            "$expr": {
+                "$and": [
+                    {"$eq": [{"$concat": ["$Origin", "$Destin"]}, sector1]},
+                    {"$eq": [{"$dateFromString": {"dateString": "$PerStart", "format": "%m/%d/%Y"}}, dep1]}
                 ]
-            }
+            },
+            "FlightNumber": int(fltno1)
+        },
+        {
+            "$expr": {
+                "$and": [
+                    {"$eq": [{"$concat": ["$Origin", "$Destin"]}, sector2]},
+                    {"$eq": [{"$dateFromString": {"dateString": "$PerStart", "format": "%m/%d/%Y"}}, dep2]}
+                ]
+            },
+            "FlightNumber": int(fltno2)
+        }
+    ]
+}
 
             results1 = list(self.db.market_list.find(query1))
             results2 = list(self.db.market_list_international.find(query1))
@@ -1991,8 +2155,8 @@ class RMDatabaseHelper:
     def get_second_flight_dep(self, flightno1, flightno2, org, destin, depDate):
         try:
             result = self.db.connections_details.find_one({
-                "FlightNo1": flightno1,
-                "FlightNo2": flightno2,
+                "FlightNo1": int(flightno1),
+                "FlightNo2": int(flightno2),
                 "Origin1": org,
                 "Destnination2": destin,
                 "Departuredate1": depDate

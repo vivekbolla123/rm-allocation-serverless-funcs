@@ -400,7 +400,7 @@ class DynAllocConnections:
             destin = sector2[-3:]
             qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
             if len(qpcurrency)!=0:
-                self.qpcurrency = qpcurrency['currency'][0]
+                self.qpcurrency = qpcurrency['Currency'][0]
             else:
                 self.qpcurrency=''
 
