@@ -1146,12 +1146,12 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
         # Define projection columns based on query type (mimicking the SQL SELECT clauses)
         standard_cols = [
             'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
-            'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfthreshold',
+            'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
             'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
             'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
-            'ProfileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
-            'AutoGroup','TbfFlag','CugFlag','MktFareFlag','Autobackstopflag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag'
+            'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
+            'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
+            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag'
         ]
         sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
         connection_cols = [

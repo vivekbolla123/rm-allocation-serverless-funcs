@@ -10,8 +10,8 @@ class Schema:
         self.dw_db = mongo_db
 
     def initializTables(self):
-        self.load_generic_collection("Curves", "Curves.csv")
-        self.load_generic_collection("Fares", "Fares.csv")
+        self.load_generic_collection("curves", "Curves.csv")
+        self.load_generic_collection("fares", "Fares.csv")
         self.load_generic_collection("market_fares_rg", "MarketFares.csv")
         self.load_generic_collection("market_fares_ag", "MarketFares.csv")
         self.load_generic_collection("bookload", "Bookload.csv")
@@ -27,10 +27,10 @@ class Schema:
         self.load_generic_collection("departure_time_ranges", "departure_time_ranges.csv")
         self.load_generic_collection("booking_fare_data", "booking_fare_data.csv")
         self.load_generic_collection("config_share_of_booking", "config_share_of_booking.csv")
-        self.load_generic_collection("config_runTime", "config_runTime.csv")
+        self.load_generic_collection("config_runtime", "config_runTime.csv")
         self.load_generic_collection("no_show_probabilities", "no_show_probabilities.csv")
         self.load_generic_collection("config_ndo_range", "config_ndo_range.csv")
-        self.load_generic_collection("config_marketFares_rerouting", "config_marketFares_rerouting.csv")
+        self.load_generic_collection("config_marketfares_rerouting", "config_marketFares_rerouting.csv")
         self.load_generic_collection("config_profile_fares", "config_profile_fares.csv")
         self.load_generic_collection("config_profile_fare_station_upsell", "config_profile_fare_station_upsell.csv")
         self.load_generic_collection("config_date_event", "config_date_event.csv")

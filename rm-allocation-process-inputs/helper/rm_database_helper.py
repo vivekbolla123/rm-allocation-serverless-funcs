@@ -23,7 +23,7 @@ class RMDatabaseHelper:
 
     def getLatestCodeVersion(self):
         try:
-            result = self.db.config_code_version.find_one({"isActive": 1})
+            result = self.db.config_code_version.find_one({"isActive": True})
             return result['code_version'] if result else None
         except Exception as e:
             self.logger.error(e)
@@ -525,7 +525,7 @@ class RMDatabaseHelper:
     def insertRunStart(self, startTime, username):
         if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
             try:
-                curr_version_docs = list(self.db.currentVersion.find())
+                curr_version_docs = list(self.db.currentversion.find())
                 table_versions = {doc['tableName']: doc['curr_version'] for doc in curr_version_docs}
 
                 type_val = "Local Run"
@@ -643,7 +643,7 @@ class RMDatabaseHelper:
         if ndocounter < 0:
             ndocounter = 0
         try:
-            result = self.db.Curves.find_one({"NDO": ndocounter, "CurveID": curveID})
+            result = self.db.curves.find_one({"NDO": ndocounter, "CurveID": curveID})
             if result:
                 return pd.DataFrame([{"LF": result.get("LF")}])
             return pd.DataFrame()
@@ -693,14 +693,14 @@ class RMDatabaseHelper:
             # Try to find specific flight/NDO combination
             result = self.db.config_pfl_threshold.find_one({
                 "flightNumber": str(flightNumber),
-                "NDO": str(ndocounter)
+                "NDO": int(ndocounter)
             })
             
             # If not found, try wildcard
             if not result:
                 result = self.db.config_pfl_threshold.find_one({
                     "flightNumber": "*",
-                    "NDO": str(ndocounter)
+                    "NDO": int(ndocounter)
                 })
             
             if result:
@@ -735,7 +735,7 @@ class RMDatabaseHelper:
                 "ndo_band": ndoBand,
                 "dplf_band": dplfBand,
                 "strategy": strategy,
-                "Channel": channel
+                "channel": channel
             }))
             return pd.DataFrame(results)
         except Exception as e:
@@ -822,7 +822,7 @@ class RMDatabaseHelper:
  
             origin = currParams.origin
             destination = currParams.destin
-            routedSector = self.getRoutedDestination(origin, destination)
+            routedSector = self.getroutedDestination(origin, destination)
  
             if len(routedSector) > 0:
                 origin = routedSector['routedSector'][0][:3]
@@ -1202,7 +1202,7 @@ class RMDatabaseHelper:
         if currentTimeFlag:
             currFltDate = datetime.strptime(currFltDate, "%m/%d/%Y").strftime("%Y-%m-%d")
             try:
-                result = self.db.config_runTime.find_one({
+                result = self.db.config_runtime.find_one({
                     "FlightNumber": int(currParams.flight_number),
                     "Origin": currParams.origin,
                     "Destin": currParams.destin,
@@ -1219,7 +1219,7 @@ class RMDatabaseHelper:
 
     def get_qp_currency(self, origin, destin):
         try:
-            results = list(self.db.Fares.find({"Org": origin, "Dst": destin}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1227,7 +1227,7 @@ class RMDatabaseHelper:
 
     def get_qp_fares(self, origin, destin):
         try:
-            results = list(self.db.Fares.find({"Org": origin, "Dst": destin}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin}))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1237,7 +1237,7 @@ class RMDatabaseHelper:
         is_valid = False
         tbf_rbds = TBF_RBD.split(',')
         try:
-            results = list(self.db.Fares.find({
+            results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
                 "RBD": {"$in": tbf_rbds}
@@ -1245,8 +1245,8 @@ class RMDatabaseHelper:
             rbddata = pd.DataFrame(results)
             is_valid = (
                 len(rbddata) >= TBF_COUNT 
-                and not (rbddata['Total'] <= 0).any() 
-                and not rbddata['Total'].isnull().any()
+                and not (rbddata['TOTAL'] <= 0).any() 
+                and not rbddata['TOTAL'].isnull().any()
             )
         except Exception as e:
             self.logger.error(e)
@@ -1256,7 +1256,7 @@ class RMDatabaseHelper:
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
         try:
-            results = list(self.db.Fares.find({"Org": origin, "Dst": destin, "Route": route}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1284,28 +1284,28 @@ class RMDatabaseHelper:
         query = {
     "Org": origin,
     "Dst": destin,
-    "Route": route,
+    "route": route,
     "$and": rbd_conditions  # both conditions must be true
 }
 
         sortorder = -1  # desc
 
         if int(offset) < 0:
-            query["Total"] = {"$lt": int(anchorFare)}
+            query["TOTAL"] = {"$lt": int(anchorFare)}
             sortorder = -1
         if int(offset) >= 0:
             anchorFare = float(anchorFare)
             if anchorFare > 0:
-                query["Total"] = {"$gte": int(anchorFare)}
+                query["TOTAL"] = {"$gte": int(anchorFare)}
             else:
-                query["Total"] = {"$gte": 1000000}
+                query["TOTAL"] = {"$gte": 1000000}
             sortorder = 1
 
         if self.debugMode:
             self.logger.info(query)
 
         try:
-            results = list(self.db.Fares.find(query).sort("Total", sortorder))
+            results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1321,7 +1321,7 @@ class RMDatabaseHelper:
         query = {
             "Org": origin,
             "Dst": destin,
-            "Route": route,
+            "route": route,
             "$and": [
                 {"RBD": {"$nin": exclude_rbd_list}}  # exclude list
             ]
@@ -1333,12 +1333,12 @@ class RMDatabaseHelper:
         else:  # B2B
             query["$and"].append({"RBD": {"$regex": "^Z"}})
 
-        # Add Total/backstop and sort order
-        query["Total"] = {"$gte": float(backstop)}
+        # Add TOTAL/backstop and sort order
+        query["TOTAL"] = {"$gte": float(backstop)}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
-            results = list(self.db.Fares.find(query).sort("Total", sortorder))
+            results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1437,7 +1437,7 @@ class RMDatabaseHelper:
                 {"$project": {"price": f"${ndo_value}"}}
             ]
 
-            results = list(self.db.config_ownFares.aggregate(pipeline))
+            results = list(self.db.config_ownfares.aggregate(pipeline))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1462,9 +1462,9 @@ class RMDatabaseHelper:
 
             result = self.db.config_profile_fares.find_one({
                 "sector": sector,
-                "Month": month,
-                "DOW": dow,
-                "Cluster": cluster
+                "month": month,
+                "dow": dow,
+                "cluster": cluster
             })
 
             if result:
@@ -1571,7 +1571,7 @@ class RMDatabaseHelper:
             return pd.DataFrame()
 
     def fareExtract(self, origin, destination, channel, openingRBD, route):
-        query = {"Org": origin, "Dst": destination, "Route": route}
+        query = {"Org": origin, "Dst": destination, "route": route}
 
         if channel == 'B2C':
             query["RBD"] = {"$not": {"$regex": "^Z"}}
@@ -1581,7 +1581,7 @@ class RMDatabaseHelper:
             query["RBD"] = openingRBD
 
         try:
-            results = list(self.db.Fares.find(query).sort("Total", 1))
+            results = list(self.db.fares.find(query).sort("TOTAL", 1))
             df = pd.DataFrame(results)
             if not df.empty:
                 df['id'] = range(1, len(df) + 1)
@@ -1712,10 +1712,10 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def getRoutedDestination(self, origin, destination):
+    def getroutedDestination(self, origin, destination):
         try:
             sector = origin + destination
-            results = list(self.db.config_marketFares_rerouting.find({"sector": sector}))
+            results = list(self.db.config_marketfares_rerouting.find({"sector": sector}))
             return pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1725,25 +1725,25 @@ class RMDatabaseHelper:
         condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
 
         try:
-            sector1_result = self.db.Fares.find_one({
+            sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
                 "RBD": rbd_sector1,
-                "Route": "L",
+                "route": "L",
                 "RBD": condition
             })
 
-            sector2_result = self.db.Fares.find_one({
+            sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
                 "RBD": rbd_sector2,
-                "Route": "L",
+                "route": "L",
                 "RBD": condition
             })
 
             if not sector1_result or not sector2_result:
                 return 0, 0, 0, "", ""
 
-            sector1_total = sector1_result["Total"]
-            sector2_total = sector2_result["Total"]
+            sector1_total = sector1_result["TOTAL"]
+            sector2_total = sector2_result["TOTAL"]
             currency1 = sector1_result["currency"]
             currency2 = sector2_result["currency"]
             total = sector1_total + sector2_total
@@ -1757,17 +1757,17 @@ class RMDatabaseHelper:
         condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
 
         try:
-            result = self.db.Fares.find_one({
+            result = self.db.fares.find_one({
                 "SECTOR": sector,
                 "RBD": rbd,
-                "Route": route,
+                "route": route,
                 "RBD": condition
             })
 
             if not result:
                 return 0, ""
 
-            return result["Total"], result["currency"]
+            return result["TOTAL"], result["currency"]
         except Exception as e:
             self.logger.error(e)
             return 0, ""
@@ -2091,7 +2091,7 @@ class RMDatabaseHelper:
         is_valid = False
         cug_rbds = CUG_RBD.split(',')
         try:
-            results = list(self.db.Fares.find({
+            results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
                 "RBD": {"$in": cug_rbds}
@@ -2099,8 +2099,8 @@ class RMDatabaseHelper:
             rbddata = pd.DataFrame(results)
             is_valid = (
                 len(rbddata) >= CUG_COUNT 
-                and not (rbddata['Total'] <= 0).any() 
-                and not rbddata['Total'].isnull().any()
+                and not (rbddata['TOTAL'] <= 0).any() 
+                and not rbddata['TOTAL'].isnull().any()
             )
         except Exception as e:
             self.logger.error(e)
@@ -2162,11 +2162,11 @@ class RMDatabaseHelper:
 
             # Check if sector1 is international (any station has route='I')
             sector1_stations = station_df[station_df['station'].isin([sector1_origin, sector1_dest])]
-            is_sector1_domestic = not (sector1_stations['Route'] == 'I').any() if not sector1_stations.empty else True
+            is_sector1_domestic = not (sector1_stations['route'] == 'I').any() if not sector1_stations.empty else True
 
             # Check if sector2 is international (any station has route='I')
             sector2_stations = station_df[station_df['station'].isin([sector2_origin, sector2_dest])]
-            is_sector2_domestic = not (sector2_stations['Route'] == 'I').any() if not sector2_stations.empty else True
+            is_sector2_domestic = not (sector2_stations['route'] == 'I').any() if not sector2_stations.empty else True
 
             return is_sector1_domestic, is_sector2_domestic
 
