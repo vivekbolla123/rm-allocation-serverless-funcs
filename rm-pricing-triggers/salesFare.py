@@ -231,17 +231,19 @@ class SalesFare:
         
         self.logger.info("Data collection completed")
     
-    def split_date_range_by_blackouts(self, sector, start_date, end_date):
+    def split_date_range_by_blackouts(self, sector, start_date, end_date, is_open_ended=False):
         """
         Split a date range into multiple ranges excluding blackout dates.
         
         Args:
             sector: The sector code (e.g., 'AMDBLR')
             start_date: Start date of the range
-            end_date: End date of the range
+            end_date: End date of the range (can be None for open-ended)
+            is_open_ended: Whether this is an open-ended period
             
         Returns:
             List of tuples with (start_date, end_date) for valid periods
+            For open-ended, the last tuple will have None as end_date
         """
         # Get blackout dates for this sector
         sector_blackouts = self.blackout_data[self.blackout_data['sector'] == sector]
@@ -253,6 +255,21 @@ class SalesFare:
         # Sort blackouts by start date
         sector_blackouts = sector_blackouts.sort_values('start_date')
         
+        # If open-ended, we need to consider all blackouts starting from start_date
+        if is_open_ended:
+            # Filter blackouts that start on or after the start_date
+            sector_blackouts = sector_blackouts[sector_blackouts['start_date'] >= start_date]
+        else:
+            # For normal periods, filter blackouts within the range
+            sector_blackouts = sector_blackouts[
+                (sector_blackouts['end_date'] >= start_date) & 
+                (sector_blackouts['start_date'] <= end_date)
+            ]
+        
+        if sector_blackouts.empty:
+            # No relevant blackouts
+            return [(start_date, end_date)]
+        
         valid_periods = []
         current_start = start_date
         
@@ -260,14 +277,17 @@ class SalesFare:
             blackout_start = blackout['start_date']
             blackout_end = blackout['end_date']
             
-            # Skip if blackout is completely outside our range
-            if blackout_end < start_date or blackout_start > end_date:
-                continue
+            # For normal periods, skip if blackout is completely outside our range
+            if not is_open_ended:
+                if blackout_end < start_date or blackout_start > end_date:
+                    continue
             
             # If there's a gap before the blackout, add it as a valid period
             if current_start < blackout_start:
                 # End the period one day before blackout starts
                 period_end = blackout_start - timedelta(days=1)
+                if not is_open_ended and period_end > end_date:
+                    period_end = end_date
                 if period_end >= start_date:
                     valid_periods.append((current_start, period_end))
             
@@ -275,8 +295,13 @@ class SalesFare:
             current_start = blackout_end + timedelta(days=1)
         
         # Add the remaining period after the last blackout
-        if current_start <= end_date:
-            valid_periods.append((current_start, end_date))
+        if is_open_ended:
+            # For open-ended, add the period with None as end date
+            valid_periods.append((current_start, None))
+        else:
+            # For normal periods, add if there's remaining time
+            if current_start <= end_date:
+                valid_periods.append((current_start, end_date))
         
         return valid_periods if valid_periods else []
     
@@ -319,6 +344,13 @@ class SalesFare:
                 departure_start = row['departure_start']
                 departure_end = row['departure_end']
                 
+                # Check if departure_end is 'Open' or blank
+                is_open_ended = (
+                    pd.isna(departure_end) or 
+                    str(departure_end).upper() == 'OPEN' or 
+                    departure_end == ''
+                )
+                
                 # Extract origin and destination from sector
                 # Assuming format like 'AMDBLR' where first 3 chars are origin
                 if len(sector) >= 6:
@@ -328,17 +360,17 @@ class SalesFare:
                     self.logger.warning(f"Invalid sector format: {sector}")
                     continue
                 
-                # Split the date range by blackouts
+                # Split the date range by blackouts (works for both open-ended and normal periods)
                 valid_periods = self.split_date_range_by_blackouts(
-                    sector, departure_start, departure_end
+                    sector, departure_start, departure_end, is_open_ended
                 )
                 
                 # Create output rows for each valid period
                 for period_start, period_end in valid_periods:
                     output_row = {
-                        'run_id': run_id,  # Add run_id as first column
+                        'run_id': run_id,
                         'ACTION': 'I',
-                        'ID': '',  # Leave blank - generated by Navitaire
+                        'ID': '',
                         'LOC1': origin,
                         'LOC1TYPE': self.determine_location_type(origin),
                         'DIRECTION': '>',
@@ -347,7 +379,7 @@ class SalesFare:
                         'SALESSTART': row['sale_start'].strftime('%m/%d/%Y'),
                         'SALESEND': row['sale_end'].strftime('%m/%d/%Y'),
                         'TRAVELSTART': period_start.strftime('%m/%d/%Y'),
-                        'TRAVELEND': period_end.strftime('%m/%d/%Y'),
+                        'TRAVELEND': period_end.strftime('%m/%d/%Y') if period_end is not None else '',
                         'TSI': '',
                         'INCLUDED': '',
                         'INCLUDED#': '',
