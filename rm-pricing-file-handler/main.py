@@ -128,7 +128,7 @@ class FileUploadWorker:
             status, end_time, self.num_of_rows, duration, self.obj_id, self.list_of_errors
         )
 
-        local_test_dir = "locals-pricing"
+        local_test_dir = "locals"
         s3_path_len = len(S3_FILE_PATH_NAME)
         if final_key[s3_path_len:s3_path_len+len(local_test_dir)].lower() != local_test_dir:
             self.s3_helper.delete_object(final_key)
