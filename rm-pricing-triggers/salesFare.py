@@ -49,11 +49,14 @@ class SalesFare:
            
             self.sales_fares_data = pd.read_sql(query, self.rm_rd_conn)
            
-            # Convert date columns to datetime
+            # Convert date columns to datetime, but handle 'Open' values first
             date_columns = ['sale_start', 'sale_end', 'departure_start', 'departure_end']
             for col in date_columns:
                 if col in self.sales_fares_data.columns:
-                    self.sales_fares_data[col] = pd.to_datetime(self.sales_fares_data[col])
+                    # Replace 'Open' with NaN before conversion
+                    self.sales_fares_data[col] = self.sales_fares_data[col].replace(['Open', 'OPEN', 'open'], pd.NaT)
+                    # Convert to datetime
+                    self.sales_fares_data[col] = pd.to_datetime(self.sales_fares_data[col], errors='coerce')
            
             self.logger.info(f"Collected {len(self.sales_fares_data)} sales fare records")
             return self.sales_fares_data
@@ -367,6 +370,11 @@ class SalesFare:
                 
                 # Create output rows for each valid period
                 for period_start, period_end in valid_periods:
+                    # Handle period_end which can be None or NaT for open-ended periods
+                    travel_end = ''
+                    if period_end is not None and pd.notna(period_end):
+                        travel_end = period_end.strftime('%m/%d/%Y')
+                    
                     output_row = {
                         'run_id': run_id,
                         'ACTION': 'I',
@@ -379,7 +387,7 @@ class SalesFare:
                         'SALESSTART': row['sale_start'].strftime('%m/%d/%Y'),
                         'SALESEND': row['sale_end'].strftime('%m/%d/%Y'),
                         'TRAVELSTART': period_start.strftime('%m/%d/%Y'),
-                        'TRAVELEND': period_end.strftime('%m/%d/%Y') if period_end is not None else '',
+                        'TRAVELEND': travel_end,
                         'TSI': '',
                         'INCLUDED': '',
                         'INCLUDED#': '',
