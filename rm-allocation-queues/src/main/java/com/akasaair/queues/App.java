@@ -36,7 +36,6 @@ import java.io.*;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.sql.*;
 import java.text.ParseException;
 import java.util.Date;
 import java.util.*;
@@ -77,12 +76,27 @@ public class App implements RequestHandler<S3Event, Object> {
         DISTRESS
     }
     public App() {
-        this.database = MongoConnection.getDatabase();
-        this.database2 = MongoConnection.getDatabase();  // if needed
-        this.s3Client = DependencyFactory.s3Client();
+        System.out.println("Initializing App...");
+        try {
+            System.out.println("Getting MongoDB database...");
+            this.database = MongoConnection.getDatabase();
+            System.out.println("Database 1 initialized: " + this.database.getName());
+
+            System.out.println("Getting second MongoDB database...");
+            this.database2 = MongoConnection.getDatabase();
+            System.out.println("Database 2 initialized: " + this.database2.getName());
+
+            System.out.println("Getting S3 client...");
+            this.s3Client = DependencyFactory.s3Client();
+            System.out.println("S3 client initialized.");
+        } catch (Exception e) {
+            System.err.println("Error during App initialization: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
 
-    public static void main(String[] args) throws SQLException {
+    public static void main(String[] args)  {
         App app = new App();
         app.uploadFile(FILE_NAME, S3_BUCKET_NAME);
     }
