@@ -147,6 +147,9 @@ public class App implements RequestHandler<S3Event, Object> {
                 if (timestampObj instanceof Date) {
                     startTime = ((Date) timestampObj).toInstant()
                             .atZone(ZoneId.systemDefault()).toLocalDateTime();
+                }else if (timestampObj instanceof String) {
+                    // Parse ISO date string
+                    startTime = LocalDateTime.parse((String) timestampObj);
                 }
                 routeStr = result.getString("route_for_adhoc");
             }
@@ -914,7 +917,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
         int totalDeletedRows = 0;
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             for (String combo : seatTypeCombinations) {
                 String[] parts = combo.split(",");
@@ -1519,7 +1522,7 @@ public class App implements RequestHandler<S3Event, Object> {
         System.out.println("Executing delete on " + collectionName + " for exact dates: " + datesToDelete);
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             // WHERE date IN (date1, date2, date3, ...)
             Bson filter = in(SALES_DB_DATE, datesToDelete);
@@ -1545,7 +1548,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 " from " + startDateYYYYMMDD + " to " + endDateYYYYMMDD);
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             // Build filter: date >= start AND date <= end AND date NOT LIKE '%00'
             Bson filter = and(
@@ -1672,7 +1675,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
         try {
             for (String name : database.listCollectionNames()) {
-                if (name.equals(collectionName)) {
+                if (name.equals(collectionName.toLowerCase())) {
                     return 1;
                 }
             }
@@ -1703,8 +1706,8 @@ public class App implements RequestHandler<S3Event, Object> {
     public String searchResults(String value) {
         String listObj = null;
         try {
-            MongoCollection<Document> collection = database.getCollection("system_parameters");
-            Document doc = collection.find(eq("param_key", value)).first();
+            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            Document doc = collection.find(eq("parameterKey", value)).first();
 
             if (doc != null) {
                 listObj = doc.getString(PARAMETER_VALUE_COLUMN_NAME);
@@ -1941,7 +1944,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             // Build single filter with $or for all conditions
             List<Bson> orConditions = new ArrayList<>();
@@ -1975,7 +1978,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void insertIntoMarketListConnections(MarketListConnectionsEntity marketListEntity, String collectionName) {
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             Document doc = new Document()
                     .append("sector1", marketListEntity.getSector1())
@@ -2031,7 +2034,7 @@ public class App implements RequestHandler<S3Event, Object> {
         List<Map<String, Object>> listObj = new ArrayList<>();
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
             Bson filter = and(
                     eq("sector1", marketListEntity.getSector1()),
                     eq("sector2", marketListEntity.getSector2()),
@@ -2206,7 +2209,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
             Bson filter = and(
                     in(DATE_COLUMN_NAME, dates),
                     eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
@@ -2288,7 +2291,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void deleteTable(String collectionName) {
         try {
-            database.getCollection(collectionName).drop();
+            database.getCollection(collectionName.toLowerCase()).drop();
             System.out.println("Dropped collection: " + collectionName);
         } catch (Exception e) {
             System.out.println("Failed to delete collection");
@@ -2299,8 +2302,8 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void copyFromTempToMainTable(String collectionName, String tempCollectionName) {
         try {
-            MongoCollection<Document> tempColl = database.getCollection(tempCollectionName);
-            MongoCollection<Document> mainColl = database.getCollection(collectionName);
+            MongoCollection<Document> tempColl = database.getCollection(tempCollectionName.toLowerCase());
+            MongoCollection<Document> mainColl = database.getCollection(collectionName.toLowerCase());
 
             List<Document> docs = tempColl.find().into(new ArrayList<>());
             if (!docs.isEmpty()) {
@@ -2369,7 +2372,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String collectionName) throws Exception {
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
             List<Document> documents = new ArrayList<>();
 
             for (Map<String, String> dataMap : data) {
@@ -2431,7 +2434,7 @@ public class App implements RequestHandler<S3Event, Object> {
                                           String strategyColumnName, String channelColumnName) {
         if (!value.isEmpty()) {
             try {
-                MongoCollection<Document> collection = database.getCollection(collectionName);
+                MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
                 // For each concatenated value, split and delete
                 List<Bson> filters = new ArrayList<>();
@@ -2457,7 +2460,7 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         try {
-            MongoCollection<Document> collection = database.getCollection(tableName);
+            MongoCollection<Document> collection = database.getCollection(tableName.toLowerCase());
 
             // One-line filter - MongoDB handles Set directly
             Bson filter = in(columnName, value);
@@ -2613,7 +2616,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public int getCountOfEntries(String collectionName) {
         int count = 0;
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
             count = (int) collection.countDocuments();
         } catch (Exception e) {
             System.out.println(DATABASE_ACCESS_ERROR_MESSAGE);
@@ -2672,7 +2675,7 @@ public class App implements RequestHandler<S3Event, Object> {
         );
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             MongoCursor<Document> cursor;
             if (limit > 0) {
@@ -2750,13 +2753,13 @@ public class App implements RequestHandler<S3Event, Object> {
             MongoCollection<Document> auditCollection = database.getCollection("file_upload_audit");
             Bson auditFilter = and(
                     eq("uuid", uuid),
-                    eq("tableName", collectionName)
+                    eq("tableName", collectionName.toLowerCase())
             );
             Bson auditUpdate = set("end_time", endTime);
             auditCollection.updateOne(auditFilter, auditUpdate);
 
             // Check if version exists
-            MongoCollection<Document> versionCollection = database.getCollection("currentVersion");
+            MongoCollection<Document> versionCollection = database.getCollection("currentversion");
             long count = versionCollection.countDocuments(eq("tableName", collectionName));
 
             if (count >= 1) {
@@ -2779,7 +2782,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void insertIntoMarketList(MarketListEntity marketListEntity, String collectionName) {
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             Document doc = new Document()
                     .append("Origin", marketListEntity.getOrigin())
@@ -2843,7 +2846,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public void deleteValues(Set<String> uniqueValues, String collectionName, String fieldName) {
         if (!uniqueValues.isEmpty()) {
             try {
-                MongoCollection<Document> collection = database.getCollection(collectionName);
+                MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
                 Bson filter = in(fieldName, uniqueValues);
                 DeleteResult result = collection.deleteMany(filter);
                 System.out.println("Deleted " + result.getDeletedCount() + " documents from " + collectionName);
@@ -2856,7 +2859,7 @@ public class App implements RequestHandler<S3Event, Object> {
     public void deleteValuesFare(Set<String> value, String collectionName) {
         if (!value.isEmpty()) {
             try {
-                MongoCollection<Document> collection = database.getCollection(collectionName);
+                MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
                 // For concat(sector, route) matching, we need to query and filter
                 List<Bson> filters = new ArrayList<>();
@@ -2896,7 +2899,7 @@ public class App implements RequestHandler<S3Event, Object> {
         List<Map<String, Object>> listObj = new ArrayList<>();
 
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
             Bson filter = and(
                     eq("Origin", marketListEntity.getOrigin()),
                     eq("Destin", marketListEntity.getDestination()),
@@ -2950,12 +2953,12 @@ public class App implements RequestHandler<S3Event, Object> {
     public void createTable(String collectionName, String templateCollectionName) {
         try {
             // Drop existing collection if it exists
-            database.getCollection(collectionName).drop();
+            database.getCollection(collectionName.toLowerCase()).drop();
 
             // MongoDB creates collections automatically on first insert
             // Optional: Create with schema validation like template
-            if (collectionExists(templateCollectionName)) {
-                database.createCollection(collectionName);
+            if (collectionExists(templateCollectionName.toLowerCase())) {
+                database.createCollection(collectionName.toLowerCase());
             }
         } catch (Exception e) {
             System.out.println("Failed to create collection");
@@ -3811,7 +3814,7 @@ public class App implements RequestHandler<S3Event, Object> {
 
     public void insertIntoMarketListSalesInv(MarketListSalesInvEntity entity, String collectionName) {
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName);
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             Document doc = new Document()
                     .append("Origin", entity.getOrigin())
