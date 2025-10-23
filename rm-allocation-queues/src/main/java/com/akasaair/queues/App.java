@@ -992,7 +992,7 @@ public class App implements RequestHandler<S3Event, Object> {
                 int errorCountBefore = listOfErrors.size();
                 String analystName = validationForMarketListFile(csvData.get(i), permissions, route, listOfErrors, i,
                         role, userName, listOfCurves, listOfStrategies, listOfB2BStrategies, listOfCriteria);
-                if (listOfErrors.size() != errorCountBefore) {
+                if (listOfErrors.size() == errorCountBefore) {
                     createMarketListEntity(csvData.get(i), validMarketListEntityList, uuidForEntries, analystName);
                 }
             }
@@ -2835,6 +2835,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     .append("Outbound_Stop", marketListEntity.getB2bOutbound_Stop())
                     .append("Marketfare_Upsell", marketListEntity.getMarketfare_Upsell())
                     .append("forecastAllocFlag", marketListEntity.getForecastAllocFlag())
+                    .append("Spoilage_Flag", marketListEntity.getSpoilage_Flag())
                     .append("createdAt", new Date());
 
             collection.insertOne(doc);
