@@ -11,6 +11,7 @@ import com.akasaair.queues.common.helpers.MongoConnection;
 import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
+import com.mongodb.MongoException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
@@ -2844,14 +2845,31 @@ public class App implements RequestHandler<S3Event, Object> {
         }
     }
 
-    public void deleteValues(Set<String> uniqueValues, String collectionName, String fieldName) {
-        if (!uniqueValues.isEmpty()) {
+    public void deleteValues(Set<String> value, String collectionName, String fieldName) {
+        if (!value.isEmpty()) {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            Bson filter;
+
+            // Check if fieldName is a numeric literal (like "0", "1", etc.)
+            // This mimics SQL's WHERE 0 IN ('0') behavior
+            if (fieldName.matches("^\\d+$")) {
+                // Numeric fieldName: check if the literal number is in the value set
+                // If true, delete all documents (like SQL WHERE 0 IN ('0'))
+                if (value.contains(fieldName)) {
+                    filter = new Document(); // Empty filter = match all documents
+                } else {
+                    return; // No match, delete nothing
+                }
+            } else {
+                // Normal case: fieldName is an actual field
+                filter = Filters.in(fieldName, value);
+            }
+
             try {
-                MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
-                Bson filter = in(fieldName, uniqueValues);
                 DeleteResult result = collection.deleteMany(filter);
-                System.out.println("Deleted " + result.getDeletedCount() + " documents from " + collectionName);
-            } catch (Exception e) {
+                System.out.println("Deleted " + result.getDeletedCount() + " document(s)");
+            } catch (MongoException e) {
                 System.out.println(e.getMessage());
             }
         }
