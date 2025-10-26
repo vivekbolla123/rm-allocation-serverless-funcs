@@ -1951,10 +1951,10 @@ public class App implements RequestHandler<S3Event, Object> {
             List<Bson> orConditions = new ArrayList<>();
             for (MarketListConnectionsEntity entity : marketListConnectionsEntityList) {
                 orConditions.add(and(
-                        eq("sector1", entity.getSector1()),
-                        eq("flight1", entity.getFlight1()),
-                        eq("sector2", entity.getSector2()),
-                        eq("flight2", entity.getFlight2()),
+                        eq("Sector1", entity.getSector1()),
+                        eq("Flight1", Integer.parseInt(entity.getFlight1())),
+                        eq("Sector2", entity.getSector2()),
+                        eq("Flight2", Integer.parseInt(entity.getFlight2())),
                         eq("PerStart", entity.getStartDate())
                 ));
             }
@@ -1982,30 +1982,33 @@ public class App implements RequestHandler<S3Event, Object> {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
             Document doc = new Document()
-                    .append("sector1", marketListEntity.getSector1())
-                    .append("sector2", marketListEntity.getSector2())
-                    .append("Flight1", marketListEntity.getFlight1())
-                    .append("Flight2", marketListEntity.getFlight2())
+                    .append("Sector1", marketListEntity.getSector1())
+                    .append("Sector2", marketListEntity.getSector2())
+                    .append("Flight1", Integer.parseInt(marketListEntity.getFlight1()))
+                    .append("Flight2", Integer.parseInt(marketListEntity.getFlight2()))
                     .append("Pertype", marketListEntity.getPerType())
                     .append("PerStart", marketListEntity.getStartDate())
                     .append("PerEnd", marketListEntity.getEndDate())
                     .append("DOW", new BigInteger(marketListEntity.getDayOfWeek()).intValue())
-                    .append("Price_Strategy", marketListEntity.getPriceStrategy())
-                    .append("Discount_Value", marketListEntity.getDiscountValue())
+                    .append("Price_Strategy", Integer.parseInt(marketListEntity.getPriceStrategy()))
+                    .append("Discount_Value", Integer.parseInt(marketListEntity.getDiscountValue()))
                     .append("FirstRBDAlloc", new BigInteger(marketListEntity.getFirstAllocation()).intValue())
                     .append("OtherRBDAlloc", new BigInteger(marketListEntity.getOtherAllocation()).intValue())
                     .append("B2BBackstop", new BigInteger(marketListEntity.getB2bBackstop()).intValue())
                     .append("B2CBackstop", new BigInteger(marketListEntity.getB2cBackstop()).intValue())
-                    .append("B2BFactor", marketListEntity.getB2bFactor())
-                    .append("SkippingFactor", marketListEntity.getSkippingFactor())
+                    .append("B2BFactor", Integer.parseInt(marketListEntity.getB2bFactor()))
+                    .append("SkippingFactor", Integer.parseInt(marketListEntity.getSkippingFactor()))
                     .append("analystName", marketListEntity.getAnalystName())
                     .append("UUID", marketListEntity.getUuid())
-                    .append("Outbound_stop", marketListEntity.getOutboundStop())
+                    .append("Outbound_stop", Integer.parseInt(marketListEntity.getOutboundStop()))
                     .append("Outbound_duration", marketListEntity.getOutboundDuration())
-                    .append("CarrierExclusionB2B", marketListEntity.getCarrierExclusionB2B())
-                    .append("CarrierExclusionB2C", marketListEntity.getCarrierExclusionB2C())
+                    .append("carrierExclusionB2C", marketListEntity.getCarrierExclusionB2B())
+                    .append("carrierExclusionB2B", marketListEntity.getCarrierExclusionB2C())
                     .append("Currency", marketListEntity.getCurrency())
                     .append("fareAnchor", marketListEntity.getFareAnchor())
+                    .append("DiscountFlag",marketListEntity.getDiscountFlag())
+                    .append("Offset",marketListEntity.getOffset())
+                    .append("sosFlag", marketListEntity.getSosFlag())
                     .append("createdAt", new Date());
 
             collection.insertOne(doc);
@@ -2379,7 +2382,11 @@ public class App implements RequestHandler<S3Event, Object> {
             for (Map<String, String> dataMap : data) {
                 Document doc = new Document();
                 for (String header : columnHeaders) {
-                    doc.append(header, dataMap.get(header));
+                    String value = dataMap.get(header);
+
+                    // Auto-convert to appropriate type
+                    Object convertedValue = autoConvert(value);
+                    doc.append(header, convertedValue);
                 }
                 documents.add(doc);
             }
@@ -2393,6 +2400,37 @@ public class App implements RequestHandler<S3Event, Object> {
             System.err.println("Insert failed into " + collectionName + ": " + e.getMessage());
             throw e;
         }
+    }
+
+    // Simple auto-conversion method
+    private Object autoConvert(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return value;
+        }
+
+        value = value.trim();
+
+        // Try integer
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            // Not an integer, continue
+        }
+
+        // Try double
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            // Not a double, continue
+        }
+
+        // Try boolean
+        if (value.equalsIgnoreCase("true") || value.equalsIgnoreCase("false")) {
+            return Boolean.parseBoolean(value);
+        }
+
+        // Return as string
+        return value;
     }
 
     public String getColumnHeaders(String value) {
@@ -2439,10 +2477,17 @@ public class App implements RequestHandler<S3Event, Object> {
 
                 // For each concatenated value, split and delete
                 List<Bson> filters = new ArrayList<>();
-                for (String val : value) {
-                    // Assuming val is "strategyChannel" concatenated
+                for (String concatenatedValue : value) {
                     filters.add(
-                            Filters.regex(strategyColumnName, "^" + val)
+                            Filters.expr(
+                                    new Document("$eq", Arrays.asList(
+                                            new Document("$concat", Arrays.asList(
+                                                    "$" + strategyColumnName,
+                                                    "$" + channelColumnName
+                                            )),
+                                            concatenatedValue
+                                    ))
+                            )
                     );
                 }
 
@@ -2788,11 +2833,11 @@ public class App implements RequestHandler<S3Event, Object> {
             Document doc = new Document()
                     .append("Origin", marketListEntity.getOrigin())
                     .append("Destin", marketListEntity.getDestination())
-                    .append("FlightNumber", marketListEntity.getFlightNo())
+                    .append("FlightNumber", Integer.parseInt(marketListEntity.getFlightNo()))
                     .append("PerType", marketListEntity.getPerType())
                     .append("PerStart", marketListEntity.getStartDate())
                     .append("PerEnd", marketListEntity.getEndDate())
-                    .append("DOW", marketListEntity.getDayOfWeek())
+                    .append("DOW", Integer.parseInt(marketListEntity.getDayOfWeek()))
                     .append("hardAnchor", marketListEntity.getHardAnchor())
                     .append("plfThreshold", marketListEntity.getPlfThreshold())
                     .append("TimeWindowStart", marketListEntity.getStartTime())
@@ -2804,18 +2849,18 @@ public class App implements RequestHandler<S3Event, Object> {
                     .append("flightExclusionB2C", marketListEntity.getFlightExclusionB2C())
                     .append("fareAnchor", marketListEntity.getFareAnchor())
                     .append("fareOffset", marketListEntity.getFareOffset())
-                    .append("FirstRBDAlloc", marketListEntity.getFirstAllocation())
-                    .append("OtherRBDAlloc", marketListEntity.getOtherAllocation())
-                    .append("B2BBackstop", marketListEntity.getB2bBackstop())
-                    .append("B2CBackstop", marketListEntity.getB2cBackstop())
+                    .append("FirstRBDAlloc", Integer.parseInt(marketListEntity.getFirstAllocation()))
+                    .append("OtherRBDAlloc", Integer.parseInt(marketListEntity.getOtherAllocation()))
+                    .append("B2BBackstop", Integer.parseInt(marketListEntity.getB2bBackstop()))
+                    .append("B2CBackstop", Integer.parseInt(marketListEntity.getB2cBackstop()))
                     .append("B2BFactor", marketListEntity.getB2bFactor())
                     .append("obSeats", marketListEntity.getOBSeats())
                     .append("obFare", marketListEntity.getOBFare())
-                    .append("SkippingFactor", marketListEntity.getSkippingFactor())
-                    .append("DaySpan", marketListEntity.getDaySpan())
-                    .append("AutoTimeRangeFlag", marketListEntity.getAutoTimeRangeFlag())
+                    .append("SkippingFactor", Integer.parseInt(marketListEntity.getSkippingFactor()))
+                    .append("DaySpan", Integer.parseInt(marketListEntity.getDaySpan()))
+                    .append("AutoTimeRangeFlag", Integer.parseInt(marketListEntity.getAutoTimeRangeFlag()))
                     .append("analystName", marketListEntity.getAnalystName())
-                    .append("openingFares", marketListEntity.getOpeningFares())
+                    .append("openingFares", Integer.parseInt(marketListEntity.getOpeningFares()))
                     .append("OverBooking", marketListEntity.getOverBooking())
                     .append("rbdPushFlag", marketListEntity.getRbdPushFlag())
                     .append("profileFares", marketListEntity.getProfileFares())
@@ -2924,7 +2969,7 @@ public class App implements RequestHandler<S3Event, Object> {
                     eq("Destin", marketListEntity.getDestination()),
                     eq("analystName", marketListEntity.getAnalystName()),
                     eq("PerStart", marketListEntity.getStartDate()),
-                    eq("FlightNumber", marketListEntity.getFlightNo())
+                    eq("FlightNumber", Integer.parseInt(marketListEntity.getFlightNo()))
             );
 
             try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
