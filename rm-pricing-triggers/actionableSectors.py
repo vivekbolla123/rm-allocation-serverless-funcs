@@ -18,8 +18,6 @@ class ActionSectors:
         self.logger = logger
         self.rm_rd_conn = params['wrconn']
         self.nav_conn = params['navconn']
-        self.dw_conn = params['dwconn']
-        self.cache_client = params['cache_client']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
@@ -227,24 +225,11 @@ class ActionSectors:
     def collect_market_fares(self):
         """Collect market fares min/max data based on route (domestic/international) with carrier info."""
         try:
-            # Base query components
-            base_conditions = """
-            WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5','QP','G8') 
-                AND CAST(departure_date AS DATE) >= CURDATE()
-                AND CAST(departure_date AS DATE) <= CURDATE() + INTERVAL 365 DAY
-                AND created_at > NOW() - INTERVAL 24 HOUR
-            """
-            
+            # Build route filter based on route type
             if self.route == 'D':
-                # Add domestic route filter using station master
-                route_filter = """
-                AND outbound_stop = 0
-                """
+                route_filter = "AND outbound_stop = 0"
             elif self.route == 'I':
-                # Add international route filter using station master
-                route_filter = """
-                AND outbound_stop >= 0
-                """
+                route_filter = "AND outbound_stop >= 0"
             else:
                 raise ValueError(f"Invalid route: {self.route}")
             
@@ -255,11 +240,13 @@ class ActionSectors:
                     outbound_airline_code, 
                     destination_airport,
                     source_airport,
-                    channel,
-                    created_at
+                    channel
                 FROM market_fares_ag
-                {base_conditions}
-                {route_filter}
+                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
+                    AND departure_date >= CURDATE()
+                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
+                    AND created_at > NOW() - INTERVAL 24 HOUR
+                    {route_filter}
                 
                 UNION ALL
                 
@@ -268,71 +255,85 @@ class ActionSectors:
                     outbound_airline_code,
                     destination_airport,
                     source_airport,
-                    channel,
-                    created_at
+                    channel
                 FROM market_fares_rg
-                {base_conditions}
-                {route_filter}
+                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
+                    AND departure_date >= CURDATE()
+                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
+                    AND created_at > NOW() - INTERVAL 24 HOUR
+                    {route_filter}
             ),
-            latest_records AS (
+            ranked_fares AS (
                 SELECT 
+                    source_airport,
+                    destination_airport,
+                    channel,
                     gross_fare,
                     outbound_airline_code,
-                    source_airport,
-                    destination_airport,
-                    channel,
                     ROW_NUMBER() OVER (
-                        PARTITION BY channel, destination_airport, source_airport, outbound_airline_code
-                        ORDER BY created_at DESC
-                    ) as row_num
+                        PARTITION BY source_airport, destination_airport, channel 
+                        ORDER BY gross_fare ASC
+                    ) as rn_min,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY source_airport, destination_airport, channel 
+                        ORDER BY gross_fare DESC
+                    ) as rn_max
                 FROM combined_data
             ),
-            sector_channel_data AS (
+            min_max_fares AS (
                 SELECT 
                     source_airport,
                     destination_airport,
                     channel,
-                    gross_fare,
-                    outbound_airline_code
-                FROM latest_records
-                WHERE row_num = 1
-            ),
-            min_max_with_carriers AS (
-                SELECT 
-                    scd1.source_airport,
-                    scd1.destination_airport,
-                    scd1.channel,
-                    MIN(scd1.gross_fare) as min_fare,
-                    MAX(scd1.gross_fare) as max_fare,
-                    COUNT(DISTINCT scd1.gross_fare) as instances,
-                    (SELECT outbound_airline_code 
-                     FROM sector_channel_data scd2 
-                     WHERE scd2.source_airport = scd1.source_airport 
-                       AND scd2.destination_airport = scd1.destination_airport 
-                       AND scd2.channel = scd1.channel 
-                       AND scd2.gross_fare = MIN(scd1.gross_fare) 
-                     LIMIT 1) as min_carrier,
-                    (SELECT outbound_airline_code 
-                     FROM sector_channel_data scd3 
-                     WHERE scd3.source_airport = scd1.source_airport 
-                       AND scd3.destination_airport = scd1.destination_airport 
-                       AND scd3.channel = scd1.channel 
-                       AND scd3.gross_fare = MAX(scd1.gross_fare) 
-                     LIMIT 1) as max_carrier
-                FROM sector_channel_data scd1
+                    MIN(gross_fare) as min_fare,
+                    MAX(gross_fare) as max_fare
+                FROM combined_data
                 GROUP BY source_airport, destination_airport, channel
+            ),
+            fare_counts AS (
+                SELECT
+                    cd.source_airport,
+                    cd.destination_airport,
+                    cd.channel,
+                    cd.gross_fare,
+                    COUNT(*) as fare_count
+                FROM combined_data cd
+                GROUP BY cd.source_airport, cd.destination_airport, cd.channel, cd.gross_fare
             )
             SELECT 
-                source_airport,
-                destination_airport,
-                channel,
-                min_fare,
-                max_fare,
-                instances,
-                min_carrier,
-                max_carrier
-            FROM min_max_with_carriers
-            ORDER BY source_airport, destination_airport, channel
+                mmf.source_airport,
+                mmf.destination_airport,
+                mmf.channel,
+                mmf.min_fare,
+                mmf.max_fare,
+                COALESCE(min_fc.fare_count, 0) as min_instances,
+                COALESCE(max_fc.fare_count, 0) as max_instances,
+                min_rf.outbound_airline_code as min_carrier,
+                max_rf.outbound_airline_code as max_carrier
+            FROM min_max_fares mmf
+            LEFT JOIN fare_counts min_fc
+                ON mmf.source_airport = min_fc.source_airport
+                AND mmf.destination_airport = min_fc.destination_airport
+                AND mmf.channel = min_fc.channel
+                AND mmf.min_fare = min_fc.gross_fare
+            LEFT JOIN fare_counts max_fc
+                ON mmf.source_airport = max_fc.source_airport
+                AND mmf.destination_airport = max_fc.destination_airport
+                AND mmf.channel = max_fc.channel
+                AND mmf.max_fare = max_fc.gross_fare
+            LEFT JOIN ranked_fares min_rf
+                ON mmf.source_airport = min_rf.source_airport
+                AND mmf.destination_airport = min_rf.destination_airport
+                AND mmf.channel = min_rf.channel
+                AND mmf.min_fare = min_rf.gross_fare
+                AND min_rf.rn_min = 1
+            LEFT JOIN ranked_fares max_rf
+                ON mmf.source_airport = max_rf.source_airport
+                AND mmf.destination_airport = max_rf.destination_airport
+                AND mmf.channel = max_rf.channel
+                AND mmf.max_fare = max_rf.gross_fare
+                AND max_rf.rn_max = 1
+            ORDER BY mmf.source_airport, mmf.destination_airport, mmf.channel
             """
             
             self.market_fares_data = pd.read_sql(query, self.rm_rd_conn)
@@ -342,7 +343,7 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Error collecting market fares data: {str(e)}")
             raise
-
+            
     def collect_booked_data(self, date_range_days=30):
         """Collect passenger booking data from Navitaire stored procedure for PLF calculation."""
         try:
@@ -489,11 +490,12 @@ class ActionSectors:
             xqp_record = channel_xqp_data.iloc[0]
             xqp_min_fare = float(xqp_record['min_fare'])
             xqp_max_fare = float(xqp_record['max_fare'])
-            instances = int(xqp_record['instances'])
+            min_instances = int(xqp_record['min_instances'])
+            max_instances = int(xqp_record['max_instances'])
             min_carrier = xqp_record['min_carrier']
             max_carrier = xqp_record['max_carrier']
             
-            self.logger.debug(f"Market data for {sector} {channel}: min={xqp_min_fare}, max={xqp_max_fare}, instances={instances}")
+            self.logger.debug(f"Market data for {sector} {channel}: min={xqp_min_fare} (instances={min_instances}), max={xqp_max_fare} (instances={max_instances})")
             
             # Get QP min and max fares based on fare amounts
             qp_min_fare, qp_max_fare, min_rbd, max_rbd = self._get_qp_min_max_fares(sector_qp_fares, origin, destination, channel)
@@ -517,7 +519,7 @@ class ActionSectors:
                 max_action_record = self._create_action_record(
                     sector, origin, destination, channel, "Max_Action",
                     qp_max_fare, xqp_max_fare, max_carrier, max_rbd,
-                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, max_instances
                 )
                 if max_action_record:
                     results.append(max_action_record)
@@ -527,7 +529,7 @@ class ActionSectors:
                 min_action_record = self._create_action_record(
                     sector, origin, destination, channel, "Min_Action",
                     qp_min_fare, xqp_min_fare, min_carrier, min_rbd,
-                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, instances
+                    qp_min_fare, qp_max_fare, min_rbd, max_rbd, min_instances
                 )
                 if min_action_record:
                     results.append(min_action_record)
@@ -929,15 +931,14 @@ class ActionSectors:
             self.logger.error(f"Error checking constraints: {str(e)}")
             return False
 
-    def save_actionable_sectors_to_database(self, actionable_df):
+    def save_actionable_sectors_to_database(self, actionable_df, run_id):
         """Save actionable sectors to single database table for both domestic and international."""
         try:
             if actionable_df.empty:
-                return None, None
+                return None
             
             # Single table for both domestic and international
             table_name = 'QP_DW_PRIAUT.actionable_sectors_output'
-            run_id = str(uuid.uuid4())
             
             # Add metadata columns
             actionable_df = actionable_df.copy()
@@ -957,7 +958,7 @@ class ActionSectors:
             )
             
             
-            return table_name, run_id
+            return table_name
             
         except Exception as e:
             self.logger.error(f"Error saving actionable sectors to database: {str(e)}")
@@ -976,73 +977,150 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Unable to get current version: {str(e)}")
             raise
-
         
-    def save_run_audit(self, run_id, actionable_df, table_name):
-        """Save run audit information to pricing_run_audits table."""
+    def save_run_audit(self, run_id, actionable_df, status='SUCCESS', is_initial=False):
+        """Save or update audit information with enhanced failure tracking.
+        
+        Args:
+            run_id: Unique identifier for this run
+            actionable_df: Result DataFrame from actionable sectors generation (None for initial insert)
+            status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
+            is_initial: If True, performs INSERT for initial audit record
+        """
         try:
-            total_records = len(actionable_df)
-            max_actions = len(actionable_df[actionable_df['Action_required'] == 'Max_Action'])
-            min_actions = len(actionable_df[actionable_df['Action_required'] == 'Min_Action'])
-            constraints_satisfied = len(actionable_df[actionable_df['Constraint'] == 'Satisfied'])
+            if is_initial:
+                # Initial audit record - insert with IN_PROGRESS status
+                tax_table = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
+                
+                # Get version info safely
+                qp_fares_version = None
+                tax_master_version = None
+                
+                try:
+                    if hasattr(self, 'currVersion') and self.currVersion is not None and not self.currVersion.empty:
+                        qp_version_rows = self.currVersion[self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares']
+                        tax_version_rows = self.currVersion[self.currVersion['tableName'] == tax_table]
+                        
+                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
+                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                except Exception:
+                    pass
+                
+                initial_audit_data = pd.DataFrame({
+                    'run_id': [run_id],
+                    'start_time': [self.start_time],
+                    'end_time': [None],
+                    'status': ['IN_PROGRESS'],
+                    'total_actionable_records': [None],
+                    'max_actions': [None],
+                    'min_actions': [None],
+                    'constraints_satisfied': [None],
+                    'route': [self.route],
+                    'qp_fares': [qp_fares_version],
+                    'tax_master': [tax_master_version],
+                    'analyst': [self.analystName],
+                    'failure_reason': [None]
+                })
+                
+                initial_audit_data.to_sql('pricing_run_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
+                                if_exists='append', index=False, method='multi')
+                
+                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
+                return 'QP_DW_PRIAUT.pricing_run_audits'
+                
+            else:
+                # Update existing audit record with final results
+                if status == 'SUCCESS' and actionable_df is None:
+                    status = 'FAILED'
+                    
+                total_records = len(actionable_df) if actionable_df is not None else 0
+                max_actions = len(actionable_df[actionable_df['Action_required'] == 'Max_Action']) if actionable_df is not None else 0
+                min_actions = len(actionable_df[actionable_df['Action_required'] == 'Min_Action']) if actionable_df is not None else 0
+                constraints_satisfied = len(actionable_df[actionable_df['Constraint'] == 'Satisfied']) if actionable_df is not None else 0
+                
+                self._execute_update_audit(
+                    run_id, 
+                    total_records, 
+                    max_actions, 
+                    min_actions, 
+                    constraints_satisfied, 
+                    status
+                )
+                
+                self.logger.info(f"Audit record updated with status {status} for run_id: {run_id}")
+                return 'QP_DW_PRIAUT.pricing_run_audits'
+            
+        except Exception as e:
+            self.logger.error(f"Error saving/updating audit: {str(e)}")
+            if not is_initial:
+                # For update failures, try minimal fallback
+                try:
+                    minimal_update = text("""
+                        UPDATE QP_DW_PRIAUT.pricing_run_audits
+                        SET 
+                            end_time = :end_time,
+                            status = 'FAILED',
+                            failure_reason = :failure_reason
+                        WHERE run_id = :run_id
+                    """)
+                    
+                    with self.rm_rd_conn.begin() as conn:
+                        conn.execute(minimal_update, {
+                            'run_id': run_id,
+                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                            'failure_reason': f"Audit update failed: {str(e)}"
+                        })
+                    
+                    return 'QP_DW_PRIAUT.pricing_run_audits'
+                except:
+                    self.logger.error("Failed to save even minimal audit update")
+                    return None
+            else:
+                return None
 
-            # Determine tax table name based on route
-            tax_table_name = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
-
-            # Extract version values from self.currVersion DataFrame
-            qp_fares_version = self.currVersion.loc[
-                self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares', 'curr_version'
-            ].values[0]
-
-            tax_file_version = self.currVersion.loc[
-                self.currVersion['tableName'] == tax_table_name, 'curr_version'
-            ].values[0]
-
-            # Create audit record
-            audit_data = {
-                'run_id': [run_id],
-                'start_time': [self.start_time],
-                'end_time': [datetime.now(pytz.timezone('Asia/Kolkata'))],
-                'table_name': [table_name.split('.')[1] if '.' in table_name else table_name],
-                'total_actionable_records': [total_records],
-                'max_actions': [max_actions],
-                'min_actions': [min_actions],
-                'constraints_satisfied': [constraints_satisfied],
-                'route': [self.route],
-                'qp_fares': [qp_fares_version],
-                'tax_master': [tax_file_version],
-                'analyst' : [self.analystName]
+    def _execute_update_audit(self, run_id, total_records, max_actions, min_actions, constraints_satisfied, status):
+        """Execute the audit update query with parameters."""
+        try:
+            update_query = text("""
+                UPDATE QP_DW_PRIAUT.pricing_run_audits
+                SET 
+                    end_time = :end_time,
+                    total_actionable_records = :total_records,
+                    max_actions = :max_actions,
+                    min_actions = :min_actions,
+                    constraints_satisfied = :constraints_satisfied,
+                    status = :status
+                WHERE run_id = :run_id
+            """)
+            
+            params = {
+                'run_id': run_id,
+                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                'total_records': total_records,
+                'max_actions': max_actions,
+                'min_actions': min_actions,
+                'constraints_satisfied': constraints_satisfied,
+                'status': status
             }
-
-            # Convert to DataFrame
-            audit_df = pd.DataFrame(audit_data)
-
-            # Save to database
-            audit_df.to_sql(
-                name='pricing_run_audits',
-                con=self.rm_rd_conn,
-                schema='QP_DW_PRIAUT',
-                if_exists='append',
-                index=False,
-                method='multi'
-            )
-
-            audit_table_name = 'QP_DW_PRIAUT.pricing_run_audits'
-
-            return audit_table_name
+            
+            with self.rm_rd_conn.begin() as conn:
+                conn.execute(update_query, params)
 
         except Exception as e:
-            self.logger.error(f"Error saving run audit: {str(e)}")
-            return None
-
+            self.logger.error(f"Error executing audit update: {str(e)}")
+            raise
 
     def run(self):
         """Main method to run complete actionable sectors analysis."""
         try:
             self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             
-            # Get current version information for audit
+            # Get current version information
             self.get_current_version()
+            
+            # Create initial audit record with IN_PROGRESS status
+            run_id = str(uuid.uuid4())
+            self.save_run_audit(run_id, None, is_initial=True)
             
             # Collect all data
             self.collect_all_data()
@@ -1050,14 +1128,11 @@ class ActionSectors:
             # Generate actionable sectors
             actionable_sectors = self.generate_actionable_sectors()
             
-            if actionable_sectors.empty:
-                return {'actionable_sectors': actionable_sectors, 'table_name': None, 'run_id': None}
+            # Save to database
+            table_name = self.save_actionable_sectors_to_database(actionable_sectors, run_id)
             
-            # Save to database table
-            table_name, run_id = self.save_actionable_sectors_to_database(actionable_sectors)
-            
-            # Save audit information
-            self.save_run_audit(run_id, actionable_sectors, table_name)
+            # Update audit record with final results
+            self.save_run_audit(run_id, actionable_sectors, status='SUCCESS')
             
             # Log summary
             route_desc = "Domestic" if self.route == 'D' else "International"
@@ -1078,4 +1153,6 @@ class ActionSectors:
             
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
+            # Update audit with FAILED status
+            self.save_run_audit(run_id, None, status='FAILED')
             raise

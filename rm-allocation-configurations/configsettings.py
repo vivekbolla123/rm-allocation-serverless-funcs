@@ -82,6 +82,7 @@ if env == 'prod':
     DW_DB_USER=credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_USERNAME', '')
     DW_DB_PASSWORD= credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_PASSWORD', '')
     DW_DB_WRITE_SCHEMA='RM_DW_DATA'
+    DW_DB_READ_SCHEMA='QP_DW_NAVFACT'
  
     ESB_HOST='p-esb.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com'
     ESB_PORT='3306'
@@ -158,6 +159,7 @@ if env == 'uat':
     DW_DB_USER=credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_USERNAME', '')
     DW_DB_PASSWORD= credentials.get('/glue_job/' + env + '/DW_DB_APPUSER_PASSWORD', '')
     DW_DB_WRITE_SCHEMA='RM_DW_DATA'
+    DW_DB_READ_SCHEMA='QP_DW_NAVFACT'
  
     ESB_HOST='172.24.87.43'
     ESB_PORT='3306'

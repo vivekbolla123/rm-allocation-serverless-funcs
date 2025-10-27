@@ -63,7 +63,7 @@ class LastSoldFare:
             self.logger.setLevel(logging.INFO)
             self.NAV_DB_NAME = "TST0KWB01"
             RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD')
-            RM_RD_CONN_STRING = f"mysql+mysqldb://rm-user:{RM_RD_PASSWORD}@uat-esb-db.cfwwkweqog18.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+            RM_RD_CONN_STRING = f"mysql+mysqldb://app_esb:{RM_RD_PASSWORD}@172.24.87.43/QP_DW_RMALLOC"
             try:
 
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -122,8 +122,10 @@ class LastSoldFare:
         
         whereCondition = f"'{str(time)}'"
         if time is None:
-            whereCondition = "DATEADD(HOUR, -168, GETDATE())"
+            whereCondition = "DATEADD(HOUR, -960, GETDATE())"  # 40 days
 
+        self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
             df['FareBasis'] = df.groupby(['BookingID', 'PassengerID'])['FareBasis'].apply(
@@ -140,8 +142,6 @@ class LastSoldFare:
                 df['FareBasis'].notna() & (df['FareBasis'] != '')]
 
             self.updateValuesToRedis(df)
-
-        self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
 
         print("completed")
 
