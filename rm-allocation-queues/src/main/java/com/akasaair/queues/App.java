@@ -2895,7 +2895,12 @@ public class App implements RequestHandler<S3Event, Object> {
         }
 
         try {
-            return Integer.parseInt(value);
+            double d = Double.parseDouble(value);
+            // If it's a whole number, return as int
+            if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                return (int) d;
+            }
+            return d;
         } catch (NumberFormatException e) {
             return value;
         }
