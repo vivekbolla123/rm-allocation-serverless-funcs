@@ -2889,16 +2889,15 @@ public class App implements RequestHandler<S3Event, Object> {
             System.out.println(e.getMessage());
         }
     }
-    public String toIntOrKeepSame(String value) {
+    public Object toIntOrKeepSame(String value) {
         if (value == null || value.isEmpty()) {
             return value;
         }
 
         try {
-            Integer.parseInt(value);
-            return value; // It's parsable, keep it
+            return Integer.parseInt(value);
         } catch (NumberFormatException e) {
-            return value; // Not parsable, keep it
+            return value;
         }
     }
     public void deleteValues(Set<String> value, String collectionName, String fieldName) {
