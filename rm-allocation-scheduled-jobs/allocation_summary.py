@@ -170,7 +170,7 @@ class AllocationSummaryReport:
                     "_id": "$RunId",
                     "successfulAllocationCount": {
                         "$sum": {
-                            "$cond": [{"$eq": ["$allocationStatus", 1]}, 1, 0]
+                            "$cond": [{"$eq": ["$allocationStatus", "1"]}, 1, 0]
                         }
                     },
                     "totalAllocationCount": {"$sum": 1}
