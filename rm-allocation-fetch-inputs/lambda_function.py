@@ -1134,7 +1134,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
         # 1. Fetch the base market list from MongoDB
         market_list_filter = {}
         if market_list_table != "market_list" and query_type != 'connections':
-             market_list_filter['defaultMlFlag'] = '0'
+             market_list_filter['defaultMlFlag'] = 0
 
         cursor = mongo_db[market_list_table].find(market_list_filter)
         base_ml_df = pd.DataFrame(list(cursor))
