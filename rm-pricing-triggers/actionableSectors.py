@@ -10,18 +10,22 @@ from datetime import datetime, timedelta, date
 import traceback
 import uuid
 import pytz
-
+from helpers.nav_db_helpers.action_nav_helper import ActionNavHelper
+from helpers.pa_db_helpers.action_pa_helper import ActionPAHelper
 
 class ActionSectors:
     def __init__(self, logger, params, overrides, context):
         """Initialize with required connections and constants."""
         self.logger = logger
-        self.rm_rd_conn = params['wrconn']
+        self.db = params['mongo']
+        self.db_fares = params['mongofares']
         self.nav_conn = params['navconn']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
-        self.constants = ConstantsUtils(self.rm_rd_conn)
+        self.constants = ConstantsUtils(self.db)
+        self.pa_helper = ActionPAHelper(self.db, logger)
+        self.nav_helper = ActionNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
                 
@@ -32,403 +36,27 @@ class ActionSectors:
         self.market_fares_data = None
         self.booked_data = None
         self.city_pair_data = None
-        self.rm_parameters = None
         self.active_sectors = None
-
-    def collect_qp_fares(self):
-        """Collect QP fares data from rm_rd_conn based on route (domestic or international) handling both fare directions.
-        Filters data to only include active sectors for domestic routes only."""
-        try:
-            if(self.route == 'D'):
-                query = f"""
-                SELECT 
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN CONCAT(qf.Origin, qf.Destination)
-                        WHEN qf.Fare_Direction = 'T' THEN CONCAT(qf.Destination, qf.Origin)
-                        ELSE CONCAT(qf.Origin, qf.Destination)
-                    END as SECTOR,
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN qf.Origin
-                        WHEN qf.Fare_Direction = 'T' THEN qf.Destination
-                        ELSE qf.Origin
-                    END as Org,
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN qf.Destination
-                        WHEN qf.Fare_Direction = 'T' THEN qf.Origin
-                        ELSE qf.Destination
-                    END as Dst,
-                    qf.Routing as route,
-                    LEFT(qf.Fare_Basis_Code, 2) as RBD,
-                    qf.Fare_Basis_Code as Fare_Basis_Code,
-                    qf.Fare_Amount as TOTAL,
-                    qf.Currency as currency,
-                    qf.Fare_Direction as fare_direction,
-                    qf.Rule_Nbr as rule_number,
-                    CASE 
-                        WHEN qf.Rule_Nbr = '1001' THEN 'B2C'
-                        WHEN qf.Rule_Nbr = '2001' THEN 'B2B'
-                        ELSE 'Unknown'
-                    END as channel
-                FROM QP_DW_PRIAUT.qp_fares qf
-                WHERE qf.Carrier_Code = 'QP'
-                AND qf.Rule_Nbr in ('1001','2001')
-                AND qf.Fare_Direction IN ('F', 'T')
-                AND (qf.OW_RT = 'O' OR qf.OW_RT = 'C')
-                AND (qf.Footnote is null OR qf.Footnote = "")
-                AND (
-                    EXISTS (
-                        SELECT 1 FROM QP_DW_RMALLOC.config_station_master csm_org 
-                        WHERE qf.Origin = csm_org.station AND csm_org.route = 'D'
-                    )
-                    OR 
-                    EXISTS (
-                        SELECT 1 FROM QP_DW_RMALLOC.config_station_master csm_dest 
-                        WHERE qf.Destination = csm_dest.station AND csm_dest.route = 'D'
-                    )
-                )
-                """
-            elif(self.route == 'I'):
-                query = f"""
-                SELECT 
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN CONCAT(qf.Origin, qf.Destination)
-                        WHEN qf.Fare_Direction = 'T' THEN CONCAT(qf.Destination, qf.Origin)
-                        ELSE CONCAT(qf.Origin, qf.Destination)
-                    END as SECTOR,
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN qf.Origin
-                        WHEN qf.Fare_Direction = 'T' THEN qf.Destination
-                        ELSE qf.Origin
-                    END as Org,
-                    CASE 
-                        WHEN qf.Fare_Direction = 'F' THEN qf.Destination
-                        WHEN qf.Fare_Direction = 'T' THEN qf.Origin
-                        ELSE qf.Destination
-                    END as Dst,
-                    qf.Routing as route,
-                    LEFT(qf.Fare_Basis_Code, 2) as RBD,
-                    qf.Fare_Basis_Code as Fare_Basis_Code,
-                    qf.Fare_Amount as TOTAL,
-                    qf.Currency as currency,
-                    qf.Fare_Direction as fare_direction,
-                    qf.Rule_Nbr as rule_number,
-                    CASE 
-                        WHEN qf.Rule_Nbr IN ('M101', 'M201') THEN 'B2B'
-                        WHEN qf.Rule_Nbr IN ('R101', 'R201') THEN 'B2C'
-                        ELSE 'Unknown'
-                    END as channel
-                FROM QP_DW_PRIAUT.qp_fares qf
-                WHERE qf.Carrier_Code = 'QP'
-                AND qf.Rule_Nbr in ('M101','R101','M201','R201')
-                AND qf.Fare_Direction IN ('F', 'T')
-                AND (qf.OW_RT = 'O' OR qf.OW_RT = 'C')
-                AND (qf.Footnote is null OR qf.Footnote = "")
-                AND (
-                    EXISTS (
-                        SELECT 1 FROM QP_DW_RMALLOC.config_station_master csm_org 
-                        WHERE qf.Origin = csm_org.station AND csm_org.route = 'I'
-                    )
-                    OR 
-                    EXISTS (
-                        SELECT 1 FROM QP_DW_RMALLOC.config_station_master csm_dest 
-                        WHERE qf.Destination = csm_dest.station AND csm_dest.route = 'I'
-                    )
-                )
-                """
-            else:
-                raise ValueError(f"Invalid Route Type: {self.route}")
-            
-            # Fetch all QP fares data first
-            all_qp_fares = pd.read_sql(query, self.rm_rd_conn)
-            
-            # Filter by active sectors ONLY for domestic routes
-            if self.route == 'D' and hasattr(self, 'active_sectors') and self.active_sectors is not None and not self.active_sectors.empty:
-                # Create active sectors set for faster lookup (both directions)
-                active_sectors_set = set()
-                for _, row in self.active_sectors.iterrows():
-                    # Add both directions of the sector
-                    sector_forward = f"{row['DepartureStation']}{row['ArrivalStation']}"
-                    active_sectors_set.add(sector_forward)
-                
-                # Filter QP fares to only include active sectors
-                self.qp_fares_data = all_qp_fares[all_qp_fares['SECTOR'].isin(active_sectors_set)].copy()
-                self.logger.info(f"Filtered domestic QP fares to {len(self.qp_fares_data)} records based on active sectors")
-                
-            else:
-                # For international routes or when active sectors data is not available, use all QP fares data
-                if self.route == 'I':
-                    self.logger.info("International route detected. Using all QP fares data without active sector filtering.")
-                else:
-                    self.logger.info("Active sectors data not available for domestic route. Using all QP fares data.")
-                self.qp_fares_data = all_qp_fares
-            
-            return self.qp_fares_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting QP fares data: {str(e)}")
-            raise
-
-    def collect_tax_master_domestic(self):
-        """Collect domestic tax master data from rm_rd_conn."""
-        try:
-            query = """
-            SELECT 
-                Station,
-                Code,
-                ASF,
-                CUTE,
-                PSF,
-                RCS,
-                UDF_DF,
-                GST
-            FROM QP_DW_PRIAUT.tax_mast_dom
-            """
-            
-            self.tax_master_dom_data = pd.read_sql(query, self.rm_rd_conn)
-            
-            return self.tax_master_dom_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting domestic tax master data: {str(e)}")
-            raise
-
-    def collect_tax_master_international(self):
-        """Collect international tax master data from rm_rd_conn."""
-        try:
-            query = """
-            SELECT 
-                Currency,
-                Sectors,
-                GST,
-                CUTE,
-                ASF,
-                PSF_ADF,
-                UDF,
-                PSC_PZ,
-                RCS_CUTE,
-                RCS,
-                Tax1,
-                Tax2,
-                Tax3,
-                Tax4,
-                Tax5
-            FROM QP_DW_PRIAUT.tax_mast_intl
-            """
-            
-            self.tax_master_intl_data = pd.read_sql(query, self.rm_rd_conn)
-            return self.tax_master_intl_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting international tax master data: {str(e)}")
-            raise
-
-    def collect_market_fares(self):
-        """Collect market fares min/max data based on route (domestic/international) with carrier info."""
-        try:
-            # Build route filter based on route type
-            if self.route == 'D':
-                route_filter = "AND outbound_stop = 0"
-            elif self.route == 'I':
-                route_filter = "AND outbound_stop >= 0"
-            else:
-                raise ValueError(f"Invalid route: {self.route}")
-            
-            query = f"""
-            WITH combined_data AS (
-                SELECT 
-                    gross_fare, 
-                    outbound_airline_code, 
-                    destination_airport,
-                    source_airport,
-                    channel
-                FROM market_fares_ag
-                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
-                    AND departure_date >= CURDATE()
-                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
-                    AND created_at > NOW() - INTERVAL 24 HOUR
-                    {route_filter}
-                
-                UNION ALL
-                
-                SELECT 
-                    gross_fare,  
-                    outbound_airline_code,
-                    destination_airport,
-                    source_airport,
-                    channel
-                FROM market_fares_rg
-                WHERE outbound_airline_code NOT IN ('9I', 'IC', 'S9', 'S5', 'QP', 'G8')
-                    AND departure_date >= CURDATE()
-                    AND departure_date <= CURDATE() + INTERVAL 365 DAY
-                    AND created_at > NOW() - INTERVAL 24 HOUR
-                    {route_filter}
-            ),
-            ranked_fares AS (
-                SELECT 
-                    source_airport,
-                    destination_airport,
-                    channel,
-                    gross_fare,
-                    outbound_airline_code,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY source_airport, destination_airport, channel 
-                        ORDER BY gross_fare ASC
-                    ) as rn_min,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY source_airport, destination_airport, channel 
-                        ORDER BY gross_fare DESC
-                    ) as rn_max
-                FROM combined_data
-            ),
-            min_max_fares AS (
-                SELECT 
-                    source_airport,
-                    destination_airport,
-                    channel,
-                    MIN(gross_fare) as min_fare,
-                    MAX(gross_fare) as max_fare
-                FROM combined_data
-                GROUP BY source_airport, destination_airport, channel
-            ),
-            fare_counts AS (
-                SELECT
-                    cd.source_airport,
-                    cd.destination_airport,
-                    cd.channel,
-                    cd.gross_fare,
-                    COUNT(*) as fare_count
-                FROM combined_data cd
-                GROUP BY cd.source_airport, cd.destination_airport, cd.channel, cd.gross_fare
-            )
-            SELECT 
-                mmf.source_airport,
-                mmf.destination_airport,
-                mmf.channel,
-                mmf.min_fare,
-                mmf.max_fare,
-                COALESCE(min_fc.fare_count, 0) as min_instances,
-                COALESCE(max_fc.fare_count, 0) as max_instances,
-                min_rf.outbound_airline_code as min_carrier,
-                max_rf.outbound_airline_code as max_carrier
-            FROM min_max_fares mmf
-            LEFT JOIN fare_counts min_fc
-                ON mmf.source_airport = min_fc.source_airport
-                AND mmf.destination_airport = min_fc.destination_airport
-                AND mmf.channel = min_fc.channel
-                AND mmf.min_fare = min_fc.gross_fare
-            LEFT JOIN fare_counts max_fc
-                ON mmf.source_airport = max_fc.source_airport
-                AND mmf.destination_airport = max_fc.destination_airport
-                AND mmf.channel = max_fc.channel
-                AND mmf.max_fare = max_fc.gross_fare
-            LEFT JOIN ranked_fares min_rf
-                ON mmf.source_airport = min_rf.source_airport
-                AND mmf.destination_airport = min_rf.destination_airport
-                AND mmf.channel = min_rf.channel
-                AND mmf.min_fare = min_rf.gross_fare
-                AND min_rf.rn_min = 1
-            LEFT JOIN ranked_fares max_rf
-                ON mmf.source_airport = max_rf.source_airport
-                AND mmf.destination_airport = max_rf.destination_airport
-                AND mmf.channel = max_rf.channel
-                AND mmf.max_fare = max_rf.gross_fare
-                AND max_rf.rn_max = 1
-            ORDER BY mmf.source_airport, mmf.destination_airport, mmf.channel
-            """
-            
-            self.market_fares_data = pd.read_sql(query, self.rm_rd_conn)
-            
-            return self.market_fares_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting market fares data: {str(e)}")
-            raise
-            
-    def collect_booked_data(self, date_range_days=30):
-        """Collect passenger booking data from Navitaire stored procedure for PLF calculation."""
-        try:
-            start_date = date.today()
-            end_date = start_date + timedelta(days=date_range_days)
-            
-            # Format dates for SQL Server stored procedure
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date.strftime('%Y-%m-%d')
-            
-            # Execute stored procedure
-            query = f"""
-            EXEC {self.nav_db_wb_name}[dbo].[SP_Bookeddata]
-            @DepartureDate_from = N'{start_date_str}',
-            @DepartureDate_to = N'{end_date_str}'
-            """
-            
-            self.booked_data = pd.read_sql(query, self.nav_conn)
-            
-            return self.booked_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting booked data: {str(e)}")
-            raise
-
-    def collect_city_pair_data(self):
-        """Collect city pair data for sector distances."""
-        try:
-            query = f"""
-            SELECT 
-                CityPairID,
-                CityPair,
-                CityPairGroup,
-                DepartureStation,
-                ArrivalStation,
-                ActualDistance
-            FROM {self.nav_db_dw_name}dw.CityPair
-            """
-            
-            self.city_pair_data = pd.read_sql(query, self.nav_conn)
-            
-            return self.city_pair_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting city pair data: {str(e)}")
-            raise
-        
-    def collect_active_sectors(self):
-        """Collect active sectors."""
-        try:
-            query = f"""
-            SELECT Distinct DepartureStation,
-            ArrivalStation
-            FROM {self.nav_db_name}rez.InventoryLeg
-            WHERE DepartureDate>='{datetime.now().date()}'
-            AND CarrierCode='QP'
-            AND FlightNumber<7000
-            """
-            
-            self.active_sectors = pd.read_sql(query, self.nav_conn)
-            
-            return self.active_sectors
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting active sectors data: {str(e)}")
-            raise
+        self.currentVersion = None
 
     def collect_all_data(self, booking_days=30):
         """Collect all required data for actionable sectors analysis based on route."""
         try:
             
             # Collect QP fares based on route
-            self.collect_active_sectors()
-            self.collect_qp_fares()
-            self.collect_booked_data(booking_days)
-            self.collect_city_pair_data()
+            self.active_sectors = self.nav_helper.collect_active_sectors()
+            self.qp_fares_data = self.pa_helper.collect_qp_fares(self.route, self.active_sectors)
+            self.booked_data = self.nav_helper.collect_booked_data(booking_days)
+            self.city_pair_data = self.nav_helper.collect_city_pair_data()
             
             # Collect tax master data based on route
             if self.route == 'D':
-                self.collect_tax_master_domestic()
+                self.tax_master_dom_data = self.pa_helper.collect_tax_master_domestic()
             elif self.route == 'I':
-                self.collect_tax_master_international()
+                self.tax_master_intl_data = self.pa_helper.collect_tax_master_international()
             
             # Collect market fares based on route
-            self.collect_market_fares()
+            self.market_fares_data = self.pa_helper.collect_market_fares(self.route,self.db_fares)
             
             return True
             
@@ -581,8 +209,8 @@ class ActionSectors:
                 'Sector': sector,
                 'Channel': channel,
                 'Carrier': xqp_carrier,
-                'Min_QP': qp_min_fare if qp_min_fare else 'N/A',
-                'Max_QP': qp_max_fare if qp_max_fare else 'N/A',
+                'Min_QP': qp_min_fare if qp_min_fare else None,
+                'Max_QP': qp_max_fare if qp_max_fare else None,
                 'Min_QP_RBD': min_rbd if min_rbd else 'N/A',
                 'Max_QP_RBD': max_rbd if max_rbd else 'N/A',
                 'Action_RBD': action_rbd,
@@ -592,12 +220,12 @@ class ActionSectors:
                 'Instances': instances,
                 'Base_XQP_Fare': round(base_xqp_fare, 2),
                 'Distance': int(distance),
-                'New_Fare_Point': round(yield_value, 2) if self.route == 'D' else 'N/A',
-                'Yield': round(yield_value, 2) if self.route == 'D' else 'N/A',
+                'New_Fare_Point': round(yield_value, 2) if self.route == 'D' else None,
+                'Yield': round(yield_value, 2) if self.route == 'D' else None,
                 'Action_required': action_type,
                 'Req_Min_Instances': 2,
                 'Req_Min_FD': 1,
-                'Req_Min_Yield': 1.5 if self.route == 'D' else 'N/A',
+                'Req_Min_Yield': 1.5 if self.route == 'D' else None,
                 'Req_Discared_Carrier': '[9I, IC, S9, S5]',
                 'Req_Forward_PLF': 0.5,
                 'Constraint': 'Satisfied' if constraints_satisfied else 'Will not be satisfied'
@@ -931,196 +559,17 @@ class ActionSectors:
             self.logger.error(f"Error checking constraints: {str(e)}")
             return False
 
-    def save_actionable_sectors_to_database(self, actionable_df, run_id):
-        """Save actionable sectors to single database table for both domestic and international."""
-        try:
-            if actionable_df.empty:
-                return None
-            
-            # Single table for both domestic and international
-            table_name = 'QP_DW_PRIAUT.actionable_sectors_output'
-            
-            # Add metadata columns
-            actionable_df = actionable_df.copy()
-            actionable_df['run_id'] = run_id
-            actionable_df['created_at'] = datetime.now(pytz.timezone('Asia/Kolkata'))
-            actionable_df['route'] = self.route
-            actionable_df['analyst'] = self.analystName
-            
-            # Always append data (never replace)
-            actionable_df.to_sql(
-                name='actionable_sectors_output',  # Table name without schema
-                con=self.rm_rd_conn,
-                schema='QP_DW_PRIAUT',
-                if_exists='append',  # Always append to preserve historical data
-                index=False,
-                method='multi'  # For better performance with large datasets
-            )
-            
-            
-            return table_name
-            
-        except Exception as e:
-            self.logger.error(f"Error saving actionable sectors to database: {str(e)}")
-            raise
-    
-    def get_current_version(self):
-         
-        query = text(f"""
-            SELECT * FROM QP_DW_RMALLOC.currentVersion
-            WHERE tableName in ('QP_DW_PRIAUT.qp_fares','QP_DW_PRIAUT.tax_mast_dom','QP_DW_PRIAUT.tax_mast_intl');
-        """)
-
-        try:
-            self.currVersion = pd.read_sql(query, self.rm_rd_conn)
-            
-        except Exception as e:
-            self.logger.error(f"Unable to get current version: {str(e)}")
-            raise
-        
-    def save_run_audit(self, run_id, actionable_df, status='SUCCESS', is_initial=False):
-        """Save or update audit information with enhanced failure tracking.
-        
-        Args:
-            run_id: Unique identifier for this run
-            actionable_df: Result DataFrame from actionable sectors generation (None for initial insert)
-            status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
-            is_initial: If True, performs INSERT for initial audit record
-        """
-        try:
-            if is_initial:
-                # Initial audit record - insert with IN_PROGRESS status
-                tax_table = 'QP_DW_PRIAUT.tax_mast_dom' if self.route == 'D' else 'QP_DW_PRIAUT.tax_mast_intl'
-                
-                # Get version info safely
-                qp_fares_version = None
-                tax_master_version = None
-                
-                try:
-                    if hasattr(self, 'currVersion') and self.currVersion is not None and not self.currVersion.empty:
-                        qp_version_rows = self.currVersion[self.currVersion['tableName'] == 'QP_DW_PRIAUT.qp_fares']
-                        tax_version_rows = self.currVersion[self.currVersion['tableName'] == tax_table]
-                        
-                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
-                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
-                except Exception:
-                    pass
-                
-                initial_audit_data = pd.DataFrame({
-                    'run_id': [run_id],
-                    'start_time': [self.start_time],
-                    'end_time': [None],
-                    'status': ['IN_PROGRESS'],
-                    'total_actionable_records': [None],
-                    'max_actions': [None],
-                    'min_actions': [None],
-                    'constraints_satisfied': [None],
-                    'route': [self.route],
-                    'qp_fares': [qp_fares_version],
-                    'tax_master': [tax_master_version],
-                    'analyst': [self.analystName],
-                    'failure_reason': [None]
-                })
-                
-                initial_audit_data.to_sql('pricing_run_audits', self.rm_rd_conn, schema='QP_DW_PRIAUT', 
-                                if_exists='append', index=False, method='multi')
-                
-                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
-                return 'QP_DW_PRIAUT.pricing_run_audits'
-                
-            else:
-                # Update existing audit record with final results
-                if status == 'SUCCESS' and actionable_df is None:
-                    status = 'FAILED'
-                    
-                total_records = len(actionable_df) if actionable_df is not None else 0
-                max_actions = len(actionable_df[actionable_df['Action_required'] == 'Max_Action']) if actionable_df is not None else 0
-                min_actions = len(actionable_df[actionable_df['Action_required'] == 'Min_Action']) if actionable_df is not None else 0
-                constraints_satisfied = len(actionable_df[actionable_df['Constraint'] == 'Satisfied']) if actionable_df is not None else 0
-                
-                self._execute_update_audit(
-                    run_id, 
-                    total_records, 
-                    max_actions, 
-                    min_actions, 
-                    constraints_satisfied, 
-                    status
-                )
-                
-                self.logger.info(f"Audit record updated with status {status} for run_id: {run_id}")
-                return 'QP_DW_PRIAUT.pricing_run_audits'
-            
-        except Exception as e:
-            self.logger.error(f"Error saving/updating audit: {str(e)}")
-            if not is_initial:
-                # For update failures, try minimal fallback
-                try:
-                    minimal_update = text("""
-                        UPDATE QP_DW_PRIAUT.pricing_run_audits
-                        SET 
-                            end_time = :end_time,
-                            status = 'FAILED',
-                            failure_reason = :failure_reason
-                        WHERE run_id = :run_id
-                    """)
-                    
-                    with self.rm_rd_conn.begin() as conn:
-                        conn.execute(minimal_update, {
-                            'run_id': run_id,
-                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                            'failure_reason': f"Audit update failed: {str(e)}"
-                        })
-                    
-                    return 'QP_DW_PRIAUT.pricing_run_audits'
-                except:
-                    self.logger.error("Failed to save even minimal audit update")
-                    return None
-            else:
-                return None
-
-    def _execute_update_audit(self, run_id, total_records, max_actions, min_actions, constraints_satisfied, status):
-        """Execute the audit update query with parameters."""
-        try:
-            update_query = text("""
-                UPDATE QP_DW_PRIAUT.pricing_run_audits
-                SET 
-                    end_time = :end_time,
-                    total_actionable_records = :total_records,
-                    max_actions = :max_actions,
-                    min_actions = :min_actions,
-                    constraints_satisfied = :constraints_satisfied,
-                    status = :status
-                WHERE run_id = :run_id
-            """)
-            
-            params = {
-                'run_id': run_id,
-                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                'total_records': total_records,
-                'max_actions': max_actions,
-                'min_actions': min_actions,
-                'constraints_satisfied': constraints_satisfied,
-                'status': status
-            }
-            
-            with self.rm_rd_conn.begin() as conn:
-                conn.execute(update_query, params)
-
-        except Exception as e:
-            self.logger.error(f"Error executing audit update: {str(e)}")
-            raise
-
     def run(self):
         """Main method to run complete actionable sectors analysis."""
         try:
             self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
             
             # Get current version information
-            self.get_current_version()
+            self.currentVersion = self.pa_helper.get_current_version()
             
             # Create initial audit record with IN_PROGRESS status
             run_id = str(uuid.uuid4())
-            self.save_run_audit(run_id, None, is_initial=True)
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, None, is_initial=True)
             
             # Collect all data
             self.collect_all_data()
@@ -1129,10 +578,10 @@ class ActionSectors:
             actionable_sectors = self.generate_actionable_sectors()
             
             # Save to database
-            table_name = self.save_actionable_sectors_to_database(actionable_sectors, run_id)
+            table_name = self.pa_helper.save_actionable_sectors_to_database(self.route, self.analystName, actionable_sectors, run_id)
             
             # Update audit record with final results
-            self.save_run_audit(run_id, actionable_sectors, status='SUCCESS')
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, actionable_sectors, status='SUCCESS')
             
             # Log summary
             route_desc = "Domestic" if self.route == 'D' else "International"
@@ -1154,5 +603,5 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
             # Update audit with FAILED status
-            self.save_run_audit(run_id, None, status='FAILED')
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, None, status='FAILED', is_initial=False)
             raise
