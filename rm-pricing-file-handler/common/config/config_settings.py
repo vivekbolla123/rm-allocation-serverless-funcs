@@ -74,6 +74,6 @@ RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DB_AP
 
 S3_PREFIX = f"{S3_FILE_PATH_NAME}upload/"
 # Comment the blow line after testing
-S3_PREFIX = f"{S3_FILE_PATH_NAME}locals/"
+# S3_PREFIX = f"{S3_FILE_PATH_NAME}locals/"
 RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
 RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
