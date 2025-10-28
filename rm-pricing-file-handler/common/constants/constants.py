@@ -14,3 +14,10 @@ SALE_DATES_TABLE = "config_sale_dates"
 #error constants
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
 UPLOAD_INFO_NOT_FOUND_ERROR_MESSAGE = 'Data not found in file_upload_audit'
+
+# Define tables that should be fully replaced vs incrementally updated
+FULL_REPLACE_TABLES = [
+    "config_station_master",
+    "config_inputs",
+    "rm_parameter_values"
+]
