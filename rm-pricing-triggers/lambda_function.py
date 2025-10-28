@@ -32,7 +32,7 @@ try:
     
     mongo_client = MongoClient(
             host=configsettings.MONGO_URL,
-            port=27018,
+            port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
             authSource=configsettings.MONGO_AUTH_SOURCE
@@ -117,7 +117,7 @@ def lambda_handler(event, context):
 #         "analyst": "Kenneth Menezes",
 #         "sector": "BOMDEL"
 #     },
-#     "modules": {"action_sect": 1}
+#     "modules": {"ladder_gen": 1}
 # }
 
 # messageBody = {

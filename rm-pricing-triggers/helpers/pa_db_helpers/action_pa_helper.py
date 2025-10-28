@@ -6,7 +6,7 @@ from bson import ObjectId
 class ActionPAHelper:
     """Handles Pricing/Analytics-related database operations using MongoDB."""
 
-    def __init__(self, mongo_db, logger):
+    def __init__(self, mongo_db, fares_db, logger):
         """
         Initialize with MongoDB database instance.
         
@@ -15,6 +15,7 @@ class ActionPAHelper:
             logger: Logger instance
         """
         self.db = mongo_db
+        self.fares_db = fares_db
         self.logger = logger
         
     def collect_qp_fares(self, route, active_sectors):
@@ -219,7 +220,7 @@ class ActionPAHelper:
             self.logger.error(f"Error collecting international tax master data: {str(e)}")
             raise
 
-    def collect_market_fares(self, route, db):
+    def collect_market_fares(self, route):
         """Collect market fares min/max data based on route (domestic/international) with carrier info.
         Optimized for large datasets using MongoDB aggregation."""
         try:
@@ -328,10 +329,10 @@ class ActionPAHelper:
             
             # Execute pipeline on both collections
             self.logger.info("Aggregating market_fares_ag data...")
-            ag_results = list(db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            ag_results = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
             
             self.logger.info("Aggregating market_fares_rg data...")
-            rg_results = list(db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            rg_results = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
             
             # Combine results from both collections
             if not ag_results and not rg_results:

@@ -22,13 +22,14 @@ class LadderGen:
         """Initialize with required connections and constants."""
         self.logger = logger
         self.db = params['mongo']
+        self.db_fares = params['mongofares']
         self.nav_conn = params['navconn']
         self.rm_rd_esb_conn = params['rdEsbConn']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
         self.constants = ConstantsUtils(self.db)
-        self.pa_helper = LadderPAHelper(self.db, logger, self.calculate_all_in_fare)
+        self.pa_helper = LadderPAHelper(self.db, self.db_fares, logger, self.calculate_all_in_fare)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, logger)
         self.route = overrides['route']
@@ -387,10 +388,17 @@ class LadderGen:
             
             min_booking_fare = booking_data['Fare'].min()
             max_booking_fare = booking_data['Fare'].max()
+            
+            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
+            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
+            
             f4, f61 = core_fares[0], core_fares[-1]
             
             valid_min_market_fare = self._find_valid_market_fare(b2c_market_data, 'min')
             valid_max_market_fare = self._find_valid_market_fare(b2c_market_data, 'max')
+            
+            valid_min_market_fare = float(valid_min_market_fare) if valid_min_market_fare else None
+            valid_max_market_fare = float(valid_max_market_fare) if valid_max_market_fare else None
             
             if valid_min_market_fare is None and valid_max_market_fare is None:
                 self.failure_reason = "No valid market fares found that satisfy constraints for buffer calculation"
