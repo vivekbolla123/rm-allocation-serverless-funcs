@@ -1272,7 +1272,7 @@ class RMDatabaseHelper:
             projection = {
                 "_id": 0,
                 "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
-                "currency": "$Currency", "destination_airport": 1, "source_airport": 1,
+                "currency": 1, "destination_airport": 1, "source_airport": 1,
                 "channel": 1, "outbound_departuretime": 1, "departure_date": 1,
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
