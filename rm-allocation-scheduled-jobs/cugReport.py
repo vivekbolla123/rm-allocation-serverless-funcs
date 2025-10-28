@@ -1,5 +1,5 @@
 import pandas as pd
-from sqlalchemy import create_engine, text
+from pymongo import MongoClient
 import configsettings
 from constants_utils import ConstantsUtils
 from datetime import datetime, timedelta
@@ -13,58 +13,108 @@ class CugReport:
     def __init__(self, logger, params, overrides, context):
         """Initialize CalendarUpdate with required connections and constants."""
         self.logger = logger
-        self.rm_rd_conn = params['wrconn']
+        self.mongo_client = params['mongoconn']  # MongoDB client
+        self.db = self.mongo_client['qp_dw_rmalloc']  # Database name
 
     def get_cug_run(self):
-        query = """
-        WITH parsed_data AS (
-            SELECT 
-                run_id,
-                start_time,
-                end_time,
-                -- Extract flight information from request JSON and remove quotes
-                JSON_UNQUOTE(JSON_EXTRACT(request, '$.flight')) as flight,
-                -- Extract departure date from request JSON
-                JSON_UNQUOTE(JSON_EXTRACT(request, '$.startDate')) as departure_date,
-                -- Extract specific values from result JSON
-                JSON_EXTRACT(result, '$.WA') as WA,
-                JSON_EXTRACT(result, '$.WB') as WB, 
-                JSON_EXTRACT(result, '$.WC') as WC,
-                JSON_EXTRACT(result, '$.WD') as WD,
-                JSON_EXTRACT(result, '$.WE') as WE
-            FROM QP_DW_RMALLOC.navitaire_allocation_audit
-            WHERE run_id = (
-                SELECT run_id 
-                FROM QP_DW_RMALLOC.allocation_run_audit 
-                WHERE dtd_start = 10 AND dtd_end = 30 
-                ORDER BY start_time DESC 
-                LIMIT 1
-            )
-        )
-        SELECT 
-            run_id,
-            start_time,
-            end_time,
-            TRIM(flight) as flight,
-            departure_date,
-            CAST(WA as SIGNED) as WA,
-            CAST(WB as SIGNED) as WB,
-            CAST(WC as SIGNED) as WC,
-            CAST(WD as SIGNED) as WD,
-            CAST(WE as SIGNED) as WE
-        FROM parsed_data
-        WHERE flight IS NOT NULL
-        ORDER BY departure_date asc;"""
+        """
+        Fetch CUG run data from MongoDB collections.
+        Equivalent to the MySQL query with subquery and JSON extraction.
+        """
         try:
-            data = pd.read_sql(query, self.rm_rd_conn)
+            # Step 1: Get the latest run_id from allocation_run_audit
+            allocation_run_audit = self.db['allocation_run_audit']
+            latest_run = allocation_run_audit.find_one(
+                {
+                    'dtd_start': 10,
+                    'dtd_end': 30
+                },
+                sort=[('start_time', -1)]
+            )
+            
+            if not latest_run:
+                self.logger.warning("No run found in allocation_run_audit")
+                return pd.DataFrame()
+            
+            run_id = latest_run['run_id']
+            self.logger.info(f"Found latest run_id: {run_id}")
+            
+            # Step 2: Query navitaire_allocation_audit with the run_id
+            navitaire_audit = self.db['navitaire_allocation_audit']
+            
+            # Test 1: Check if documents exist
+            pipeline = [
+    {
+        '$match': {
+            'run_id': run_id
+        }
+    },
+    {
+        '$addFields': {
+            'requestObj': {
+                '$function': {
+                    'body': 'function(str) { try { return JSON.parse(str); } catch(e) { return {}; } }',
+                    'args': ['$request'],
+                    'lang': 'js'
+                }
+            },
+            'resultObj': {
+                '$function': {
+                    'body': 'function(str) { try { return JSON.parse(str); } catch(e) { return {}; } }',
+                    'args': ['$result'],
+                    'lang': 'js'
+                }
+            }
+        }
+    },
+    {
+        '$match': {
+            'requestObj.flight': {'$exists': True, '$ne': None}
+        }
+    },
+    {
+        '$project': {
+            '_id': 0,
+            'run_id': 1,
+            'start_time': 1,
+            'end_time': 1,
+            'flight': '$requestObj.flight',
+            'departure_date': '$requestObj.startDate',
+            'WA': {'$toInt': {'$ifNull': ['$resultObj.WA', 0]}},
+            'WB': {'$toInt': {'$ifNull': ['$resultObj.WB', 0]}},
+            'WC': {'$toInt': {'$ifNull': ['$resultObj.WC', 0]}},
+            'WD': {'$toInt': {'$ifNull': ['$resultObj.WD', 0]}},
+            'WE': {'$toInt': {'$ifNull': ['$resultObj.WE', 0]}}
+        }
+    },
+    {
+        '$sort': {'departure_date': 1}
+    }
+]
+
+
+
+
+            
+            results = list(navitaire_audit.aggregate(pipeline))
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(results)
+            
+            # Trim flight field if it exists
+            if not df.empty and 'flight' in df.columns:
+                df['flight'] = df['flight'].astype(str).str.strip()
+            
+            return df
+            
         except Exception as e:
             self.logger.error(f"Error fetching CUG rbds: {str(e)}")
+            traceback.print_exc()
             raise
-        return data
     
     def upload_to_s3(self, df, run_id):
+        """Upload DataFrame to S3 as CSV file."""
         try:
-            
             # Create S3 client
             s3_client = boto3.client('s3')
             
@@ -88,6 +138,7 @@ class CugReport:
                 Body=csv_content
             )
             
+            self.logger.info(f"Successfully uploaded to S3: {s3_file_path}")
             return True
             
         except Exception as e:
@@ -99,7 +150,7 @@ class CugReport:
     def run(self):
         """Main method to run daily file generation."""
         try:
-            # Get the CUG run data (run_id is determined by the subquery in get_cug_run)
+            # Get the CUG run data (run_id is determined by the query in get_cug_run)
             df = self.get_cug_run()
             
             if df.empty:
