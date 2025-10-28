@@ -1,7 +1,6 @@
 import pandas as pd
 from sqlalchemy import text
 from datetime import datetime
-from bson import ObjectId
 from pymongo import UpdateOne
 
 from common.utils.logger import logger
