@@ -1212,16 +1212,16 @@ class RMDatabaseHelper:
             
             # Stage to convert the 'created_at' string to a date object.
         
-            date_conversion_stage = {
-                "$set": {
-                    "created_at": {
-                        "$dateFromString": {
-                            "dateString": "$created_at",
-                            "format": "%Y-%m-%d %H:%M:%S"  # <-- EXAMPLE: "2023-10-27 15:45:00"
-                        }
-                    }
-                }
-            }
+            # date_conversion_stage = {
+            #     "$set": {
+            #         "created_at": {
+            #             "$dateFromString": {
+            #                 "dateString": "$created_at",
+            #                 "format": "%Y-%m-%d %H:%M:%S"  # <-- EXAMPLE: "2023-10-27 15:45:00"
+            #             }
+            #         }
+            #     }
+            # }
 
             # Build the main matching conditions
             match_conditions = {
@@ -1258,7 +1258,7 @@ class RMDatabaseHelper:
             if ag_exists:
                 try:
                     ag_pipeline = [
-                        date_conversion_stage,
+                        
                         {"$match": match_conditions},
                          {"$addFields": {
         "gross_fare": {
@@ -1287,7 +1287,7 @@ class RMDatabaseHelper:
             if rg_exists:
                 try:
                     rg_pipeline = [
-                        date_conversion_stage,
+                        
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "RG",
