@@ -1225,16 +1225,43 @@ class RMDatabaseHelper:
 
             # Build the main matching conditions
             match_conditions = {
-                "source_airport": origin,
-                "destination_airport": destination,
-                "channel": channel,
-                "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
-                "outbound_stop": {"$lte": f"{outBoundStop}"},
-                "departure_date": {
-                    "$gte": start_of_day,
-                    "$lte": end_of_day
-                }
+    "source_airport": origin,
+    "destination_airport": destination,
+    "channel": channel,
+    "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
+    "departure_date": {
+        "$gte": start_of_day,
+        "$lte": end_of_day
+    },
+    "$expr": {
+        "$and": [
+            {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_duration"}, "string"]},
+                            "then": {"$toDouble": "$outbound_duration"},
+                            "else": "$outbound_duration"
+                        }
+                    },
+                    float(outboundDuration)
+                ]
+            },
+            {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_stop"}, "string"]},
+                            "then": {"$toInt": "$outbound_stop"},
+                            "else": "$outbound_stop"
+                        }
+                    },
+                    int(outBoundStop)
+                ]
             }
+        ]
+    }
+}
             
             # Add time interval condition for non-test data (matches SQL's INTERVAL 2 DAY)
             if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
@@ -1259,22 +1286,6 @@ class RMDatabaseHelper:
                     ag_pipeline = [
                         
                         {"$match": match_conditions},
-                        {
-        "$addFields": {
-            "outbound_duration_int": {
-                "$cond": {
-                    "if": {"$eq": [{"$type": "$outbound_duration"}, "string"]},
-                    "then": {"$toInt": "$outbound_duration"},
-                    "else": "$outbound_duration"
-                }
-            }
-        }
-    },
-    {
-        "$match": {
-            "outbound_duration_int": {"$lte": int(outboundDuration)}
-        }
-    },
                          {"$addFields": {
         "gross_fare": {
             "$convert": {
