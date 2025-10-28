@@ -57,23 +57,36 @@ class FareStatisticalAnalysis:
     # ============================================================================
     
     def _fetch_calendar_data(self) -> pd.DataFrame:
-        """Fetch fare data from calendar_AF collection."""
+        """Fetch fare data from calendar_AF collection, excluding international sectors."""
         try:
             collection = self.db['calendar_AF']
             
-            # Query MongoDB
-            query = {
-                'AverageFare': {'$exists': True, '$ne': None, '$gt': 0}
-            }
+            # Query MongoDB with aggregation to format date
+            pipeline = [
+                {
+                    '$match': {
+                        'AverageFare': {'$exists': True, '$ne': None, '$gt': 0}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'Sector': 1,
+                        'DepartureDate': {
+                            '$dateToString': {
+                                'format': '%Y-%m-%d',
+                                'date': '$DepartureDate'
+                            }
+                        },
+                        'AverageFare': 1
+                    }
+                },
+                {
+                    '$sort': {'Sector': 1, 'DepartureDate': 1}
+                }
+            ]
             
-            projection = {
-                '_id': 0,
-                'Sector': 1,
-                'DepartureDate': 1,
-                'AverageFare': 1
-            }
-            
-            cursor = collection.find(query, projection).sort([('Sector', 1), ('DepartureDate', 1)])
+            cursor = collection.aggregate(pipeline)
             df = pd.DataFrame(list(cursor))
             
             if df.empty:
@@ -82,12 +95,60 @@ class FareStatisticalAnalysis:
             # Convert data types
             df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
             df['AverageFare'] = pd.to_numeric(df['AverageFare'], errors='coerce')
+            df = df.dropna(subset=['AverageFare'])
             
-            return df.dropna(subset=['AverageFare'])
+            # Filter out international sectors
+            df = self._filter_domestic_sectors(df)
+            
+            return df
             
         except Exception as e:
             self.logger.error(f"Error fetching calendar data from MongoDB: {e}")
             return pd.DataFrame()
+    
+    def _filter_domestic_sectors(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Filter out international sectors based on config_station_master."""
+        try:
+            if df.empty:
+                return df
+            
+            # Get international stations from config_station_master
+            station_master_collection = self.db['config_station_master']
+            international_stations = station_master_collection.find(
+                {'route': 'I'},
+                {'station': 1, '_id': 0}
+            )
+            
+            # Create set of international station codes
+            international_set = {doc['station'] for doc in international_stations}
+            
+            if not international_set:
+                self.logger.info("No international stations found in config_station_master")
+                return df
+            
+            self.logger.info(f"Found {len(international_set)} international stations")
+            
+            # Extract origin and destination from Sector (format: "XXX-YYY")
+            df[['Origin', 'Destination']] = df['Sector'].str.split('-', expand=True)
+            
+            # Filter out sectors where either origin or destination is international
+            initial_count = len(df)
+            df = df[
+                ~(df['Origin'].isin(international_set) | df['Destination'].isin(international_set))
+            ]
+            
+            # Drop temporary columns
+            df = df.drop(columns=['Origin', 'Destination'])
+            
+            filtered_count = initial_count - len(df)
+            self.logger.info(f"Filtered out {filtered_count} international sector records")
+            
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error filtering international sectors: {e}")
+            # Return original dataframe if filtering fails
+            return df
 
     def _fetch_holidays(self) -> pd.DataFrame:
         """Fetch holidays from config_holiday_list collection."""
@@ -681,8 +742,7 @@ class FareStatisticalAnalysis:
         upsell_data = statistical_df[
             (statistical_df['band_id'].notna()) & 
             (statistical_df['upsell'].notna()) & 
-            (statistical_df['next_year_date'].notna()) &
-            (statistical_df['upsell'] > 0)  # Only positive upsell values
+            (statistical_df['next_year_date'].notna())
         ].copy()
         
         if upsell_data.empty:
@@ -698,14 +758,8 @@ class FareStatisticalAnalysis:
 
         # Convert upsell to percentage format: multiply by 100, round, and add % symbol
         upsell_summary['upsell_percentage'] = upsell_summary['upsell'].apply(
-            lambda x: f"{round(x * 100)}%" if x > 0 else None
+            lambda x: f"{round(x * 100)}%"
         )
-
-        # Filter out any rows where percentage conversion resulted in 0% or None
-        upsell_summary = upsell_summary[
-            (upsell_summary['upsell_percentage'].notna()) & 
-            (upsell_summary['upsell_percentage'] != '0%')
-        ]
 
         return upsell_summary
 
@@ -736,11 +790,9 @@ class FareStatisticalAnalysis:
         """
         Process a single batch of upsell records using MongoDB.
         
-        Edge Cases Handled:
-        1. Record exists: Updates only if new value > existing value AND both values are positive
-        2. Record doesn't exist: Creates new record only if value is positive
-        3. Negative values: Never updated (skipped with logging)
-        4. Field validation: Ensures proper data types and lengths
+        Update Logic:
+        - If current upsell value has decimals: Skip update
+        - Otherwise: Always update regardless of sign or magnitude
         """
         updated_count = inserted_count = failed_count = 0
         
@@ -752,14 +804,6 @@ class FareStatisticalAnalysis:
                     sector = record['sector']
                     date_str = record['date']
                     upsell_percentage = record['upsell_value']  # Already formatted as "XX%"
-                    
-                    # Extract numeric value to check if positive
-                    new_numeric = self._extract_percentage_value(upsell_percentage)
-                    
-                    # SKIP ANY NEGATIVE VALUES
-                    if new_numeric <= 0:
-                        self.logger.info(f"Skipping negative/zero upsell for {sector} {date_str}: {upsell_percentage}")
-                        continue
                     
                     # Validate field lengths
                     if len(date_str) > 15:
@@ -783,74 +827,62 @@ class FareStatisticalAnalysis:
                         'date': date_str
                     })
                     
-                    if existing_record:
-                        # Record exists - check if new value is greater
+                    if existing_record and 'value' in existing_record:
+                        # Check if existing value has decimals
                         existing_value_str = existing_record.get('value', '0%').strip()
                         existing_numeric = self._extract_percentage_value(existing_value_str)
                         
-                        # ADDITIONAL CHECK: Skip if existing value is negative
-                        if existing_numeric <= 0:
-                            self.logger.info(f"Skipping update for {sector} {date_str}: existing value is negative/zero {existing_value_str}")
-                            continue
-                        
-                        if new_numeric > existing_numeric:
-                            # Update only if new value is greater AND both are positive
-                            result = collection.update_one(
-                                {'sector': sector, 'date': date_str},
-                                {'$set': {'value': upsell_percentage}}
+                        # Skip update if existing value has decimals
+                        if existing_numeric != int(existing_numeric):
+                            self.logger.info(
+                                f"Skipping update for {sector} {date_str}: "
+                                f"Current value {existing_value_str} has decimals"
                             )
-                            
-                            if result.modified_count > 0:
-                                updated_count += 1
-                        else:
-                            # Skip update - existing value is greater or equal
-                            self.logger.info(f"Skipping update for {sector} {date_str}: existing {existing_value_str} >= new {upsell_percentage}")
-                    else:
-                        # Insert new record only if value is positive (already checked above)
-                        collection.insert_one({
-                            'date': date_str,
+                            continue
+                    
+                    # Update or insert the record
+                    result = collection.update_one(
+                        {
                             'sector': sector,
-                            'value': upsell_percentage
-                        })
+                            'date': date_str
+                        },
+                        {
+                            '$set': {
+                                'value': upsell_percentage
+                            }
+                        },
+                        upsert=True
+                    )
+                    
+                    if result.matched_count > 0:
+                        if result.modified_count > 0:
+                            updated_count += 1
+                            self.logger.info(f"Updated: {sector} {date_str} = {upsell_percentage}")
+                    else:
+                        # New record inserted
                         inserted_count += 1
+                        self.logger.info(f"Inserted: {sector} {date_str} = {upsell_percentage}")
                         
-                except Exception as record_error:
-                    self.logger.error(f"Error processing record {record}: {str(record_error)}")
+                except Exception as e:
                     failed_count += 1
+                    self.logger.error(f"Failed to process record {sector} {date_str}: {str(e)}")
                     continue
                     
-        except Exception as batch_error:
-            self.logger.error(f"Error processing batch: {str(batch_error)}")
-            # Mark all records in batch as failed if batch operation fails
-            failed_count = len(batch)
-            updated_count = inserted_count = 0
-        
+        except Exception as e:
+            self.logger.error(f"Batch processing error: {str(e)}")
+            
         return updated_count, inserted_count, failed_count
 
     def _extract_percentage_value(self, percentage_str: str) -> float:
-        """
-        Extract numeric value from percentage string.
-        
-        Args:
-            percentage_str: String like "25%" or "0%" or empty string
-            
-        Returns:
-            float: Numeric value (e.g., 25.0 for "25%")
-        """
+        """Extract numeric value from percentage string."""
         try:
-            if not percentage_str or percentage_str.strip() == "":
-                return 0.0
-                
-            # Remove % symbol and any whitespace, then convert to float
-            numeric_str = percentage_str.strip().replace('%', '')
-            return float(numeric_str) if numeric_str else 0.0
-            
-        except (ValueError, AttributeError) as e:
-            self.logger.warning(f"Could not parse percentage value '{percentage_str}': {e}")
+            # Remove '%' and any whitespace, then convert to float
+            return float(percentage_str.replace('%', '').strip())
+        except (ValueError, AttributeError):
             return 0.0
 
-    def validate_upsell_updates(self, statistical_df: pd.DataFrame) -> Dict:
-        """Validate upsell updates by checking a sample of records."""
+    def validate_upsell_updates(self, upsell_data: pd.DataFrame) -> Dict:
+        """Validate that upsell updates were correctly written to the database."""
         validation_results = {
             "status": "not_attempted",
             "sample_size": 0,
@@ -860,12 +892,6 @@ class FareStatisticalAnalysis:
         }
         
         try:
-            upsell_data = self._prepare_upsell_data(statistical_df)
-            if upsell_data.empty:
-                validation_results["status"] = "no_data"
-                return validation_results
-            
-            # Sample for validation
             sample_data = upsell_data.head(FareAnalysisConfig.VALIDATION_SAMPLE_SIZE)
             validation_results["sample_size"] = len(sample_data)
             
@@ -979,12 +1005,6 @@ class FareStatisticalAnalysis:
                 validation_results = self.validate_upsell_updates(statistical_df_with_holidays)
                 results["validation_results"] = validation_results
             
-            # Step 7: Calculate summary statistics
-            results.update(self._calculate_summary_statistics(statistical_df_with_holidays))
-            results["status"] = "success"
-            
-            self._print_execution_summary(results, time.time() - start_time)
-            
         except Exception as e:
             results["status"] = "error"
             results["error"] = str(e)
@@ -994,50 +1014,3 @@ class FareStatisticalAnalysis:
             results["execution_time_seconds"] = round(time.time() - start_time, 2)
         
         return results
-
-    def _calculate_summary_statistics(self, df: pd.DataFrame) -> Dict:
-        """Calculate summary statistics for the results."""
-        total_bands = df['band_id'].nunique() - (1 if df['band_id'].isna().any() else 0)
-        bands_with_holidays = len(df[
-            (df['band_id'].notna()) & 
-            (df['holiday_name'] != 'No Holiday Found') &
-            (df['holiday_name'].notna())
-        ]['band_id'].unique()) if total_bands > 0 else 0
-        
-        return {
-            "total_records": len(df),
-            "sectors_processed": df['Sector'].nunique(),
-            "total_bands": total_bands,
-            "bands_with_holidays": bands_with_holidays
-        }
-
-    def _print_execution_summary(self, results: Dict, execution_time: float) -> None:
-        """Print comprehensive execution summary."""
-        print(f"\n{'='*60}")
-        print("EXECUTION SUMMARY")
-        print(f"{'='*60}")
-        print(f"Total execution time: {round(execution_time, 2)} seconds")
-        print(f"Records processed: {results['total_records']}")
-        print(f"Sectors processed: {results['sectors_processed']}")
-        print(f"Peak bands identified: {results['total_bands']}")
-        print(f"Bands with holidays: {results['bands_with_holidays']}")
-        
-        upsell_results = results.get("upsell_table_update")
-        if upsell_results and upsell_results["status"] == "success":
-            print(f"\nUpsell Table Updates:")
-            print(f"  - Records updated: {upsell_results['records_updated']}")
-            print(f"  - Records inserted: {upsell_results['records_inserted']}")
-            print(f"  - Records skipped: {upsell_results['records_skipped']}")
-            print(f"  - Records failed: {upsell_results['records_failed']}")
-            print(f"  - Update time: {upsell_results['execution_time_seconds']} seconds")
-            
-            validation_results = results.get("validation_results")
-            if validation_results and validation_results["status"] == "success":
-                print(f"\nValidation Results:")
-                print(f"  - Sample validated: {validation_results['sample_size']}")
-                print(f"  - Matches: {validation_results['matches_found']}")
-                print(f"  - Mismatches: {validation_results['mismatches_found']}")
-        elif upsell_results:
-            print(f"\nUpsell Table Update Failed: {upsell_results.get('error', 'Unknown error')}")
-        
-        print(f"{'='*60}")
