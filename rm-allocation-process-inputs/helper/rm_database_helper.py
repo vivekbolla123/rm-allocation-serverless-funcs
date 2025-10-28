@@ -1886,8 +1886,8 @@ class RMDatabaseHelper:
 
             sector1_total = sector1_result["TOTAL"]
             sector2_total = sector2_result["TOTAL"]
-            currency1 = sector1_result["Currency"]
-            currency2 = sector2_result["Currency"]
+            currency1 = sector1_result["currency"]
+            currency2 = sector2_result["currency"]
             total = sector1_total + sector2_total
 
             return total, sector1_total, sector2_total, currency1, currency2
