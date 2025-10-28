@@ -1230,7 +1230,6 @@ class RMDatabaseHelper:
                 "channel": channel,
                 "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
                 "outbound_stop": {"$lte": f"{outBoundStop}"},
-                "outbound_duration": {"$lte": int(outboundDuration)},
                 "departure_date": {
                     "$gte": start_of_day,
                     "$lte": end_of_day
@@ -1260,6 +1259,22 @@ class RMDatabaseHelper:
                     ag_pipeline = [
                         
                         {"$match": match_conditions},
+                        {
+        "$addFields": {
+            "outbound_duration_int": {
+                "$cond": {
+                    "if": {"$eq": [{"$type": "$outbound_duration"}, "string"]},
+                    "then": {"$toInt": "$outbound_duration"},
+                    "else": "$outbound_duration"
+                }
+            }
+        }
+    },
+    {
+        "$match": {
+            "outbound_duration_int": {"$lte": int(outboundDuration)}
+        }
+    },
                          {"$addFields": {
         "gross_fare": {
             "$convert": {
