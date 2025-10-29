@@ -36,6 +36,7 @@ param_names = [
     f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
 ]
 
 
@@ -50,13 +51,24 @@ if env == 'prod':
     S3_BUCKET_NAME = 'qp-applications'
     S3_FILE_PATH_NAME = 'prod/rm-pricing-admin/'
     
+    
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "qp_dw_priaut"
+    MONGO_URL = "10.16.6.179"
+    
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "app_esb"
     RM_DB_APPUSER_URL = "172.24.87.43"
 
     S3_BUCKET_NAME = 'uat-qp-applications'
     S3_FILE_PATH_NAME = "test/rm-pricing-admin/"
+    
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "qp_dw_priaut"
+    MONGO_URL = "172.24.72.35"
 
+MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+MONGO_AUTHSOURCE = 'admin'
 RM_DB_SCHEMA_NAME = "QP_DW_PRIAUT"
 RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
 

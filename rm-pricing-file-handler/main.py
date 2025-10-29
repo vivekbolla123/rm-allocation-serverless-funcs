@@ -23,24 +23,43 @@ class FileUploadWorker:
         self.obj_id = None
         self.num_of_rows = 0
 
-    def insert_file_data(self, data, table_name, user_name):
-        uuid =  self.obj_id
-        uuid_clean = uuid.replace("-", "_")
-        temp_table_name = f"{table_name}_temp_{uuid_clean}"
+    def insert_file_data(self, data, table_name, user_name, use_upsert=True):
+        """
+        Insert data into MongoDB collection with optional upsert behavior
+        
+        Args:
+            data: DataFrame with data to insert
+            table_name: Name of the collection
+            user_name: Username for audit
+            use_upsert: If True, upsert based on ID columns. If False, replace all data.
+        """
+        uuid = self.obj_id
         
         try:
             columns, id_columns = self.db_helper.get_column_headers(table_name)
             headers = [col.strip() for col in columns.split(COMMA)]
             
-            self.db_helper.insert_statement(data, headers, temp_table_name)
-            self.db_helper.delete_values(table_name, temp_table_name, id_columns)
-            self.db_helper.copy_from_temp_to_main_table(table_name, temp_table_name, data)
+            # Validate column count
+            if len(data.columns) != len(headers):
+                raise ValueError(
+                    f"Mismatch between CSV columns ({len(data.columns)}) "
+                    f"and expected headers ({len(headers)})"
+                )
+            
+            data.columns = headers
+            
+            if use_upsert and id_columns:
+                # Upsert mode: Update existing records, insert new ones
+                self.db_helper.upsert_data(data, table_name, id_columns)
+            else:
+                # Replace mode: Clear collection and insert all data
+                self.db_helper.replace_collection_data(data, table_name)
+            
+            # Update audit
             self.db_helper.update_audit_statement(table_name, uuid)
             
-            # Delete temp table
-            self.db_helper.delete_table(temp_table_name)
-            
         except Exception as e:
+            logger.error(f"Error in insert_file_data for {table_name}: {e}")
             raise
 
     def validate_and_insert(self, table, user_name):
@@ -63,8 +82,9 @@ class FileUploadWorker:
             if table == SALE_DISCOUNTS_TABLE:
                 try:
                     sales_df, discounts_df = pivot_sale_fares(csv_df)
-                    self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name)
-                    self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name)
+                    # Use upsert for both tables
+                    self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name, use_upsert=True)
+                    self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name, use_upsert=True)
 
                     self.s3_helper.store_file(file_content, SALE_DATES_TABLE, self.obj_id)
                     self.s3_helper.store_file(file_content, SALE_DISCOUNTS_TABLE, self.obj_id)
@@ -73,7 +93,11 @@ class FileUploadWorker:
                     raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
             else:
                 try:
-                    self.insert_file_data(csv_df, table, user_name)
+                    # Determine if we should use upsert or replace
+                    # For full refresh tables, use replace. For incremental, use upsert.
+                    use_upsert = table not in FULL_REPLACE_TABLES  # Define this constant
+                    
+                    self.insert_file_data(csv_df, table, user_name, use_upsert=use_upsert)
                     self.s3_helper.store_file(file_content, table, self.obj_id)
                 except Exception as e:
                     raise RuntimeError(f"Error processing file content: {str(e)}")
