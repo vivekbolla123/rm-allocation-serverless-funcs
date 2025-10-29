@@ -257,6 +257,7 @@ class defaultMarketlist:
     def _insert_to_mongodb(self, collection_name, df):
         """
         Insert DataFrame records into MongoDB collection.
+        Converts all values to appropriate types: int, float, or string.
         
         Args:
             collection_name: Name of the collection
@@ -269,39 +270,92 @@ class defaultMarketlist:
             
             collection = self.db[collection_name]
             
-            # Convert DataFrame to list of dictionaries
-            records = df.to_dict('records')
+            # Helper function to convert a value to int, float, or string
+            def parse_value(val):
+                """
+                Parse value to int, float, or string in that order of preference.
+                """
+                # Handle None/NaN
+                if pd.isna(val) or val is None:
+                    return None
+                
+                # If already correct type, return as-is
+                if isinstance(val, (int, float, bool)):
+                    # Try to convert float to int if it's a whole number
+                    if isinstance(val, float):
+                        if val.is_integer():
+                            return int(val)
+                    return val
+                
+                # Convert to string first for uniform processing
+                str_val = str(val).strip()
+                
+                # Empty string handling
+                if str_val == '' or str_val.lower() in ['nan', 'none', 'null']:
+                    return None
+                
+                # Try integer conversion first
+                try:
+                    # Check if string represents an integer
+                    if '.' not in str_val and 'e' not in str_val.lower():
+                        return int(str_val)
+                    else:
+                        # Check if it's a float that's actually an integer
+                        float_val = float(str_val)
+                        if float_val.is_integer():
+                            return int(float_val)
+                        return float_val
+                except (ValueError, OverflowError):
+                    pass
+                
+                # Try float conversion
+                try:
+                    return float(str_val)
+                except (ValueError, OverflowError):
+                    pass
+                
+                # Return as string if all conversions fail
+                return str_val
             
-            # Convert date strings to datetime objects for MongoDB
-            for record in records:
-                # Convert PerStart and PerEnd to datetime
-                # if 'PerStart' in record and isinstance(record['PerStart'], str):
-                #     try:
-                #         record['PerStart'] = datetime.strptime(record['PerStart'], '%m/%d/%Y')
-                #     except:
-                #         pass
+            # Convert DataFrame to list of dictionaries with type conversion
+            records = []
+            for _, row in df.iterrows():
+                record = {}
+                for col in df.columns:
+                    val = row[col]
+                    
+                    # Special handling for specific fields
+                    if col in ['PerStart', 'PerEnd']:
+                        # Keep date strings as-is for MongoDB
+                        if isinstance(val, str):
+                            record[col] = val
+                        elif pd.notna(val):
+                            record[col] = str(val)
+                        else:
+                            record[col] = None
+                    
+                    elif col == 'UUID':
+                        # Ensure UUID is string
+                        record[col] = str(val) if pd.notna(val) else None
+                    
+                    
+                    elif col in ['analystName', 'Origin', 'Destin']:
+                        # Keep certain fields as strings
+                        record[col] = str(val).strip() if pd.notna(val) else None
+                    
+                    else:
+                        # Apply general type conversion
+                        record[col] = parse_value(val)
                 
-                # if 'PerEnd' in record and isinstance(record['PerEnd'], str):
-                #     try:
-                #         record['PerEnd'] = datetime.strptime(record['PerEnd'], '%m/%d/%Y')
-                #     except:
-                #         pass
-                
-                # Ensure UUID is string
-                if 'UUID' in record:
-                    record['UUID'] = str(record['UUID'])
-                
-                # Convert numeric fields if needed
-                if 'FlightNumber' in record:
-                    try:
-                        record['FlightNumber'] = int(record['FlightNumber'])
-                    except:
-                        pass
+                records.append(record)
             
             # Bulk insert
-            result = collection.insert_many(records)
-            self.logger.info(f"Inserted {len(result.inserted_ids)} records into {collection_name}")
+            if records:
+                result = collection.insert_many(records)
+                self.logger.info(f"Inserted {len(result.inserted_ids)} records into {collection_name}")
+            else:
+                self.logger.info(f"No valid records to insert into {collection_name}")
             
         except Exception as e:
-            self.logger.error(f"Error inserting into {collection_name}: {e}")
+            self.logger.error(f"Error inserting into {collection_name}: {traceback.format_exc()}")
             raise

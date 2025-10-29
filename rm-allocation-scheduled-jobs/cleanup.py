@@ -42,13 +42,35 @@ class CleanUpConfig:
                     
                     if archive:
                         # Calculate cutoff date
-                        cutoff_date = datetime.now() - timedelta(days=max_days)
+                        cutoff_date = (datetime.now() - timedelta(days=max_days))
                         
                         # Get the database and perform delete
                         target_db = self.mongo_client[database_name]
                         result = target_db[collection_name].delete_many({
-                            time_column: {"$lt": cutoff_date}
-                        })
+    "$expr": {
+        "$lt": [
+            {
+                "$cond": {
+                    "if": {"$eq": [{"$type": f"${time_column}"}, "date"]},
+                    "then": f"${time_column}",
+                    "else": {
+                        "$dateFromString": {
+                            "dateString": {
+                                "$replaceOne": {
+                                    "input": f"${time_column}",
+                                    "find": "T",
+                                    "replacement": " "
+                                }
+                            },
+                            "format": "%Y-%m-%d %H:%M:%S"
+                        }
+                    }
+                }
+            },
+            cutoff_date
+        ]
+    }
+})
                         
                         self.logger.info(f"{result.deleted_count} records deleted from {database_name}.{collection_name}!")
             else:
@@ -56,6 +78,26 @@ class CleanUpConfig:
                 
         except Exception as err:
             self.logger.error(f"Error in cleanup run: {err}")
+            
+    def _normalize_to_datetime(self, date_value):
+        """Convert date value to datetime object, handling both datetime and string formats."""
+        if isinstance(date_value, datetime):
+            return date_value
+        elif isinstance(date_value, str):
+            try:
+                # Try common datetime formats
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y/%m/%d', '%Y-%m-%dT%H:%M:%S']:
+                    try:
+                        return datetime.strptime(date_value, fmt)
+                    except ValueError:
+                        continue
+                # If none of the formats work, try pandas to_datetime for flexible parsing
+                return pd.to_datetime(date_value)
+            except Exception as e:
+                self.logger.warning(f"Could not parse date string '{date_value}': {e}")
+                raise
+        else:
+            raise ValueError(f"Unsupported date type: {type(date_value)}")
 
     def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3,date_format='%Y-%m-%d %H:%M:%S'):
         """Archive data to S3 and/or archive database before deletion"""
@@ -83,8 +125,9 @@ class CleanUpConfig:
                     self.logger.info("No valid dates found for archiving")
                     return True
                     
-                min_date = min(dates)
-                max_date = max(dates)
+                normalized_dates = [self._normalize_to_datetime(d) for d in dates]
+                min_date = min(normalized_dates)
+                max_date = max(normalized_dates)
 
                 base_path = f"s3://{configsettings.S3_BUCKET_NAME}/{configsettings.S3_FILE_PATH}rm-admin/archives"
 
