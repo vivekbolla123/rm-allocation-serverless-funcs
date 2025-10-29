@@ -253,6 +253,11 @@ class ActionPAHelper:
             pipeline = [
                 {'$match': common_filter},
                 {
+                    '$addFields': {
+                        'gross_fare': {'$toDouble': '$gross_fare'}
+                    }
+                },
+                {
                     '$group': {
                         '_id': {
                             'source': '$source_airport',
@@ -278,8 +283,8 @@ class ActionPAHelper:
                                 'count': '$count'
                             }
                         },
-                        'min_fare': {'$min': '$_id.fare'},
-                        'max_fare': {'$max': '$_id.fare'}
+                        'max_fare': {'$max': '$_id.fare'},
+                        'min_fare': {'$min': '$_id.fare'}
                     }
                 },
                 {

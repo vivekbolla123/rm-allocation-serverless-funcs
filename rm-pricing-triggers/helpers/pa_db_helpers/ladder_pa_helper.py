@@ -114,6 +114,11 @@ class LadderPAHelper:
             pipeline = [
                 {'$match': match_stage},
                 # Get latest record per airline/channel using $sort and $group
+                {
+                    '$addFields': {
+                        'gross_fare': {'$toDouble': '$gross_fare'}
+                    }
+                },
                 {'$sort': {'created_at': -1}},
                 {
                     '$group': {
