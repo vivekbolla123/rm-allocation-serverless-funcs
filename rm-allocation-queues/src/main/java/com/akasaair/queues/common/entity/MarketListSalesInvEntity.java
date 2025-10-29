@@ -1,10 +1,5 @@
 package com.akasaair.queues.common.entity;
 
-import lombok.Getter;
-import lombok.Setter;
-
-@Getter
-@Setter
 // If you use Lombok, you can add @Data and @Builder annotations.
 public class MarketListSalesInvEntity {
     private String origin;
