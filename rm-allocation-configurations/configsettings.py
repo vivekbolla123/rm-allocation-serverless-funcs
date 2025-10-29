@@ -119,7 +119,7 @@ if env == 'prod':
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
     MONGO_USERNAME = "rmuser"
-    MONGO_DB = "rm_mongo"
+    MONGO_DB = "qp_dw_rmalloc"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
     MONGO_AUTH_SOURCE="admin"
