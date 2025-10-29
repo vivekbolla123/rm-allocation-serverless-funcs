@@ -4,33 +4,17 @@ cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 
-docker image build --no-cache -t preprod-rm-alloc-update-rbd
+docker image build --no-cache -t preprod-rm-alloc-update-rbd --build-arg ENVN=preprod  .
 
- --build-arg ENVN=preprod  .
+docker tag preprod-rm-alloc-update-rbd 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd:latest
 
-docker tag preprod-rm-alloc-update-rbd
+docker push 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd:latest
 
- 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd
-
-:latest
-
-docker push 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd
-
-:latest
-
-aws lambda update-function-code --region ap-south-1 --function-name preprod-rm-alloc-update-rbd
-
- --image-uri 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd
-
-:latest
+aws lambda update-function-code --region ap-south-1 --function-name preprod-rm-alloc-update-rbd --image-uri 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-update-rbd:latest
 echo ""
 echo ""
-echo "Lambda Function [preprod-rm-alloc-update-rbd
-
-] current state: "
-aws lambda get-function --region ap-south-1 --function-name preprod-rm-alloc-update-rbd
-
- | egrep -e "State" -e "LastModified"
+echo "Lambda Function [preprod-rm-alloc-update-rbd] current state: "
+aws lambda get-function --region ap-south-1 --function-name preprod-rm-alloc-update-rbd | egrep -e "State" -e "LastModified"
 echo ""
 echo ""
 
