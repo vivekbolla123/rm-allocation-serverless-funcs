@@ -1,0 +1,83 @@
+spring:
+  application:
+    name: rm-file-handler
+  profiles:
+    active: uat   # default, can override via ENV or JVM arg
+  jpa:
+    open-in-view: false
+
+logging:
+  pattern:
+    console: "[%thread] %-5level %logger{36} - %msg%n"
+  level:
+    org.mongodb.driver: WARN
+    org.mongodb.driver.connection: WARN
+    org.mongodb.driver.cluster: WARN
+
+---
+spring:
+  config:
+    activate:
+      on-profile: uat
+    import:
+      - "aws-parameterstore:/rm/uat/rm-allocation/"
+      - "aws-parameterstore:/copilot/qp/uat/secrets/"
+
+rm:
+  db:
+    host: "172.24.72.35"
+    port: 27017
+    username: "testuser"
+    dbname: "qp_dw_rmalloc"
+    auth-source: "admin"
+  file-path: test/rm-admin/
+  upload-path: test/rm-admin/upload/
+  s3-bucket: uat-qp-applications
+  env-lambda: uat-
+  aws-account: 891377165721
+
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import:
+      - "aws-parameterstore:/rm/prod/rm-allocation/"
+      - "aws-parameterstore:/copilot/qp/prod/secrets/"
+
+
+rm:
+  db:
+    host: "10.16.6.179"
+    port: 27017
+    username: "Vivek_b"
+    dbname: "qp_dw_rmalloc"
+    auth-source: "rm_mongo"
+  file-path: prod/rm-admin/
+  upload-path: prod/rm-admin/upload/
+  s3-bucket: qp-applications
+  env-lambda: ""
+  aws-account: 471112573018
+
+---
+spring:
+  config:
+    activate:
+      on-profile: preprod
+    import:
+      - "aws-parameterstore:/rm/prod/rm-allocation/"
+      - "aws-parameterstore:/copilot/qp/prod/secrets/"
+
+
+rm:
+  db:
+    host: "10.16.6.179"
+    port: 27017
+    username: "Vivek_b"
+    dbname: "qp_dw_rmalloc"
+    auth-source: "rm_mongo"
+  file-path: preprod/rm-admin/
+  upload-path: preprod/rm-admin/upload/
+  s3-bucket: qp-applications
+  env-lambda: ""
+  aws-account: 471112573018

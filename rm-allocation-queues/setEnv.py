@@ -14,8 +14,6 @@ env = os.getenv('ENVN', default="uat")
 if env == "uat":
     RM_DB_URL = "jdbc:mysql://172.24.87.43:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "app_esb"
-    RM_MONGO_URI ="mongodb://testuser:testpassword@172.24.72.35:27017/test_db?authSource=admin"
-    RM_DB_NAME="qp_dw_rmalloc"
     FILE_PATH_NAME = "test/rm-admin/"
     S3_BUCKET_NAME = "uat-qp-applications"
     ENV_NAME_LAMBDA = "uat-"
@@ -24,8 +22,6 @@ if env == "uat":
 if env == "prod":
     RM_DB_URL = "jdbc:mysql://prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com:3306/QP_DW_RMALLOC"
     RM_DB_USERNAME = "rmappuser"
-    RM_MONGO_URI ="mongodb://Vivek_b:Vivbla%231345@10.16.6.179:27017/?authMechanism=DEFAULT&authSource=rm_mongo"
-    RM_DB_NAME="qp_dw_rmalloc"
     FILE_PATH_NAME = "prod/rm-admin/"
     S3_BUCKET_NAME = "qp-applications"
     ENV_NAME_LAMBDA = ""
@@ -34,7 +30,7 @@ if env == "prod":
 RM_DB_PASSWORD = get_credentials('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD')
 
 # Set environment variables
-docker_build_command = f'''docker build --no-cache -t {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image --build-arg RM_DB_PASSWORD="{RM_DB_PASSWORD}" --build-arg RM_DB_URL={RM_DB_URL} --build-arg RM_DB_USERNAME={RM_DB_USERNAME} --build-arg S3_BUCKET_NAME={S3_BUCKET_NAME} --build-arg FILE_PATH_NAME={FILE_PATH_NAME} --build-arg RM_MONGO_URI="{RM_MONGO_URI}" --build-arg RM_DB_NAME={RM_DB_NAME} --build-arg ENVN={env} .'''
+docker_build_command = f'''docker build --no-cache -t {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image --build-arg RM_DB_PASSWORD="{RM_DB_PASSWORD}" --build-arg RM_DB_URL={RM_DB_URL} --build-arg RM_DB_USERNAME={RM_DB_USERNAME} --build-arg S3_BUCKET_NAME={S3_BUCKET_NAME} --build-arg FILE_PATH_NAME={FILE_PATH_NAME} --build-arg ENVN={env} .'''
 
 docker_tag_command = f"docker tag {ENV_NAME_LAMBDA}rm-allocation-s3-inputs-download-image {AWS_ACCOUNT_NUMBER}.dkr.ecr.ap-south-1.amazonaws.com/{ENV_NAME_LAMBDA}rm-allocation-serverless-funcs-rm-allocation-s3-inputs-download:latest"
 

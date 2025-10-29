@@ -1,31 +1,28 @@
-FROM public.ecr.aws/lambda/java:21
+# # Stage 1: Build
+# FROM maven:3.9-eclipse-temurin-21 AS build
+# WORKDIR /app
 
-ARG ENVN
-ENV env $ENVN
-ARG RM_DB_URL
-ARG RM_DB_USERNAME
-ARG FILE_PATH_NAME
-ARG S3_BUCKET_NAME
-ARG RM_DB_PASSWORD
-ARG RM_MONGO_URI
-ARG RM_DB_NAME
+# COPY pom.xml .
+# # RUN mvn dependency:go-offline -B
 
-ENV RM_DB_URL $RM_DB_URL
-ENV RM_DB_USERNAME $RM_DB_USERNAME
-ENV FILE_PATH_NAME $FILE_PATH_NAME
-ENV S3_BUCKET_NAME $S3_BUCKET_NAME
-ENV RM_DB_PASSWORD $RM_DB_PASSWORD
-ENV RM_MONGO_URI $RM_MONGO_URI
-ENV RM_DB_NAME $RM_DB_NAME
+# COPY src ./src
+# RUN mvn clean package -DskipTests
 
-# Set HOME environment variable for DuckDB
-ENV HOME=/tmp
+# # Stage 2: Runtime
+# FROM eclipse-temurin:21-jre-alpine
+# WORKDIR /app
 
-RUN echo "Creating image for $env Environment"
+# # Environment variables
+# ARG ENVN
+# ENV env=$ENVN
+# ENV SPRING_PROFILES_ACTIVE=$ENVN
+# # Home dir for DuckDB
+# ENV HOME=/tmp
 
-# Copy function code and runtime dependencies from Maven layout
-COPY target/classes ${LAMBDA_TASK_ROOT}
-COPY target/dependency/* ${LAMBDA_TASK_ROOT}/lib/
+# RUN echo "Creating image for $env Environment"
 
-# Set the CMD to your handler
-CMD [ "com.akasaair.queues.App::handleRequest" ]
+# COPY /target/*.jar app.jar
+
+# EXPOSE 8080
+
+# ENTRYPOINT ["java", "-jar", "app.jar"]

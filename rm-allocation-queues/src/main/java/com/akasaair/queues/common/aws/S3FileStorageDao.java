@@ -1,7 +1,11 @@
 package com.akasaair.queues.common.aws;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
@@ -12,32 +16,34 @@ import java.util.concurrent.ExecutionException;
 
 import static com.akasaair.queues.common.constants.Constants.*;
 
+@Component
 public class S3FileStorageDao {
-    private final S3AsyncClient s3Client;
+    private final S3Client s3Client;
 
-    public S3FileStorageDao() {
-        s3Client = DependencyFactory.s3Client();
+    @Value("${rm.file-path}")
+    private String S3_FILE_PATH_NAME;
+
+    @Value("${rm.s3-bucket}")
+    private String S3_BUCKET_NAME;
+
+    public S3FileStorageDao(DependencyFactory dependencyFactory) {
+        s3Client = dependencyFactory.s3Client();
     }
 
-    public void storeFile(ByteArrayInputStream file, String tableName, String fileName) throws IOException, ExecutionException, InterruptedException {
-//        byte[] buffer = new byte[file.available()]; // Read the data into the buffer
-
+    public void storeFile(ByteArrayInputStream file, String tableName, String fileName) throws IOException {
         byte[] buffer = file.readAllBytes();
         String filePath = generatePath(tableName, fileName);
 
-        CompletableFuture<PutObjectResponse> future = s3Client.putObject(
+        // Simple, clean, does the same thing
+        PutObjectResponse response = s3Client.putObject(
                 PutObjectRequest.builder()
                         .bucket(S3_BUCKET_NAME)
                         .key(filePath)
                         .build(),
-                AsyncRequestBody.fromBytes(buffer)
+                RequestBody.fromBytes(buffer) // Note: RequestBody, not AsyncRequestBody
         );
 
-        // Use future to handle the response or block for the response
-        PutObjectResponse putObjectResponse = future.get(); // This will block until the operation is complete
-
-        // Check if the ETag is not blank to confirm the upload was successful
-        if (putObjectResponse.eTag() == null || putObjectResponse.eTag().isEmpty()) {
+        if (response.eTag() == null || response.eTag().isEmpty()) {
             throw new RuntimeException("Failed to upload file to S3");
         }
 
