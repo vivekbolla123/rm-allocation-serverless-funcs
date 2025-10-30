@@ -30,13 +30,18 @@ def get_multiple_credentials(parameter_names):
 
 env = getenv('env', default='uat')
 
+creenv=env
+
+if env=="preprod":
+    creenv="prod"
+
 # List all parameter names you need to fetch
 param_names = [
-    f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD',
-    f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
-    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_DB_APPUSER_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_CACHE_PASSWORD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
 ]
 
 
@@ -55,6 +60,17 @@ if env == 'prod':
     MONGO_USERNAME = "rmuser"
     MONGO_DB = "qp_dw_priaut"
     MONGO_URL = "10.16.6.179"
+
+if env == 'preprod':
+    RM_DB_APPUSER_USERNAME = "rmappuser"
+    RM_DB_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
+
+    S3_BUCKET_NAME = 'qp-applications'
+    S3_FILE_PATH_NAME = 'prod/rm-pricing-admin/'
+    
+    MONGO_USERNAME = "rmuser"
+    MONGO_DB = "qp_dw_priaut"
+    MONGO_URL = "10.16.6.179"
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "app_esb"
@@ -67,13 +83,13 @@ if env == 'uat':
     MONGO_DB = "qp_dw_priaut"
     MONGO_URL = "172.24.72.35"
 
-MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+MONGO_PASSWORD = credentials.get('/rm/' + creenv + '/rm-allocation/RM_MONGO_PASSWORD', '')
 MONGO_AUTHSOURCE = 'admin'
 RM_DB_SCHEMA_NAME = "QP_DW_PRIAUT"
-RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
+RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + creenv + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
 
 S3_PREFIX = f"{S3_FILE_PATH_NAME}upload/"
 # Comment the blow line after testing
 # S3_PREFIX = f"{S3_FILE_PATH_NAME}locals/"
-RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
-RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + creenv + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
+RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + creenv + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')

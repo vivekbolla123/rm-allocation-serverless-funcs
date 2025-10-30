@@ -31,25 +31,30 @@ def get_multiple_credentials(parameter_names):
 
 env = getenv('env', default='uat')
 
+creenv=env
+
+if env=="preprod":
+    creenv="prod"
+
 # List all parameter names you need to fetch
 param_names = [
-    f'/rm/{env}/rm-allocation/RM_DB_APPUSER_PASSWORD',
-    f'/rm/{env}/rm-allocation/RM_CACHE_PASSWORD',
-    f'/rm/{env}/rm-allocation/NAV_DB_PASSWORD',
-    f'/rm/{env}/rm-allocation/NAV_API_PASSWORD',
-    f'/rm/{env}/rm-allocation/NAV_API_SUBSCRIPTION_KEY',
-    f'/rm/{env}/rm-allocation/NAV_SFTP_PASSWORD',
-    f'/rm/{env}/rm-allocation/RM_GW_APIKEY',
-    f'/rm/{env}/rm-allocation/ESB_DB_PASSWORD',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
-    f'/glue_job/{env}/DW_DB_APPUSER_USERNAME',
-    f'/glue_job/{env}/DW_DB_APPUSER_PASSWORD',
-    f'/copilot/qp/{env}/secrets/smtp/QP_ALERTS_PWD',
-    f'/copilot/qp/{env}/secrets/Qp-Forecast-DB-User',
-    f'/copilot/qp/{env}/secrets/Qp-Forecast-DB-Pass',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/{env}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
-    f'/rm/{env}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_DB_APPUSER_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_CACHE_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/NAV_DB_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/NAV_API_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/NAV_API_SUBSCRIPTION_KEY',
+    f'/rm/{creenv}/rm-allocation/NAV_SFTP_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_GW_APIKEY',
+    f'/rm/{creenv}/rm-allocation/ESB_DB_PASSWORD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
+    f'/glue_job/{creenv}/DW_DB_APPUSER_USERNAME',
+    f'/glue_job/{creenv}/DW_DB_APPUSER_PASSWORD',
+    f'/copilot/qp/{creenv}/secrets/smtp/QP_ALERTS_PWD',
+    f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-User',
+    f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-Pass',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
   
 ]
 
