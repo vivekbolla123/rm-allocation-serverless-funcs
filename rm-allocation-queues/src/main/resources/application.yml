@@ -72,9 +72,9 @@ rm:
   db:
     host: "10.16.6.179"
     port: 27017
-    username: "Vivek_b"
+    username: "rmuser"
     dbname: "qp_dw_rmalloc"
-    auth-source: "rm_mongo"
+    auth-source: "admin"
   file-path: preprod/rm-admin/
   upload-path: preprod/rm-admin/upload/
   s3-bucket: qp-applications
