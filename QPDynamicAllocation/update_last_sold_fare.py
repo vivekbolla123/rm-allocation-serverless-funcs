@@ -72,7 +72,8 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_MONGO_PASSWORD')
-            MONGO_CONN_STRING = f"mongodb://testuser:{RM_RD_PASSWORD}@172.24.72.35:27017/"
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://testuser:{encoded_password}@172.24.72.35:27017/"
             
             try:
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
