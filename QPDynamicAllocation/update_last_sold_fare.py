@@ -1,6 +1,7 @@
 import logging
 from sys import exit
 import json
+from urllib.parse import quote_plus
 
 import pandas as pd
 import pymssql
@@ -35,7 +36,8 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_MONGO_PASSWORD')
-            MONGO_CONN_STRING = f"mongodb://rmuser:{RM_RD_PASSWORD}@10.16.6.179:27017/"
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://rmuser:{encoded_password}@10.16.6.179:27017/"
             # Or if using MongoDB Atlas or other format:
             # MONGO_CONN_STRING = f"mongodb+srv://rmappuser:{RM_RD_PASSWORD}@your-cluster.mongodb.net/"
 
