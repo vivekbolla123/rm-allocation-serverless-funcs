@@ -1,4 +1,4 @@
-﻿ndo_band,dplf_band,strategy,Channel,criteria,time_range,offset
+﻿ndo_band,dplf_band,strategy,channel,criteria,time_range,offset
 0,0,Strategy_1,B2C,MIN,FR,-2
 1,0,Strategy_1,B2C,MIN,FR,-2
 2,0,Strategy_1,B2C,MIN,FR,-2

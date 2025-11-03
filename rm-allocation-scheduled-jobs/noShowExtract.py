@@ -22,10 +22,14 @@ class ExpectedNoShows:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logging.getLogger()
-        self.rm_rd_conn = params['wrconn']
-        self.nav_conn = params['navconn']
-        self.dw_conn = params['dwconn']
-        self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+        self.mongoconn = params['mongoconn']  # Single MongoDB connection for application DB
+        self.nav_conn = params['navconn']     # Keep for Navitaire SQL Server (external)
+        self.dw_conn = params['dwconn']       # Keep for Data Warehouse SQL Server (external)
+        self.logger.info("SUCCESS: Connection to databases succeeded")
+        
+        # MongoDB database
+        self.db = self.mongoconn['qp_dw_rmalloc']  # or self.mongoconn['your_db_name']
+        
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.start_time = overrides['start_time']
@@ -34,6 +38,7 @@ class ExpectedNoShows:
     def load_noshow_rates_from_dw(self):
         """
         Load historical no-show rates from the DW database
+        Note: dw_conn remains SQL Server as it's an external data warehouse
         """
         self.logger.info("Loading no-show rates from RM_DW_DATA.no_show_rate table")
         
@@ -70,6 +75,7 @@ class ExpectedNoShows:
     def fetch_current_bookings_from_esb(self):
         """
         Fetch bookings from ESB database from 2:00 AM today to 4:00 AM tomorrow in IST
+        Note: nav_conn remains SQL Server as it's Navitaire's external system
         """
         
         # Define IST timezone
@@ -605,68 +611,51 @@ class ExpectedNoShows:
 
     def save_flight_summary_to_db(self, flight_summary):
         """
-        Save using bulk delete + bulk insert pattern
+        Save flight summary to MongoDB using bulk operations
         """
         try:
+            collection = self.db['expected_no_shows']  # Collection name
+            
             records = flight_summary.to_dict('records')
             
-            with self.rm_rd_conn.connect() as connection:
-                transaction = connection.begin()
-                try:
-                    # Bulk delete using IN clause
-                    keys_to_delete = [(r['DepartureDate'], r['FlightNumber'], r['Sector']) for r in records]
-                    
-                    if keys_to_delete:
-                        # Create parameter placeholders for bulk delete
-                        delete_params = []
-                        for i, (dep_date, flight_num, sector) in enumerate(keys_to_delete):
-                            delete_params.append({
-                                f'dep_date_{i}': dep_date,
-                                f'flight_num_{i}': flight_num,
-                                f'sector_{i}': sector
-                            })
-                        
-                        # Build dynamic WHERE clause for bulk delete
-                        where_conditions = []
-                        flat_params = {}
-                        for i, (dep_date, flight_num, sector) in enumerate(keys_to_delete):
-                            where_conditions.append(
-                                f"(DepartureDate = :dep_date_{i} AND FlightNumber = :flight_num_{i} AND Sector = :sector_{i})"
-                            )
-                            flat_params.update({
-                                f'dep_date_{i}': dep_date,
-                                f'flight_num_{i}': flight_num,
-                                f'sector_{i}': sector
-                            })
-                        
-                        delete_query = text(f"""
-                        DELETE FROM QP_DW_RMALLOC.expected_no_shows 
-                        WHERE {' OR '.join(where_conditions)}
-                        """)
-                        
-                        connection.execute(delete_query, flat_params)
-                    
-                    # Bulk insert
-                    columns = ', '.join(flight_summary.columns)
-                    placeholders = ', '.join([f":{col}" for col in flight_summary.columns])
-                    
-                    insert_query = text(f"""
-                    INSERT INTO QP_DW_RMALLOC.expected_no_shows 
-                    ({columns}) VALUES ({placeholders})
-                    """)
-                    
-                    # Use executemany for bulk insert
-                    connection.execute(insert_query, records)
-                    
-                    transaction.commit()
-                    self.logger.info(f"Successfully upserted {len(records)} records using bulk operations")
-                    
-                except Exception as e:
-                    transaction.rollback()
-                    raise e
-                    
+            if not records:
+                self.logger.info("No records to save")
+                return
+            
+            # Convert datetime strings to proper format if needed
+            for record in records:
+                # Create composite key for unique identification
+                record['_composite_key'] = f"{record['DepartureDate']}_{record['FlightNumber']}_{record['Sector']}"
+            
+            # Perform bulk upsert operations
+            from pymongo import UpdateOne
+            
+            bulk_operations = []
+            for record in records:
+                bulk_operations.append(
+                    UpdateOne(
+                        {
+                            'DepartureDate': record['DepartureDate'],
+                            'FlightNumber': record['FlightNumber'],
+                            'Sector': record['Sector']
+                        },
+                        {'$set': record},
+                        upsert=True
+                    )
+                )
+            
+            # Execute bulk write
+            result = collection.bulk_write(bulk_operations)
+            
+            self.logger.info(
+                f"Successfully saved {len(records)} records to MongoDB. "
+                f"Matched: {result.matched_count}, "
+                f"Modified: {result.modified_count}, "
+                f"Upserted: {result.upserted_count}"
+            )
+            
         except Exception as e:
-            self.logger.error(f"Error upserting flight summary: {str(e)}")
+            self.logger.error(f"Error saving flight summary to MongoDB: {str(e)}")
             raise
         
     def run(self):
@@ -687,7 +676,7 @@ class ExpectedNoShows:
             # Step 4: Generate the flight summary
             flight_summary = self.generate_flight_summary(merged_data)
             
-            # Step 5: Save the flight summary to database
+            # Step 5: Save the flight summary to MongoDB
             self.save_flight_summary_to_db(flight_summary)
             
             self.logger.info("No-show prediction process completed successfully")

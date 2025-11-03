@@ -1402,8 +1402,6 @@ class DynAlloc:
 
 		self.sqs = self.currParams.sqs
 		self.mongoclient = self.currParams.mongodbclient
-		self.conn = self.currParams.dbconn
-		self.wrconn = self.currParams.wrconn
 		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
 		if pd.isna(self.currParams.w0Flag):
@@ -1423,9 +1421,9 @@ class DynAlloc:
 		if self.log_time is not None:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
-		self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
-		self.constantsUtils = ConstantsUtils(self.conn)
+		self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
+		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource)
+		self.constantsUtils = ConstantsUtils(self.mongoclient)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
 		self.timeutils = TimeUtils(self.inputSource)
@@ -1469,10 +1467,11 @@ class DynAlloc:
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
 		booked_seats = self.currParams.total_series_seats
 		total_count = 0
-		if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)):
-			total_count = blocked_seats['blocked'][0]-booked_seats
-		elif (blocked_seats['blocked'][0] is not None):
-			total_count = blocked_seats['blocked'][0]
+		if len(blocked_seats)>0:
+			if (booked_seats is not None) and (blocked_seats['blocked'][0] is not None) and (not pd.isna(booked_seats)) and (not CONST_NA):
+				total_count = blocked_seats['blocked'][0]-booked_seats
+			elif (blocked_seats['blocked'][0] is not None):
+				total_count = blocked_seats['blocked'][0]
 		return currBookedLoad+total_count
 
 	def recommend_action(self, row):

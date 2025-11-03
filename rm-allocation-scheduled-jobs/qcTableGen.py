@@ -1,18 +1,32 @@
 import logging
-from pandas import read_sql
-from sqlalchemy import text
 import pandas as pd
 
 class QCProcess:
 
     def __init__(self, logger, params, overrides, context):
         self.logger = logging.getLogger()
-        self.rm_rd_conn = params['wrconn']
+        self.mongoconn = params['mongoconn']  # Single MongoDB connection
+        
+        # MongoDB database
+        self.db = self.mongoconn["qp_dw_rmalloc"]  # or self.mongoconn['your_db_name']
+        
         self.profile_fares = self.fetch_profile_fares()
     
     def fetch_profile_fares(self):
-        profile_fares_query = "SELECT * FROM QP_DW_RMALLOC.config_profile_fares"
-        df = read_sql(profile_fares_query, self.rm_rd_conn)
+        """
+        Fetch profile fares from MongoDB collection
+        """
+        collection = self.db['config_profile_fares']
+        
+        # Fetch all documents
+        cursor = collection.find({}, {'_id': 0})
+        df = pd.DataFrame(list(cursor))
+        
+        if df.empty:
+            self.logger.warning("No profile fares found in MongoDB")
+            return pd.DataFrame()
+        
+        # Ensure column names are lowercase
         df.columns = [col.lower() for col in df.columns]
         return df
     
@@ -21,7 +35,14 @@ class QCProcess:
         self.create_completeness_table()
         
     def create_profile_fare_table(self):
+        """
+        Create min_max_profile collection in MongoDB
+        """
         df = self.profile_fares
+        
+        if df.empty:
+            self.logger.warning("Profile fares DataFrame is empty, skipping min_max_profile creation")
+            return None
         
         q_columns = [f'q{i}' for i in range(21)]
         
@@ -49,33 +70,50 @@ class QCProcess:
             values='fare', 
             aggfunc='first'
         ).reset_index()
-
-        with self.rm_rd_conn.connect() as connection:
-            connection.execute(text("DROP TABLE IF EXISTS min_max_profile"))
         
         try:
-            pivot_df.to_sql(
-                'min_max_profile', 
-                self.rm_rd_conn, 
-                schema='QP_DW_RMALLOC', 
-                if_exists='replace',
-                index=False
-            )
-            self.logger.info("Successfully created 'min_max_profile' table.")
+            # Convert DataFrame to list of dictionaries
+            records = pivot_df.to_dict('records')
+            
+            # Drop existing collection and recreate
+            collection = self.db['min_max_profile']
+            collection.drop()
+            
+            if records:
+                # Insert new documents
+                collection.insert_many(records)
+                self.logger.info(f"Successfully created 'min_max_profile' collection with {len(records)} documents.")
+            else:
+                self.logger.warning("No records to insert into 'min_max_profile' collection.")
+            
         except Exception as e:
-            self.logger.error(f"Error creating 'min_max_profile' table: {str(e)}")
+            self.logger.error(f"Error creating 'min_max_profile' collection: {str(e)}")
         
         return pivot_df
     
     
     def create_completeness_table(self):
+        """
+        Create completeness collection in MongoDB
+        """
         profile_fares = self.profile_fares
-
-        no_show_query = "SELECT * FROM QP_DW_RMALLOC.no_show_probabilities"
-        no_show_probabilities = read_sql(no_show_query, self.rm_rd_conn)
         
-        no_show_probabilities.columns = [col.lower() for col in no_show_probabilities.columns]
+        if profile_fares.empty:
+            self.logger.warning("Profile fares DataFrame is empty, skipping completeness creation")
+            return
+        
+        # Fetch no_show_probabilities from MongoDB
+        collection = self.db['no_show_probabilities']
+        cursor = collection.find({}, {'_id': 0})
+        no_show_probabilities = pd.DataFrame(list(cursor))
+        
+        if no_show_probabilities.empty:
+            self.logger.warning("No show probabilities collection is empty")
+            no_show_probabilities = pd.DataFrame(columns=['sector', 'month'])
+        else:
+            no_show_probabilities.columns = [col.lower() for col in no_show_probabilities.columns]
 
+        # Create profile completeness
         profile_completeness = (
             profile_fares
             .groupby(['sector', 'month'])
@@ -85,19 +123,36 @@ class QCProcess:
         )
         profile_completeness['type'] = 'profile'
 
-        no_show_completeness = (
-            no_show_probabilities
-            .groupby(['sector', 'month'])
-            .size()
-            .unstack(fill_value=0)
-            .reset_index()
-        )
-        no_show_completeness['type'] = 'no_show_probabilities'
+        # Create no_show completeness
+        if not no_show_probabilities.empty and 'sector' in no_show_probabilities.columns and 'month' in no_show_probabilities.columns:
+            no_show_completeness = (
+                no_show_probabilities
+                .groupby(['sector', 'month'])
+                .size()
+                .unstack(fill_value=0)
+                .reset_index()
+            )
+            no_show_completeness['type'] = 'no_show_probabilities'
+            
+            completeness = pd.concat([profile_completeness, no_show_completeness], ignore_index=True)
+        else:
+            self.logger.warning("Skipping no_show completeness due to missing data")
+            completeness = profile_completeness
 
-        completeness = pd.concat([profile_completeness, no_show_completeness], ignore_index=True)
-
-        with self.rm_rd_conn.connect() as connection:
-            connection.execute(text("DROP TABLE IF EXISTS completeness"))
-
-        completeness.to_sql('completeness', self.rm_rd_conn, index=False, if_exists='replace')
-        print("Created 'completeness' table.") 
+        try:
+            # Convert DataFrame to list of dictionaries
+            records = completeness.to_dict('records')
+            
+            # Drop existing collection and recreate
+            collection = self.db['completeness']
+            collection.drop()
+            
+            if records:
+                # Insert new documents
+                collection.insert_many(records)
+                self.logger.info(f"Successfully created 'completeness' collection with {len(records)} documents.")
+            else:
+                self.logger.warning("No records to insert into 'completeness' collection.")
+            
+        except Exception as e:
+            self.logger.error(f"Error creating 'completeness' collection: {str(e)}")

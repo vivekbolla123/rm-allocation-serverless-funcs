@@ -1,4 +1,4 @@
-channel,departure_date,destination_airport,gross_fare,outbound_airline_code,outbound_departuretime,outbound_flight,outbound_stop,site_name,source_airport,status,rec_key,created_at,site_identifier,Currency,outbound_duration,scrape_file_name
+channel,departure_date,destination_airport,gross_fare,outbound_airline_code,outbound_departuretime,outbound_flight,outbound_stop,site_name,source_airport,status,rec_key,created_at,site_identifier,currency,outbound_duration,scrape_file_name
 B2B,2023-06-13,DEL,6381,SG,2:00,SG-8136,0,TravelboutiqueonlineCom,BLR,Available,TravelboutiqueonlineComSG-8136BLRDEL06/13/2023,07/31/2023 18:18,TravelboutiqueonlineTBQ3,INR,0,test
 B2B,2023-06-13,DEL,5689,6E,4:25,6E-6247,0,TravelboutiqueonlineCom,BLR,Available,TravelboutiqueonlineCom6E-6247BLRDEL06/13/2023,07/31/2023 21:30,TravelboutiqueonlineTBQ3,INR,0,test
 B2B,2023-06-13,DEL,5717,QP,4:30,QP-1359,0,TravelboutiqueonlineCom,BLR,Available,TravelboutiqueonlineComQP-1359BLRDEL06/13/2023,07/31/2023 21:30,TravelboutiqueonlineTBQ3,INR,0,test
