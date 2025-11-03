@@ -684,6 +684,7 @@ class DynAlloc:
 			param_obFare = getattr(self.currParams, 'obFare', None) # Get obFare safely
 			param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
 			param_b2b_tolerance = getattr(self.currParams, 'b2b_tolerance', 0) # Default tolerance
+			param_profileFares = getattr(self.currParams, 'profileFares', 1) # Default to 1 (enabled)
 
 			mkt_fare_flag = int(self.currParams.mkt_fare_flag)
 
@@ -725,10 +726,11 @@ class DynAlloc:
 				# If neither market fare nor last_seven_avg is available, use profile fare
 				if mkt_fare_flag == 0:
 					# Flag = 0: Always use last_seven_avg if available
+					self.outputSummaryRow_b2c.anchorFare = CONST_NA
 					if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
 						self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
 						is_last7avg_anchor = True
-					else:
+					elif pd.notna(param_profileFares) and int(param_profileFares) == 1:
 						self.outputSummaryRow_b2c.anchorFare = profileFare
 						is_profile_anchor = True
 				elif mkt_fare_flag == 1:
@@ -737,7 +739,7 @@ class DynAlloc:
 						if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
 							self.outputSummaryRow_b2c.anchorFare = last_seven_avg_val
 							is_last7avg_anchor = True
-						else:
+						elif pd.notna(param_profileFares) and int(param_profileFares) == 1:
 							self.outputSummaryRow_b2c.anchorFare = profileFare
 							is_profile_anchor = True
 				
@@ -765,7 +767,8 @@ class DynAlloc:
 						self.logger.info(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
 				
 				# B2B RBD determination
-				if isB2BMarketFareAvailable and not (self.B2B_thresholdflag):
+				self.outputSummaryRow_b2b.anchorFare = CONST_NA
+				if mkt_fare_flag == 1 and isB2BMarketFareAvailable and not (self.B2B_thresholdflag):
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
 						self.outputSummaryRow_b2b.mktFile = himktFileb2b
@@ -965,7 +968,6 @@ class DynAlloc:
 					openDataB2B_details['FareResult'][0] = str(openDataB2B_details['FareResult'][0]) + ' -Overbooking'
 
 			# If profileFares param is 0, clear profileFare from summary
-			param_profileFares = getattr(self.currParams, 'profileFares', 1) # Default to 1 (enabled)
 			if pd.notna(param_profileFares) and int(param_profileFares) == 0:
 				self.outputSummaryRow_b2b.profileFare = CONST_NA
 				self.outputSummaryRow_b2c.profileFare = CONST_NA
