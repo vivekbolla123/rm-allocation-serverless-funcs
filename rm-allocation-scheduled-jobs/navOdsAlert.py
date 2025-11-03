@@ -19,9 +19,9 @@ class NavOdsAlert:
         self.context = context
         self.logger = logger
         self.navconn = params['navconn']
-        self.rm_rd_conn = params['wrconn']
+        self.mongoconn = params['mongoconn'] 
         self.cache_client = params['cache_client']
-        self.constants = ConstantsUtils(self.rm_rd_conn)
+        self.constants = ConstantsUtils(self.mongoconn['qp_dw_rmalloc'])
         self.sector_list = json.loads(self.constants.NAVODS_ALERT_SECTOR_LIST)
         self.max_ndo = float(self.constants.NAVODS_ALERT_MAX_NDO)
         self.session = requests.Session()

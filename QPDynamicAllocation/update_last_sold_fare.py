@@ -1,20 +1,22 @@
 import logging
 from sys import exit
 import json
+from urllib.parse import quote_plus
 
 import pandas as pd
 import pymssql
 from redis import Redis
 from datetime import datetime
 from boto3 import client
-from sqlalchemy import create_engine, text
+from pymongo import MongoClient
 
 
 class LastSoldFare:
 
     def __init__(self):
         self.NavitaireConnection = None
-        self.rmrdconn = None
+        self.rmrdconn = None  # This will now be MongoDB client
+        self.rm_db = None  # MongoDB database
         self.logger = None
         self.cache_client = None
         self.generateConfigs()
@@ -25,19 +27,21 @@ class LastSoldFare:
         ISPROD = True
         if ISPROD:
             CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-            # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
-            # CACHE_ENDPOINT = "172.24.72.8"
             CACHE_PORT = 6379
             CACHE_USERNAME = "default"
             CACHE_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_CACHE_PASSWORD')
             self.logger = logging.getLogger()
             self.logger.setLevel(logging.INFO)
             self.NAV_DB_NAME = "REZ0KWB01"
-            RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_DB_APPUSER_PASSWORD')
-            RM_RD_CONN_STRING = f"mysql+mysqldb://rmappuser:{RM_RD_PASSWORD}@prod-rm-db-replica.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com/QP_DW_RMALLOC"
+            
+            # MongoDB connection
+            RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_MONGO_PASSWORD')
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://rmuser:{encoded_password}@10.16.6.179:27017/"
+            # Or if using MongoDB Atlas or other format:
+            # MONGO_CONN_STRING = f"mongodb+srv://rmappuser:{RM_RD_PASSWORD}@your-cluster.mongodb.net/"
 
             try:
-
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
                 if self.cache_client.ping():
                     print("Connected to Redis")
@@ -47,14 +51,17 @@ class LastSoldFare:
                     user="0KODSUSER2",
                     password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
                 )
-                self.rmrdconn = create_engine(RM_RD_CONN_STRING)
+                
+                # MongoDB connection
+                self.rmrdconn = MongoClient(MONGO_CONN_STRING)
+                self.rm_db = self.rmrdconn['qp_dw_rmalloc']  # Database name
+                print("Connected to MongoDB")
+                
             except Exception as e:
                 self.logger.error(e)
                 exit()
                 
         else:
-            # CACHE_ENDPOINT = "ip-10-16-6-51.ap-south-1.compute.internal"
-            # CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
             CACHE_ENDPOINT = "172.24.72.8"
             CACHE_PORT = 6379
             CACHE_USERNAME = "default"
@@ -62,10 +69,13 @@ class LastSoldFare:
             self.logger = logging.getLogger()
             self.logger.setLevel(logging.INFO)
             self.NAV_DB_NAME = "TST0KWB01"
-            RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD')
-            RM_RD_CONN_STRING = f"mysql+mysqldb://app_esb:{RM_RD_PASSWORD}@172.24.87.43/QP_DW_RMALLOC"
+            
+            # MongoDB connection
+            RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_MONGO_PASSWORD')
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://testuser:{encoded_password}@172.24.72.35:27017/"
+            
             try:
-
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
                 if self.cache_client.ping():
                     print("Connected to Redis")
@@ -75,20 +85,37 @@ class LastSoldFare:
                     user="0KODSUSER2",
                     password=self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD')
                 )
-                self.rmrdconn = create_engine(RM_RD_CONN_STRING)
+                
+                # MongoDB connection
+                self.rmrdconn = MongoClient(MONGO_CONN_STRING)
+                self.rm_db = self.rmrdconn['qp_dw_rmalloc']  # Database name
+                print("Connected to MongoDB")
+                
             except Exception as e:
                 self.logger.error(e)
                 exit()
                 
     def get_filter_configs(self, filter_names):
-        placeholders = ','.join(['%s'] * len(filter_names))
-        query = f"SELECT parameterKey, parameterValue FROM rm_parameter_values WHERE parameterKey IN ({placeholders})"
-        df = pd.read_sql(query, self.rmrdconn, params=[f'fare_filter_{name}' for name in filter_names])
+        # MongoDB query instead of SQL
+        collection = self.rm_db['rm_parameter_values']
         
+        # Build filter parameter keys
+        filter_keys = [f'fare_filter_{name}' for name in filter_names]
+        
+        # Query MongoDB
+        cursor = collection.find({
+            'parameterKey': {'$in': filter_keys}
+        })
+        
+        # Convert to list of documents
+        documents = list(cursor)
+        
+        # Build configs dictionary
         configs = {name: {} for name in filter_names}
-        for _, row in df.iterrows():
-            filter_name = row['parameterKey'].replace('fare_filter_', '')
-            configs[filter_name] = json.loads(row['parameterValue']) if not pd.isna(row['parameterValue']) else {}
+        for doc in documents:
+            filter_name = doc['parameterKey'].replace('fare_filter_', '')
+            param_value = doc.get('parameterValue')
+            configs[filter_name] = json.loads(param_value) if param_value else {}
         
         self.filter_config = configs
     
@@ -219,9 +246,8 @@ class LastSoldFare:
                      key=lambda x: datetime.strptime(x['BookingUTC'], '%Y-%m-%dT%H:%M:%S.%f'), 
                      reverse=True)[:limit]
 
-
-
     def lastSoldQuery(self, whereCondition):
+        # This still uses MSSQL for Navitaire database
         query = f"""
         Select 
             BookingID, BookingUTC, PassengerID, DepartureStation, ArrivalStation, DepartureDate, FlightNumber, 
@@ -254,15 +280,15 @@ class LastSoldFare:
                     avg(CP.ActualDistance) as Distance,
                     PJS.ClassOfService
                   FROM
-                    {self.NAV_DB_NAME }.rez.Booking B
-                    INNER JOIN {self.NAV_DB_NAME }.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
-                    INNER JOIN {self.NAV_DB_NAME }.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('S') 
-                    INNER JOIN {self.NAV_DB_NAME }.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
-                    INNER JOIN {self.NAV_DB_NAME }.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
-                    LEFT JOIN {self.NAV_DB_NAME }.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
-                    LEFT JOIN {self.NAV_DB_NAME }.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
-                    Left join {self.NAV_DB_NAME }.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
-                    inner join {self.NAV_DB_NAME }.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
+                    {self.NAV_DB_NAME}.rez.Booking B
+                    INNER JOIN {self.NAV_DB_NAME}.rez.BookingPassenger BP ON BP.BookingID = B.BookingID
+                    INNER JOIN {self.NAV_DB_NAME}.rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND PJS.ClassOfService NOT IN ('S') 
+                    INNER JOIN {self.NAV_DB_NAME}.rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID
+                    INNER JOIN {self.NAV_DB_NAME}.rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID AND IL.Status NOT IN (2) AND IL.Lid > 0
+                    LEFT JOIN {self.NAV_DB_NAME}.rez.PassengerJourneyCharge PJC ON PJC.PassengerID = PJL.PassengerID AND PJC.SegmentID = PJL.SegmentID
+                    LEFT JOIN {self.NAV_DB_NAME}.dw.ChargeTypeMatrix CTM ON CTM.ChargeTypeID = PJC.ChargeType
+                    Left join {self.NAV_DB_NAME}.dw.CurrencyConversionVersion CCV ON CCV.FromCurrencyCode=PJC.CurrencyCode and CCV.ToCurrencyCode='INR' and CCV.ClientCode='0K' and CCV.VersionStartUTC<=PJC.CreatedUTC and CCV.VersionEndUTC>PJC.CreatedUTC
+                    inner join {self.NAV_DB_NAME}.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
                     AND (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')

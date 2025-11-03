@@ -9,6 +9,7 @@ import configsettings
 import pytz
 import time
 import pandas as pd
+import numpy as np
 from uuid import uuid4
 from sqlalchemy import create_engine, text
 from pandas import read_sql, Timestamp
@@ -18,6 +19,7 @@ from constants_utils import ConstantsUtils
 from concurrent.futures import ThreadPoolExecutor
 from time_logger import TimeLogger
 from nav_api_helper import NavAPIHelper
+from pymongo import MongoClient
 
 warnings.filterwarnings('ignore')
 
@@ -26,9 +28,9 @@ run_log = []
 sqs = boto3.client('sqs')
 
 # Database connection strings
-DB_RD_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
-DB_WR_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+# REPLACED: DB_RD_CONN_STRING and DB_WR_CONN_STRING with MONGO_URI
 USERNAME = "SYS2"
+# DW_DB_CONN_STRING remains as it points to a different DW database
 DW_DB_CONN_STRING = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 # Cache settings
@@ -51,8 +53,24 @@ logger.setLevel(logging.INFO)
 # Database and cache connections
 try:
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
-    conn = create_engine(DB_RD_CONN_STRING)
-    wrconn = create_engine(DB_WR_CONN_STRING)
+    
+    # NEW: MongoDB Connection Setup
+    # Assuming configsettings has been updated with Mongo connection details,
+    # or reusing the existing variables if they now point to Mongo.
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_AUTH_SOURCE
+        )
+    mongo_db=mongo_client[configsettings.MONGO_DB]
+    
+    
+    # REMOVED: MySQL connections
+    # conn = create_engine(DB_RD_CONN_STRING)
+    # wrconn = create_engine(DB_WR_CONN_STRING)
+    
     NavitaireConnection = pymssql.connect(
         host=configsettings.NAV_DB_HOST,
         user=configsettings.NAV_DB_USER,
@@ -63,12 +81,13 @@ except Exception as e:
     logger.error(e)
     sys.exit()
 
-logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+logger.info("SUCCESS: Connection to MongoDB instance succeeded")
 if  cache_client.ping():
     logger.info("Connected to Redis")
 
-constantsutils = ConstantsUtils(conn)
-log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_FETCH_INPUTS)
+# Updated to pass mongo_db instead of SQL connections
+constantsutils = ConstantsUtils(mongo_db)
+log_time = TimeLogger(mongo_db, constantsutils.CHECK_THRESHOLD_FETCH_INPUTS)
 
 # NavDatabaseHelper class
 
@@ -337,6 +356,7 @@ def quick_optimize(mkt_list,navapihelper):
     mkt_list['SecondFlightDepartureDate'] = mkt_list['api_result']
     
     return mkt_list.drop('api_result', axis=1)
+
 def lambda_handler(event, context):
     """
     Fetches the market list, integrates Navitaire data, and sends it to SQS.
@@ -431,12 +451,11 @@ def lambda_handler(event, context):
     
     # Fetch market list
     if route_type == "direct":
-        if region == 'SalesInv':
-            market_list_query = getSaleMktQuery(start_period, end_period, market_list_table)
-        else:
-            market_list_query = getMarketListQuery(start_period, end_period, market_list_table)
+        # Replaced SQL query generation and execution with Python processing using MongoDB
+        query_type = 'sales' if region == 'SalesInv' else 'standard'
+        mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
+        
         w0_df= get_w0_rbd(start_period,end_period)
-        mkt_list = read_sql(market_list_query, conn)
         logger.info(f"Original Market List {mkt_list}")
         mkt_list, failCount = clean_markets_optimized(mkt_list,w0_df)
         logger.info(f"Filtered Market List {mkt_list}")
@@ -499,9 +518,10 @@ def lambda_handler(event, context):
         update_navitaire_method = "sftp"
         is_connections_required = "0"
         region = 'Domestic'
-        market_list_query = getConnectionMarketListQuery(
-            start_period, end_period, market_list_table)
-        mkt_list = read_sql(market_list_query, conn)
+        
+        # Replaced SQL query generation and execution with Python processing using MongoDB
+        mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='connections')
+
         nav_helper = NavDatabaseHelper(
             navconn=NavitaireConnection,
             nav_db_name=configsettings.NAV_DB_NAME,
@@ -744,8 +764,9 @@ def custom_serializer(obj):
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     log_time.start()
-    currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
-    currVersionValues = read_sql(currVersionQuery, conn)
+    # Converted from SQL SELECT to MongoDB find()
+    cursor = mongo_db['currentversion'].find({})
+    currVersionValues = pd.DataFrame(list(cursor))
 
     table_versions = {}
     for index, currVersion in currVersionValues.iterrows():
@@ -756,10 +777,27 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
             table_versions[currVersion["tableName"]
                            ] = currVersion["curr_version"]
 
-    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, update_navitaire_method, is_run_completed, region, marketListCount) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    # Converted from SQL INSERT to MongoDB insert_one()
     try:
-        wrconn.execute(insert_query,
-                       (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, update_navitaire_method, '0', region, count))
+        document = {
+            'run_id': run_id,
+            'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'user': username,
+            'dtd_start': start_interval,
+            'dtd_end': end_interval,
+            'Curves': table_versions.get('Curves'),
+            'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
+            'market_list': table_versions.get('market_list'),
+            'Fares': table_versions.get('Fares'),
+            'type': type,
+            'market_list_name': table_versions.get('market_list_name'),
+            'is_connections_required': is_connections_required,
+            'update_navitaire_method': update_navitaire_method,
+            'is_run_completed': '0',
+            'region': region,
+            'marketListCount': count
+        }
+        mongo_db['allocation_run_audit'].insert_one(document)
     except Exception as e:
         logger.info(e)
     finally:
@@ -773,22 +811,29 @@ def get_run_operation_log_data(start_interval, end_interval, market_list_table, 
         start_time = current_time - time_window
         end_time = current_time + time_window
 
-        read_query = f"""
-            SELECT * FROM QP_DW_RMALLOC.allocation_run_operation_log
-            WHERE
-                run_timestamp BETWEEN '{start_time.strftime('%Y-%m-%d %H:%M:%S')}' AND '{end_time.strftime('%Y-%m-%d %H:%M:%S')}'
-                AND dtd = '{start_interval}-{end_interval}'
-                AND marketlist_name = '{market_list_table}'
-                AND region = '{region}'
-                AND `type` = '{type}'
-                AND operation = 'DELETED'
-                AND run_id IS NULL
-        """
-        df = pd.read_sql(read_query, conn)
+        # Converted from SQL SELECT to MongoDB find()
+        query_filter = {
+            'run_timestamp': {
+                '$gte': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                '$lte': end_time.strftime('%Y-%m-%d %H:%M:%S')
+            },
+            'dtd': f'{start_interval}-{end_interval}',
+            'marketlist_name': market_list_table,
+            'region': region,
+            'type': type,
+            'operation': 'DELETED',
+            'run_id': None
+        }
+        # Assuming the collection name is 'allocation_run_operation_log'
+        cursor = mongo_db['allocation_run_operation_log'].find(query_filter)
+        df = pd.DataFrame(list(cursor))
 
-        uodate_query = "UPDATE QP_DW_RMALLOC.allocation_run_operation_log SET run_id = %s WHERE operation_id=%s"
+        # Converted from SQL UPDATE to MongoDB update_one()
         if not df.empty:
-            wrconn.execute(uodate_query, (run_id, df.iloc[0]['operation_id']))
+             mongo_db['allocation_run_operation_log'].update_one(
+                {'operation_id': df.iloc[0]['operation_id']},
+                {'$set': {'run_id': run_id}}
+            )
         
         return df
 
@@ -798,8 +843,9 @@ def get_run_operation_log_data(start_interval, end_interval, market_list_table, 
 
 def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, count):
     log_time.start()
-    currVersionQuery = "SELECT tableName, curr_version FROM currentVersion"
-    currVersionValues = read_sql(currVersionQuery, conn)
+    # Converted from SQL SELECT to MongoDB find()
+    cursor = mongo_db['currentVersion'].find({}, {'tableName': 1, 'curr_version': 1, '_id': 0})
+    currVersionValues = pd.DataFrame(list(cursor))
 
     is_connections_required = 1 if type == 'Scheduled' else 0
     is_connections_started = 1 if type == 'Scheduled' else None
@@ -812,10 +858,31 @@ def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_
         else:
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
-    insert_query = "INSERT INTO allocation_run_audit (run_id, start_time, end_time, actual_end_time, user, dtd_start, dtd_end, Curves, d1_d2_strategies, market_list, Fares, type, market_list_name, is_connections_required, is_connections_started, update_navitaire_method, is_run_completed, region, marketListCount, run_status) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+    # Converted from SQL INSERT to MongoDB insert_one()
     try:
-        wrconn.execute(insert_query,
-                    (run_id, start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), start_time.strftime('%Y-%m-%d %H:%M:%S'), username, start_interval, end_interval, table_versions['Curves'], table_versions['d1_d2_strategies'], table_versions['market_list'], table_versions['Fares'], type, table_versions['market_list_name'], is_connections_required, is_connections_started, update_navitaire_method, '0', region, count, 'DELETED'))
+        document = {
+            'run_id': run_id,
+            'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'end_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'actual_end_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'user': username,
+            'dtd_start': start_interval,
+            'dtd_end': end_interval,
+            'Curves': table_versions.get('Curves'),
+            'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
+            'market_list': table_versions.get('market_list'),
+            'Fares': table_versions.get('Fares'),
+            'type': type,
+            'market_list_name': table_versions.get('market_list_name'),
+            'is_connections_required': is_connections_required,
+            'is_connections_started': is_connections_started,
+            'update_navitaire_method': update_navitaire_method,
+            'is_run_completed': '0',
+            'region': region,
+            'marketListCount': count,
+            'run_status': 'DELETED'
+        }
+        mongo_db['allocation_run_audit'].insert_one(document)
     except Exception as e:
         logger.info(e)
     finally:
@@ -823,9 +890,9 @@ def insert_deleted_run(start_time, run_id, start_interval, end_interval, market_
 
 def insert_file_upload_s3(run_id, createdAt):
     log_time.start()
-    insert_query = "INSERT INTO s3_file_upload (runId, createdAt) VALUES (%s, %s)"
+    # Converted from SQL INSERT to MongoDB insert_one()
     try:
-        wrconn.execute(insert_query, (run_id, createdAt))
+        mongo_db['s3_file_upload'].insert_one({'runId': run_id, 'createdAt': createdAt})
     except Exception as e:
         logger.info(e)
     finally:
@@ -835,10 +902,12 @@ def insert_file_upload_s3(run_id, createdAt):
 
 def update_run_end(end_time, run_id):
     log_time.start()
-    update_query = "UPDATE allocation_run_audit SET end_time = %s WHERE run_id = %s"
+    # Converted from SQL UPDATE to MongoDB update_one()
     try:
-        wrconn.execute(
-            update_query, (end_time.strftime('%Y-%m-%d %H:%M:%S'), run_id))
+        mongo_db['allocation_run_audit'].update_one(
+            {'run_id': run_id},
+            {'$set': {'end_time': end_time.strftime('%Y-%m-%d %H:%M:%S')}}
+        )
     except Exception as e:
         logger.info(e)
     finally:
@@ -848,9 +917,16 @@ def update_run_end(end_time, run_id):
 
 def update_run_with_batches(total_batches, run_id):
     log_time.start()
-    update_query = "UPDATE allocation_run_audit SET total_batch_size = %s, batch_completed = %s, adhoc_run_status = %s WHERE run_id = %s"
+    # Converted from SQL UPDATE to MongoDB update_one()
     try:
-        wrconn.execute(update_query, (total_batches, 0, "IN-QUEUE", run_id))
+        mongo_db['allocation_run_audit'].update_one(
+            {'run_id': run_id},
+            {'$set': {
+                'total_batch_size': total_batches,
+                'batch_completed': 0,
+                'adhoc_run_status': "IN-QUEUE"
+            }}
+        )
     except Exception as e:
         logger.info(e)
     finally:
@@ -859,9 +935,9 @@ def update_run_with_batches(total_batches, run_id):
 
 def allocation_run_batch_audit(run_id, batch_id):
     log_time.start()
-    update_query = "INSERT INTO allocation_run_batch_audit (runId, batch_id) VALUES ( %s, %s)"
+    # Converted from SQL INSERT to MongoDB insert_one()
     try:
-        wrconn.execute(update_query, (run_id, batch_id))
+        mongo_db['allocation_run_batch_audit'].insert_one({'runId': run_id, 'batch_id': batch_id})
     except Exception as e:
         logger.info(e)
     finally:
@@ -871,8 +947,9 @@ def allocation_run_batch_audit(run_id, batch_id):
 def deduct_available_slot():
     """Get the available slots for queue to run Adhoc Api calls, if slot is available deduct one from available slots"""
     
-    select_query = text("SELECT available FROM adhoc_run_queue")
-    count_available_slot = conn.execute(select_query).fetchone()[0]
+    # Converted from SQL SELECT to MongoDB find_one()
+    adhoc_doc = mongo_db['adhoc_run_queue'].find_one({}, {'available': 1})
+    count_available_slot = adhoc_doc['available'] if adhoc_doc else 0
     logger.info(f"Slot Available: {count_available_slot}")
   
     if count_available_slot == 0:
@@ -880,136 +957,19 @@ def deduct_available_slot():
         return False
     
     new_available_slot = count_available_slot - 1
-    update_query = text("UPDATE adhoc_run_queue SET available = :new_available_slot")
+    
+    # Converted from SQL UPDATE to MongoDB update_one()
     try:
-        wrconn.execute(update_query, {"new_available_slot": new_available_slot})
+        # Assuming there is only one document in adhoc_run_queue or we update the one we found
+        filter_query = {'_id': adhoc_doc['_id']} if adhoc_doc else {} 
+        mongo_db['adhoc_run_queue'].update_one(
+            filter_query, 
+            {'$set': {'available': new_available_slot}}
+        )
     except Exception as e:
         logger.info(e)
     logger.info(f"Slot Available after Adhoc run started: {new_available_slot}")
     return True
-
-
-def getMarketListQuery(start_period, end_period, market_list_table):
-    condition = ""
-    if market_list_table != "market_list":
-        condition = " AND defaultMlFlag = '0'"
-    query = f"""
-    WITH RECURSIVE DateRange AS (
-        SELECT
-            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
-        UNION
-        ALL
-        SELECT
-            Date + INTERVAL 1 DAY
-        FROM
-            DateRange
-        WHERE
-            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
-    )
-    SELECT
-        *
-    FROM
-        (
-            SELECT
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
-                Origin,Destin,FlightNumber,DOW,TimeWindowStart,TimeWindowEnd,CurveID,CarrExlusionB2C,CarrExlusionB2B,flightExclusionB2C,flightExclusionB2B,fareAnchor,hardAnchor,plfthreshold,fareOffset,FirstRBDAlloc,OtherRBDAlloc,
-                B2BBackstop,B2CBackstop,B2BFactor,obSeats,obFare,SkippingFactor,DaySpan,AutoTimeRangeFlag,analystName,openingFares,OverBooking,ProfileFares,rbdPushFlag,
-                B2BTolerance,B2CTolerance,distressInventoryFlag,seriesBlock,AutoGroup,TbfFlag,CugFlag,MktFareFlag,Autobackstopflag,directFlag,TBFEnhFlag,defaultMlFlag,b2bStrategy,Marketfare_Upsell,Outbound_Stop,forecastAllocFlag,Spoilage_Flag,
-                substring(dow, dayofweek(Date), 1) as Flag
-            FROM
-                DateRange
-            CROSS JOIN
-                {market_list_table} as ml
-            WHERE
-                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
-                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
-                {condition}
-        ) A
-    WHERE
-        Flag = 1
-    ORDER BY
-        Origin, Destin, FlightNumber
-    """
-    return query
-
-
-def getSaleMktQuery(start_period, end_period, market_list_table):
-    query = f"""
-    WITH RECURSIVE DateRange AS (
-        SELECT
-            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
-        UNION
-        ALL
-        SELECT
-            Date + INTERVAL 1 DAY
-        FROM
-            DateRange
-        WHERE
-            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
-    )
-    SELECT
-        *
-    FROM
-        (
-            SELECT
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
-                Origin,Destin,FlightNumber,DOW,CurveID,saleflag,
-                substring(dow, dayofweek(Date), 1) as Flag
-            FROM
-                DateRange
-            CROSS JOIN
-                {market_list_table} as ml
-            WHERE
-                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
-                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
-        ) A
-    WHERE
-        Flag = 1
-    ORDER BY
-        Origin, Destin, FlightNumber
-    """
-    return query
-
-def getConnectionMarketListQuery(start_period, end_period, market_list_table):
-    log_time.start()
-    query = f"""
-    WITH RECURSIVE DateRange AS (
-        SELECT
-            str_to_date('{start_period}', '%%Y-%%m-%%d') AS Date
-        UNION
-        ALL
-        SELECT
-            Date + INTERVAL 1 DAY
-        FROM
-            DateRange
-        WHERE
-            Date < str_to_date('{end_period}', '%%Y-%%m-%%d')
-    )
-    SELECT
-        *
-    FROM
-        (
-            SELECT
-                Sector1,Flight1,Sector2,Flight2,Outbound_stop,PerType,DOW,Price_Strategy,Discount_Value,carrierExclusionB2C,carrierExclusionB2B,FirstRBDAlloc,OtherRBDAlloc,
-                B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,Outbound_duration,Currency,fareAnchor,Offset,DiscountFlag,sosFlag,analystName,
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerStart,
-                DATE_FORMAT(Date, '%%m/%%d/%%Y') as PerEnd,
-                substring(dow, dayofweek(Date), 1) as Flag
-            FROM
-                DateRange
-            CROSS JOIN
-                {market_list_table} as ml
-            WHERE
-                Date >= str_to_date(ml.PerStart, '%%m/%%d/%%Y')
-                AND Date <= str_to_date(ml.PerEnd, '%%m/%%d/%%Y')
-        ) A
-    WHERE
-        Flag = 1
-    """
-    log_time.end("getConnectionMarketListQuery")
-    return query
 
 
 def create_flight_lookup_map(flights_df):
@@ -1166,6 +1126,119 @@ def get_forecast(min_date, max_date):
     """
     return query
 
+# NEW: Replaces getMarketListQuery, getSaleMktQuery, and getConnectionMarketListQuery
+# Mimics the SQL recursive CTE and Cross Join using Pandas
+def fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='standard'):
+    log_time.start()
+    try:
+        # 1. Fetch the base market list from MongoDB
+        market_list_filter = {}
+        if market_list_table != "market_list" and query_type != 'connections':
+             market_list_filter['defaultMlFlag'] = 0
+
+        cursor = mongo_db[market_list_table].find(market_list_filter)
+        base_ml_df = pd.DataFrame(list(cursor))
+        
+        if base_ml_df.empty:
+            logger.info(f"Market list {market_list_table} is empty.")
+            return pd.DataFrame()
+
+        # Define projection columns based on query type (mimicking the SQL SELECT clauses)
+        standard_cols = [
+            'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
+            'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
+            'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
+            'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
+            'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
+            'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
+            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag'
+        ]
+        sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
+        connection_cols = [
+             'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
+             'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
+             'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
+             'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
+        ]
+
+        projection_cols = []
+        if query_type == 'standard':
+            projection_cols = standard_cols
+        elif query_type == 'sales':
+            projection_cols = sales_cols
+        elif query_type == 'connections':
+             projection_cols = connection_cols
+
+        # Ensure all projected columns exist in the DataFrame
+        existing_cols = [col for col in projection_cols if col in base_ml_df.columns]
+        # Add required date columns for processing
+        required_cols = existing_cols + ['PerStart', 'PerEnd', 'DOW'] 
+        base_ml_df = base_ml_df[list(set(required_cols))]
+
+
+        # 2. Generate Date Range (Replces WITH RECURSIVE DateRange)
+        s_date = datetime.strptime(start_period, "%Y-%m-%d")
+        e_date = datetime.strptime(end_period, "%Y-%m-%d")
+        # SQL used Date < end_period, so we use end=e_date - 1 day
+        date_range = pd.date_range(start=s_date, end=e_date - timedelta(days=1), freq='D')
+        date_df = pd.DataFrame({'Date': date_range})
+
+        # 3. Cross Join (Replaces CROSS JOIN)
+        base_ml_df['key'] = 1
+        date_df['key'] = 1
+        mkt_list = pd.merge(date_df, base_ml_df, on='key').drop("key", axis=1)
+
+        # 4. Apply Filters (Replaces WHERE Date >= ml.PerStart AND Date <= ml.PerEnd)
+        mkt_list['PerStart_dt'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y')
+        mkt_list['PerEnd_dt'] = pd.to_datetime(mkt_list['PerEnd'], format='%m/%d/%Y')
+
+        mkt_list = mkt_list[
+             (mkt_list['Date'] >= mkt_list['PerStart_dt']) &
+             (mkt_list['Date'] <= mkt_list['PerEnd_dt'])
+        ]
+
+        # 5. Apply DOW Filter (Replaces substring(dow, dayofweek(Date), 1) as Flag ... WHERE Flag = 1)
+        def check_dow(row):
+             # Convert Pandas dayofweek (0=Mon) to MySQL dayofweek (1=Sun, 2=Mon, ... 7=Sat)
+             pandas_dow = row['Date'].dayofweek
+             mysql_dow = (pandas_dow + 2)
+             if mysql_dow > 7:
+                 mysql_dow = 1
+
+             # SQL used 1-based indexing on the DOW string. Python uses 0-based.
+             dow_string = row['DOW']
+             try:
+                 # The DOW string is typically 7 chars long (e.g., '1111100').
+                 # We check the character corresponding to the day of the week.
+                 flag = str(dow_string)[mysql_dow - 1]
+                 return flag == '1'
+             except (IndexError, TypeError):
+                  return False
+
+        mkt_list['Flag'] = mkt_list.apply(check_dow, axis=1)
+        mkt_list = mkt_list[mkt_list['Flag'] == True]
+
+        # 6. Formatting Final Output
+        # Replace the original PerStart/PerEnd with the exploded Date formatted as MM/DD/YYYY
+        mkt_list['PerStart'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+        mkt_list['PerEnd'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+        
+        # Select final columns, ensuring 'PerStart' and 'PerEnd' are included
+        final_cols = existing_cols + ['PerStart', 'PerEnd']
+        mkt_list = mkt_list[final_cols]
+
+        # Sort (Replaces ORDER BY Origin, Destin, FlightNumber)
+        if query_type != 'connections':
+             mkt_list = mkt_list.sort_values(by=['Origin', 'Destin', 'FlightNumber'])
+        
+        return mkt_list
+
+    except Exception as e:
+        logger.error(f"Error in fetch_and_process_market_list: {str(e)}")
+        raise
+    finally:
+        log_time.end("fetch_and_process_market_list")
+
 
 # if __name__ == "__main__":
 #     # For local testing; adjust event as needed
@@ -1173,9 +1246,8 @@ def get_forecast(min_date, max_date):
 #         "body": json.dumps({
 #             "start_interval": 0,
 #             "end_interval": 30,
-#             "market_list_table_name": "market_list_adhoc_Connections_PB",
-#             "route_type": "connections",
-#             "run_type": "adhoc",
+#             "market_list_table_name": "market_list",
+#             "run_type": "Scheduled",
 #             "cug_alloc":0
 #         })
 #     }

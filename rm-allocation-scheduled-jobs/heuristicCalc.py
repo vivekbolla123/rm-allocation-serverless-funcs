@@ -6,9 +6,10 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
-from sqlalchemy import text
 from pathlib import Path
 import configsettings as config
+from pymongo import MongoClient, UpdateOne
+from bson import ObjectId
 
 
 class FareAnalysisConfig:
@@ -18,7 +19,7 @@ class FareAnalysisConfig:
     SMOOTHING_WINDOW = 5
     ANALYSIS_PERIOD_DAYS = 365
     CUTOFF_BUFFER_DAYS = 15
-    START_BUFFER_DAYS=14
+    START_BUFFER_DAYS = 14
     BATCH_SIZE = 1000
     VALIDATION_SAMPLE_SIZE = 100
     DECIMAL_PRECISION = 6
@@ -38,9 +39,10 @@ class FareStatisticalAnalysis:
     """Main class for fare statistical analysis with holiday integration and upsell calculation."""
     
     def __init__(self, logger, params, overrides, context):
-        """Initialize with database connections and configuration."""
+        """Initialize with MongoDB connection and configuration."""
         self.logger = logger
-        self.rm_rd_conn = params['wrconn']
+        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
+        self.db = self.mongo_conn["qp_dw_rmalloc"]  # MongoDB database
         self.s3_client = params['s3']
         self.bucket_name = config.S3_RM_BUCKET_NAME
         self.s3_file_path = config.S3_FILE_PATH
@@ -55,46 +57,107 @@ class FareStatisticalAnalysis:
     # ============================================================================
     
     def _fetch_calendar_data(self) -> pd.DataFrame:
-        """Fetch fare data from calendar_AF table."""
-        query = """
-        SELECT Sector, DepartureDate, AverageFare
-        FROM QP_DW_RMALLOC.calendar_AF
-        WHERE AverageFare IS NOT NULL AND AverageFare > 0
-        ORDER BY Sector, DepartureDate
-        """
-        
-        df = pd.read_sql(query, self.rm_rd_conn)
-        if df.empty:
-            return df
+        """Fetch fare data from calendar_AF collection."""
+        try:
+            collection = self.db['calendar_AF']
             
-        df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
-        df['AverageFare'] = pd.to_numeric(df['AverageFare'], errors='coerce')
-        return df.dropna(subset=['AverageFare'])
+            # Query MongoDB
+            query = {
+                'AverageFare': {'$exists': True, '$ne': None, '$gt': 0}
+            }
+            
+            projection = {
+                '_id': 0,
+                'Sector': 1,
+                'DepartureDate': 1,
+                'AverageFare': 1
+            }
+            
+            cursor = collection.find(query, projection).sort([('Sector', 1), ('DepartureDate', 1)])
+            df = pd.DataFrame(list(cursor))
+            
+            if df.empty:
+                return df
+            
+            # Convert data types
+            df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
+            df['AverageFare'] = pd.to_numeric(df['AverageFare'], errors='coerce')
+            
+            return df.dropna(subset=['AverageFare'])
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching calendar data from MongoDB: {e}")
+            return pd.DataFrame()
 
     def _fetch_holidays(self) -> pd.DataFrame:
-        """Fetch holidays from config_holiday_list table."""
-        query = """
-        SELECT Date as holiday_date, Holiday as holiday_name
-        FROM QP_DW_RMALLOC.config_holiday_list
-        WHERE Date >= CURDATE() - INTERVAL 365 DAY
-        AND Date <= CURDATE() + INTERVAL 365 DAY
-        ORDER BY Date
-        """
-        
-        holidays_df = pd.read_sql(query, self.rm_rd_conn)
-        if not holidays_df.empty:
-            holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
-        return holidays_df
+        """Fetch holidays from config_holiday_list collection."""
+        try:
+            collection = self.db['config_holiday_list']
+            
+            # Calculate date range
+            start_date = datetime.now() - timedelta(days=365)
+            end_date = datetime.now() + timedelta(days=365)
+            
+            query = {
+                'Date': {
+                    '$gte': start_date,
+                    '$lte': end_date
+                }
+            }
+            
+            projection = {
+                '_id': 0,
+                'Date': 1,
+                'Holiday': 1
+            }
+            
+            cursor = collection.find(query, projection).sort('Date', 1)
+            holidays_df = pd.DataFrame(list(cursor))
+            
+            if not holidays_df.empty:
+                holidays_df.rename(columns={'Date': 'holiday_date', 'Holiday': 'holiday_name'}, inplace=True)
+                holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
+            
+            return holidays_df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching holidays from MongoDB: {e}")
+            return pd.DataFrame()
 
     def _fetch_profile_fares(self) -> pd.DataFrame:
         """Fetch profile fares data for upsell calculation."""
-        query = """
-        SELECT sector, month, dow, (SUM(Q10)/6) as Q10
-        FROM QP_DW_RMALLOC.config_profile_fares
-        GROUP BY sector, month, dow
-        """
-        
-        return pd.read_sql(query, self.rm_rd_conn)
+        try:
+            collection = self.db['config_profile_fares']
+            
+            # MongoDB aggregation pipeline
+            pipeline = [
+                {
+                    '$group': {
+                        '_id': {
+                            'sector': '$sector',
+                            'month': '$month',
+                            'dow': '$dow'
+                        },
+                        'Q10': {'$sum': {'$divide': ['$Q10', 6]}}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'sector': '$_id.sector',
+                        'month': '$_id.month',
+                        'dow': '$_id.dow',
+                        'Q10': 1
+                    }
+                }
+            ]
+            
+            cursor = collection.aggregate(pipeline)
+            return pd.DataFrame(list(cursor))
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching profile fares from MongoDB: {e}")
+            return pd.DataFrame()
 
     # ============================================================================
     # STATISTICAL CALCULATION METHODS
@@ -130,7 +193,6 @@ class FareStatisticalAnalysis:
             smoothed_pass1 = smoothed_peaks_pass1[i]
             max_peaks.append(max(original_peak, smoothed_pass1))
         
-        # Add max_peaks as intermediate column (optional, for debugging)
         operational_df['max_peak_pass1'] = max_peaks
         
         # Second pass on the max values
@@ -215,7 +277,7 @@ class FareStatisticalAnalysis:
             operational_output['rolling_avg'].notna()
         ].copy()
         
-        # Process non-operational days (keep same date-based logic for non-operational)
+        # Process non-operational days
         non_operational_output = self._process_non_operational_days(non_operational_df)
         
         # Combine and assign band IDs
@@ -569,14 +631,14 @@ class FareStatisticalAnalysis:
                     statistical_df.loc[idx, 'upsell'] = upsell_value
     
     def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
-        """Update config_profile_fare_station_upsell table with calculated upsell values."""
+        """Update config_profile_fare_station_upsell collection with calculated upsell values."""
         start_time = time.time()
         update_results = {
             "status": "not_attempted",
             "records_to_update": 0,
             "records_updated": 0,
             "records_inserted": 0,
-            "records_skipped": 0,  # NEW: Track skipped records
+            "records_skipped": 0,
             "records_failed": 0,
             "execution_time_seconds": 0
         }
@@ -607,7 +669,7 @@ class FareStatisticalAnalysis:
         except Exception as e:
             update_results["status"] = "error"
             update_results["error"] = str(e)
-            self.logger.error(f"Error updating upsell table: {str(e)}")
+            self.logger.error(f"Error updating upsell collection: {str(e)}")
         
         finally:
             update_results["execution_time_seconds"] = round(time.time() - start_time, 2)
@@ -620,7 +682,7 @@ class FareStatisticalAnalysis:
             (statistical_df['band_id'].notna()) & 
             (statistical_df['upsell'].notna()) & 
             (statistical_df['next_year_date'].notna()) &
-            (statistical_df['upsell'] > 0)  # Only positive upsell values (keeps existing filter)
+            (statistical_df['upsell'] > 0)  # Only positive upsell values
         ].copy()
         
         if upsell_data.empty:
@@ -653,7 +715,7 @@ class FareStatisticalAnalysis:
             {
                 'sector': row['Sector'],
                 'date': row['date_formatted'],
-                'upsell_value': row['upsell_percentage']  # Now contains formatted percentage string
+                'upsell_value': row['upsell_percentage']  # Formatted percentage string
             }
             for _, row in upsell_data.iterrows()
         ]
@@ -672,117 +734,94 @@ class FareStatisticalAnalysis:
 
     def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
         """
-        Process a single batch of upsell records.
+        Process a single batch of upsell records using MongoDB.
         
         Edge Cases Handled:
         1. Record exists: Updates only if new value > existing value AND both values are positive
         2. Record doesn't exist: Creates new record only if value is positive
         3. Negative values: Never updated (skipped with logging)
-        4. Database constraints: Handles varchar(15) for date, varchar(6) for sector, varchar(45) for value
+        4. Field validation: Ensures proper data types and lengths
         """
         updated_count = inserted_count = failed_count = 0
         
         try:
-            # Use connection directly for transaction management
-            with self.rm_rd_conn.begin() as trans:
-                for record in batch:
-                    try:
-                        sector = record['sector']
-                        date_str = record['date']
-                        upsell_percentage = record['upsell_value']  # Already formatted as "XX%"
-                        
-                        # Extract numeric value to check if positive
-                        new_numeric = self._extract_percentage_value(upsell_percentage)
-                        
-                        # SKIP ANY NEGATIVE VALUES
-                        if new_numeric <= 0:
-                            self.logger.info(f"Skipping negative/zero upsell for {sector} {date_str}: {upsell_percentage}")
-                            continue
-                        
-                        # Validate field lengths to prevent database errors
-                        if len(date_str) > 15:
-                            self.logger.error(f"Date field too long for {sector} {date_str}: {len(date_str)} chars")
-                            failed_count += 1
-                            continue
-                            
-                        if len(sector) > 6:
-                            self.logger.error(f"Sector field too long: {sector} ({len(sector)} chars)")
-                            failed_count += 1
-                            continue
-                            
-                        if len(upsell_percentage) > 45:
-                            self.logger.error(f"Value field too long for {sector} {date_str}: {upsell_percentage} ({len(upsell_percentage)} chars)")
-                            failed_count += 1
-                            continue
-                        
-                        # Check if record exists and get current value
-                        check_query = text("""
-                            SELECT value 
-                            FROM QP_DW_RMALLOC.config_profile_fare_station_upsell 
-                            WHERE sector = :sector AND date = :date_str
-                        """)
-                        
-                        result = trans.execute(check_query, {
-                            'sector': sector,
-                            'date_str': date_str
-                        })
-                        
-                        existing_record = result.fetchone()
-                        
-                        if existing_record:
-                            # Record exists - check if new value is greater
-                            existing_value_str = existing_record[0].strip() if existing_record[0] else "0%"
-                            existing_numeric = self._extract_percentage_value(existing_value_str)
-                            
-                            # ADDITIONAL CHECK: Skip if existing value is negative
-                            if existing_numeric <= 0:
-                                self.logger.info(f"Skipping update for {sector} {date_str}: existing value is negative/zero {existing_value_str}")
-                                continue
-                            
-                            if new_numeric > existing_numeric:
-                                # Update only if new value is greater AND both are positive
-                                update_query = text("""
-                                    UPDATE QP_DW_RMALLOC.config_profile_fare_station_upsell 
-                                    SET value = :upsell_value
-                                    WHERE sector = :sector AND date = :date_str
-                                """)
-                                
-                                trans.execute(update_query, {
-                                    'upsell_value': upsell_percentage,
-                                    'sector': sector,
-                                    'date_str': date_str
-                                })
-                                updated_count += 1
-                                
-                            else:
-                                # Skip update - existing value is greater or equal
-                                self.logger.info(f"Skipping update for {sector} {date_str}: existing {existing_value_str} >= new {upsell_percentage}")
-                                
-                        else:
-                            # Insert new record only if value is positive (already checked above)
-                            insert_query = text("""
-                                INSERT INTO QP_DW_RMALLOC.config_profile_fare_station_upsell 
-                                (date, sector, value) 
-                                VALUES (:date_str, :sector, :upsell_value)
-                            """)
-                            
-                            trans.execute(insert_query, {
-                                'date_str': date_str,
-                                'sector': sector,
-                                'upsell_value': upsell_percentage
-                            })
-                            inserted_count += 1
-                            
-                    except Exception as record_error:
-                        self.logger.error(f"Error processing record {record}: {str(record_error)}")
+            collection = self.db['config_profile_fare_station_upsell']
+            
+            for record in batch:
+                try:
+                    sector = record['sector']
+                    date_str = record['date']
+                    upsell_percentage = record['upsell_value']  # Already formatted as "XX%"
+                    
+                    # Extract numeric value to check if positive
+                    new_numeric = self._extract_percentage_value(upsell_percentage)
+                    
+                    # SKIP ANY NEGATIVE VALUES
+                    if new_numeric <= 0:
+                        self.logger.info(f"Skipping negative/zero upsell for {sector} {date_str}: {upsell_percentage}")
+                        continue
+                    
+                    # Validate field lengths
+                    if len(date_str) > 15:
+                        self.logger.error(f"Date field too long for {sector} {date_str}: {len(date_str)} chars")
                         failed_count += 1
                         continue
-                
-                # Transaction will auto-commit when exiting the 'with' block successfully
-                
+                        
+                    if len(sector) > 6:
+                        self.logger.error(f"Sector field too long: {sector} ({len(sector)} chars)")
+                        failed_count += 1
+                        continue
+                        
+                    if len(upsell_percentage) > 45:
+                        self.logger.error(f"Value field too long for {sector} {date_str}: {upsell_percentage} ({len(upsell_percentage)} chars)")
+                        failed_count += 1
+                        continue
+                    
+                    # Check if record exists
+                    existing_record = collection.find_one({
+                        'sector': sector,
+                        'date': date_str
+                    })
+                    
+                    if existing_record:
+                        # Record exists - check if new value is greater
+                        existing_value_str = existing_record.get('value', '0%').strip()
+                        existing_numeric = self._extract_percentage_value(existing_value_str)
+                        
+                        # ADDITIONAL CHECK: Skip if existing value is negative
+                        if existing_numeric <= 0:
+                            self.logger.info(f"Skipping update for {sector} {date_str}: existing value is negative/zero {existing_value_str}")
+                            continue
+                        
+                        if new_numeric > existing_numeric:
+                            # Update only if new value is greater AND both are positive
+                            result = collection.update_one(
+                                {'sector': sector, 'date': date_str},
+                                {'$set': {'value': upsell_percentage}}
+                            )
+                            
+                            if result.modified_count > 0:
+                                updated_count += 1
+                        else:
+                            # Skip update - existing value is greater or equal
+                            self.logger.info(f"Skipping update for {sector} {date_str}: existing {existing_value_str} >= new {upsell_percentage}")
+                    else:
+                        # Insert new record only if value is positive (already checked above)
+                        collection.insert_one({
+                            'date': date_str,
+                            'sector': sector,
+                            'value': upsell_percentage
+                        })
+                        inserted_count += 1
+                        
+                except Exception as record_error:
+                    self.logger.error(f"Error processing record {record}: {str(record_error)}")
+                    failed_count += 1
+                    continue
+                    
         except Exception as batch_error:
             self.logger.error(f"Error processing batch: {str(batch_error)}")
-            # Mark all records in batch as failed if transaction fails
+            # Mark all records in batch as failed if batch operation fails
             failed_count = len(batch)
             updated_count = inserted_count = 0
         
@@ -810,7 +849,6 @@ class FareStatisticalAnalysis:
             self.logger.warning(f"Could not parse percentage value '{percentage_str}': {e}")
             return 0.0
 
-
     def validate_upsell_updates(self, statistical_df: pd.DataFrame) -> Dict:
         """Validate upsell updates by checking a sample of records."""
         validation_results = {
@@ -831,6 +869,7 @@ class FareStatisticalAnalysis:
             sample_data = upsell_data.head(FareAnalysisConfig.VALIDATION_SAMPLE_SIZE)
             validation_results["sample_size"] = len(sample_data)
             
+            collection = self.db['config_profile_fare_station_upsell']
             matches = mismatches = not_found = 0
             
             for _, row in sample_data.iterrows():
@@ -838,21 +877,15 @@ class FareStatisticalAnalysis:
                 date_formatted = row['date_formatted']
                 expected_percentage = row['upsell_percentage']  # Already formatted as "XX%"
                 
-                query = text("""
-                    SELECT value 
-                    FROM QP_DW_RMALLOC.config_profile_fare_station_upsell 
-                    WHERE sector = :sector AND date = :date_str
-                """)
-                
-                result = pd.read_sql(query, self.rm_rd_conn, params={
+                result = collection.find_one({
                     'sector': sector,
-                    'date_str': date_formatted
+                    'date': date_formatted
                 })
                 
-                if result.empty:
+                if not result:
                     not_found += 1
                 else:
-                    db_value = result.iloc[0]['value'].strip()  # Remove any whitespace
+                    db_value = result.get('value', '').strip()  # Remove any whitespace
                     if db_value == expected_percentage:
                         matches += 1
                     else:
@@ -994,6 +1027,7 @@ class FareStatisticalAnalysis:
             print(f"\nUpsell Table Updates:")
             print(f"  - Records updated: {upsell_results['records_updated']}")
             print(f"  - Records inserted: {upsell_results['records_inserted']}")
+            print(f"  - Records skipped: {upsell_results['records_skipped']}")
             print(f"  - Records failed: {upsell_results['records_failed']}")
             print(f"  - Update time: {upsell_results['execution_time_seconds']} seconds")
             

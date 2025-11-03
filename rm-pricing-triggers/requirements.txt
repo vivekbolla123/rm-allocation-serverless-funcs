@@ -1,6 +1,6 @@
 sqlalchemy==1.4.39
 pandas==1.4.3
-
+pymongo
 requests==2.32.4
 boto3
 redis==5.0.1

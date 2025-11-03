@@ -5,7 +5,7 @@ import warnings
 import time
 from uuid import uuid4
 from datetime import datetime
-from sqlalchemy import create_engine
+from pymongo import MongoClient
 import requests
 import configsettings
 from redis import Redis
@@ -14,8 +14,7 @@ from constants_utils import ConstantsUtils
 
 warnings.filterwarnings('ignore')
 
-# rds settings
-DB_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
+# MongoDB settings
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
 CACHE_PORT = configsettings.RM_CACHE_PORT
@@ -246,13 +245,27 @@ logger.setLevel(logging.INFO)
 # create the database connection outside of the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
-    conn = create_engine(DB_CONN_STRING)
+    mongo_client = MongoClient(
+            host=configsettings.MONGO_URL,
+            port=27017,
+            username=configsettings.MONGO_USERNAME,
+            password=configsettings.MONGO_PASSWORD,
+            authSource=configsettings.MONGO_AUTH_SOURCE
+        )
+    db = mongo_client["qp_dw_rmalloc"]
+    
+    # Collections
+    navitaire_allocation_audit_col = db['navitaire_allocation_audit']
+    run_flight_date_audit_col = db['run_flight_date_audit']
+    allocation_run_audit_col = db['allocation_run_audit']
+    
 except Exception as e:
     logger.error(e)
     sys.exit()
-constantsutils = ConstantsUtils(conn)
-log_time= TimeLogger(conn, constantsutils.CHECK_THRESHOLD_UPDATE_RBD)
-logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
+
+constantsutils = ConstantsUtils(db)
+log_time= TimeLogger(db, constantsutils.CHECK_THRESHOLD_UPDATE_RBD)
+logger.info("SUCCESS: Connection to MongoDB instance succeeded")
 
 session = requests.Session()
 
@@ -333,11 +346,19 @@ def check_status(response):
     return response.status_code >= 200 and response.status_code < 300
 
 def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal):
-    insertQuery = " INSERT INTO navitaire_allocation_audit (id, start_time, end_time, request, result, run_id, b2cRunId, b2bRunId, failures, totalApiCalls) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-    conn.execute(insertQuery,
-                 (id, startTime.strftime('%Y-%m-%d %H:%M:%S'),
-                  endTime.strftime('%Y-%m-%d %H:%M:%S'), request, result, runId, b2cRunId, b2bRunId, int(countOfFailures), int(countOfTotal))
-                 )
+    document = {
+        "_id": id,
+        "start_time": startTime,
+        "end_time": endTime,
+        "request": request,
+        "result": result,
+        "run_id": runId,
+        "b2cRunId": b2cRunId,
+        "b2bRunId": b2bRunId,
+        "failures": int(countOfFailures),
+        "totalApiCalls": int(countOfTotal)
+    }
+    navitaire_allocation_audit_col.insert_one(document)
     print("ADDED ALLOCATION RUN")
 
 def updateRunAudit(run_id, start_date, flight, result):
@@ -347,20 +368,27 @@ def updateRunAudit(run_id, start_date, flight, result):
     cache_client.incr(KEY_B2B_DONE_COUNT + run_id, 1)
     cache_client.incr(KEY_B2C_DONE_COUNT + run_id, 1)
 
-    # update_query = " UPDATE run_flight_date_audit SET b2cstatus = %s ,b2bstatus = %s , result = %s WHERE runId = %s and flightNumber = %s and flightDate = %s"
-    # conn.execute(update_query, ("Done", "Done", result, run_id, flight, dateFormatted))
-
 def insert_run_fltDate_audit(run_id, flightNumber, flightDate, result):
-    insert_query = " INSERT INTO run_flight_date_audit (runId, flightNumber, flightDate, result, b2cstatus, b2bstatus ,createdAt) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+    document = {
+        "runId": run_id,
+        "flightNumber": flightNumber,
+        "flightDate": flightDate,
+        "result": result,
+        "b2cstatus": "Done",
+        "b2bstatus": "Done",
+        "createdAt": datetime.now()
+    }
     try:
-        conn.execute(insert_query, (run_id, flightNumber, flightDate, result, "Done", "Done", datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        run_flight_date_audit_col.insert_one(document)
     except Exception as e:
         logger.info(e)
 
 def updateAllocationAudit(endTime, run_id):
-    update_query = " UPDATE allocation_run_audit SET actual_end_time = %s WHERE run_id = %s"
-    conn.execute(update_query, (endTime.strftime('%Y-%m-%d %H:%M:%S'), run_id))
+    allocation_run_audit_col.update_one(
+        {"run_id": run_id},
+        {"$set": {"actual_end_time": endTime}}
+    )
 
-# messageBody = {"runId": "1c33b6fe-8af0-4c22-968f-bacc7cdbaa37", "type": "L", "flight": " QP1367 BOMBLR", "startDate": "07-30-2025", "endDate": "07-30-2025", "dayOfWeek": "Daily", "aircraftType": "", "aircraftSuffix": "", "lid": "", "capacity": "", "status": "", "b2cRunId": "0593df22-2471-4b56-8138-34bc947441c6", "b2bRunId": "ba2420ed-706e-4ec9-845c-efdda65bc7f0", "auClasses": {"V9": {"classOfService": "V9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 129, "classAllotted": -1, "apRestriction": -1}, "S": {"classOfService": "S", "classType": "", "classNest": -1, "classRank": -1, "classAU": 99, "classAllotted": -1, "apRestriction": 99}}}
+# messageBody = {"runId": "be76c956-f7d2-44cb-9f27-8f69f27f2cb0", "type": "L", "flight": " QP1955 BOMBLR", "startDate": "10-19-2025", "endDate": "10-19-2025", "dayOfWeek": "Daily", "aircraftType": "", "aircraftSuffix": "", "lid": "", "capacity": "", "status": "", "b2cRunId": "f4ed4831-14d7-41da-99e7-4e69a92bcb74", "b2bRunId": "6a35a631-e365-49e1-811e-948666f62dc3", "auClasses": {"V9": {"classOfService": "V9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V8": {"classOfService": "V8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V7": {"classOfService": "V7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V6": {"classOfService": "V6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V5": {"classOfService": "V5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V4": {"classOfService": "V4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V3": {"classOfService": "V3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V2": {"classOfService": "V2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V1": {"classOfService": "V1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "V0": {"classOfService": "V0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U9": {"classOfService": "U9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U8": {"classOfService": "U8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U7": {"classOfService": "U7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U6": {"classOfService": "U6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U5": {"classOfService": "U5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U4": {"classOfService": "U4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U3": {"classOfService": "U3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U2": {"classOfService": "U2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U1": {"classOfService": "U1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "U0": {"classOfService": "U0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T9": {"classOfService": "T9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T8": {"classOfService": "T8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T7": {"classOfService": "T7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T6": {"classOfService": "T6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T5": {"classOfService": "T5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T4": {"classOfService": "T4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T3": {"classOfService": "T3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T2": {"classOfService": "T2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T1": {"classOfService": "T1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "T0": {"classOfService": "T0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R9": {"classOfService": "R9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R8": {"classOfService": "R8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R7": {"classOfService": "R7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R6": {"classOfService": "R6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R5": {"classOfService": "R5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R4": {"classOfService": "R4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R3": {"classOfService": "R3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R2": {"classOfService": "R2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R1": {"classOfService": "R1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "R0": {"classOfService": "R0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q9": {"classOfService": "Q9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q8": {"classOfService": "Q8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q7": {"classOfService": "Q7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q6": {"classOfService": "Q6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q5": {"classOfService": "Q5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q4": {"classOfService": "Q4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q3": {"classOfService": "Q3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q2": {"classOfService": "Q2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q1": {"classOfService": "Q1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q0": {"classOfService": "Q0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Q": {"classOfService": "Q", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "O": {"classOfService": "O", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "N": {"classOfService": "N", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "M": {"classOfService": "M", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "K": {"classOfService": "K", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "J": {"classOfService": "J", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "I": {"classOfService": "I", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "H": {"classOfService": "H", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "F": {"classOfService": "F", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "E": {"classOfService": "E", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "D": {"classOfService": "D", "classType": "", "classNest": -1, "classRank": -1, "classAU": 164, "classAllotted": -1, "apRestriction": -1}, "C": {"classOfService": "C", "classType": "", "classNest": -1, "classRank": -1, "classAU": 164, "classAllotted": -1, "apRestriction": -1}, "B": {"classOfService": "B", "classType": "", "classNest": -1, "classRank": -1, "classAU": 164, "classAllotted": -1, "apRestriction": -1}, "Y": {"classOfService": "Y", "classType": "", "classNest": -1, "classRank": -1, "classAU": 194, "classAllotted": -1, "apRestriction": -1}, "ZJ": {"classOfService": "ZJ", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZI": {"classOfService": "ZI", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZH": {"classOfService": "ZH", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZG": {"classOfService": "ZG", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZF": {"classOfService": "ZF", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZE": {"classOfService": "ZE", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZD": {"classOfService": "ZD", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZC": {"classOfService": "ZC", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZB": {"classOfService": "ZB", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "ZA": {"classOfService": "ZA", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z9": {"classOfService": "Z9", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z8": {"classOfService": "Z8", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z7": {"classOfService": "Z7", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z6": {"classOfService": "Z6", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z5": {"classOfService": "Z5", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z4": {"classOfService": "Z4", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z3": {"classOfService": "Z3", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z2": {"classOfService": "Z2", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z1": {"classOfService": "Z1", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "Z0": {"classOfService": "Z0", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "L": {"classOfService": "L", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "P": {"classOfService": "P", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "G8": {"classOfService": "G8", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W9": {"classOfService": "W9", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W8": {"classOfService": "W8", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W7": {"classOfService": "W7", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W6": {"classOfService": "W6", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W5": {"classOfService": "W5", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W4": {"classOfService": "W4", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W3": {"classOfService": "W3", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W2": {"classOfService": "W2", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "W1": {"classOfService": "W1", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "S": {"classOfService": "S", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "WA": {"classOfService": "WA", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "WB": {"classOfService": "WB", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "WC": {"classOfService": "WC", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "WD": {"classOfService": "WD", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "WE": {"classOfService": "WE", "classType": "", "classNest": -1, "classRank": -1, "classAU": -1, "classAllotted": -1, "apRestriction": -1}, "GJ": {"classOfService": "GJ", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GI": {"classOfService": "GI", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GH": {"classOfService": "GH", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GG": {"classOfService": "GG", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GF": {"classOfService": "GF", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GE": {"classOfService": "GE", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GD": {"classOfService": "GD", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GC": {"classOfService": "GC", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GB": {"classOfService": "GB", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "GA": {"classOfService": "GA", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TF": {"classOfService": "TF", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TE": {"classOfService": "TE", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TD": {"classOfService": "TD", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TC": {"classOfService": "TC", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TB": {"classOfService": "TB", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}, "TY": {"classOfService": "TY", "classType": "", "classNest": -1, "classRank": -1, "classAU": 0, "classAllotted": -1, "apRestriction": -1}}}
 # event = {'Records': [{'body': json.dumps(messageBody)}]}
 # lambda_handler(event, None)

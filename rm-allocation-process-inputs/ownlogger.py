@@ -21,3 +21,8 @@ class OwnLogger:
 			self.logger.error(f"error:{errormessage} runid:{self.runid}")
 		else:
 			print(errormessage)
+	def warning(self, errormessage):
+		if self.input != DB:
+			self.logger.error(f"error:{errormessage} runid:{self.runid}")
+		else:
+			print(errormessage)

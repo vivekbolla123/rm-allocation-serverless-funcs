@@ -85,8 +85,8 @@ public class QueryConstants {
         return "SELECT count(*) as count FROM inputs_status where name = ?";
     }
 
-    public static String UPDATE_INPUT_STATUS(int value, String tableName) {
-        return "UPDATE inputs_status SET is_running = b'" + value + "' WHERE name = '" + tableName + "'";
+    public static String UPDATE_INPUT_STATUS() {
+        return "UPDATE inputs_status SET is_running = ? WHERE name = ?";
     }
 
     public static String COPY_DATA_INTO_MAIN_TABLE(String tableName, String tempTableName) {

@@ -1,7 +1,7 @@
 import boto3
 import pandas as pd
 from io import StringIO
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 import pytz
 import os
 import logging
@@ -14,7 +14,8 @@ class S3CsvCombiner:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
-        self.rm_rd_conn = params['wrconn']
+        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
+        self.db = self.mongo_conn['qp_dw_rmalloc']
 
         # S3 Configuration from overrides or defaults
         self.bucket_name = configsettings.S3_BUCKET_NAME
@@ -22,9 +23,9 @@ class S3CsvCombiner:
         
         self.min_date = datetime.now() - timedelta(days=30)
         
-        # Database table names from overrides or defaults
-        self.raw_table_name = "audit_raw_data"
-        self.summary_table_name = "audit_ml_summary"
+        # Database collection names
+        self.raw_collection_name = "audit_raw_data"
+        self.summary_collection_name = "audit_ml_summary"
         
         # Initialize S3 client
         self.s3_client = boto3.client('s3')
@@ -80,12 +81,51 @@ class S3CsvCombiner:
         self.logger.info(f"Combined {len(dfs)} files into {len(result_df)} total rows")
         return result_df
 
-    def save_dataframe_to_db(self, df: pd.DataFrame, table_name: str, if_exists: str = 'replace') -> None:
+    def save_dataframe_to_mongodb(self, df: pd.DataFrame, collection_name: str, replace: bool = True) -> None:
+        """
+        Save DataFrame to MongoDB collection.
+        
+        Args:
+            df: DataFrame to save
+            collection_name: Name of the collection
+            replace: If True, replace all documents (like SQL 'replace'). If False, append.
+        """
         try:
-            df.to_sql(table_name, self.rm_rd_conn, if_exists=if_exists, index=False, method='multi')
-            self.logger.info(f"Saved {len(df)} rows to table {table_name}")
+            collection = self.db[collection_name]
+            
+            # Replace mode: delete all existing documents
+            if replace:
+                delete_result = collection.delete_many({})
+                self.logger.info(f"Deleted {delete_result.deleted_count} existing documents from {collection_name}")
+            
+            # Convert DataFrame to records
+            records = df.to_dict('records')
+            
+            # Convert date columns to datetime objects for MongoDB
+            # for record in records:
+            #     for key, value in record.items():
+            #         # Handle pandas Timestamp objects
+            #         if isinstance(value, pd.Timestamp):
+            #             record[key] = value.to_pydatetime()
+            #         # Handle date objects
+            #         elif hasattr(value, 'date') and callable(getattr(value, 'date')):
+            #             try:
+            #                 record[key] = datetime.combine(value, datetime.min.time())
+            #             except:
+            #                 pass
+            #         # Handle NaN and None values
+            #         elif pd.isna(value):
+            #             record[key] = None
+            
+            # Bulk insert
+            if records:
+                result = collection.insert_many(records)
+                self.logger.info(f"Saved {len(result.inserted_ids)} rows to collection {collection_name}")
+            else:
+                self.logger.info(f"No records to save to collection {collection_name}")
+                
         except Exception as e:
-            self.logger.error("Failed to save to database table %s: %s", table_name, str(e))
+            self.logger.error("Failed to save to MongoDB collection %s: %s", collection_name, str(e))
             raise
 
     def combine_s3_csv_files(self) -> pd.DataFrame:
@@ -105,8 +145,8 @@ class S3CsvCombiner:
         # Store in memory for later processing
         self.combined_df = combined_df
         
-        # Save combined DataFrame to database
-        self.save_dataframe_to_db(combined_df, self.raw_table_name)
+        # Save combined DataFrame to MongoDB
+        self.save_dataframe_to_mongodb(combined_df, self.raw_collection_name, replace=True)
         
         return combined_df
 
@@ -135,33 +175,126 @@ class S3CsvCombiner:
         return min_date, max_date
 
     def fetch_ml_upload_counts(self, start_date: str, end_date: str) -> pd.DataFrame:
-        query = """
-        SELECT 
-            DATE_FORMAT(DATE(init_timestamp),'%%Y-%%m-%%d') as date, 
-            username, 
-            count(*) as MLUploadCounts 
-        FROM QP_DW_RMALLOC.inputs_file_upload 
-        WHERE DATE(init_timestamp) >= %(start_date)s 
-            AND DATE(init_timestamp) <= %(end_date)s
-            AND tableName like '%%market_list%%'
-        GROUP BY date, username 
-        ORDER BY date
         """
-        
+        Fetch ML upload counts from MongoDB inputs_file_upload collection.
+        """
         try:
-            params = {
-                'start_date': start_date,
-                'end_date': end_date
-            }
+            collection = self.db['inputs_file_upload']
             
-            ml_df = pd.read_sql(query, self.rm_rd_conn, params=params)
-            ml_df['date'] = pd.to_datetime(ml_df['date']).dt.date
+            # Convert date strings to datetime objects for MongoDB query
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+            
+            start_datetime_str=start_datetime.strftime('%Y-%m-%d %H:%M:%S')# Include end date
+            end_datetime_str=end_datetime.strftime('%Y-%m-%d %H:%M:%S')
+            # MongoDB aggregation pipeline
+            pipeline = [
+    {
+        "$addFields": {
+            # Convert string to actual date object
+            "init_timestamp_dt": {
+                "$dateFromString": {
+                    "dateString": "$init_timestamp",
+                    "format": "%Y-%m-%dT%H:%M:%S"
+                }
+            }
+        }
+    },
+    {
+        "$match": {
+            "init_timestamp_dt": {
+                "$gte": start_datetime,
+                "$lt": end_datetime
+            },
+            "tableName": {"$regex": "market_list", "$options": "i"}
+        }
+    },
+    {
+        "$project": {
+            "date": "$init_timestamp_dt",
+            "username": 1
+        }
+    },
+    {
+        "$group": {
+            "_id": {
+                "date": "$date",
+                "username": "$username"
+            },
+            "MLUploadCounts": {"$sum": 1}
+        }
+    },
+    {
+        "$project": {
+            "_id": 0,
+            "date": "$_id.date",
+            "username": "$_id.username",
+            "MLUploadCounts": 1
+        }
+    },
+    {
+        "$sort": {"date": 1}
+    }
+]
+            
+            # Execute aggregation
+            result = list(collection.aggregate(pipeline))
+            ml_df = pd.DataFrame(result)
+            
+            if not ml_df.empty:
+                # Convert date string back to date object
+                ml_df['date'] = pd.to_datetime(ml_df['date']).dt.date
             
             self.logger.info(f"Fetched {len(ml_df)} ML upload records")
             return ml_df
             
         except Exception as e:
-            self.logger.error("Failed to fetch ML upload counts: %s", str(e))
+            self.logger.error("Failed to fetch ML upload counts from MongoDB: %s", str(e))
+            # Fallback: try with string-based date matching if init_timestamp is stored as string
+            try:
+                self.logger.info("Attempting fallback query with string date matching")
+                return self._fetch_ml_upload_counts_fallback(start_date, end_date)
+            except:
+                raise
+
+    def _fetch_ml_upload_counts_fallback(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        Fallback method if init_timestamp is stored as string in MongoDB.
+        """
+        try:
+            collection = self.db['inputs_file_upload']
+            
+            # Fetch all matching documents and process in pandas
+            cursor = collection.find({
+                'tableName': {'$regex': 'market_list', '$options': 'i'}
+            })
+            
+            df = pd.DataFrame(list(cursor))
+            
+            if df.empty:
+                return pd.DataFrame(columns=['date', 'username', 'MLUploadCounts'])
+            
+            # Remove MongoDB _id
+            if '_id' in df.columns:
+                df = df.drop('_id', axis=1)
+            
+            # Convert init_timestamp to datetime
+            df['init_timestamp'] = pd.to_datetime(df['init_timestamp'], errors='coerce')
+            df['date'] = df['init_timestamp'].dt.date
+            
+            # Filter by date range
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
+            df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+            
+            # Group by date and username
+            ml_df = df.groupby(['date', 'username']).size().reset_index(name='MLUploadCounts')
+            
+            self.logger.info(f"Fetched {len(ml_df)} ML upload records (fallback method)")
+            return ml_df
+            
+        except Exception as e:
+            self.logger.error("Fallback method also failed: %s", str(e))
             raise
 
     def join_audit_and_ml_data(self, audit_df: pd.DataFrame, ml_df: pd.DataFrame) -> pd.DataFrame:
@@ -211,9 +344,10 @@ class S3CsvCombiner:
         
         # Integrate ML data with the audit counts
         final_df = self.process_ml_data_integration(audit_df)
+        final_df['date'] = pd.to_datetime(final_df['date'])
         
-        # Save final report to database
-        self.save_dataframe_to_db(final_df, self.summary_table_name)
+        # Save final report to MongoDB
+        self.save_dataframe_to_mongodb(final_df, self.summary_collection_name, replace=True)
         
         return final_df
 
@@ -221,10 +355,10 @@ class S3CsvCombiner:
         try:
             self.logger.info("Starting S3 CSV combiner process")
             
-            # Step 1: Combine S3 CSV files and save to database
+            # Step 1: Combine S3 CSV files and save to MongoDB
             combined_df = self.combine_s3_csv_files()
             
-            # Step 2: Generate final report with ML data and save to database
+            # Step 2: Generate final report with ML data and save to MongoDB
             final_df = self.generate_final_report()
             
             self.logger.info(f"Process completed successfully - Raw: {len(combined_df)} rows, Summary: {len(final_df)} rows")

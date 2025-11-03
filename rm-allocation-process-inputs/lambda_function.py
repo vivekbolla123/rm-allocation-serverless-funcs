@@ -1,5 +1,7 @@
+from datetime import datetime
 import sys
 import logging
+import uuid
 
 from pymongo import MongoClient
 import configsettings
@@ -27,7 +29,7 @@ mongoclient = MongoClient(
             port=27017,
             username=configsettings.MONGO_USERNAME,
             password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_DB
+            authSource=configsettings.MONGO_AUTH_SOURCE
         )
 mongodb=mongoclient[configsettings.MONGO_DB]
 # DB settings
@@ -36,8 +38,6 @@ WAIT_TIME = 30  # in seconds
 LOGS_ON = False
 
 # rds settings
-DB_WR_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME}:{configsettings.RM_DB_APPUSER_PASSWORD}@{configsettings.RM_DB_APPUSER_URL}/{configsettings.RM_DB_SCHEMA_NAME}"
-DB_RD_CONN_STRING = f"mysql+pymysql://{configsettings.RM_DB_APPUSER_USERNAME_READ}:{configsettings.RM_DB_APPUSER_PASSWORD_READ}@{configsettings.RM_DB_APPUSER_URL_READ}/{configsettings.RM_DB_SCHEMA_NAME}"
 DW_DB_CONN_STRING = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 CACHE_ENDPOINT = configsettings.RM_CACHE_ENDPOINT
@@ -57,15 +57,13 @@ logger.setLevel(logging.INFO)
 # create the database connection outside the handler to allow connections to be
 # re-used by subsequent function invocations.
 try:
-    wrconn = create_engine(DB_WR_CONN_STRING)
-    rdconn = create_engine(DB_RD_CONN_STRING)
     dwconn = create_engine(DW_DB_CONN_STRING)
 except Exception as e:
     logger.error(e)
     sys.exit()
 
-constantsutils = ConstantsUtils(wrconn)
-log_time = TimeLogger(wrconn, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTS)
+constantsutils = ConstantsUtils(mongodb)
+log_time = TimeLogger(mongodb, constantsutils.CHECK_THRESHOLD_PROCESS_INPUTS)
 logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
 
 def lambda_handler(event, context):
@@ -104,8 +102,6 @@ def lambda_handler(event, context):
         content = record['body']
         data = json.loads(content)
         data["timelogger"] = log_time
-        data["dbconn"] = rdconn
-        data["wrconn"] = wrconn
         data["dwconn"] = dwconn
         data["sqs"] = sqs
         data["runSingleMarket"] = True
@@ -157,31 +153,65 @@ def lambda_handler(event, context):
     }
 
 def getRunStatus(run_id):
-    read_query = "SELECT run_status FROM QP_DW_RMALLOC.allocation_run_audit WHERE run_id = '"+ run_id +"'"
+    """
+    Get run status from MongoDB allocation_run_audit collection
+    
+    Args:
+        mongo_db: MongoDB database instance
+        run_id: The run ID to query
+        
+    Returns:
+        DataFrame with run_status
+    """
     try:
-        df = pd.read_sql(read_query, rdconn)
+        collection = mongodb['allocation_run_audit']
+        
+        # Query MongoDB
+        result = collection.find_one(
+            {'run_id': run_id},
+            {'_id': 0, 'run_status': 1}  # Only return run_status field, exclude _id
+        )
+        
+        # Convert to DataFrame (similar to pd.read_sql behavior)
+        if result:
+            df = pd.DataFrame([result])
+        else:
+            # Return empty DataFrame with column if no result found
+            df = pd.DataFrame(columns=['run_status'])
+            
         return df
     except Exception as e:
         logger.info(e)
+        return pd.DataFrame(columns=['run_status'])
 
-def insert_paused_run(run_id, content):
-    """
-    Insert paused run record into database
-    """
-    import uuid
-    from datetime import datetime
 
+def insert_paused_run( run_id, content):
+    """
+    Insert paused run record into MongoDB run_paused collection
+    
+    Args:
+        mongo_db: MongoDB database instance
+        run_id: The run ID
+        content: The content/value to store
+    """
     try:
+        collection = mongodb['run_paused']
+        
         record_id = str(uuid.uuid4())
         create_at = datetime.now()
-
-        query = """
-        INSERT INTO QP_DW_RMALLOC.run_paused
-        (run_id, record_id, createAt, value)
-        VALUES (%s, %s, %s, %s)
-        """
-
-        wrconn.execute(query, (run_id, record_id, create_at, content))
+        
+        # Create document to insert
+        document = {
+            'run_id': run_id,
+            'record_id': record_id,
+            'createAt': create_at,
+            'value': content
+        }
+        
+        # Insert into MongoDB
+        result = collection.insert_one(document)
+        logger.info(f"Successfully inserted paused run record with id: {result.inserted_id}")
+        
     except Exception as e:
         logger.error(f"Error inserting paused run record: {str(e)}")
         raise

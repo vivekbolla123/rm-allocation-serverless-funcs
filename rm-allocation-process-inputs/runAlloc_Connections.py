@@ -287,8 +287,20 @@ class DynAllocConnections:
             self.outputResults()
 
         if (self.inputSource.isUpdateNavitaire) and (self.NavitaireUpdateMethod == Constants.CONST_SFTP):
-            update_query = " UPDATE run_flight_date_audit SET status = %s WHERE runId = %s and status = 'Pending' "
-            self.wrconn.execute(update_query, "Ready", self.runId)
+            update_query = {
+                "runId": self.runId,
+                "status": "Pending"
+            }
+            
+            update_values = {
+                "$set": {
+                    "status": "Ready"
+                }
+            }
+            
+            # Execute the update
+            self.mongoclient['run_flight_date_audit'].update_many(update_query, update_values)
+
 
     def allocateAUforflights(self, current_date1,current_date2, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2):
         self.outputSummaryRow_b2b = OutputSummaryConnections()
@@ -842,8 +854,6 @@ class DynAllocConnections:
         self.NAV_USERNAME = inputData["NAV_USERNAME"]
         self.NAV_PWD = inputData["NAV_PWD"]
         self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
-        self.conn = self.currParams.dbconn
-        self.wrconn = self.currParams.wrconn
         self.dwconn = self.currParams.dwconn
         self.mongoclient = self.currParams.mongodbclient
         self.starttime = datetime.now()
@@ -857,8 +867,8 @@ class DynAllocConnections:
             self.runId, self.cache_client, self.inputSource)
         self.logger = OwnLogger(self.runId, self.inputSource)
         self.rmdatabasehelper = RMDatabaseHelper(
-            self.conn, self.wrconn,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
-        self.constantsUtils = ConstantsUtils(self.conn)
+            self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
+        self.constantsUtils = ConstantsUtils(self.mongoclient)
         self.utils = Utils(self.inputSource)
         self.mathutils = MathUtils(self.inputSource)
         if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
@@ -867,7 +877,7 @@ class DynAllocConnections:
         self.timeutils = TimeUtils(self.inputSource)
         # self.navdatabasehelper = NavDatabaseHelper(self.NavitaireConnection, self.conn, self.inputSource,
         #                                            self.NAV_DB_NAME,self.NAV_DB_REF_NAME, self.runId, self.debugMode, self.NAV_DB_WB_NAME, self.currParams,self.log_time)
-        self.mongohelper=MarketFareMongoDB(self.wrconn,self.mongoclient,self.inputSource)
+        self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource)
         self.marketfaresservice = MarketFareService(
             self.rmdatabasehelper, self.constantsUtils, self.timeutils,self.mongohelper)
         self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource,
