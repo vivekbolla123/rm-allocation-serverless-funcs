@@ -1,610 +1,249 @@
 package com.akasaair.queues.common.constants;
 
 import org.springframework.stereotype.Component;
-import org.bson.Document;
-import org.bson.conversions.Bson;
-import com.mongodb.client.model.Filters;
-import com.mongodb.client.model.Aggregates;
-import com.mongodb.client.model.Accumulators;
-import com.mongodb.client.model.Projections;
-import com.mongodb.client.model.Sorts;
-import com.mongodb.client.model.Updates;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.ArrayList;
 
 import static com.akasaair.queues.common.constants.Constants.*;
 
 @Component
 public class QueryConstants {
 
-    // SELECT_MARKET_LIST
-    public static Bson SELECT_MARKET_LIST_FILTER() {
-        // Usage: Pass origin, destin, analystName, perStart, flightNumber as parameters
-        // return Filters.and(
-        //     Filters.eq("Origin", origin),
-        //     Filters.eq("Destin", destin),
-        //     Filters.eq("analystName", analystName),
-        //     Filters.eq("PerStart", perStart),
-        //     Filters.eq("FlightNumber", flightNumber)
-        // );
-        return null; // To be used with parameters in actual implementation
+    public static String SELECT_MARKET_LIST(String tableName) {
+        return "SELECT UUID FROM " + tableName + " where " +
+                " Origin = ? and Destin = ? and analystName = ? and PerStart = ? and FlightNumber = ? ";
     }
 
-    public static Document SELECT_MARKET_LIST_PROJECTION() {
-        return new Document("UUID", 1).append("_id", 0);
+    public static String INSERT_INTO_MARKET_LIST_CONNECTIONS(String tableName) {
+        return "INSERT INTO " + tableName +
+                " (Sector1,Sector2,Flight1,Flight2,Pertype,PerStart,PerEnd,DOW,Price_Strategy,Discount_Value," +
+                "FirstRBDAlloc,OtherRBDAlloc,B2BBackstop,B2CBackstop,B2BFactor,SkippingFactor,analystName," +
+                "UUID,Outbound_stop,Outbound_duration,CarrierExclusionB2B,CarrierExclusionB2C,Currency,fareAnchor,Offset,DiscountFlag,sosFlag) " +
+                "VALUES " +
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ";
     }
 
-    // INSERT_INTO_MARKET_LIST_CONNECTIONS
-    public static Document INSERT_INTO_MARKET_LIST_CONNECTIONS_DOC(
-            String sector1, String sector2, String flight1, String flight2,
-            String pertype, String perStart, String perEnd, String dow,
-            String priceStrategy, String discountValue, String firstRBDAlloc,
-            String otherRBDAlloc, String b2bBackstop, String b2cBackstop,
-            String b2bFactor, String skippingFactor, String analystName,
-            String uuid, String outboundStop, String outboundDuration,
-            String carrierExclusionB2B, String carrierExclusionB2C,
-            String currency, String fareAnchor, String offset,
-            String discountFlag, String sosFlag) {
-
-        return new Document("Sector1", sector1)
-                .append("Sector2", sector2)
-                .append("Flight1", flight1)
-                .append("Flight2", flight2)
-                .append("Pertype", pertype)
-                .append("PerStart", perStart)
-                .append("PerEnd", perEnd)
-                .append("DOW", dow)
-                .append("Price_Strategy", priceStrategy)
-                .append("Discount_Value", discountValue)
-                .append("FirstRBDAlloc", firstRBDAlloc)
-                .append("OtherRBDAlloc", otherRBDAlloc)
-                .append("B2BBackstop", b2bBackstop)
-                .append("B2CBackstop", b2cBackstop)
-                .append("B2BFactor", b2bFactor)
-                .append("SkippingFactor", skippingFactor)
-                .append("analystName", analystName)
-                .append("UUID", uuid)
-                .append("Outbound_stop", outboundStop)
-                .append("Outbound_duration", outboundDuration)
-                .append("CarrierExclusionB2B", carrierExclusionB2B)
-                .append("CarrierExclusionB2C", carrierExclusionB2C)
-                .append("Currency", currency)
-                .append("fareAnchor", fareAnchor)
-                .append("Offset", offset)
-                .append("DiscountFlag", discountFlag)
-                .append("sosFlag", sosFlag);
+    public static String SELECT_MARKET_LIST_CONNECTIONS(String tableName) {
+        return "SELECT UUID FROM " + tableName + " where " +
+                " Sector1 = ? and Sector2 = ? and analystName = ? ";
     }
 
-    // SELECT_MARKET_LIST_CONNECTIONS
-    public static Bson SELECT_MARKET_LIST_CONNECTIONS_FILTER(
-            String sector1, String sector2, String analystName) {
-        return Filters.and(
-                Filters.eq("Sector1", sector1),
-                Filters.eq("Sector2", sector2),
-                Filters.eq("analystName", analystName)
-        );
+    public static String INSERT_INTO_MARKET_LIST(String tableName) {
+        return "INSERT INTO " + tableName +
+                " (Origin, Destin, FlightNumber, PerType, PerStart, PerEnd, DOW, hardAnchor, plfThreshold, TimeWindowStart, "
+                +
+                "TimeWindowEnd, CurveID, CarrExlusionB2B, CarrExlusionB2C, flightExclusionB2B, flightExclusionB2C, fareAnchor, fareOffset, FirstRBDAlloc, OtherRBDAlloc, "
+                +
+                "B2BBackstop, B2CBackstop, B2BFactor, obSeats, obFare, SkippingFactor, DaySpan, AutoTimeRangeFlag, " +
+                "analystName, openingFares, OverBooking, rbdPushFlag, profileFares, B2CTolerance, B2BTolerance, distressInventoryFlag, seriesBlock, autoGroup, autoBackstopFlag,tbfFlag, CugFlag,MktFareFlag,UUID, directFlag, TBFEnhFlag, defaultMlFlag, b2bStrategy,Outbound_Stop,Marketfare_Upsell,forecastAllocFlag,Spoilage_Flag) "
+                +
+
+                "VALUES " +
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ;";
     }
 
-    // INSERT_INTO_MARKET_LIST
-    public static Document INSERT_INTO_MARKET_LIST_DOC(
-            String origin, String destin, String flightNumber, String perType,
-            String perStart, String perEnd, String dow, String hardAnchor,
-            String plfThreshold, String timeWindowStart, String timeWindowEnd,
-            String curveID, String carrExlusionB2B, String carrExlusionB2C,
-            String flightExclusionB2B, String flightExclusionB2C,
-            String fareAnchor, String fareOffset, String firstRBDAlloc,
-            String otherRBDAlloc, String b2bBackstop, String b2cBackstop,
-            String b2bFactor, String obSeats, String obFare,
-            String skippingFactor, String daySpan, String autoTimeRangeFlag,
-            String analystName, String openingFares, String overBooking,
-            String rbdPushFlag, String profileFares, String b2cTolerance,
-            String b2bTolerance, String distressInventoryFlag,
-            String seriesBlock, String autoGroup, String autoBackstopFlag,
-            String tbfFlag, String cugFlag, String mktFareFlag, String uuid,
-            String directFlag, String tbfEnhFlag, String defaultMlFlag,
-            String b2bStrategy, String outboundStop, String marketfareUpsell,
-            String forecastAllocFlag) {
-
-        return new Document("Origin", origin)
-                .append("Destin", destin)
-                .append("FlightNumber", flightNumber)
-                .append("PerType", perType)
-                .append("PerStart", perStart)
-                .append("PerEnd", perEnd)
-                .append("DOW", dow)
-                .append("hardAnchor", hardAnchor)
-                .append("plfThreshold", plfThreshold)
-                .append("TimeWindowStart", timeWindowStart)
-                .append("TimeWindowEnd", timeWindowEnd)
-                .append("CurveID", curveID)
-                .append("CarrExlusionB2B", carrExlusionB2B)
-                .append("CarrExlusionB2C", carrExlusionB2C)
-                .append("flightExclusionB2B", flightExclusionB2B)
-                .append("flightExclusionB2C", flightExclusionB2C)
-                .append("fareAnchor", fareAnchor)
-                .append("fareOffset", fareOffset)
-                .append("FirstRBDAlloc", firstRBDAlloc)
-                .append("OtherRBDAlloc", otherRBDAlloc)
-                .append("B2BBackstop", b2bBackstop)
-                .append("B2CBackstop", b2cBackstop)
-                .append("B2BFactor", b2bFactor)
-                .append("obSeats", obSeats)
-                .append("obFare", obFare)
-                .append("SkippingFactor", skippingFactor)
-                .append("DaySpan", daySpan)
-                .append("AutoTimeRangeFlag", autoTimeRangeFlag)
-                .append("analystName", analystName)
-                .append("openingFares", openingFares)
-                .append("OverBooking", overBooking)
-                .append("rbdPushFlag", rbdPushFlag)
-                .append("profileFares", profileFares)
-                .append("B2CTolerance", b2cTolerance)
-                .append("B2BTolerance", b2bTolerance)
-                .append("distressInventoryFlag", distressInventoryFlag)
-                .append("seriesBlock", seriesBlock)
-                .append("autoGroup", autoGroup)
-                .append("autoBackstopFlag", autoBackstopFlag)
-                .append("tbfFlag", tbfFlag)
-                .append("CugFlag", cugFlag)
-                .append("MktFareFlag", mktFareFlag)
-                .append("UUID", uuid)
-                .append("directFlag", directFlag)
-                .append("TBFEnhFlag", tbfEnhFlag)
-                .append("defaultMlFlag", defaultMlFlag)
-                .append("b2bStrategy", b2bStrategy)
-                .append("Outbound_Stop", outboundStop)
-                .append("Marketfare_Upsell", marketfareUpsell)
-                .append("forecastAllocFlag", forecastAllocFlag);
+    public static String GET_ROLE_PERMISSION_LIST(Object role) {
+        return "SELECT " +
+                "DISTINCT p.Permission AS permissions " +
+                "FROM config_permissions p " +
+                "JOIN ( " +
+                "SELECT crp.Role, GROUP_CONCAT(permissions.permission ORDER BY permissions.position) AS concatenated_string "
+                +
+                "FROM config_role_permission crp " +
+                "CROSS JOIN JSON_TABLE( " +
+                "JSON_UNQUOTE(JSON_EXTRACT(crp.PermissionID, '$.permissions[*]')), " +
+                "'$[*]' COLUMNS (permission INT PATH '$', position FOR ORDINALITY) " +
+                ") AS permissions " +
+                "GROUP BY crp.Role " +
+                ") AS crp ON FIND_IN_SET(p.PermissionID, crp.concatenated_string) " +
+                " WHERE crp.Role IN (" + role + ")";
     }
 
-    // GET_ROLE_PERMISSION_LIST - Complex aggregation with $lookup
-    public static List<Bson> GET_ROLE_PERMISSION_LIST_PIPELINE(List<String> roles) {
-        // This requires aggregation pipeline with $lookup (JOIN equivalent)
-        // Original SQL uses CROSS JOIN with JSON_TABLE and GROUP_CONCAT
-        // MongoDB equivalent uses $lookup and $unwind
-
-        return Arrays.asList(
-                Aggregates.match(Filters.in("Role", roles)),
-                Aggregates.lookup("config_permissions", "PermissionID", "PermissionID", "permissions"),
-                Aggregates.unwind("$permissions"),
-                Aggregates.project(Projections.fields(
-                        Projections.include("permissions.Permission")
-                )),
-                Aggregates.group(null,
-                        Accumulators.addToSet("permissions", "$permissions.Permission"))
-        );
+    public static String GET_STATION_MASTER_LIST() {
+        return "SELECT station FROM config_station_master where station in (?,?) and route = ? ";
     }
 
-    // GET_STATION_MASTER_LIST
-    public static Bson GET_STATION_MASTER_LIST_FILTER(String station1, String station2, String route) {
-        return Filters.and(
-                Filters.in("station", Arrays.asList(station1, station2)),
-                Filters.eq("route", route)
-        );
+    public static String GET_PARAMETER_VALUES() {
+        return "SELECT parameterValue FROM rm_parameter_values WHERE parameterKey = ?";
     }
 
-    public static Document GET_STATION_MASTER_LIST_PROJECTION() {
-        return new Document("station", 1).append("_id", 0);
+    public static String GET_COLUMN_HEADERS() {
+        return "SELECT columns FROM config_column_names WHERE tableName = ?";
     }
 
-    // GET_PARAMETER_VALUES
-    public static Bson GET_PARAMETER_VALUES_FILTER(String parameterKey) {
-        return Filters.eq("parameterKey", parameterKey);
+    public static String GET_CURRENT_INPUT_STATUS() {
+        return "SELECT * FROM inputs_status where name = ? and is_running = '1'";
     }
 
-    public static Document GET_PARAMETER_VALUES_PROJECTION() {
-        return new Document("parameterValue", 1).append("_id", 0);
+    public static String INSERT_FILE_UPLOAD() {
+        return "INSERT INTO file_upload_audit (tableName, curr_version, start_time, userName) VALUE (?,?,?,?)";
     }
 
-    // GET_COLUMN_HEADERS
-    public static Bson GET_COLUMN_HEADERS_FILTER(String tableName) {
-        return Filters.eq("tableName", tableName);
+    public static String DELETE_TABLE(String tableName) {
+        return "drop table " + tableName;
     }
 
-    public static Document GET_COLUMN_HEADERS_PROJECTION() {
-        return new Document("columns", 1).append("_id", 0);
+    public static String GET_INPUT_STATUS_COUNT() {
+        return "SELECT count(*) as count FROM inputs_status where name = ?";
     }
 
-    // GET_CURRENT_INPUT_STATUS
-    public static Bson GET_CURRENT_INPUT_STATUS_FILTER(String name) {
-        return Filters.and(
-                Filters.eq("name", name),
-                Filters.eq("is_running", "1")
-        );
+    public static String UPDATE_INPUT_STATUS() {
+        return "UPDATE inputs_status SET is_running = ? WHERE name = ?";
     }
 
-    // INSERT_FILE_UPLOAD
-    public static Document INSERT_FILE_UPLOAD_DOC(
-            String tableName, String currVersion,
-            String startTime, String userName) {
-        return new Document("tableName", tableName)
-                .append("curr_version", currVersion)
-                .append("start_time", startTime)
-                .append("userName", userName);
+    public static String COPY_DATA_INTO_MAIN_TABLE(String tableName, String tempTableName) {
+        return "insert into " + tableName + " select * from " + tempTableName;
     }
 
-    // DELETE_TABLE - In MongoDB, this would be dropping a collection
-    public static String DELETE_COLLECTION(String collectionName) {
-        // Use: database.getCollection(collectionName).drop();
-        return collectionName;
+    public static String INSERT_INPUT_STATUS() {
+        return "INSERT INTO inputs_status (is_running,name) VALUES (b'1',?)";
     }
 
-    // GET_INPUT_STATUS_COUNT
-    public static Bson GET_INPUT_STATUS_COUNT_FILTER(String name) {
-        return Filters.eq("name", name);
+    public static String UPDATE_FILE_UPLOAD() {
+        return "UPDATE file_upload_audit SET end_time = ? WHERE curr_version = ? AND tableName = ?";
     }
 
-    // UPDATE_INPUT_STATUS
-    public static Bson UPDATE_INPUT_STATUS_FILTER(String tableName) {
-        return Filters.eq("name", tableName);
+    public static String GET_CURRENT_VERSION_COUNT() {
+        return "SELECT count(*) as count FROM currentVersion where tableName = ?";
     }
 
-    public static Bson UPDATE_INPUT_STATUS_UPDATE(int value) {
-        return Updates.set("is_running", String.valueOf(value));
+    public static String UPDATE_CURRENT_VERSION() {
+        return "UPDATE currentVersion SET curr_version = ? WHERE tableName = ?";
     }
 
-    // COPY_DATA_INTO_MAIN_TABLE
-    // In MongoDB, this would be done programmatically by reading from temp collection
-    // and inserting into main collection, or using aggregation $out/$merge
-    public static String COPY_DATA_INTO_MAIN_COLLECTION(String collectionName, String tempCollectionName) {
-        // Use aggregation:
-        // database.getCollection(tempCollectionName).aggregate(
-        //     Arrays.asList(Aggregates.out(collectionName))
-        // )
-        return collectionName;
+    public static String INSERT_CURRENT_VERSION() {
+        return "INSERT INTO currentVersion (curr_version,tableName) VALUES (?,?)";
     }
 
-    // INSERT_INPUT_STATUS
-    public static Document INSERT_INPUT_STATUS_DOC(String name) {
-        return new Document("is_running", "1")
-                .append("name", name);
-    }
-
-    // UPDATE_FILE_UPLOAD
-    public static Bson UPDATE_FILE_UPLOAD_FILTER(String currVersion, String tableName) {
-        return Filters.and(
-                Filters.eq("curr_version", currVersion),
-                Filters.eq("tableName", tableName)
-        );
-    }
-
-    public static Bson UPDATE_FILE_UPLOAD_UPDATE(String endTime) {
-        return Updates.set("end_time", endTime);
-    }
-
-    // GET_CURRENT_VERSION_COUNT
-    public static Bson GET_CURRENT_VERSION_COUNT_FILTER(String tableName) {
-        return Filters.eq("tableName", tableName);
-    }
-
-    // UPDATE_CURRENT_VERSION
-    public static Bson UPDATE_CURRENT_VERSION_FILTER(String tableName) {
-        return Filters.eq("tableName", tableName);
-    }
-
-    public static Bson UPDATE_CURRENT_VERSION_UPDATE(String currVersion) {
-        return Updates.set("curr_version", currVersion);
-    }
-
-    // INSERT_CURRENT_VERSION
-    public static Document INSERT_CURRENT_VERSION_DOC(String currVersion, String tableName) {
-        return new Document("curr_version", currVersion)
-                .append("tableName", tableName);
-    }
-
-    // GET_STRATEGY_GRID_TIME - Complex aggregation with pivot
-    public static List<Bson> GET_STRATEGY_GRID_TIME_PIPELINE(int limit, String value) {
-        List<Bson> pipeline = new ArrayList<>();
-
-        // Match stage (WHERE clause)
+    public static String GET_STRATEGY_GRID_TIME(int limit, String value) {
+        String condition = " ";
         if (value != null) {
-            pipeline.add(Aggregates.match(Filters.eq("strategy", value)));
+            condition = " WHERE strategy = '" + value + "'";
         }
-
-        // Lookup to join with ndo_bands
-        pipeline.add(Aggregates.lookup("ndo_bands", "ndo_band", "ndo_band", "ndo_data"));
-        pipeline.add(Aggregates.unwind("$ndo_data"));
-
-        // Group and create pivot-like structure
-        Document groupFields = new Document("channel", "$channel")
-                .append("strategy", "$strategy")
-                .append("Band", "$ndo_band");
-
-        Document groupAccumulators = new Document("_id", groupFields)
-                .append("Decision", new Document("$literal", "Time"));
-
-        // Add dynamic fields for each dplf_band (0 to limit-1)
-        for (int i = 0; i < limit; i++) {
-            groupAccumulators.append(String.valueOf(i),
-                    new Document("$max",
-                            new Document("$cond", Arrays.asList(
-                                    new Document("$eq", Arrays.asList("$dplf_band", i)),
-                                    "$time_range",
-                                    null
-                            ))
-                    )
-            );
-        }
-
-        pipeline.add(new Document("$group", groupAccumulators));
-
-        // Project to flatten structure
-        Document projectFields = new Document("_id", 0)
-                .append("channel", "$_id.channel")
-                .append("strategy", "$_id.strategy")
-                .append("Decision", "$Decision")
-                .append("Band", "$_id.Band");
+        StringBuilder query = new StringBuilder()
+                .append("SELECT channel, strategy, ")
+                .append("'Time' AS Decision, ")
+                .append("case when s.ndo_band = n.ndo_band then n.ndo_band end as Band, ");
 
         for (int i = 0; i < limit; i++) {
-            projectFields.append(String.valueOf(i), "$" + i);
+            query.append(" MAX(IF(dplf_band = ").append(i).append(", time_range, NULL)) AS '").append(i).append("' ");
+            if (i < limit - 1) {
+                query.append(",");
+            }
         }
-
-        pipeline.add(Aggregates.project(projectFields));
-
-        return pipeline;
+        query.append(" FROM d1_d2_strategies s INNER JOIN ndo_bands n ON n.ndo_band=s.ndo_band ")
+                .append(condition)
+                .append(" GROUP BY strategy, Band, channel ");
+        return query.toString();
     }
 
-    // GET_STRATEGY_GRID_CRITERIA
-    public static List<Bson> GET_STRATEGY_GRID_CRITERIA_PIPELINE(int limit, String value) {
-        List<Bson> pipeline = new ArrayList<>();
-
+    public static String GET_STRATEGY_GRID_CRITERIA(int limit, String value) {
+        String condition = " ";
         if (value != null) {
-            pipeline.add(Aggregates.match(Filters.eq("strategy", value)));
+            condition = " WHERE strategy = '" + value + "'";
         }
-
-        pipeline.add(Aggregates.lookup("ndo_bands", "ndo_band", "ndo_band", "ndo_data"));
-        pipeline.add(Aggregates.unwind("$ndo_data"));
-
-        Document groupFields = new Document("channel", "$channel")
-                .append("strategy", "$strategy")
-                .append("Band", "$ndo_band");
-
-        Document groupAccumulators = new Document("_id", groupFields)
-                .append("Decision", new Document("$literal", "Criteria"));
+        StringBuilder query = new StringBuilder()
+                .append("SELECT channel, strategy, ")
+                .append("'Criteria' AS Decision, ")
+                .append("case when s.ndo_band = n.ndo_band then n.ndo_band end as Band, ");
 
         for (int i = 0; i < limit; i++) {
-            groupAccumulators.append(String.valueOf(i),
-                    new Document("$max",
-                            new Document("$cond", Arrays.asList(
-                                    new Document("$eq", Arrays.asList("$dplf_band", i)),
-                                    "$criteria",
-                                    null
-                            ))
-                    )
-            );
+            query.append(" MAX(IF(dplf_band = ").append(i).append(", criteria, NULL)) AS '").append(i).append("' ");
+            if (i < limit - 1) {
+                query.append(",");
+            }
         }
 
-        pipeline.add(new Document("$group", groupAccumulators));
-
-        Document projectFields = new Document("_id", 0)
-                .append("channel", "$_id.channel")
-                .append("strategy", "$_id.strategy")
-                .append("Decision", "$Decision")
-                .append("Band", "$_id.Band");
-
-        for (int i = 0; i < limit; i++) {
-            projectFields.append(String.valueOf(i), "$" + i);
-        }
-
-        pipeline.add(Aggregates.project(projectFields));
-
-        return pipeline;
+        query.append(" FROM d1_d2_strategies s INNER JOIN ndo_bands n ON n.ndo_band=s.ndo_band ")
+                .append(condition)
+                .append(" GROUP BY strategy, Band, channel ");
+        return query.toString();
     }
 
-    // GET_STRATEGY_GRID_OFFSET
-    public static List<Bson> GET_STRATEGY_GRID_OFFSET_PIPELINE(int limit, String value) {
-        List<Bson> pipeline = new ArrayList<>();
-
+    public static String GET_STRATEGY_GRID_OFFSET(int limit, String value) {
+        String condition = " ";
         if (value != null) {
-            pipeline.add(Aggregates.match(Filters.eq("strategy", value)));
+            condition = " WHERE strategy = '" + value + "'";
         }
-
-        pipeline.add(Aggregates.lookup("ndo_bands", "ndo_band", "ndo_band", "ndo_data"));
-        pipeline.add(Aggregates.unwind("$ndo_data"));
-
-        Document groupFields = new Document("channel", "$channel")
-                .append("strategy", "$strategy")
-                .append("Band", "$ndo_band");
-
-        Document groupAccumulators = new Document("_id", groupFields)
-                .append("Decision", new Document("$literal", "Offset"));
+        StringBuilder query = new StringBuilder()
+                .append("SELECT channel, strategy, ")
+                .append("'Offset' AS Decision, ")
+                .append("case when s.ndo_band = n.ndo_band then n.ndo_band end as Band, ");
 
         for (int i = 0; i < limit; i++) {
-            groupAccumulators.append(String.valueOf(i),
-                    new Document("$max",
-                            new Document("$cond", Arrays.asList(
-                                    new Document("$eq", Arrays.asList("$dplf_band", i)),
-                                    "$offset",
-                                    null
-                            ))
-                    )
-            );
+            query.append(" MAX(IF(dplf_band = ").append(i).append(", offset, NULL)) AS '").append(i).append("' ");
+            if (i < limit - 1) {
+                query.append(",");
+            }
         }
+        query.append(" FROM d1_d2_strategies s INNER JOIN ndo_bands n ON n.ndo_band=s.ndo_band ")
+                .append(condition)
+                .append(" GROUP BY strategy, Band, channel ");
+        return query.toString();
+    }
 
-        pipeline.add(new Document("$group", groupAccumulators));
+    public static String GET_STRATEGY_GRID(int limit, String value) {
+        return GET_STRATEGY_GRID_TIME(limit, value) +
+                "UNION ALL " +
+                GET_STRATEGY_GRID_CRITERIA(limit, value) +
+                "UNION ALL " +
+                GET_STRATEGY_GRID_OFFSET(limit, value) +
+                " ORDER BY Strategy, channel, Decision, Band ";
+    }
 
-        Document projectFields = new Document("_id", 0)
-                .append("channel", "$_id.channel")
-                .append("strategy", "$_id.strategy")
-                .append("Decision", "$Decision")
-                .append("Band", "$_id.Band");
-
+    public static String GET_AUTO_B2B_FACTOR_GRID(int limit) {
+        String condition = " ";
+        StringBuilder query = new StringBuilder("""
+                SELECT name, ndo_band, forecast_band,
+            """);
         for (int i = 0; i < limit; i++) {
-            projectFields.append(String.valueOf(i), "$" + i);
+            query.append(" MAX(CASE WHEN dplf_band = ").append(i).append(" THEN b2b_factor END) AS'").append(i).append("' ");
+            if (i < limit - 1) {
+                query.append(",");
+            }
         }
-
-        pipeline.add(Aggregates.project(projectFields));
-
-        return pipeline;
+        query.append(" FROM `QP_DW_RMALLOC`.`auto_b2b_factor` ")
+                .append(condition)
+                .append(" GROUP BY name, ndo_band, forecast_band");
+        return query.toString();
     }
 
-    // GET_STRATEGY_GRID - UNION ALL equivalent using $unionWith
-    public static List<Bson> GET_STRATEGY_GRID_PIPELINE(int limit, String value) {
-        // MongoDB 4.4+ supports $unionWith for UNION ALL equivalent
-        List<Bson> pipeline = new ArrayList<>();
-
-        // First get time data
-        pipeline.addAll(GET_STRATEGY_GRID_TIME_PIPELINE(limit, value));
-
-        // Union with criteria data
-        pipeline.add(new Document("$unionWith",
-                new Document("coll", "d1_d2_strategies")
-                        .append("pipeline", GET_STRATEGY_GRID_CRITERIA_PIPELINE(limit, value))
-        ));
-
-        // Union with offset data
-        pipeline.add(new Document("$unionWith",
-                new Document("coll", "d1_d2_strategies")
-                        .append("pipeline", GET_STRATEGY_GRID_OFFSET_PIPELINE(limit, value))
-        ));
-
-        // Sort the combined results
-        pipeline.add(Aggregates.sort(
-                Sorts.orderBy(
-                        Sorts.ascending("strategy"),
-                        Sorts.ascending("channel"),
-                        Sorts.ascending("Decision"),
-                        Sorts.ascending("Band")
-                )
-        ));
-
-        return pipeline;
+    public static String INPUT_FILE_UPLOAD_INSERT() {
+        return "SELECT tableName, role, username, name, init_timestamp, route_for_adhoc " +
+                "FROM inputs_file_upload " +
+                "WHERE obj_id = ?";
     }
 
-    // GET_AUTO_B2B_FACTOR_GRID
-    public static List<Bson> GET_AUTO_B2B_FACTOR_GRID_PIPELINE(int limit) {
-        List<Bson> pipeline = new ArrayList<>();
-
-        Document groupFields = new Document("name", "$name")
-                .append("ndo_band", "$ndo_band")
-                .append("forecast_band", "$forecast_band");
-
-        Document groupAccumulators = new Document("_id", groupFields);
-
-        for (int i = 0; i < limit; i++) {
-            groupAccumulators.append(String.valueOf(i),
-                    new Document("$max",
-                            new Document("$cond", Arrays.asList(
-                                    new Document("$eq", Arrays.asList("$dplf_band", i)),
-                                    "$b2b_factor",
-                                    null
-                            ))
-                    )
-            );
-        }
-
-        pipeline.add(new Document("$group", groupAccumulators));
-
-        Document projectFields = new Document("_id", 0)
-                .append("name", "$_id.name")
-                .append("ndo_band", "$_id.ndo_band")
-                .append("forecast_band", "$_id.forecast_band");
-
-        for (int i = 0; i < limit; i++) {
-            projectFields.append(String.valueOf(i), "$" + i);
-        }
-
-        pipeline.add(Aggregates.project(projectFields));
-
-        return pipeline;
+    public static String INPUT_FILE_UPLOAD_UPDATE() {
+        return "UPDATE inputs_file_upload " +
+                "SET status= ?, inprogress_timestamp = ? " +
+                "WHERE obj_id = ?";
     }
 
-    // INPUT_FILE_UPLOAD_INSERT
-    public static Bson INPUT_FILE_UPLOAD_INSERT_FILTER(String objId) {
-        return Filters.eq("obj_id", objId);
+    public static String INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE() {
+        return "UPDATE inputs_file_upload " +
+                "SET status= ?, done_timestamp = ?, total_rows= ?, total_time_taken=? " +
+                "WHERE obj_id = ?";
     }
 
-    public static Document INPUT_FILE_UPLOAD_INSERT_PROJECTION() {
-        return new Document("tableName", 1)
-                .append("role", 1)
-                .append("username", 1)
-                .append("name", 1)
-                .append("init_timestamp", 1)
-                .append("route_for_adhoc", 1)
-                .append("_id", 0);
+    public static String INPUT_FILE_UPLOAD_ERROR_OCCURRED() {
+        return "UPDATE inputs_file_upload " +
+                "SET errors = ? " +
+                "WHERE obj_id = ?";
     }
 
-    // INPUT_FILE_UPLOAD_UPDATE
-    public static Bson INPUT_FILE_UPLOAD_UPDATE_FILTER(String objId) {
-        return Filters.eq("obj_id", objId);
+    public static String COUNT_OF_RECORDS(String tableName) {
+        return "SELECT COUNT(*) AS count FROM " + tableName;
     }
 
-    public static Bson INPUT_FILE_UPLOAD_UPDATE_UPDATE(String status, String inprogressTimestamp) {
-        return Updates.combine(
-                Updates.set("status", status),
-                Updates.set("inprogress_timestamp", inprogressTimestamp)
-        );
+    public static String GET_USER_SECTOR_MAP(String user) {
+        return "SELECT " + user + " as user from config_user_sector_map where sector= ?";
     }
 
-    // INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE
-    public static Bson INPUT_FILE_UPLOAD_TIME_TAKEN_UPDATE_UPDATE(
-            String status, String doneTimestamp, int totalRows, String totalTimeTaken) {
-        return Updates.combine(
-                Updates.set("status", status),
-                Updates.set("done_timestamp", doneTimestamp),
-                Updates.set("total_rows", totalRows),
-                Updates.set("total_time_taken", totalTimeTaken)
-        );
+    public static String INSERT_INTO_MARKET_LIST_SALESINV(String tableName) {
+        return "INSERT INTO " + tableName + " (Origin, Destin, FlightNumber, PerStart, PerEnd, DOW, CurveID, saleflag) VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
     }
 
-    // INPUT_FILE_UPLOAD_ERROR_OCCURRED
-    public static Bson INPUT_FILE_UPLOAD_ERROR_OCCURRED_UPDATE(String errors) {
-        return Updates.set("errors", errors);
+    public static String INSERT_INTO_ML_AUDIT_LOGS() {
+        return "INSERT IGNORE INTO `ml_audit_logs` (`sector`, `date`, `flightNo`, `userName`, `changedAt`) VALUES (?, ?, ?, ?, ?)";
     }
 
-    // COUNT_OF_RECORDS - Use collection.countDocuments()
-    public static long COUNT_OF_RECORDS(String collectionName) {
-        // Use: database.getCollection(collectionName).countDocuments();
-        return 0; // Placeholder
-    }
-
-    // GET_USER_SECTOR_MAP
-    public static Bson GET_USER_SECTOR_MAP_FILTER(String user, String sector) {
-        return Filters.eq("sector", sector);
-    }
-
-    public static Document GET_USER_SECTOR_MAP_PROJECTION(String user) {
-        return new Document(user, 1).append("_id", 0);
-    }
-
-    // INSERT_INTO_MARKET_LIST_SALESINV
-    public static Document INSERT_INTO_MARKET_LIST_SALESINV_DOC(
-            String origin, String destin, String flightNumber,
-            String perStart, String perEnd, String dow,
-            String curveID, String saleflag) {
-        return new Document("Origin", origin)
-                .append("Destin", destin)
-                .append("FlightNumber", flightNumber)
-                .append("PerStart", perStart)
-                .append("PerEnd", perEnd)
-                .append("DOW", dow)
-                .append("CurveID", curveID)
-                .append("saleflag", saleflag);
-    }
-
-    // INSERT_INTO_ML_AUDIT_LOGS
-    public static Document INSERT_INTO_ML_AUDIT_LOGS_DOC(
-            String sector, String date, String flightNo,
-            String userName, String changedAt) {
-        return new Document("sector", sector)
-                .append("date", date)
-                .append("flightNo", flightNo)
-                .append("userName", userName)
-                .append("changedAt", changedAt);
-    }
-
-    // For INSERT IGNORE behavior, use updateOne with upsert option
-    public static Bson INSERT_INTO_ML_AUDIT_LOGS_FILTER(
-            String sector, String date, String flightNo,
-            String userName, String changedAt) {
-        return Filters.and(
-                Filters.eq("sector", sector),
-                Filters.eq("date", date),
-                Filters.eq("flightNo", flightNo),
-                Filters.eq("userName", userName),
-                Filters.eq("changedAt", changedAt)
-        );
-    }
 }

@@ -24,7 +24,7 @@ class ActionSectors:
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
         self.constants = ConstantsUtils(self.db)
-        self.pa_helper = ActionPAHelper(self.db, logger)
+        self.pa_helper = ActionPAHelper(self.db, self.db_fares, logger)
         self.nav_helper = ActionNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
@@ -56,7 +56,7 @@ class ActionSectors:
                 self.tax_master_intl_data = self.pa_helper.collect_tax_master_international()
             
             # Collect market fares based on route
-            self.market_fares_data = self.pa_helper.collect_market_fares(self.route,self.db_fares)
+            self.market_fares_data = self.pa_helper.collect_market_fares(self.route)
             
             return True
             
@@ -568,8 +568,8 @@ class ActionSectors:
             self.currentVersion = self.pa_helper.get_current_version()
             
             # Create initial audit record with IN_PROGRESS status
-            run_id = str(uuid.uuid4())
-            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, None, is_initial=True)
+            self.run_id = str(uuid.uuid4())
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, self.run_id, None, is_initial=True)
             
             # Collect all data
             self.collect_all_data()
@@ -578,10 +578,10 @@ class ActionSectors:
             actionable_sectors = self.generate_actionable_sectors()
             
             # Save to database
-            table_name = self.pa_helper.save_actionable_sectors_to_database(self.route, self.analystName, actionable_sectors, run_id)
+            table_name = self.pa_helper.save_actionable_sectors_to_database(self.route, self.analystName, actionable_sectors, self.run_id)
             
             # Update audit record with final results
-            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, actionable_sectors, status='SUCCESS')
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, self.run_id, actionable_sectors, status='SUCCESS')
             
             # Log summary
             route_desc = "Domestic" if self.route == 'D' else "International"
@@ -589,7 +589,7 @@ class ActionSectors:
             return {
                 'actionable_sectors': actionable_sectors,
                 'table_name': table_name,
-                'run_id': run_id,
+                'run_id': self.run_id,
                 'route': self.route,
                 'route_description': route_desc,
                 'summary': {
@@ -603,5 +603,5 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
             # Update audit with FAILED status
-            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, run_id, None, status='FAILED', is_initial=False)
+            self.pa_helper.save_run_audit(self.currentVersion, self.route, self.analystName, self.start_time, self.run_id, None, status='FAILED', is_initial=False)
             raise

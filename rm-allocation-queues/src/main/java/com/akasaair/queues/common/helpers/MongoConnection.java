@@ -6,31 +6,49 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.connection.ConnectionPoolSettings;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
+@Component
+@Configuration
 public class MongoConnection {
 
-    // MongoDB connection string from environment variables
-    private static final String MONGO_URI = System.getenv("RM_MONGO_URI");
-    // Example format: mongodb://username:password@host:port/database
-    // or mongodb+srv://username:password@cluster.mongodb.net/database
+    @Value("${rm.db.host}")
+    private String host;
 
-    private static final String DATABASE_NAME = System.getenv("RM_DB_NAME");
+    @Value("${rm.db.port}")
+    private int port;
+
+    @Value("${rm.db.username}")
+    private String username;
+
+    @Value("${RM_MONGO_PASSWORD}")
+    private String password;
+
+    @Value("${rm.db.dbname}")
+    private String databaseName;
+
+    @Value("${rm.db.auth-source}")
+    private String authSource;
 
     // Singleton MongoClient instance (thread-safe with built-in connection pooling)
     private static volatile MongoClient mongoClient;
- public static volatile MongoDatabase database;
+    public static volatile MongoDatabase database;
 
     // Private constructor to prevent instantiation
-    private MongoConnection() {
+    public MongoConnection() {
     }
 
     /**
      * Get the singleton MongoClient instance with connection pooling
      * MongoClient is thread-safe and manages its own connection pool
      */
-    public static MongoClient getClient() {
+    public MongoClient getClient() {
         if (mongoClient == null) {
             synchronized (MongoConnection.class) {
                 if (mongoClient == null) {
@@ -45,11 +63,11 @@ public class MongoConnection {
      * Get the database instance
      * This is lightweight and can be called multiple times
      */
-    public static MongoDatabase getDatabase() {
+    public MongoDatabase getDatabase() {
         if (database == null) {
             synchronized (MongoConnection.class) {
                 if (database == null) {
-                    database = getClient().getDatabase(DATABASE_NAME);
+                    database = getClient().getDatabase(databaseName);
                 }
             }
         }
@@ -59,8 +77,14 @@ public class MongoConnection {
     /**
      * Create MongoClient with custom connection pool settings
      */
-    private static MongoClient createMongoClient() {
-        ConnectionString connectionString = new ConnectionString(MONGO_URI);
+    private MongoClient createMongoClient() {
+        String encodedPassword = URLEncoder.encode(password, StandardCharsets.UTF_8);
+        String mongoUri = String.format(
+                "mongodb://%s:%s@%s:%d/?authSource=%s",
+                username, encodedPassword, host, port, authSource
+        );
+
+        ConnectionString connectionString = new ConnectionString(mongoUri);
 
         // Configure connection pool settings
         ConnectionPoolSettings poolSettings = ConnectionPoolSettings.builder()

@@ -1,0 +1,1 @@
+mvn clean package -DskipTests || exit 1

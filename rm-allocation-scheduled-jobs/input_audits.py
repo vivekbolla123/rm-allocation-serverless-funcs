@@ -345,7 +345,7 @@ class S3CsvCombiner:
         # Integrate ML data with the audit counts
         final_df = self.process_ml_data_integration(audit_df)
         final_df['date'] = pd.to_datetime(final_df['date'])
-        final_df['date'] = final_df['date'].dt.strftime('%Y-%m-%d')
+        
         # Save final report to MongoDB
         self.save_dataframe_to_mongodb(final_df, self.summary_collection_name, replace=True)
         

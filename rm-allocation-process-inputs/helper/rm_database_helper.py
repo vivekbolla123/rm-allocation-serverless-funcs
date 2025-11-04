@@ -1212,30 +1212,56 @@ class RMDatabaseHelper:
             
             # Stage to convert the 'created_at' string to a date object.
         
-            date_conversion_stage = {
-                "$set": {
-                    "created_at": {
-                        "$dateFromString": {
-                            "dateString": "$created_at",
-                            "format": "%Y-%m-%d %H:%M:%S"  # <-- EXAMPLE: "2023-10-27 15:45:00"
-                        }
-                    }
-                }
-            }
+            # date_conversion_stage = {
+            #     "$set": {
+            #         "created_at": {
+            #             "$dateFromString": {
+            #                 "dateString": "$created_at",
+            #                 "format": "%Y-%m-%d %H:%M:%S"  # <-- EXAMPLE: "2023-10-27 15:45:00"
+            #             }
+            #         }
+            #     }
+            # }
 
             # Build the main matching conditions
             match_conditions = {
-                "source_airport": origin,
-                "destination_airport": destination,
-                "channel": channel,
-                "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
-                "outbound_stop": {"$lte": f"{outBoundStop}"},
-                "outbound_duration": {"$lte": int(outboundDuration)},
-                "departure_date": {
-                    "$gte": start_of_day,
-                    "$lte": end_of_day
-                }
+    "source_airport": origin,
+    "destination_airport": destination,
+    "channel": channel,
+    "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
+    "departure_date": {
+        "$gte": start_of_day,
+        "$lte": end_of_day
+    },
+    "$expr": {
+        "$and": [
+            {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_duration"}, "string"]},
+                            "then": {"$toDouble": "$outbound_duration"},
+                            "else": "$outbound_duration"
+                        }
+                    },
+                    float(outboundDuration)
+                ]
+            },
+            {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_stop"}, "string"]},
+                            "then": {"$toInt": "$outbound_stop"},
+                            "else": "$outbound_stop"
+                        }
+                    },
+                    int(outBoundStop)
+                ]
             }
+        ]
+    }
+}
             
             # Add time interval condition for non-test data (matches SQL's INTERVAL 2 DAY)
             if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
@@ -1246,7 +1272,7 @@ class RMDatabaseHelper:
             projection = {
                 "_id": 0,
                 "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
-                "currency": "$Currency", "destination_airport": 1, "source_airport": 1,
+                "currency": 1, "destination_airport": 1, "source_airport": 1,
                 "channel": 1, "outbound_departuretime": 1, "departure_date": 1,
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
@@ -1258,7 +1284,7 @@ class RMDatabaseHelper:
             if ag_exists:
                 try:
                     ag_pipeline = [
-                        date_conversion_stage,
+                        
                         {"$match": match_conditions},
                          {"$addFields": {
         "gross_fare": {
@@ -1287,7 +1313,7 @@ class RMDatabaseHelper:
             if rg_exists:
                 try:
                     rg_pipeline = [
-                        date_conversion_stage,
+                        
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "RG",
@@ -1886,8 +1912,8 @@ class RMDatabaseHelper:
 
             sector1_total = sector1_result["TOTAL"]
             sector2_total = sector2_result["TOTAL"]
-            currency1 = sector1_result["Currency"]
-            currency2 = sector2_result["Currency"]
+            currency1 = sector1_result["currency"]
+            currency2 = sector2_result["currency"]
             total = sector1_total + sector2_total
 
             return total, sector1_total, sector2_total, currency1, currency2

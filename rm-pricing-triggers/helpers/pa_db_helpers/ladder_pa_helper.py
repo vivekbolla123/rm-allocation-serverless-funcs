@@ -6,7 +6,7 @@ from bson import ObjectId
 class LadderPAHelper:
     """Handles Ladder Pricing/Analytics-related database operations using MongoDB."""
     
-    def __init__(self, mongo_db, logger, calculate_all_in_fare_func=None):
+    def __init__(self, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
         """
         Initialize with MongoDB database instance.
         
@@ -16,6 +16,7 @@ class LadderPAHelper:
             calculate_all_in_fare_func: Function to calculate all-in fares
         """
         self.db = mongo_db
+        self.fares_db = fares_db
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
@@ -113,6 +114,11 @@ class LadderPAHelper:
             pipeline = [
                 {'$match': match_stage},
                 # Get latest record per airline/channel using $sort and $group
+                {
+                    '$addFields': {
+                        'gross_fare': {'$toDouble': '$gross_fare'}
+                    }
+                },
                 {'$sort': {'created_at': -1}},
                 {
                     '$group': {
@@ -168,10 +174,10 @@ class LadderPAHelper:
             
             # Collect from both collections
             self.logger.info(f"Collecting market fares for sector {sector} from market_fares_ag...")
-            ag_data = list(self.db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
             
             self.logger.info(f"Collecting market fares for sector {sector} from market_fares_rg...")
-            rg_data = list(self.db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
             
             # Combine data
             combined_data = ag_data + rg_data
