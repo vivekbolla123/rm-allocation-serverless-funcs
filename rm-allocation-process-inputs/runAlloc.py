@@ -717,7 +717,7 @@ class DynAlloc:
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 					self.outputSummaryRow_b2c.mktFile = himktFileb2c
-				elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
+				elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 					self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 				
@@ -752,7 +752,7 @@ class DynAlloc:
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 												overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val, 
-												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band
+												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 											)
 
 				# Get B2C Opening Price for potential B2B derivation
@@ -769,7 +769,7 @@ class DynAlloc:
 					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]: 
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Max
 						self.outputSummaryRow_b2b.mktFile = himktFileb2b
-					elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]: 
+					elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]: 
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
 						self.outputSummaryRow_b2b.mktFile = lowmktFileb2b
 					elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min): 
@@ -782,7 +782,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 						)
 				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA and not (self.B2B_thresholdflag):
 					# b2b_discount_fare_active = True 
@@ -805,7 +805,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance,final_plf,
 							overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 						) 
 				else: 
 					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable or b2b threshold hit'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
