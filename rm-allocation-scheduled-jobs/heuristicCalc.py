@@ -10,6 +10,8 @@ from pathlib import Path
 import configsettings as config
 from pymongo import MongoClient, UpdateOne
 from bson import ObjectId
+from pymongo import MongoClient, UpdateOne
+from bson import ObjectId
 
 
 class FareAnalysisConfig:
@@ -19,6 +21,7 @@ class FareAnalysisConfig:
     SMOOTHING_WINDOW = 5
     ANALYSIS_PERIOD_DAYS = 365
     CUTOFF_BUFFER_DAYS = 15
+    START_BUFFER_DAYS = 14
     START_BUFFER_DAYS = 14
     BATCH_SIZE = 1000
     VALIDATION_SAMPLE_SIZE = 100
@@ -40,7 +43,10 @@ class FareStatisticalAnalysis:
     
     def __init__(self, logger, params, overrides, context):
         """Initialize with MongoDB connection and configuration."""
+        """Initialize with MongoDB connection and configuration."""
         self.logger = logger
+        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
+        self.db = self.mongo_conn["qp_dw_rmalloc"]  # MongoDB database
         self.mongo_conn = params['mongoconn']  # Single MongoDB connection
         self.db = self.mongo_conn["qp_dw_rmalloc"]  # MongoDB database
         self.s3_client = params['s3']
@@ -184,9 +190,74 @@ class FareStatisticalAnalysis:
         except Exception as e:
             self.logger.error(f"Error fetching holidays from MongoDB: {e}")
             return pd.DataFrame()
+        """Fetch holidays from config_holiday_list collection."""
+        try:
+            collection = self.db['config_holiday_list']
+            
+            # Calculate date range
+            start_date = datetime.now() - timedelta(days=365)
+            end_date = datetime.now() + timedelta(days=365)
+            
+            query = {
+                'Date': {
+                    '$gte': start_date,
+                    '$lte': end_date
+                }
+            }
+            
+            projection = {
+                '_id': 0,
+                'Date': 1,
+                'Holiday': 1
+            }
+            
+            cursor = collection.find(query, projection).sort('Date', 1)
+            holidays_df = pd.DataFrame(list(cursor))
+            
+            if not holidays_df.empty:
+                holidays_df.rename(columns={'Date': 'holiday_date', 'Holiday': 'holiday_name'}, inplace=True)
+                holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
+            
+            return holidays_df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching holidays from MongoDB: {e}")
+            return pd.DataFrame()
 
     def _fetch_profile_fares(self) -> pd.DataFrame:
         """Fetch profile fares data for upsell calculation."""
+        try:
+            collection = self.db['config_profile_fares']
+            
+            # MongoDB aggregation pipeline
+            pipeline = [
+                {
+                    '$group': {
+                        '_id': {
+                            'sector': '$sector',
+                            'month': '$month',
+                            'dow': '$dow'
+                        },
+                        'Q10': {'$sum': {'$divide': ['$Q10', 6]}}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'sector': '$_id.sector',
+                        'month': '$_id.month',
+                        'dow': '$_id.dow',
+                        'Q10': 1
+                    }
+                }
+            ]
+            
+            cursor = collection.aggregate(pipeline)
+            return pd.DataFrame(list(cursor))
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching profile fares from MongoDB: {e}")
+            return pd.DataFrame()
         try:
             collection = self.db['config_profile_fares']
             
@@ -338,6 +409,7 @@ class FareStatisticalAnalysis:
             operational_output['rolling_avg'].notna()
         ].copy()
         
+        # Process non-operational days
         # Process non-operational days
         non_operational_output = self._process_non_operational_days(non_operational_df)
         
@@ -693,12 +765,14 @@ class FareStatisticalAnalysis:
     
     def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
         """Update config_profile_fare_station_upsell collection with calculated upsell values."""
+        """Update config_profile_fare_station_upsell collection with calculated upsell values."""
         start_time = time.time()
         update_results = {
             "status": "not_attempted",
             "records_to_update": 0,
             "records_updated": 0,
             "records_inserted": 0,
+            "records_skipped": 0,
             "records_skipped": 0,
             "records_failed": 0,
             "execution_time_seconds": 0
@@ -730,6 +804,7 @@ class FareStatisticalAnalysis:
         except Exception as e:
             update_results["status"] = "error"
             update_results["error"] = str(e)
+            self.logger.error(f"Error updating upsell collection: {str(e)}")
             self.logger.error(f"Error updating upsell collection: {str(e)}")
         
         finally:
@@ -769,6 +844,7 @@ class FareStatisticalAnalysis:
             {
                 'sector': row['Sector'],
                 'date': row['date_formatted'],
+                'upsell_value': row['upsell_percentage']  # Formatted percentage string
                 'upsell_value': row['upsell_percentage']  # Formatted percentage string
             }
             for _, row in upsell_data.iterrows()
@@ -896,6 +972,7 @@ class FareStatisticalAnalysis:
             validation_results["sample_size"] = len(sample_data)
             
             collection = self.db['config_profile_fare_station_upsell']
+            collection = self.db['config_profile_fare_station_upsell']
             matches = mismatches = not_found = 0
             
             for _, row in sample_data.iterrows():
@@ -904,13 +981,17 @@ class FareStatisticalAnalysis:
                 expected_percentage = row['upsell_percentage']  # Already formatted as "XX%"
                 
                 result = collection.find_one({
+                result = collection.find_one({
                     'sector': sector,
+                    'date': date_formatted
                     'date': date_formatted
                 })
                 
                 if not result:
+                if not result:
                     not_found += 1
                 else:
+                    db_value = result.get('value', '').strip()  # Remove any whitespace
                     db_value = result.get('value', '').strip()  # Remove any whitespace
                     if db_value == expected_percentage:
                         matches += 1

@@ -190,7 +190,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"calc\": 1}}"
+#   "body": "{\"modules\":{\"alloc_summary\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

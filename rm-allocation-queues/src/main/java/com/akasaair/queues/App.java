@@ -9,12 +9,10 @@ import com.akasaair.queues.common.entity.MarketListEntity;
 //import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
 import com.mongodb.MongoException;
-import com.mongodb.bulk.BulkWriteResult;
-import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.*;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.result.DeleteResult;
 import com.nimbusds.jose.shaded.json.JSONArray;
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
@@ -2340,6 +2338,8 @@ public class App implements CommandLineRunner {
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
 
+            Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
+
             if (!listOfErrors.get().isEmpty()) {
                 updateInputStatus(DATE_EVENT_TABLE_NAME);
                 error_occurred.set(1);
@@ -2376,10 +2376,8 @@ public class App implements CommandLineRunner {
             session.commitTransaction();
             error_occurred.set(0);
 
+            error_occurred.set(0);
         } catch (Exception e) {
-            if (session != null) {
-                session.abortTransaction();
-            }
             error_occurred.set(1);
             e.printStackTrace();
             throw new RuntimeException(e);
@@ -2404,7 +2402,7 @@ public class App implements CommandLineRunner {
             String dateKey = inputRow.get(dateHeader).trim();
             if (dateKey == null || dateKey.trim().isEmpty()) continue;
             if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
-                listOfErrors.get().add(dateKey + ": Date should have mm/dd/yyyy format");
+                listOfErrors.get().add(dateKey + ": Date should should have mm/dd/yyyy format");
             }
 
             for (int j = startColumn; j < inputRow.size(); j++) {
@@ -2420,8 +2418,8 @@ public class App implements CommandLineRunner {
                 String keyVal = dateKey + stationKey;
 
                 if (!(stationKey.equals("Date") || stationKey.equals("Mapped Month") || stationKey.equals("Event"))) {
-                    if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%?")))) {
-                        listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value with optional %");
+                    if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%")))) {
+                        listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value followed by %");
                     }
                 }
 
@@ -2433,149 +2431,6 @@ public class App implements CommandLineRunner {
             }
         }
         return strategyMap;
-    }
-
-    private Map<String, Document> fetchExistingUpsells(Set<String> dates) {
-        Map<String, Document> existingMap = new HashMap<>();
-
-        if (dates.isEmpty()) {
-            return existingMap;
-        }
-
-        try {
-            MongoCollection<Document> collection = database.getCollection(
-                    CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
-            );
-
-            Bson filter = Filters.in(DATE_COLUMN_NAME, dates);
-
-            for (Document doc : collection.find(filter)) {
-                String date = doc.getString(DATE_COLUMN_NAME);
-                String sector = doc.getString(SECTOR_COLUMN_NAME.toLowerCase());
-                String key = date + sector;
-                existingMap.put(key, doc);
-            }
-
-            log.info("Fetched " + existingMap.size() + " existing upsell records");
-        } catch (Exception e) {
-            log.error("Error fetching existing upsells: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return existingMap;
-    }
-
-    private void bulkUpsertDateEvents(List<Map<String, String>> data,
-                                      List<String> headers,
-                                      ClientSession session) {
-        MongoCollection<Document> collection = database.getCollection(
-                DATE_EVENT_TABLE_NAME.toLowerCase()
-        );
-
-        List<WriteModel<Document>> bulkOps = new ArrayList<>();
-
-        for (Map<String, String> dataMap : data) {
-            String date = dataMap.get(DATE_COLUMN_NAME);
-
-            // Create filter (unique key = date)
-            Bson filter = Filters.eq(DATE_COLUMN_NAME, date);
-
-            // Create document
-            Document doc = new Document();
-            for (String header : headers) {
-                doc.append(header, autoConvert(dataMap.get(header)));
-            }
-            doc.append("updatedAt", new Date());
-
-            // Upsert operation (replace entire document)
-            ReplaceOptions options = new ReplaceOptions().upsert(true);
-            bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
-        }
-
-        if (!bulkOps.isEmpty()) {
-            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
-            BulkWriteResult result = collection.bulkWrite(session, bulkOps, bulkOptions);
-            log.info("Bulk upserted " + result.getInsertedCount() + " inserted, " +
-                    result.getModifiedCount() + " modified date events");
-        }
-    }
-
-    private void bulkUpsertUpsells(Map<String, Map<String, String>> newData,
-                                   Map<String, Document> existingData,
-                                   ClientSession session) {
-        MongoCollection<Document> collection = database.getCollection(
-                CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
-        );
-
-        List<WriteModel<Document>> bulkOps = new ArrayList<>();
-
-        for (Map.Entry<String, Map<String, String>> entry : newData.entrySet()) {
-            String key = entry.getKey();
-            Map<String, String> newRecord = entry.getValue();
-
-            String date = newRecord.get(DATE_COLUMN_NAME);
-            String sector = newRecord.get(SECTOR_COLUMN_NAME.toLowerCase());
-            String newValue = newRecord.get(VALUE_COLUMN_NAME);
-
-            // Skip if sector is null or empty
-            if (sector == null || sector.trim().isEmpty()) {
-                continue;
-            }
-
-            // Handle empty values (delete operation)
-            if (newValue == null || newValue.trim().isEmpty()) {
-                Bson deleteFilter = Filters.and(
-                        Filters.eq(DATE_COLUMN_NAME, date),
-                        Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-                );
-                bulkOps.add(new DeleteOneModel<>(deleteFilter));
-                continue;
-            }
-
-            // Remove % and convert to integer string
-            String cleanValue = newValue.replaceAll("%", "").trim();
-
-            // Determine mode: Manual or System
-            String mode = "M"; // Default for analyst upload
-            Document existingDoc = existingData.get(key);
-
-            if (existingDoc != null) {
-                String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
-                String existingMode = existingDoc.getString("mode");
-
-                // If value unchanged, preserve existing mode
-                if (cleanValue.equals(existingValue)) {
-                    mode = (existingMode != null) ? existingMode : "S";
-                }
-                // If value changed, mark as Manual (mode = "M")
-            }
-
-            // Create filter (composite key = date + sector)
-            Bson filter = Filters.and(
-                    Filters.eq(DATE_COLUMN_NAME, date),
-                    Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-            );
-
-            // Create update document
-            Document updateDoc = new Document()
-                    .append(DATE_COLUMN_NAME, date)
-                    .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-                    .append(VALUE_COLUMN_NAME, cleanValue)
-                    .append("mode", mode)
-                    .append("updatedAt", new Date());
-
-            // Upsert operation
-            ReplaceOptions options = new ReplaceOptions().upsert(true);
-            bulkOps.add(new ReplaceOneModel<>(filter, updateDoc, options));
-        }
-
-        if (!bulkOps.isEmpty()) {
-            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
-            BulkWriteResult result = collection.bulkWrite(session, bulkOps, bulkOptions);
-            log.info("Bulk upserted " + result.getModifiedCount() + " modified, " +
-                    result.getInsertedCount() + " inserted, " +
-                    result.getDeletedCount() + " deleted upsells");
-        }
     }
 
     public void deletePartialSectorValues(Set<String> dates, String sector, String collectionName) {
