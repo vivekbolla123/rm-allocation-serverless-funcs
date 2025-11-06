@@ -765,7 +765,6 @@ class FareStatisticalAnalysis:
     
     def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
         """Update config_profile_fare_station_upsell collection with calculated upsell values."""
-        """Update config_profile_fare_station_upsell collection with calculated upsell values."""
         start_time = time.time()
         update_results = {
             "status": "not_attempted",
@@ -831,46 +830,69 @@ class FareStatisticalAnalysis:
         # Convert date format
         upsell_summary['date_formatted'] = pd.to_datetime(upsell_summary['next_year_date']).dt.strftime('%m/%d/%Y')
 
-        # Convert upsell to percentage format: multiply by 100, round, and add % symbol
+        # Convert upsell to percentage format: multiply by 100, round (no % sign stored in DB)
         upsell_summary['upsell_percentage'] = upsell_summary['upsell'].apply(
-            lambda x: f"{round(x * 100)}%"
+            lambda x: str(round(x * 100))  # Store as plain integer string
         )
 
         return upsell_summary
 
-    def _process_upsell_batches(self, upsell_data: pd.DataFrame) -> Tuple[int, int, int]:
-        """Process upsell data in batches."""
-        records_to_process = [
-            {
-                'sector': row['Sector'],
-                'date': row['date_formatted'],
-                'upsell_value': row['upsell_percentage']  # Formatted percentage string
-                'upsell_value': row['upsell_percentage']  # Formatted percentage string
-            }
-            for _, row in upsell_data.iterrows()
-        ]
+    def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
+        """Update config_profile_fare_station_upsell collection with calculated upsell values."""
+        start_time = time.time()
+        update_results = {
+            "status": "not_attempted",
+            "records_to_update": 0,
+            "records_updated": 0,
+            "records_inserted": 0,
+            "records_skipped_manual": 0,
+            "records_failed": 0,
+            "execution_time_seconds": 0
+        }
         
-        total_updated = total_inserted = total_failed = 0
-        
-        for i in range(0, len(records_to_process), FareAnalysisConfig.BATCH_SIZE):
-            batch = records_to_process[i:i + FareAnalysisConfig.BATCH_SIZE]
-            batch_updated, batch_inserted, batch_failed = self._process_single_upsell_batch(batch)
+        try:
+            upsell_data = self._prepare_upsell_data(statistical_df)
+            if upsell_data.empty:
+                update_results["status"] = "no_data"
+                return update_results
             
-            total_updated += batch_updated
-            total_inserted += batch_inserted
-            total_failed += batch_failed
+            update_results["records_to_update"] = len(upsell_data)
+            
+            # Process in batches
+            total_updated, total_inserted, total_failed = self._process_upsell_batches(upsell_data)
+            
+            # Calculate skipped records (Manual mode records)
+            total_processed = total_updated + total_inserted + total_failed
+            total_skipped = update_results["records_to_update"] - total_processed
+            
+            update_results.update({
+                "records_updated": total_updated,
+                "records_inserted": total_inserted,
+                "records_skipped_manual": total_skipped,
+                "records_failed": total_failed,
+                "status": "success"
+            })
+            
+        except Exception as e:
+            update_results["status"] = "error"
+            update_results["error"] = str(e)
+            self.logger.error(f"Error updating upsell collection: {str(e)}")
         
-        return total_updated, total_inserted, total_failed
+        finally:
+            update_results["execution_time_seconds"] = round(time.time() - start_time, 2)
+        
+        return update_results
 
     def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
         """
         Process a single batch of upsell records using MongoDB.
         
         Update Logic:
-        - If current upsell value has decimals: Skip update
-        - Otherwise: Always update regardless of sign or magnitude
+        - Only update records where mode = 'S' (System) or mode doesn't exist
+        - Never update records where mode = 'M' (Manual)
+        - Set mode = 'S' for all system updates
         """
-        updated_count = inserted_count = failed_count = 0
+        updated_count = inserted_count = failed_count = skipped_count = 0
         
         try:
             collection = self.db['config_profile_fare_station_upsell']
@@ -880,6 +902,9 @@ class FareStatisticalAnalysis:
                     sector = record['sector']
                     date_str = record['date']
                     upsell_percentage = record['upsell_value']  # Already formatted as "XX%"
+                    
+                    # Remove % sign and store as clean integer string
+                    clean_value = upsell_percentage.replace('%', '').strip()
                     
                     # Validate field lengths
                     if len(date_str) > 15:
@@ -892,39 +917,42 @@ class FareStatisticalAnalysis:
                         failed_count += 1
                         continue
                         
-                    if len(upsell_percentage) > 45:
-                        self.logger.error(f"Value field too long for {sector} {date_str}: {upsell_percentage} ({len(upsell_percentage)} chars)")
+                    if len(clean_value) > 45:
+                        self.logger.error(f"Value field too long for {sector} {date_str}: {clean_value} ({len(clean_value)} chars)")
                         failed_count += 1
                         continue
                     
-                    # Check if record exists
+                    # Check if record exists and get its mode
                     existing_record = collection.find_one({
                         'sector': sector,
                         'date': date_str
                     })
                     
-                    if existing_record and 'value' in existing_record:
-                        # Check if existing value has decimals
-                        existing_value_str = existing_record.get('value', '0%').strip()
-                        existing_numeric = self._extract_percentage_value(existing_value_str)
-                        
-                        # Skip update if existing value has decimals
-                        if existing_numeric != int(existing_numeric):
-                            self.logger.info(
-                                f"Skipping update for {sector} {date_str}: "
-                                f"Current value {existing_value_str} has decimals"
-                            )
-                            continue
+                    # Skip if mode is 'M' (Manual)
+                    if existing_record and existing_record.get('mode') == 'M':
+                        skipped_count += 1
+                        self.logger.info(
+                            f"Skipping update for {sector} {date_str}: "
+                            f"Record is marked as Manual (mode='M')"
+                        )
+                        continue
                     
-                    # Update or insert the record
+                    # Update only if mode = 'S' or mode doesn't exist (legacy records)
                     result = collection.update_one(
                         {
                             'sector': sector,
-                            'date': date_str
+                            'date': date_str,
+                            '$or': [
+                                {'mode': 'S'},
+                                {'mode': {'$exists': False}}
+                            ]
                         },
                         {
                             '$set': {
-                                'value': upsell_percentage
+                                'value': clean_value,  # Store without % sign
+                                'mode': 'S',
+                                'updatedAt': datetime.now(),
+                                'updatedBy': 'SYSTEM'
                             }
                         },
                         upsert=True
@@ -933,11 +961,14 @@ class FareStatisticalAnalysis:
                     if result.matched_count > 0:
                         if result.modified_count > 0:
                             updated_count += 1
-                            self.logger.info(f"Updated: {sector} {date_str} = {upsell_percentage}")
+                            self.logger.info(f"Updated: {sector} {date_str} = {clean_value} (mode=S)")
+                        else:
+                            # Matched but not modified (value was same)
+                            self.logger.info(f"No change: {sector} {date_str} = {clean_value}")
                     else:
-                        # New record inserted
+                        # New record inserted via upsert
                         inserted_count += 1
-                        self.logger.info(f"Inserted: {sector} {date_str} = {upsell_percentage}")
+                        self.logger.info(f"Inserted: {sector} {date_str} = {clean_value} (mode=S)")
                         
                 except Exception as e:
                     failed_count += 1
@@ -964,7 +995,8 @@ class FareStatisticalAnalysis:
             "sample_size": 0,
             "matches_found": 0,
             "mismatches_found": 0,
-            "records_not_found": 0
+            "records_not_found": 0,
+            "manual_records_skipped": 0
         }
         
         try:
@@ -972,37 +1004,38 @@ class FareStatisticalAnalysis:
             validation_results["sample_size"] = len(sample_data)
             
             collection = self.db['config_profile_fare_station_upsell']
-            collection = self.db['config_profile_fare_station_upsell']
-            matches = mismatches = not_found = 0
+            matches = mismatches = not_found = manual_skipped = 0
             
             for _, row in sample_data.iterrows():
                 sector = row['Sector']
                 date_formatted = row['date_formatted']
-                expected_percentage = row['upsell_percentage']  # Already formatted as "XX%"
+                expected_value = row['upsell_percentage']  # Plain integer string without %
                 
                 result = collection.find_one({
-                result = collection.find_one({
                     'sector': sector,
-                    'date': date_formatted
                     'date': date_formatted
                 })
                 
                 if not result:
-                if not result:
                     not_found += 1
                 else:
-                    db_value = result.get('value', '').strip()  # Remove any whitespace
-                    db_value = result.get('value', '').strip()  # Remove any whitespace
-                    if db_value == expected_percentage:
-                        matches += 1
+                    # Check if it was skipped due to Manual mode
+                    if result.get('mode') == 'M':
+                        manual_skipped += 1
+                        self.logger.info(f"Manual record (not updated by system): {sector} {date_formatted}")
                     else:
-                        mismatches += 1
-                        self.logger.error(f"Mismatch for {sector} {date_formatted}: Expected {expected_percentage}, Found {db_value}")
+                        db_value = result.get('value', '').strip()
+                        if db_value == expected_value:
+                            matches += 1
+                        else:
+                            mismatches += 1
+                            self.logger.error(f"Mismatch for {sector} {date_formatted}: Expected {expected_value}, Found {db_value}")
             
             validation_results.update({
                 "matches_found": matches,
                 "mismatches_found": mismatches,
                 "records_not_found": not_found,
+                "manual_records_skipped": manual_skipped,
                 "status": "success"
             })
             

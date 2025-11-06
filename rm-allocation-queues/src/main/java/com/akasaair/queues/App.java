@@ -9,10 +9,9 @@ import com.akasaair.queues.common.entity.MarketListEntity;
 //import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
 import com.mongodb.MongoException;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
+import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
 import com.mongodb.client.result.DeleteResult;
 import com.nimbusds.jose.shaded.json.JSONArray;
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
@@ -2323,7 +2322,6 @@ public class App implements CommandLineRunner {
 
     public void uploadPartialDateEvent(Reader file, String userName, String obj_id) throws RuntimeException {
         String uuid = obj_id;
-        ClientSession session = null;
 
         try {
             // 1. Audit logging
@@ -2336,8 +2334,6 @@ public class App implements CommandLineRunner {
 
             // 3. Parse and validate CSV
             List<List<String>> csvData = getDataFromCSVFile(file);
-            Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
-
             Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
 
             if (!listOfErrors.get().isEmpty()) {
@@ -2359,32 +2355,21 @@ public class App implements CommandLineRunner {
             // 5. Fetch existing upsell records to determine mode
             Map<String, Document> existingUpsells = fetchExistingUpsells(uniqueDates);
 
-            // 6. Use MongoDB transactions for atomicity
-            session = database.startSession();
-            session.startTransaction();
+            // 6. Update tables using bulk upsert
+            bulkUpsertDateEvents(dateEventData, dateEventHeaders);
+            bulkUpsertUpsells(dateEventMap, existingUpsells);
 
-            // Update date_event table using bulk upsert
-            bulkUpsertDateEvents(dateEventData, dateEventHeaders, session);
-
-            // Update upsell table with mode tracking
-            bulkUpsertUpsells(dateEventMap, existingUpsells, session);
-
-            // Update audit
+            // 7. Update audit
             updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
             updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
 
-            session.commitTransaction();
             error_occurred.set(0);
 
-            error_occurred.set(0);
         } catch (Exception e) {
             error_occurred.set(1);
             e.printStackTrace();
             throw new RuntimeException(e);
         } finally {
-            if (session != null) {
-                session.close();
-            }
             updateInputStatus(CONFIG_PROFILE_FARE_STATION_UPSELL);
             updateInputStatus(DATE_EVENT_TABLE_NAME);
         }
@@ -2402,7 +2387,7 @@ public class App implements CommandLineRunner {
             String dateKey = inputRow.get(dateHeader).trim();
             if (dateKey == null || dateKey.trim().isEmpty()) continue;
             if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
-                listOfErrors.get().add(dateKey + ": Date should should have mm/dd/yyyy format");
+                listOfErrors.get().add(dateKey + ": Date should have mm/dd/yyyy format");
             }
 
             for (int j = startColumn; j < inputRow.size(); j++) {
@@ -2410,6 +2395,14 @@ public class App implements CommandLineRunner {
 
                 String stationKey = csvData.get(0).get(j).trim();
                 if (stationKey == null || stationKey.trim().isEmpty()) continue;
+
+                // Skip validation for special columns
+                if (stationKey.equals("Date") || stationKey.equals("DOW") ||
+                        stationKey.equals("Mapped Month") || stationKey.equals("Event")) {
+                    continue; // Don't process these columns at all for upsells
+                }
+
+                // Validate sector format ONLY for actual sector columns
                 if (i == 1 && !(stationKey.matches("[A-Za-z]{6}"))) {
                     listOfErrors.get().add(stationKey + ": Sector value should be valid");
                 }
@@ -2417,10 +2410,9 @@ public class App implements CommandLineRunner {
                 String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
                 String keyVal = dateKey + stationKey;
 
-                if (!(stationKey.equals("Date") || stationKey.equals("Mapped Month") || stationKey.equals("Event"))) {
-                    if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%")))) {
-                        listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value followed by %");
-                    }
+                // Validate upsell value format
+                if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%?")))) {
+                    listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value with optional %");
                 }
 
                 Map<String, String> map = new HashMap<>();
@@ -2431,6 +2423,146 @@ public class App implements CommandLineRunner {
             }
         }
         return strategyMap;
+    }
+
+    private Map<String, Document> fetchExistingUpsells(Set<String> dates) {
+        Map<String, Document> existingMap = new HashMap<>();
+
+        if (dates.isEmpty()) {
+            return existingMap;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(
+                    CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
+            );
+
+            Bson filter = Filters.in(DATE_COLUMN_NAME, dates);
+
+            for (Document doc : collection.find(filter)) {
+                String date = doc.getString(DATE_COLUMN_NAME);
+                String sector = doc.getString(SECTOR_COLUMN_NAME.toLowerCase());
+                String key = date + sector;
+                existingMap.put(key, doc);
+            }
+
+            log.info("Fetched " + existingMap.size() + " existing upsell records");
+        } catch (Exception e) {
+            log.error("Error fetching existing upsells: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return existingMap;
+    }
+
+    private void bulkUpsertDateEvents(List<Map<String, String>> data, List<String> headers) {
+        MongoCollection<Document> collection = database.getCollection(
+                DATE_EVENT_TABLE_NAME.toLowerCase()
+        );
+
+        List<WriteModel<Document>> bulkOps = new ArrayList<>();
+
+        for (Map<String, String> dataMap : data) {
+            String date = dataMap.get(DATE_COLUMN_NAME);
+
+            // Create filter (unique key = date)
+            Bson filter = Filters.eq(DATE_COLUMN_NAME, date);
+
+            // Create document
+            Document doc = new Document();
+            for (String header : headers) {
+                doc.append(header, autoConvert(dataMap.get(header)));
+            }
+            doc.append("updatedAt", new Date());
+
+            // Upsert operation (replace entire document)
+            ReplaceOptions options = new ReplaceOptions().upsert(true);
+            bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
+        }
+
+        if (!bulkOps.isEmpty()) {
+            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+            BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
+            log.info("Bulk upserted " + result.getInsertedCount() + " inserted, " +
+                    result.getModifiedCount() + " modified date events");
+        }
+    }
+
+    private void bulkUpsertUpsells(Map<String, Map<String, String>> newData,
+                                   Map<String, Document> existingData) {
+        MongoCollection<Document> collection = database.getCollection(
+                CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
+        );
+
+        List<WriteModel<Document>> bulkOps = new ArrayList<>();
+
+        for (Map.Entry<String, Map<String, String>> entry : newData.entrySet()) {
+            String key = entry.getKey();
+            Map<String, String> newRecord = entry.getValue();
+
+            String date = newRecord.get(DATE_COLUMN_NAME);
+            String sector = newRecord.get(SECTOR_COLUMN_NAME.toLowerCase());
+            String newValue = newRecord.get(VALUE_COLUMN_NAME);
+
+            // Skip if sector is null or empty
+            if (sector == null || sector.trim().isEmpty()) {
+                continue;
+            }
+
+            // Handle empty values (delete operation)
+            if (newValue == null || newValue.trim().isEmpty()) {
+                Bson deleteFilter = Filters.and(
+                        Filters.eq(DATE_COLUMN_NAME, date),
+                        Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                );
+                bulkOps.add(new DeleteOneModel<>(deleteFilter));
+                continue;
+            }
+
+            // Remove % and convert to integer string
+            String cleanValue = newValue.replaceAll("%", "").trim();
+
+            // Determine mode: Manual or System
+            String mode = "M"; // Default for analyst upload
+            Document existingDoc = existingData.get(key);
+
+            if (existingDoc != null) {
+                String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
+                String existingMode = existingDoc.getString("mode");
+
+                // If value unchanged, preserve existing mode
+                if (cleanValue.equals(existingValue)) {
+                    mode = (existingMode != null) ? existingMode : "S";
+                }
+                // If value changed, mark as Manual (mode = "M")
+            }
+
+            // Create filter (composite key = date + sector)
+            Bson filter = Filters.and(
+                    Filters.eq(DATE_COLUMN_NAME, date),
+                    Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+            );
+
+            // Create update document
+            Document updateDoc = new Document()
+                    .append(DATE_COLUMN_NAME, date)
+                    .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                    .append(VALUE_COLUMN_NAME, cleanValue)
+                    .append("mode", mode)
+                    .append("updatedAt", new Date());
+
+            // Upsert operation
+            ReplaceOptions options = new ReplaceOptions().upsert(true);
+            bulkOps.add(new ReplaceOneModel<>(filter, updateDoc, options));
+        }
+
+        if (!bulkOps.isEmpty()) {
+            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+            BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
+            log.info("Bulk upserted " + result.getModifiedCount() + " modified, " +
+                    result.getInsertedCount() + " inserted, " +
+                    result.getDeletedCount() + " deleted upsells");
+        }
     }
 
     public void deletePartialSectorValues(Set<String> dates, String sector, String collectionName) {
