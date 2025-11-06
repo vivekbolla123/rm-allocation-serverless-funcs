@@ -2378,7 +2378,7 @@ public class App implements CommandLineRunner {
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int dateHeader = 0;
-        int startColumn = 3;
+        int startColumn = 2;
 
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -2397,7 +2397,7 @@ public class App implements CommandLineRunner {
                 if (stationKey == null || stationKey.trim().isEmpty()) continue;
 
                 // Skip validation for special columns
-                if (stationKey.equals("Date") || stationKey.equals("DOW") ||
+                if (stationKey.equals("Date") ||
                         stationKey.equals("Mapped Month") || stationKey.equals("Event")) {
                     continue; // Don't process these columns at all for upsells
                 }
