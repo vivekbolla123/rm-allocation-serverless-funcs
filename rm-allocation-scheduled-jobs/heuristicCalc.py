@@ -10,8 +10,6 @@ from pathlib import Path
 import configsettings as config
 from pymongo import MongoClient, UpdateOne
 from bson import ObjectId
-from pymongo import MongoClient, UpdateOne
-from bson import ObjectId
 
 
 class FareAnalysisConfig:
@@ -21,7 +19,6 @@ class FareAnalysisConfig:
     SMOOTHING_WINDOW = 5
     ANALYSIS_PERIOD_DAYS = 365
     CUTOFF_BUFFER_DAYS = 15
-    START_BUFFER_DAYS = 14
     START_BUFFER_DAYS = 14
     BATCH_SIZE = 1000
     VALIDATION_SAMPLE_SIZE = 100
@@ -43,12 +40,9 @@ class FareStatisticalAnalysis:
     
     def __init__(self, logger, params, overrides, context):
         """Initialize with MongoDB connection and configuration."""
-        """Initialize with MongoDB connection and configuration."""
         self.logger = logger
-        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
-        self.db = self.mongo_conn["qp_dw_rmalloc"]  # MongoDB database
-        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
-        self.db = self.mongo_conn["qp_dw_rmalloc"]  # MongoDB database
+        self.mongo_conn = params['mongoconn']
+        self.db = self.mongo_conn["qp_dw_rmalloc"]
         self.s3_client = params['s3']
         self.bucket_name = config.S3_RM_BUCKET_NAME
         self.s3_file_path = config.S3_FILE_PATH
@@ -67,7 +61,6 @@ class FareStatisticalAnalysis:
         try:
             collection = self.db['calendar_AF']
             
-            # Query MongoDB with aggregation to format date
             pipeline = [
                 {
                     '$match': {
@@ -118,14 +111,12 @@ class FareStatisticalAnalysis:
             if df.empty:
                 return df
             
-            # Get international stations from config_station_master
             station_master_collection = self.db['config_station_master']
             international_stations = station_master_collection.find(
                 {'route': 'I'},
                 {'station': 1, '_id': 0}
             )
             
-            # Create set of international station codes
             international_set = {doc['station'] for doc in international_stations}
             
             if not international_set:
@@ -134,16 +125,13 @@ class FareStatisticalAnalysis:
             
             self.logger.info(f"Found {len(international_set)} international stations")
             
-            # Extract origin and destination from Sector (format: "XXX-YYY")
             df[['Origin', 'Destination']] = df['Sector'].str.split('-', expand=True)
             
-            # Filter out sectors where either origin or destination is international
             initial_count = len(df)
             df = df[
                 ~(df['Origin'].isin(international_set) | df['Destination'].isin(international_set))
             ]
             
-            # Drop temporary columns
             df = df.drop(columns=['Origin', 'Destination'])
             
             filtered_count = initial_count - len(df)
@@ -153,7 +141,6 @@ class FareStatisticalAnalysis:
             
         except Exception as e:
             self.logger.error(f"Error filtering international sectors: {e}")
-            # Return original dataframe if filtering fails
             return df
 
     def _fetch_holidays(self) -> pd.DataFrame:
@@ -161,7 +148,6 @@ class FareStatisticalAnalysis:
         try:
             collection = self.db['config_holiday_list']
             
-            # Calculate date range
             start_date = datetime.now() - timedelta(days=365)
             end_date = datetime.now() + timedelta(days=365)
             
@@ -196,39 +182,6 @@ class FareStatisticalAnalysis:
         try:
             collection = self.db['config_profile_fares']
             
-            # MongoDB aggregation pipeline
-            pipeline = [
-                {
-                    '$group': {
-                        '_id': {
-                            'sector': '$sector',
-                            'month': '$month',
-                            'dow': '$dow'
-                        },
-                        'Q10': {'$sum': {'$divide': ['$Q10', 6]}}
-                    }
-                },
-                {
-                    '$project': {
-                        '_id': 0,
-                        'sector': '$_id.sector',
-                        'month': '$_id.month',
-                        'dow': '$_id.dow',
-                        'Q10': 1
-                    }
-                }
-            ]
-            
-            cursor = collection.aggregate(pipeline)
-            return pd.DataFrame(list(cursor))
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching profile fares from MongoDB: {e}")
-            return pd.DataFrame()
-        try:
-            collection = self.db['config_profile_fares']
-            
-            # MongoDB aggregation pipeline
             pipeline = [
                 {
                     '$group': {
@@ -282,7 +235,6 @@ class FareStatisticalAnalysis:
 
     def _calculate_smoothed_peaks(self, operational_df: pd.DataFrame) -> List[int]:
         """Calculate smoothed peaks using two-pass algorithm with max logic."""
-        # First pass
         smoothed_peaks_pass1 = self._smooth_peaks_single_pass(operational_df['peak'])
         operational_df['smoothed_peak_pass1'] = smoothed_peaks_pass1
         
@@ -294,7 +246,6 @@ class FareStatisticalAnalysis:
         
         operational_df['max_peak_pass1'] = max_peaks
         
-        # Second pass on the max values
         return self._smooth_peaks_single_pass(pd.Series(max_peaks))
 
     def _smooth_peaks_single_pass(self, peak_series: pd.Series) -> List[int]:
@@ -343,44 +294,31 @@ class FareStatisticalAnalysis:
         """Process statistics for a single sector."""
         sector_df = sector_df.sort_values('DepartureDate').reset_index(drop=True)
 
-        # Separate operational and non-operational days
         operational_df = sector_df[sector_df['AverageFare'] > 0].copy()
         non_operational_df = sector_df[sector_df['AverageFare'] == 0].copy()
         
-        # Check minimum operational days BEFORE any row removal
         if len(operational_df) < FareAnalysisConfig.ROLLING_WINDOW_SIZE:
             return None
         
-        # Calculate rolling averages for ALL operational data first
         operational_df['rolling_avg'] = self._calculate_centered_rolling_average(operational_df)
         operational_df['coefficient'] = operational_df['AverageFare'] / operational_df['rolling_avg']
         operational_df['peak'] = (operational_df['coefficient'] >= FareAnalysisConfig.PEAK_THRESHOLD).astype(int)
         operational_df['smoothed_peak'] = self._calculate_smoothed_peaks(operational_df)
         operational_df['day_of_week'] = operational_df['DepartureDate'].dt.day_name()
         
-        # ROW-BASED FILTERING: Remove first 15 and last 14 operational rows
         start_buffer = FareAnalysisConfig.START_BUFFER_DAYS
         end_buffer = FareAnalysisConfig.START_BUFFER_DAYS
         
         total_rows = len(operational_df)
         
-        # Check if enough rows remain after removing buffers
         if total_rows <= (start_buffer + end_buffer):
             return None
         
-        # Remove first 15 and last 14 operational rows
         operational_output = operational_df.iloc[start_buffer:-end_buffer].copy()
+        operational_output = operational_output[operational_output['rolling_avg'].notna()].copy()
         
-        # Filter out rows with invalid rolling averages
-        operational_output = operational_output[
-            operational_output['rolling_avg'].notna()
-        ].copy()
-        
-        # Process non-operational days
-        # Process non-operational days
         non_operational_output = self._process_non_operational_days(non_operational_df)
         
-        # Combine and assign band IDs
         complete_df = self._combine_operational_non_operational(operational_output, non_operational_output)
         if complete_df is not None:
             complete_df = self._assign_band_ids(complete_df, sector)
@@ -447,13 +385,11 @@ class FareStatisticalAnalysis:
         if holidays_df.empty:
             return None
         
-        # Convert to datetime if needed
         if isinstance(band_start, str):
             band_start = pd.to_datetime(band_start)
         if isinstance(band_end, str):
             band_end = pd.to_datetime(band_end)
         
-        # Check for holidays within the band
         holidays_in_band = holidays_df[
             (holidays_df['holiday_date'] >= band_start) & 
             (holidays_df['holiday_date'] <= band_end)
@@ -468,7 +404,6 @@ class FareStatisticalAnalysis:
                 'position': 'within_band'
             }
         
-        # Find closest to start or end
         holidays_copy = holidays_df.copy()
         holidays_copy['days_to_start'] = abs((holidays_copy['holiday_date'] - band_start).dt.days)
         holidays_copy['days_to_end'] = abs((holidays_copy['holiday_date'] - band_end).dt.days)
@@ -499,11 +434,9 @@ class FareStatisticalAnalysis:
         if not next_year_holidays.empty:
             return next_year_holidays.iloc[0]['holiday_date']
         
-        # Estimate based on date pattern
         try:
             return current_holiday_date.replace(year=next_year)
         except ValueError:
-            # Handle leap year edge case
             if current_holiday_date.month == 2 and current_holiday_date.day == 29:
                 return current_holiday_date.replace(year=next_year, day=28)
             else:
@@ -534,24 +467,20 @@ class FareStatisticalAnalysis:
 
     def _get_dow_matched_fare(self, band_data: pd.DataFrame, target_dow: str) -> float:
         """Get fare based on DOW matching priority."""
-        # Try exact DOW match
         same_dow_data = band_data[band_data['day_of_week'] == target_dow]
         if not same_dow_data.empty:
             return same_dow_data['AverageFare'].max()
         
-        # Try alias DOW
         alias_dow = FareAnalysisConfig.DOW_ALIASES.get(target_dow)
         if alias_dow:
             alias_dow_data = band_data[band_data['day_of_week'] == alias_dow]
             if not alias_dow_data.empty:
                 return alias_dow_data['AverageFare'].max()
         
-        # Try Wednesday
         wednesday_data = band_data[band_data['day_of_week'] == 'Wednesday']
         if not wednesday_data.empty:
             return wednesday_data['AverageFare'].max()
         
-        # Return maximum fare in band
         return band_data['AverageFare'].max()
 
     def add_holiday_analysis(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
@@ -570,7 +499,6 @@ class FareStatisticalAnalysis:
         if not statistical_df['band_id'].isna().all():
             self._process_holiday_mapping(statistical_df, holidays_df)
         
-        # Calculate AF_LastHolidayDOW and profile fares
         statistical_df = self._calculate_af_last_holiday_dow(statistical_df)
         statistical_df = self._map_profile_fares_and_calculate_upsell(statistical_df)
         
@@ -620,7 +548,6 @@ class FareStatisticalAnalysis:
         
         statistical_df.loc[band_mask, 'holiday_name'] = holiday_name
         
-        # Calculate future dates and details
         band_rows = statistical_df[band_mask].copy()
         for idx in band_rows.index:
             current_date = pd.to_datetime(statistical_df.loc[idx, 'DepartureDate'])
@@ -654,18 +581,13 @@ class FareStatisticalAnalysis:
             statistical_df['upsell'] = None
             return statistical_df
         
-        # Initialize columns
         statistical_df['profileFaresQ10'] = None
         statistical_df['upsell'] = None
         
-        # Normalize for matching
         profile_fares['month_lower'] = profile_fares['month'].str.lower()
         profile_fares['dow_lower'] = profile_fares['dow'].str.lower()
         
-        # Map profile fares
         self._map_profile_fares_to_bands(statistical_df, profile_fares)
-        
-        # Calculate upsell
         self._calculate_upsell_values(statistical_df)
         
         return statistical_df
@@ -689,7 +611,6 @@ class FareStatisticalAnalysis:
     def _find_matching_profile_fare(self, profile_fares: pd.DataFrame, sector: str, 
                                   month: str, dow: str) -> Optional[float]:
         """Find matching profile fare with fallback logic."""
-        # Exact match
         exact_match = profile_fares[
             (profile_fares['sector'] == sector) &
             (profile_fares['month_lower'] == month) &
@@ -699,7 +620,6 @@ class FareStatisticalAnalysis:
         if not exact_match.empty:
             return exact_match.iloc[0]['Q10']
         
-        # Month match fallback
         month_match = profile_fares[
             (profile_fares['sector'] == sector) &
             (profile_fares['month_lower'] == month)
@@ -708,7 +628,6 @@ class FareStatisticalAnalysis:
         if not month_match.empty:
             return month_match['Q10'].mean()
         
-        # Sector match fallback
         sector_match = profile_fares[profile_fares['sector'] == sector]
         if not sector_match.empty:
             return sector_match['Q10'].mean()
@@ -729,81 +648,11 @@ class FareStatisticalAnalysis:
                 if pd.notna(profile_q10) and profile_q10 > 0:
                     upsell_value = (band_data.loc[idx, 'AF_LastHolidayDOW'] - profile_q10) / profile_q10
                     statistical_df.loc[idx, 'upsell'] = upsell_value
+
+    # ============================================================================
+    # UPSELL TABLE UPDATE METHODS
+    # ============================================================================
     
-    def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
-        """Update config_profile_fare_station_upsell collection with calculated upsell values."""
-        start_time = time.time()
-        update_results = {
-            "status": "not_attempted",
-            "records_to_update": 0,
-            "records_updated": 0,
-            "records_inserted": 0,
-            "records_skipped": 0,
-            "records_skipped": 0,
-            "records_failed": 0,
-            "execution_time_seconds": 0
-        }
-        
-        try:
-            upsell_data = self._prepare_upsell_data(statistical_df)
-            if upsell_data.empty:
-                update_results["status"] = "no_data"
-                return update_results
-            
-            update_results["records_to_update"] = len(upsell_data)
-            
-            # Process in batches
-            total_updated, total_inserted, total_failed = self._process_upsell_batches(upsell_data)
-            
-            # Calculate skipped records
-            total_processed = total_updated + total_inserted + total_failed
-            total_skipped = update_results["records_to_update"] - total_processed
-            
-            update_results.update({
-                "records_updated": total_updated,
-                "records_inserted": total_inserted,
-                "records_skipped": total_skipped,
-                "records_failed": total_failed,
-                "status": "success"
-            })
-            
-        except Exception as e:
-            update_results["status"] = "error"
-            update_results["error"] = str(e)
-            self.logger.error(f"Error updating upsell collection: {str(e)}")
-            self.logger.error(f"Error updating upsell collection: {str(e)}")
-        
-        finally:
-            update_results["execution_time_seconds"] = round(time.time() - start_time, 2)
-        
-        return update_results
-
-    def _prepare_upsell_data(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
-        """Prepare upsell data for database update."""
-        upsell_data = statistical_df[
-            (statistical_df['band_id'].notna()) & 
-            (statistical_df['upsell'].notna()) & 
-            (statistical_df['next_year_date'].notna())
-        ].copy()
-        
-        if upsell_data.empty:
-            return pd.DataFrame()
-
-        # Get unique combinations with max upsell
-        upsell_summary = upsell_data.groupby(['Sector', 'next_year_date']).agg({
-            'upsell': 'max'
-        }).reset_index()
-
-        # Convert date format
-        upsell_summary['date_formatted'] = pd.to_datetime(upsell_summary['next_year_date']).dt.strftime('%m/%d/%Y')
-
-        # Convert upsell to percentage format: multiply by 100, round (no % sign stored in DB)
-        upsell_summary['upsell_percentage'] = upsell_summary['upsell'].apply(
-            lambda x: str(round(x * 100))  # Store as plain integer string
-        )
-
-        return upsell_summary
-
     def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
         """Update config_profile_fare_station_upsell collection with calculated upsell values."""
         start_time = time.time()
@@ -825,10 +674,8 @@ class FareStatisticalAnalysis:
             
             update_results["records_to_update"] = len(upsell_data)
             
-            # Process in batches
             total_updated, total_inserted, total_failed = self._process_upsell_batches(upsell_data)
             
-            # Calculate skipped records (Manual mode records)
             total_processed = total_updated + total_inserted + total_failed
             total_skipped = update_results["records_to_update"] - total_processed
             
@@ -850,6 +697,51 @@ class FareStatisticalAnalysis:
         
         return update_results
 
+    def _prepare_upsell_data(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
+        """Prepare upsell data for database update."""
+        upsell_data = statistical_df[
+            (statistical_df['band_id'].notna()) & 
+            (statistical_df['upsell'].notna()) & 
+            (statistical_df['next_year_date'].notna())
+        ].copy()
+        
+        if upsell_data.empty:
+            return pd.DataFrame()
+
+        upsell_summary = upsell_data.groupby(['Sector', 'next_year_date']).agg({
+            'upsell': 'max'
+        }).reset_index()
+
+        upsell_summary['date_formatted'] = pd.to_datetime(upsell_summary['next_year_date']).dt.strftime('%m/%d/%Y')
+        upsell_summary['upsell_percentage'] = upsell_summary['upsell'].apply(
+            lambda x: str(round(x * 100))
+        )
+
+        return upsell_summary
+
+    def _process_upsell_batches(self, upsell_data: pd.DataFrame) -> Tuple[int, int, int]:
+        """Process upsell data in batches."""
+        records_to_process = [
+            {
+                'sector': row['Sector'],
+                'date': row['date_formatted'],
+                'upsell_value': row['upsell_percentage']
+            }
+            for _, row in upsell_data.iterrows()
+        ]
+        
+        total_updated = total_inserted = total_failed = 0
+        
+        for i in range(0, len(records_to_process), FareAnalysisConfig.BATCH_SIZE):
+            batch = records_to_process[i:i + FareAnalysisConfig.BATCH_SIZE]
+            batch_updated, batch_inserted, batch_failed = self._process_single_upsell_batch(batch)
+            
+            total_updated += batch_updated
+            total_inserted += batch_inserted
+            total_failed += batch_failed
+        
+        return total_updated, total_inserted, total_failed
+
     def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
         """
         Process a single batch of upsell records using MongoDB.
@@ -859,7 +751,7 @@ class FareStatisticalAnalysis:
         - Never update records where mode = 'M' (Manual)
         - Set mode = 'S' for all system updates
         """
-        updated_count = inserted_count = failed_count = skipped_count = 0
+        updated_count = inserted_count = failed_count = 0
         
         try:
             collection = self.db['config_profile_fare_station_upsell']
@@ -868,43 +760,22 @@ class FareStatisticalAnalysis:
                 try:
                     sector = record['sector']
                     date_str = record['date']
-                    upsell_percentage = record['upsell_value']  # Already formatted as "XX%"
+                    clean_value = record['upsell_value']
                     
-                    # Remove % sign and store as clean integer string
-                    clean_value = upsell_percentage.replace('%', '').strip()
-                    
-                    # Validate field lengths
-                    if len(date_str) > 15:
-                        self.logger.error(f"Date field too long for {sector} {date_str}: {len(date_str)} chars")
-                        failed_count += 1
-                        continue
-                        
-                    if len(sector) > 6:
-                        self.logger.error(f"Sector field too long: {sector} ({len(sector)} chars)")
-                        failed_count += 1
-                        continue
-                        
-                    if len(clean_value) > 45:
-                        self.logger.error(f"Value field too long for {sector} {date_str}: {clean_value} ({len(clean_value)} chars)")
+                    if len(date_str) > 15 or len(sector) > 6 or len(clean_value) > 45:
+                        self.logger.error(f"Field length validation failed for {sector} {date_str}")
                         failed_count += 1
                         continue
                     
-                    # Check if record exists and get its mode
                     existing_record = collection.find_one({
                         'sector': sector,
                         'date': date_str
                     })
                     
-                    # Skip if mode is 'M' (Manual)
                     if existing_record and existing_record.get('mode') == 'M':
-                        skipped_count += 1
-                        self.logger.info(
-                            f"Skipping update for {sector} {date_str}: "
-                            f"Record is marked as Manual (mode='M')"
-                        )
+                        self.logger.info(f"Skipping update for {sector} {date_str}: Record is marked as Manual (mode='M')")
                         continue
                     
-                    # Update only if mode = 'S' or mode doesn't exist (legacy records)
                     result = collection.update_one(
                         {
                             'sector': sector,
@@ -916,7 +787,7 @@ class FareStatisticalAnalysis:
                         },
                         {
                             '$set': {
-                                'value': clean_value,  # Store without % sign
+                                'value': clean_value,
                                 'mode': 'S',
                                 'updatedAt': datetime.now(),
                                 'updatedBy': 'SYSTEM'
@@ -930,30 +801,19 @@ class FareStatisticalAnalysis:
                             updated_count += 1
                             self.logger.info(f"Updated: {sector} {date_str} = {clean_value} (mode=S)")
                         else:
-                            # Matched but not modified (value was same)
                             self.logger.info(f"No change: {sector} {date_str} = {clean_value}")
                     else:
-                        # New record inserted via upsert
                         inserted_count += 1
                         self.logger.info(f"Inserted: {sector} {date_str} = {clean_value} (mode=S)")
                         
                 except Exception as e:
                     failed_count += 1
                     self.logger.error(f"Failed to process record {sector} {date_str}: {str(e)}")
-                    continue
                     
         except Exception as e:
             self.logger.error(f"Batch processing error: {str(e)}")
             
         return updated_count, inserted_count, failed_count
-
-    def _extract_percentage_value(self, percentage_str: str) -> float:
-        """Extract numeric value from percentage string."""
-        try:
-            # Remove '%' and any whitespace, then convert to float
-            return float(percentage_str.replace('%', '').strip())
-        except (ValueError, AttributeError):
-            return 0.0
 
     def validate_upsell_updates(self, upsell_data: pd.DataFrame) -> Dict:
         """Validate that upsell updates were correctly written to the database."""
@@ -976,7 +836,7 @@ class FareStatisticalAnalysis:
             for _, row in sample_data.iterrows():
                 sector = row['Sector']
                 date_formatted = row['date_formatted']
-                expected_value = row['upsell_percentage']  # Plain integer string without %
+                expected_value = row['upsell_percentage']
                 
                 result = collection.find_one({
                     'sector': sector,
@@ -986,7 +846,6 @@ class FareStatisticalAnalysis:
                 if not result:
                     not_found += 1
                 else:
-                    # Check if it was skipped due to Manual mode
                     if result.get('mode') == 'M':
                         manual_skipped += 1
                         self.logger.info(f"Manual record (not updated by system): {sector} {date_formatted}")
@@ -1059,29 +918,23 @@ class FareStatisticalAnalysis:
         }
         
         try:
-            # Step 1: Fetch and validate data
             df = self._fetch_calendar_data()
             if df.empty:
                 results["status"] = "no_data"
                 return results
             
-            # Step 2: Calculate statistics
             statistical_df = self.calculate_statistics(df)
             if statistical_df.empty:
                 results["status"] = "calculation_failed"
                 return results
             
-            # Step 3: Add holiday analysis and upsell calculation
             statistical_df_with_holidays = self.add_holiday_analysis(statistical_df)
             
-            # Step 4: Save results
             self.upload_to_s3(statistical_df_with_holidays)
             
-            # Step 5: Update upsell table
             upsell_update_results = self.update_upsell_table(statistical_df_with_holidays)
             results["upsell_table_update"] = upsell_update_results
             
-            # Step 6: Validate updates
             if upsell_update_results["status"] == "success":
                 validation_results = self.validate_upsell_updates(statistical_df_with_holidays)
                 results["validation_results"] = validation_results
