@@ -190,39 +190,6 @@ class FareStatisticalAnalysis:
         except Exception as e:
             self.logger.error(f"Error fetching holidays from MongoDB: {e}")
             return pd.DataFrame()
-        """Fetch holidays from config_holiday_list collection."""
-        try:
-            collection = self.db['config_holiday_list']
-            
-            # Calculate date range
-            start_date = datetime.now() - timedelta(days=365)
-            end_date = datetime.now() + timedelta(days=365)
-            
-            query = {
-                'Date': {
-                    '$gte': start_date,
-                    '$lte': end_date
-                }
-            }
-            
-            projection = {
-                '_id': 0,
-                'Date': 1,
-                'Holiday': 1
-            }
-            
-            cursor = collection.find(query, projection).sort('Date', 1)
-            holidays_df = pd.DataFrame(list(cursor))
-            
-            if not holidays_df.empty:
-                holidays_df.rename(columns={'Date': 'holiday_date', 'Holiday': 'holiday_name'}, inplace=True)
-                holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
-            
-            return holidays_df
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching holidays from MongoDB: {e}")
-            return pd.DataFrame()
 
     def _fetch_profile_fares(self) -> pd.DataFrame:
         """Fetch profile fares data for upsell calculation."""
