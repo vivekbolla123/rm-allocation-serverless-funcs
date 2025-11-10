@@ -8,21 +8,15 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 from pathlib import Path
 import configsettings as config
-from pymongo import MongoClient, UpdateOne
-from bson import ObjectId
+from pymongo import MongoClient
 
 
 class FareAnalysisConfig:
     """Configuration constants for the fare analysis."""
-    ROLLING_WINDOW_SIZE = 29
-    PEAK_THRESHOLD = 1.1
-    SMOOTHING_WINDOW = 5
-    ANALYSIS_PERIOD_DAYS = 365
-    CUTOFF_BUFFER_DAYS = 15
-    START_BUFFER_DAYS = 14
     BATCH_SIZE = 1000
     VALIDATION_SAMPLE_SIZE = 100
     DECIMAL_PRECISION = 6
+    ANALYSIS_LOOKBACK_YEARS = 2
     
     DOW_ALIASES = {
         'Monday': 'Friday',
@@ -35,11 +29,27 @@ class FareAnalysisConfig:
     }
 
 
+class BandConfig:
+    """Band definitions relative to holiday (±4 weeks + 1 day, excluding holiday itself)."""
+    BANDS = {
+                'P4': (-27, -21),
+                'P3': (-20, -14),
+                'P2': (-13, -7),
+                'P1': (-6, -1),
+                'S1': (0, 6),
+                'S2': (7, 13),
+                'S3': (14, 20),
+                'S4': (21, 27)
+            }
+    
+    DOW_MATCHING_BANDS = ['P2', 'P3', 'P4', 'S2', 'S3', 'S4']
+    DIRECT_BANDS = ['P1', 'S1']
+
+
 class FareStatisticalAnalysis:
-    """Main class for fare statistical analysis with holiday integration and upsell calculation."""
+    """Holiday-based fare projection using band mapping with weighted averages."""
     
     def __init__(self, logger, params, overrides, context):
-        """Initialize with MongoDB connection and configuration."""
         self.logger = logger
         self.mongo_conn = params['mongoconn']
         self.db = self.mongo_conn["qp_dw_rmalloc"]
@@ -47,613 +57,563 @@ class FareStatisticalAnalysis:
         self.bucket_name = config.S3_RM_BUCKET_NAME
         self.s3_file_path = config.S3_FILE_PATH
         
-        # Date calculations
-        today = datetime.now().date()
-        self.cutoff_date = today - timedelta(days=FareAnalysisConfig.CUTOFF_BUFFER_DAYS)
-        self.start_date = self.cutoff_date - timedelta(days=FareAnalysisConfig.ANALYSIS_PERIOD_DAYS)
+        self.start_date = (datetime.now() + timedelta(days=1)).date()
+        self.end_date = self.start_date + timedelta(days=365)
+        
+        self.holiday_mappings_cache = None
+        self.profile_fares_cache = None
+        self.domestic_sectors_cache = None
 
     # ============================================================================
-    # DATA FETCHING METHODS
+    # DATA FETCHING
     # ============================================================================
     
+    def _fetch_domestic_sectors(self) -> List[str]:
+        """Fetch only domestic sectors from station master."""
+        collection = self.db['config_station_master']
+        
+        # MongoDB query
+        pipeline = [
+            {'$match': {'route': 'D'}},
+            {'$group': {'_id': '$station'}},
+            {'$project': {'station': '$_id', '_id': 0}}
+        ]
+        
+        results = list(collection.aggregate(pipeline))
+        return [doc['station'] for doc in results] if results else []
+    
+    def _filter_domestic_sectors(self, sectors: List[str]) -> List[str]:
+        """Filter to keep only domestic sectors."""
+        if not self.domestic_sectors_cache:
+            return sectors
+        
+        domestic_stations = set(self.domestic_sectors_cache)
+        
+        # Filter sectors where both origin and destination are domestic
+        domestic_sectors = []
+        for sector in sectors:
+            if len(sector) >= 6:
+                origin = sector[:3]
+                destination = sector[3:6]
+                if origin in domestic_stations and destination in domestic_stations:
+                    domestic_sectors.append(sector)
+        
+        return domestic_sectors
+    
     def _fetch_calendar_data(self) -> pd.DataFrame:
-        """Fetch fare data from calendar_AF collection, excluding international sectors."""
-        try:
-            collection = self.db['calendar_AF']
-            
-            pipeline = [
-                {
-                    '$match': {
-                        'AverageFare': {'$exists': True, '$ne': None, '$gt': 0}
-                    }
-                },
-                {
-                    '$project': {
-                        '_id': 0,
-                        'Sector': 1,
-                        'DepartureDate': {
-                            '$dateToString': {
-                                'format': '%Y-%m-%d',
-                                'date': '$DepartureDate'
-                            }
-                        },
-                        'AverageFare': 1
-                    }
-                },
-                {
-                    '$sort': {'Sector': 1, 'DepartureDate': 1}
-                }
-            ]
-            
-            cursor = collection.aggregate(pipeline)
-            df = pd.DataFrame(list(cursor))
-            
-            if df.empty:
-                return df
-            
-            # Convert data types
+        """Fetch historical fare data for domestic sectors only."""
+        lookback_date = datetime.now() - timedelta(days=365 * FareAnalysisConfig.ANALYSIS_LOOKBACK_YEARS)
+        lookback_date_str = lookback_date.strftime('%Y-%m-%d')
+        
+        collection = self.db['calendar_af']
+        
+        # MongoDB query - DepartureDate stored as string 'YYYY-MM-DD'
+        query = {
+            'AverageFare': {'$exists': True, '$ne': None, '$gt': 0},
+            'DepartureDate': {'$gte': lookback_date_str}
+        }
+        
+        projection = {
+            '_id': 0,
+            'Sector': 1,
+            'DepartureDate': 1,
+            'AverageFare': 1
+        }
+        
+        results = list(collection.find(query, projection).sort('Sector', 1).sort('DepartureDate', 1))
+        df = pd.DataFrame(results)
+        
+        if not df.empty:
             df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
             df['AverageFare'] = pd.to_numeric(df['AverageFare'], errors='coerce')
             df = df.dropna(subset=['AverageFare'])
             
-            # Filter out international sectors
-            df = self._filter_domestic_sectors(df)
-            
-            return df
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching calendar data from MongoDB: {e}")
-            return pd.DataFrame()
-    
-    def _filter_domestic_sectors(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Filter out international sectors based on config_station_master."""
-        try:
-            if df.empty:
-                return df
-            
-            station_master_collection = self.db['config_station_master']
-            international_stations = station_master_collection.find(
-                {'route': 'I'},
-                {'station': 1, '_id': 0}
-            )
-            
-            international_set = {doc['station'] for doc in international_stations}
-            
-            if not international_set:
-                self.logger.info("No international stations found in config_station_master")
-                return df
-            
-            self.logger.info(f"Found {len(international_set)} international stations")
-            
-            df[['Origin', 'Destination']] = df['Sector'].str.split('-', expand=True)
-            
-            initial_count = len(df)
-            df = df[
-                ~(df['Origin'].isin(international_set) | df['Destination'].isin(international_set))
-            ]
-            
-            df = df.drop(columns=['Origin', 'Destination'])
-            
-            filtered_count = initial_count - len(df)
-            self.logger.info(f"Filtered out {filtered_count} international sector records")
-            
-            return df
-            
-        except Exception as e:
-            self.logger.error(f"Error filtering international sectors: {e}")
-            return df
+            # Filter domestic sectors
+            domestic_sectors = self._filter_domestic_sectors(df['Sector'].unique().tolist())
+            df = df[df['Sector'].isin(domestic_sectors)]
+        
+        return df
 
     def _fetch_holidays(self) -> pd.DataFrame:
-        """Fetch holidays from config_holiday_list collection."""
-        try:
-            collection = self.db['config_holiday_list']
-            
-            start_date = datetime.now() - timedelta(days=365)
-            end_date = datetime.now() + timedelta(days=365)
-            
-            query = {
-                'Date': {
-                    '$gte': start_date,
-                    '$lte': end_date
-                }
+        """Fetch holidays for historical and target years."""
+        historical_start = datetime.now() - timedelta(days=730)
+        historical_start_str = historical_start.strftime('%Y-%m-%d')
+        end_date_str = self.end_date.strftime('%Y-%m-%d')
+        
+        collection = self.db['config_holiday_list']
+        
+        # MongoDB query - Date stored as string 'YYYY-MM-DD'
+        query = {
+            'Date': {
+                '$gte': historical_start_str,
+                '$lte': end_date_str
             }
-            
-            projection = {
-                '_id': 0,
-                'Date': 1,
-                'Holiday': 1
-            }
-            
-            cursor = collection.find(query, projection).sort('Date', 1)
-            holidays_df = pd.DataFrame(list(cursor))
-            
-            if not holidays_df.empty:
-                holidays_df.rename(columns={'Date': 'holiday_date', 'Holiday': 'holiday_name'}, inplace=True)
-                holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
-            
-            return holidays_df
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching holidays from MongoDB: {e}")
-            return pd.DataFrame()
+        }
+        
+        projection = {
+            '_id': 0,
+            'Date': 1,
+            'Holiday': 1
+        }
+        
+        results = list(collection.find(query, projection).sort('Date', 1))
+        holidays_df = pd.DataFrame(results)
+        
+        if not holidays_df.empty:
+            holidays_df.rename(columns={'Date': 'holiday_date', 'Holiday': 'holiday_name'}, inplace=True)
+            holidays_df['holiday_date'] = pd.to_datetime(holidays_df['holiday_date'])
+            holidays_df['year'] = holidays_df['holiday_date'].dt.year
+        
+        return holidays_df
 
     def _fetch_profile_fares(self) -> pd.DataFrame:
-        """Fetch profile fares data for upsell calculation."""
-        try:
-            collection = self.db['config_profile_fares']
-            
-            pipeline = [
-                {
-                    '$group': {
-                        '_id': {
-                            'sector': '$sector',
-                            'month': '$month',
-                            'dow': '$dow'
-                        },
-                        'Q10': {'$sum': {'$divide': ['$Q10', 6]}}
-                    }
-                },
-                {
-                    '$project': {
-                        '_id': 0,
-                        'sector': '$_id.sector',
-                        'month': '$_id.month',
-                        'dow': '$_id.dow',
-                        'Q10': 1
-                    }
+        """Fetch profile fares for upsell calculation - keep H1/H2 separate."""
+        collection = self.db['config_profile_fares']
+        
+        # MongoDB aggregation pipeline
+        pipeline = [
+            {
+                '$group': {
+                    '_id': {
+                        'sector': '$sector',
+                        'month': '$month',
+                        'dow': '$dow'
+                    },
+                    'Q10': {'$sum': '$Q10'}
                 }
-            ]
-            
-            cursor = collection.aggregate(pipeline)
-            return pd.DataFrame(list(cursor))
-            
-        except Exception as e:
-            self.logger.error(f"Error fetching profile fares from MongoDB: {e}")
-            return pd.DataFrame()
-
-    # ============================================================================
-    # STATISTICAL CALCULATION METHODS
-    # ============================================================================
-    
-    def _calculate_centered_rolling_average(self, operational_df: pd.DataFrame) -> List[float]:
-        """Calculate centered rolling average for operational days."""
-        rolling_avg_list = []
-        half_window = FareAnalysisConfig.ROLLING_WINDOW_SIZE // 2
-        
-        for idx in range(len(operational_df)):
-            start_idx = max(0, idx - half_window)
-            end_idx = min(len(operational_df), idx + half_window + 1)
-            
-            window_size = end_idx - start_idx
-            if window_size >= FareAnalysisConfig.ROLLING_WINDOW_SIZE or (idx < half_window or idx >= len(operational_df) - half_window):
-                window_data = operational_df.iloc[start_idx:end_idx]
-                rolling_avg_list.append(window_data['AverageFare'].mean())
-            else:
-                rolling_avg_list.append(np.nan)
-                
-        return rolling_avg_list
-
-    def _calculate_smoothed_peaks(self, operational_df: pd.DataFrame) -> List[int]:
-        """Calculate smoothed peaks using two-pass algorithm with max logic."""
-        smoothed_peaks_pass1 = self._smooth_peaks_single_pass(operational_df['peak'])
-        operational_df['smoothed_peak_pass1'] = smoothed_peaks_pass1
-        
-        max_peaks = []
-        for i in range(len(operational_df)):
-            original_peak = operational_df.iloc[i]['peak']
-            smoothed_pass1 = smoothed_peaks_pass1[i]
-            max_peaks.append(max(original_peak, smoothed_pass1))
-        
-        operational_df['max_peak_pass1'] = max_peaks
-        
-        return self._smooth_peaks_single_pass(pd.Series(max_peaks))
-
-    def _smooth_peaks_single_pass(self, peak_series: pd.Series) -> List[int]:
-        """Single pass smoothing algorithm."""
-        smoothed_list = []
-        half_window = FareAnalysisConfig.SMOOTHING_WINDOW // 2
-        
-        for idx in range(len(peak_series)):
-            start_idx = max(0, idx - half_window)
-            end_idx = min(len(peak_series), idx + half_window + 1)
-            
-            window_size = end_idx - start_idx
-            if window_size >= 3:
-                window_peaks = peak_series.iloc[start_idx:end_idx]
-                smoothed_list.append(1 if window_peaks.mean() > 0.5 else 0)
-            else:
-                smoothed_list.append(0)
-                
-        return smoothed_list
-
-    def _assign_band_ids(self, df: pd.DataFrame, sector: str) -> pd.DataFrame:
-        """Assign band IDs to consecutive groups of smoothed peaks."""
-        if df.empty or 'smoothed_peak' not in df.columns:
-            df['band_id'] = None
-            return df
-        
-        df_sorted = df.sort_values('DepartureDate').reset_index(drop=True)
-        df_sorted['band_id'] = None
-        
-        smoothed_peaks = df_sorted['smoothed_peak'].values
-        band_counter = 0
-        current_band_id = None
-        
-        for i, peak in enumerate(smoothed_peaks):
-            if peak == 1:
-                if i == 0 or smoothed_peaks[i-1] == 0:
-                    band_counter += 1
-                    current_band_id = f"{sector}{band_counter:03d}"
-                df_sorted.loc[i, 'band_id'] = current_band_id
-            else:
-                current_band_id = None
-        
-        return df_sorted
-
-    def _process_sector_statistics(self, sector_df: pd.DataFrame, sector: str) -> Optional[pd.DataFrame]:
-        """Process statistics for a single sector."""
-        sector_df = sector_df.sort_values('DepartureDate').reset_index(drop=True)
-
-        operational_df = sector_df[sector_df['AverageFare'] > 0].copy()
-        non_operational_df = sector_df[sector_df['AverageFare'] == 0].copy()
-        
-        if len(operational_df) < FareAnalysisConfig.ROLLING_WINDOW_SIZE:
-            return None
-        
-        operational_df['rolling_avg'] = self._calculate_centered_rolling_average(operational_df)
-        operational_df['coefficient'] = operational_df['AverageFare'] / operational_df['rolling_avg']
-        operational_df['peak'] = (operational_df['coefficient'] >= FareAnalysisConfig.PEAK_THRESHOLD).astype(int)
-        operational_df['smoothed_peak'] = self._calculate_smoothed_peaks(operational_df)
-        operational_df['day_of_week'] = operational_df['DepartureDate'].dt.day_name()
-        
-        start_buffer = FareAnalysisConfig.START_BUFFER_DAYS
-        end_buffer = FareAnalysisConfig.START_BUFFER_DAYS
-        
-        total_rows = len(operational_df)
-        
-        if total_rows <= (start_buffer + end_buffer):
-            return None
-        
-        operational_output = operational_df.iloc[start_buffer:-end_buffer].copy()
-        operational_output = operational_output[operational_output['rolling_avg'].notna()].copy()
-        
-        non_operational_output = self._process_non_operational_days(non_operational_df)
-        
-        complete_df = self._combine_operational_non_operational(operational_output, non_operational_output)
-        if complete_df is not None:
-            complete_df = self._assign_band_ids(complete_df, sector)
-        
-        return complete_df
-
-    def _process_non_operational_days(self, non_operational_df: pd.DataFrame) -> pd.DataFrame:
-        """Process non-operational days for the output window."""
-        if non_operational_df.empty:
-            return pd.DataFrame()
-            
-        filtered_df = non_operational_df[
-            (non_operational_df['DepartureDate'].dt.date >= self.start_date) &
-            (non_operational_df['DepartureDate'].dt.date <= self.cutoff_date)
-        ].copy()
-        
-        if not filtered_df.empty:
-            filtered_df['rolling_avg'] = np.nan
-            filtered_df['coefficient'] = np.nan
-            filtered_df['peak'] = 0
-            filtered_df['smoothed_peak'] = 0
-            filtered_df['day_of_week'] = filtered_df['DepartureDate'].dt.day_name()
-        
-        return filtered_df
-
-    def _combine_operational_non_operational(self, operational_df: pd.DataFrame, 
-                                           non_operational_df: pd.DataFrame) -> Optional[pd.DataFrame]:
-        """Combine operational and non-operational dataframes."""
-        if operational_df.empty and non_operational_df.empty:
-            return None
-            
-        if non_operational_df.empty:
-            return operational_df
-        elif operational_df.empty:
-            return non_operational_df
-        else:
-            combined_df = pd.concat([operational_df, non_operational_df], ignore_index=True)
-            return combined_df.sort_values('DepartureDate').reset_index(drop=True)
-
-    def calculate_statistics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate statistics for all sectors."""
-        if df.empty:
-            return pd.DataFrame()
-        
-        results = []
-        sectors = df['Sector'].unique()
-        
-        for sector in sectors:
-            sector_df = df[df['Sector'] == sector].copy()
-            processed_df = self._process_sector_statistics(sector_df, sector)
-            
-            if processed_df is not None:
-                results.append(processed_df)
-        
-        return pd.concat(results, ignore_index=True) if results else pd.DataFrame()
-
-    # ============================================================================
-    # HOLIDAY ANALYSIS METHODS
-    # ============================================================================
-    
-    def _find_closest_holiday_to_band(self, band_start: datetime, band_end: datetime, 
-                                     holidays_df: pd.DataFrame) -> Optional[Dict]:
-        """Find the closest holiday to a band."""
-        if holidays_df.empty:
-            return None
-        
-        if isinstance(band_start, str):
-            band_start = pd.to_datetime(band_start)
-        if isinstance(band_end, str):
-            band_end = pd.to_datetime(band_end)
-        
-        holidays_in_band = holidays_df[
-            (holidays_df['holiday_date'] >= band_start) & 
-            (holidays_df['holiday_date'] <= band_end)
-        ]
-        
-        if not holidays_in_band.empty:
-            closest_holiday = holidays_in_band.sort_values('holiday_date').iloc[0]
-            return {
-                'holiday_date': closest_holiday['holiday_date'],
-                'holiday_name': closest_holiday['holiday_name'],
-                'days_to_holiday': 0,
-                'position': 'within_band'
+            },
+            {
+                '$project': {
+                    '_id': 0,
+                    'sector': '$_id.sector',
+                    'month': '$_id.month',
+                    'dow': '$_id.dow',
+                    'Q10': {'$divide': ['$Q10', 6]}
+                }
             }
-        
-        holidays_copy = holidays_df.copy()
-        holidays_copy['days_to_start'] = abs((holidays_copy['holiday_date'] - band_start).dt.days)
-        holidays_copy['days_to_end'] = abs((holidays_copy['holiday_date'] - band_end).dt.days)
-        holidays_copy['min_days_to_band'] = holidays_copy[['days_to_start', 'days_to_end']].min(axis=1)
-        
-        closest_holiday = holidays_copy.loc[holidays_copy['min_days_to_band'].idxmin()]
-        
-        position = 'before_band' if closest_holiday['days_to_start'] <= closest_holiday['days_to_end'] else 'after_band'
-        days_difference = closest_holiday['days_to_start'] if position == 'before_band' else closest_holiday['days_to_end']
-        
-        return {
-            'holiday_date': closest_holiday['holiday_date'],
-            'holiday_name': closest_holiday['holiday_name'],
-            'days_to_holiday': days_difference,
-            'position': position
-        }
-
-    def _find_next_year_holiday(self, holiday_name: str, current_holiday_date: datetime, 
-                               holidays_df: pd.DataFrame) -> Optional[datetime]:
-        """Find the next year's occurrence of the same holiday."""
-        next_year = current_holiday_date.year + 1
-        
-        next_year_holidays = holidays_df[
-            (holidays_df['holiday_name'] == holiday_name) & 
-            (holidays_df['holiday_date'].dt.year == next_year)
         ]
         
-        if not next_year_holidays.empty:
-            return next_year_holidays.iloc[0]['holiday_date']
+        results = list(collection.aggregate(pipeline))
+        df = pd.DataFrame(results)
         
-        try:
-            return current_holiday_date.replace(year=next_year)
-        except ValueError:
-            if current_holiday_date.month == 2 and current_holiday_date.day == 29:
-                return current_holiday_date.replace(year=next_year, day=28)
-            else:
-                return current_holiday_date + timedelta(days=365)
+        if not df.empty:
+            # Keep original month with H1/H2
+            df['month_lower'] = df['month'].str.lower()
+            df['dow_lower'] = df['dow'].str.lower()
+        
+        return df
 
-    def _calculate_af_last_holiday_dow(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate AF_LastHolidayDOW based on DOW matching logic."""
-        if statistical_df.empty or statistical_df['band_id'].isna().all():
-            statistical_df['AF_LastHolidayDOW'] = None
-            return statistical_df
+    def _get_month_half(self, date: datetime) -> str:
+        """
+        Determine if date is in first or second half of month.
+        First half: days 1-15 → H1
+        Second half: days 16+ → H2
+        """
+        return 'H1' if date.day <= 15 else 'H2'
+
+    # ============================================================================
+    # BAND EXTRACTION AND MAPPING
+    # ============================================================================
+    
+    def preprocess_holiday_bands(self, calendar_data: pd.DataFrame, holidays_df: pd.DataFrame) -> Dict:
+        """Extract historical bands and create mappings to future dates."""
+        self.logger.info("Preprocessing holiday bands...")
+        start_time = time.time()
         
-        statistical_df['AF_LastHolidayDOW'] = None
-        unique_bands = statistical_df[statistical_df['band_id'].notna()]['band_id'].unique()
+        holiday_mappings = {}
+        skipped_holidays = []
         
-        for band_id in unique_bands:
-            band_mask = statistical_df['band_id'] == band_id
-            band_data = statistical_df[band_mask].copy()
+        # Use all holidays before start_date as historical
+        historical_holidays = holidays_df[holidays_df['holiday_date'].dt.date < self.start_date]
+        
+        target_holidays = holidays_df[
+            (holidays_df['holiday_date'].dt.date >= self.start_date) &
+            (holidays_df['holiday_date'].dt.date <= self.end_date)
+        ]
+        
+        self.logger.info(f"Target holidays found: {len(target_holidays)}")
+        self.logger.info(f"Historical holidays available: {len(historical_holidays)}")
+        
+        for _, target_holiday in target_holidays.iterrows():
+            holiday_name = target_holiday['holiday_name']
+            target_date = target_holiday['holiday_date']
             
-            for idx in band_data.index:
-                target_dow = statistical_df.loc[idx, 'future_dow']
-                if pd.isna(target_dow):
-                    continue
+            hist_holiday = historical_holidays[
+                historical_holidays['holiday_name'] == holiday_name
+            ].sort_values('holiday_date', ascending=False).head(1)
+            
+            if hist_holiday.empty:
+                skipped_holidays.append(f"{holiday_name} ({target_date.date()})")
+                continue
                 
-                af_value = self._get_dow_matched_fare(band_data, target_dow)
-                statistical_df.loc[idx, 'AF_LastHolidayDOW'] = af_value
+            hist_date = hist_holiday.iloc[0]['holiday_date']
+            
+            holiday_mappings[holiday_name] = {
+                'target_date': target_date,
+                'hist_date': hist_date,
+                'sectors': {}
+            }
+            
+            for sector in calendar_data['Sector'].unique():
+                sector_data = calendar_data[calendar_data['Sector'] == sector]
+                sector_bands = self._extract_and_map_bands(
+                    sector_data, hist_date, target_date
+                )
+                
+                if sector_bands:
+                    holiday_mappings[holiday_name]['sectors'][sector] = sector_bands
         
-        return statistical_df
+        if skipped_holidays:
+            self.logger.info(f"\nWARNING: {len(skipped_holidays)} holidays skipped (no historical data):")
+            for h in skipped_holidays:
+                self.logger.info(f"  - {h}")
+        
+        self.logger.info(f"Holiday bands preprocessed in {time.time() - start_time:.2f}s")
+        self.logger.info(f"Holidays mapped: {len(holiday_mappings)}")
+        
+        return holiday_mappings
 
-    def _get_dow_matched_fare(self, band_data: pd.DataFrame, target_dow: str) -> float:
-        """Get fare based on DOW matching priority."""
-        same_dow_data = band_data[band_data['day_of_week'] == target_dow]
-        if not same_dow_data.empty:
-            return same_dow_data['AverageFare'].max()
+    def _extract_and_map_bands(self, sector_data: pd.DataFrame, 
+                               hist_date: datetime, target_date: datetime) -> Dict:
+        """Extract historical bands and map to target dates."""
+        bands_mapping = {}
+        
+        for band_name, (start_offset, end_offset) in BandConfig.BANDS.items():
+            hist_start = hist_date + timedelta(days=start_offset)
+            hist_end = hist_date + timedelta(days=end_offset)
+            
+            hist_band = sector_data[
+                (sector_data['DepartureDate'] >= hist_start) &
+                (sector_data['DepartureDate'] <= hist_end)
+            ].copy()
+            
+            if hist_band.empty:
+                continue
+            
+            target_start = target_date + timedelta(days=start_offset)
+            target_end = target_date + timedelta(days=end_offset)
+            target_dates = pd.date_range(target_start, target_end, freq='D')
+            
+            mapped_dates = []
+            
+            if band_name in BandConfig.DIRECT_BANDS:
+                for target_dt in target_dates:
+                    days_offset = (target_dt - target_date).days
+                    hist_dt = hist_date + timedelta(days=days_offset)
+                    
+                    fare_row = hist_band[hist_band['DepartureDate'].dt.date == hist_dt.date()]
+                    if not fare_row.empty:
+                        mapped_dates.append({
+                            'target_date': target_dt.date(),
+                            'fare': fare_row.iloc[0]['AverageFare'],
+                            'match_type': 'direct',
+                            'band': band_name,
+                            'mapped_dow': target_dt.strftime('%A'),
+                            'days_from_holiday': days_offset
+                        })
+            else:
+                hist_band['day_of_week'] = hist_band['DepartureDate'].dt.day_name()
+                
+                for target_dt in target_dates:
+                    target_dow = target_dt.strftime('%A')
+                    days_offset = (target_dt - target_date).days
+                    fare = self._get_dow_matched_fare(hist_band, target_dow)
+                    
+                    if fare is not None:
+                        mapped_dates.append({
+                            'target_date': target_dt.date(),
+                            'fare': fare,
+                            'match_type': 'dow_matched',
+                            'band': band_name,
+                            'mapped_dow': target_dow,
+                            'days_from_holiday': days_offset
+                        })
+            
+            if mapped_dates:
+                bands_mapping[band_name] = mapped_dates
+        
+        return bands_mapping
+
+    def _get_dow_matched_fare(self, band_data: pd.DataFrame, target_dow: str) -> Optional[float]:
+        """Get fare using DOW matching priority - returns first matching occurrence."""
+        if band_data.empty:
+            return None
+        
+        same_dow = band_data[band_data['day_of_week'] == target_dow]
+        if not same_dow.empty:
+            return same_dow.iloc[0]['AverageFare']
         
         alias_dow = FareAnalysisConfig.DOW_ALIASES.get(target_dow)
         if alias_dow:
-            alias_dow_data = band_data[band_data['day_of_week'] == alias_dow]
-            if not alias_dow_data.empty:
-                return alias_dow_data['AverageFare'].max()
+            alias_data = band_data[band_data['day_of_week'] == alias_dow]
+            if not alias_data.empty:
+                return alias_data.iloc[0]['AverageFare']
         
         wednesday_data = band_data[band_data['day_of_week'] == 'Wednesday']
         if not wednesday_data.empty:
-            return wednesday_data['AverageFare'].max()
+            return wednesday_data.iloc[0]['AverageFare']
         
         return band_data['AverageFare'].max()
 
-    def add_holiday_analysis(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
-        """Add holiday information and map to next year's holiday dates."""
-        if statistical_df.empty:
-            self._add_empty_holiday_columns(statistical_df)
-            return statistical_df
-        
-        holidays_df = self._fetch_holidays()
-        if holidays_df.empty:
-            self._add_empty_holiday_columns(statistical_df)
-            return statistical_df
-        
-        self._add_empty_holiday_columns(statistical_df)
-        
-        if not statistical_df['band_id'].isna().all():
-            self._process_holiday_mapping(statistical_df, holidays_df)
-        
-        statistical_df = self._calculate_af_last_holiday_dow(statistical_df)
-        statistical_df = self._map_profile_fares_and_calculate_upsell(statistical_df)
-        
-        return statistical_df
-
-    def _add_empty_holiday_columns(self, df: pd.DataFrame) -> None:
-        """Add empty holiday columns to dataframe."""
-        holiday_columns = ['holiday_name', 'days_from_closest_holiday', 'next_year_date', 
-                          'next_year_month', 'future_dow']
-        for col in holiday_columns:
-            df[col] = None
-
-    def _process_holiday_mapping(self, statistical_df: pd.DataFrame, holidays_df: pd.DataFrame) -> None:
-        """Process holiday mapping for all bands."""
-        bands_df = statistical_df[statistical_df['band_id'].notna()].copy()
-        unique_bands = bands_df.groupby(['Sector', 'band_id']).agg({
-            'DepartureDate': ['min', 'max']
-        }).reset_index()
-        
-        unique_bands.columns = ['Sector', 'band_id', 'band_start_date', 'band_end_date']
-        
-        for _, band in unique_bands.iterrows():
-            self._process_single_band_holiday(statistical_df, band, holidays_df)
-
-    def _process_single_band_holiday(self, statistical_df: pd.DataFrame, band: pd.Series, 
-                                   holidays_df: pd.DataFrame) -> None:
-        """Process holiday mapping for a single band."""
-        band_id = band['band_id']
-        band_start = pd.to_datetime(band['band_start_date'])
-        band_end = pd.to_datetime(band['band_end_date'])
-        
-        closest_holiday = self._find_closest_holiday_to_band(band_start, band_end, holidays_df)
-        band_mask = statistical_df['band_id'] == band_id
-        
-        if closest_holiday:
-            self._apply_holiday_mapping(statistical_df, band_mask, closest_holiday, holidays_df)
-        else:
-            self._apply_no_holiday_mapping(statistical_df, band_mask)
-
-    def _apply_holiday_mapping(self, statistical_df: pd.DataFrame, band_mask: pd.Series, 
-                             closest_holiday: Dict, holidays_df: pd.DataFrame) -> None:
-        """Apply holiday mapping to band rows."""
-        holiday_name = closest_holiday['holiday_name']
-        current_holiday_date = closest_holiday['holiday_date']
-        
-        next_year_holiday_date = self._find_next_year_holiday(holiday_name, current_holiday_date, holidays_df)
-        
-        statistical_df.loc[band_mask, 'holiday_name'] = holiday_name
-        
-        band_rows = statistical_df[band_mask].copy()
-        for idx in band_rows.index:
-            current_date = pd.to_datetime(statistical_df.loc[idx, 'DepartureDate'])
-            days_diff = (current_date - current_holiday_date).days
-            statistical_df.loc[idx, 'days_from_closest_holiday'] = days_diff
-            
-            if next_year_holiday_date:
-                mapped_future_date = next_year_holiday_date + timedelta(days=days_diff)
-                statistical_df.loc[idx, 'next_year_date'] = mapped_future_date.strftime('%Y-%m-%d')
-                statistical_df.loc[idx, 'next_year_month'] = mapped_future_date.strftime('%B')
-                statistical_df.loc[idx, 'future_dow'] = mapped_future_date.strftime('%A')
-
-    def _apply_no_holiday_mapping(self, statistical_df: pd.DataFrame, band_mask: pd.Series) -> None:
-        """Apply no holiday mapping to band rows."""
-        statistical_df.loc[band_mask, 'holiday_name'] = 'No Holiday Found'
-
     # ============================================================================
-    # UPSELL CALCULATION METHODS
+    # VOID PERIOD HANDLING
     # ============================================================================
     
-    def _map_profile_fares_and_calculate_upsell(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
-        """Map profile fares to bands and calculate upsell."""
-        if statistical_df.empty or statistical_df['band_id'].isna().all():
-            statistical_df['profileFaresQ10'] = None
-            statistical_df['upsell'] = None
-            return statistical_df
-        
-        profile_fares = self._fetch_profile_fares()
-        if profile_fares.empty:
-            statistical_df['profileFaresQ10'] = None
-            statistical_df['upsell'] = None
-            return statistical_df
-        
-        statistical_df['profileFaresQ10'] = None
-        statistical_df['upsell'] = None
-        
-        profile_fares['month_lower'] = profile_fares['month'].str.lower()
-        profile_fares['dow_lower'] = profile_fares['dow'].str.lower()
-        
-        self._map_profile_fares_to_bands(statistical_df, profile_fares)
-        self._calculate_upsell_values(statistical_df)
-        
-        return statistical_df
+    def _get_dow_position_in_month(self, date: datetime) -> int:
+        """Get the nth occurrence of this DOW in the month."""
+        day = date.day
+        return (day - 1) // 7 + 1
 
-    def _map_profile_fares_to_bands(self, statistical_df: pd.DataFrame, profile_fares: pd.DataFrame) -> None:
-        """Map profile fares to band rows."""
-        band_rows = statistical_df[statistical_df['band_id'].notna()].copy()
+    def _handle_void_period(self, sector: str, target_date: datetime, 
+                           calendar_data: pd.DataFrame) -> Optional[float]:
+        """Handle dates outside holiday bands using DOW position matching."""
+        target_dow = target_date.strftime('%A')
+        target_month = target_date.month
+        target_position = self._get_dow_position_in_month(target_date)
         
-        for idx in band_rows.index:
-            sector = statistical_df.loc[idx, 'Sector']
-            next_year_month = str(statistical_df.loc[idx, 'next_year_month']).lower() if pd.notna(statistical_df.loc[idx, 'next_year_month']) else None
-            future_dow = str(statistical_df.loc[idx, 'future_dow']).lower() if pd.notna(statistical_df.loc[idx, 'future_dow']) else None
-            
-            if not next_year_month or not future_dow:
-                continue
-            
-            profile_q10 = self._find_matching_profile_fare(profile_fares, sector, next_year_month, future_dow)
-            if profile_q10 is not None:
-                statistical_df.loc[idx, 'profileFaresQ10'] = profile_q10
-
-    def _find_matching_profile_fare(self, profile_fares: pd.DataFrame, sector: str, 
-                                  month: str, dow: str) -> Optional[float]:
-        """Find matching profile fare with fallback logic."""
-        exact_match = profile_fares[
-            (profile_fares['sector'] == sector) &
-            (profile_fares['month_lower'] == month) &
-            (profile_fares['dow_lower'] == dow)
+        prev_year = target_date.year - 1
+        
+        historical_data = calendar_data[
+            (calendar_data['Sector'] == sector) &
+            (calendar_data['DepartureDate'].dt.year == prev_year) &
+            (calendar_data['DepartureDate'].dt.month == target_month)
+        ].copy()
+        
+        if historical_data.empty:
+            return None
+        
+        historical_data['day_of_week'] = historical_data['DepartureDate'].dt.day_name()
+        historical_data['dow_position'] = historical_data['DepartureDate'].apply(
+            self._get_dow_position_in_month
+        )
+        
+        exact_match = historical_data[
+            (historical_data['day_of_week'] == target_dow) &
+            (historical_data['dow_position'] == target_position)
         ]
         
         if not exact_match.empty:
-            return exact_match.iloc[0]['Q10']
+            return exact_match['AverageFare'].iloc[0]
         
-        month_match = profile_fares[
-            (profile_fares['sector'] == sector) &
-            (profile_fares['month_lower'] == month)
+        fallback = historical_data[
+            (historical_data['day_of_week'] == target_dow) &
+            (historical_data['dow_position'] == target_position - 1)
         ]
         
-        if not month_match.empty:
-            return month_match['Q10'].mean()
-        
-        sector_match = profile_fares[profile_fares['sector'] == sector]
-        if not sector_match.empty:
-            return sector_match['Q10'].mean()
+        if not fallback.empty:
+            return fallback['AverageFare'].iloc[0]
         
         return None
 
-    def _calculate_upsell_values(self, statistical_df: pd.DataFrame) -> None:
-        """Calculate upsell values for each band."""
-        unique_bands = statistical_df[statistical_df['band_id'].notna()]['band_id'].unique()
-        
-        for band_id in unique_bands:
-            band_mask = statistical_df['band_id'] == band_id
-            band_data = statistical_df[band_mask].copy()
-                
-            for idx in band_data.index:
-                profile_q10 = statistical_df.loc[idx, 'profileFaresQ10']
-                
-                if pd.notna(profile_q10) and profile_q10 > 0:
-                    upsell_value = (band_data.loc[idx, 'AF_LastHolidayDOW'] - profile_q10) / profile_q10
-                    statistical_df.loc[idx, 'upsell'] = upsell_value
-
     # ============================================================================
-    # UPSELL TABLE UPDATE METHODS
+    # WEIGHTED FARE CALCULATION (CORRECTED WEIGHTS)
     # ============================================================================
     
-    def update_upsell_table(self, statistical_df: pd.DataFrame) -> Dict:
+    def _calculate_weight(self, days_from_holiday: int) -> float:
+        """
+        Calculate weight using exponential decay formula:
+        w(x) = 1 if -7 <= x <= 7 (P1/S1 bands)
+        w(x) = e^(-(x-7)) if x > 7 (S2, S3, S4)
+        w(x) = e^(x+7) if x < -7 (P2, P3, P4)
+        """
+        if -7 <= days_from_holiday <= 7:
+            return 1.0
+        elif days_from_holiday > 7:
+            return np.exp(-(days_from_holiday - 7))
+        else:
+            return np.exp(days_from_holiday + 7)
+
+    def _calculate_projected_fare_from_bands(self, sector: str, target_date: datetime,
+                                            holiday_mappings: Dict) -> Tuple[Optional[float], Dict]:
+        """Calculate fare using weighted average across all relevant holiday bands."""
+        numerator = 0.0
+        denominator = 0.0
+        
+        target_date_obj = target_date.date() if isinstance(target_date, datetime) else target_date
+        
+        debug_info = {
+            'holidays': [],
+            'bands': [],
+            'weights': [],
+            'fares': [],
+            'match_types': [],
+            'mapped_dows': []
+        }
+        
+        for holiday_name, holiday_data in holiday_mappings.items():
+            sectors_dict = holiday_data.get('sectors', {})
+            sector_bands = sectors_dict.get(sector)
+            
+            if not sector_bands:
+                continue
+            
+            for band_name, mapped_dates in sector_bands.items():
+                for mapping in mapped_dates:
+                    mapping_date = mapping['target_date']
+                    if isinstance(mapping_date, datetime):
+                        mapping_date = mapping_date.date()
+                    
+                    if mapping_date == target_date_obj:
+                        fare = mapping['fare']
+                        days_from_holiday = mapping.get('days_from_holiday', 0)
+                        weight = self._calculate_weight(days_from_holiday)
+                        match_type = mapping.get('match_type', 'unknown')
+                        mapped_dow = mapping.get('mapped_dow', 'N/A')
+                        
+                        debug_info['holidays'].append(holiday_name)
+                        debug_info['bands'].append(band_name)
+                        debug_info['weights'].append(f"{weight:.4f}")
+                        debug_info['fares'].append(f"{fare:.2f}")
+                        debug_info['match_types'].append(match_type)
+                        debug_info['mapped_dows'].append(mapped_dow)
+                        
+                        numerator += weight * fare
+                        denominator += weight
+                        break
+        
+        result = numerator / denominator if denominator > 0 else None
+        return result, debug_info
+
+    # ============================================================================
+    # SECTOR PROCESSING
+    # ============================================================================
+    
+    def process_sector_year_projection(self, sector: str, 
+                                       holiday_mappings: Dict,
+                                       calendar_data: pd.DataFrame) -> pd.DataFrame:
+        """Process one sector for next 365 days."""
+        date_range = pd.date_range(start=self.start_date, end=self.end_date, freq='D')
+        
+        results = []
+        
+        for target_date in date_range:
+            projected_af, debug_info = self._calculate_projected_fare_from_bands(
+                sector, target_date, holiday_mappings
+            )
+            
+            if projected_af is not None:
+                holiday_context = '|'.join(debug_info['holidays']) if debug_info['holidays'] else 'Holiday Period'
+                bands_used = '|'.join(debug_info['bands'])
+                weights_used = '|'.join(debug_info['weights'])
+                fares_used = '|'.join(debug_info['fares'])
+                match_types = '|'.join(debug_info['match_types'])
+                mapped_dows = '|'.join(debug_info['mapped_dows'])
+            else:
+                projected_af = self._handle_void_period(sector, target_date, calendar_data)
+                if projected_af is not None:
+                    holiday_context = 'Void Period'
+                    bands_used = 'N/A'
+                    weights_used = 'N/A'
+                    fares_used = f"{projected_af:.2f}"
+                    match_types = 'void_dow_position'
+                    mapped_dows = target_date.strftime('%A')
+                else:
+                    continue
+            
+            results.append({
+                'Sector': sector,
+                'DepartureDate': target_date,
+                'ProjectedAF': round(projected_af, FareAnalysisConfig.DECIMAL_PRECISION),
+                'Holidays': holiday_context,
+                'Bands': bands_used,
+                'Weights': weights_used,
+                'HistoricalFares': fares_used,
+                'MatchTypes': match_types,
+                'MappedDOW': mapped_dows,
+                'Month': target_date.strftime('%B'),
+                'DayOfWeek': target_date.strftime('%A')
+            })
+        
+        return pd.DataFrame(results)
+
+    def run_sequential_processing(self, sectors: List[str]) -> pd.DataFrame:
+        """Process sectors sequentially."""
+        calendar_data = self._fetch_calendar_data()
+        holidays_df = self._fetch_holidays()
+        
+        self.holiday_mappings_cache = self.preprocess_holiday_bands(calendar_data, holidays_df)
+        self.profile_fares_cache = self._fetch_profile_fares()
+        
+        results = []
+        total_sectors = len(sectors)
+        
+        for idx, sector in enumerate(sectors, 1):
+            try:
+                if idx % 10 == 0:
+                    self.logger.info(f"Processing sector {idx}/{total_sectors}: {sector}")
+                
+                sector_df = self.process_sector_year_projection(
+                    sector,
+                    self.holiday_mappings_cache,
+                    calendar_data
+                )
+                
+                if not sector_df.empty:
+                    results.append(sector_df)
+                    
+            except Exception as e:
+                self.logger.error(f"Error processing {sector}: {e}")
+                continue
+        
+        if not results:
+            return pd.DataFrame()
+        
+        final_df = pd.concat(results, ignore_index=True)
+        final_df = self._calculate_upsells_vectorized(final_df)
+        
+        return final_df
+
+    # ============================================================================
+    # UPSELL CALCULATION
+    # ============================================================================
+    
+    def _calculate_upsells_vectorized(self, projection_df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate upsells using vectorized operations with H1/H2 logic."""
+        if projection_df.empty or self.profile_fares_cache is None or self.profile_fares_cache.empty:
+            projection_df['ProfileFareQ10'] = None
+            projection_df['Upsell'] = None
+            return projection_df
+        
+        profile_fares = self.profile_fares_cache
+        
+        # Determine month half for each date
+        projection_df['month_half'] = pd.to_datetime(projection_df['DepartureDate']).apply(
+            lambda x: 'H1' if x.day <= 15 else 'H2'
+        )
+        
+        # Create month_h1_h2 column (e.g., "january_h1", "february_h2")
+        projection_df['month_with_half'] = (
+            projection_df['Month'].str.lower() + '_' + projection_df['month_half'].str.lower()
+        )
+        
+        projection_df['dow_lower'] = projection_df['DayOfWeek'].str.lower()
+        
+        # Merge with profile fares
+        projection_df = projection_df.merge(
+            profile_fares[['sector', 'month_lower', 'dow_lower', 'Q10']],
+            left_on=['Sector', 'month_with_half', 'dow_lower'],
+            right_on=['sector', 'month_lower', 'dow_lower'],
+            how='left'
+        )
+        
+        projection_df.rename(columns={'Q10': 'ProfileFareQ10'}, inplace=True)
+        projection_df.drop(columns=['sector', 'month_lower', 'dow_lower', 'month_half', 'month_with_half'], 
+                        inplace=True, errors='ignore')
+        
+        # Calculate upsell as whole number percentage
+        projection_df['Upsell'] = np.where(
+            (projection_df['ProfileFareQ10'].notna()) & (projection_df['ProfileFareQ10'] > 0),
+            np.round((projection_df['ProjectedAF'] - projection_df['ProfileFareQ10']) / projection_df['ProfileFareQ10'] * 100),
+            None
+        )
+        
+        return projection_df
+
+    # ============================================================================
+    # DATABASE UPDATES
+    # ============================================================================
+    
+    def update_upsell_table(self, projection_df: pd.DataFrame) -> Dict:
         """Update config_profile_fare_station_upsell collection with calculated upsell values."""
         start_time = time.time()
         update_results = {
@@ -667,7 +627,7 @@ class FareStatisticalAnalysis:
         }
         
         try:
-            upsell_data = self._prepare_upsell_data(statistical_df)
+            upsell_data = self._prepare_upsell_data(projection_df)
             if upsell_data.empty:
                 update_results["status"] = "no_data"
                 return update_results
@@ -697,25 +657,44 @@ class FareStatisticalAnalysis:
         
         return update_results
 
-    def _prepare_upsell_data(self, statistical_df: pd.DataFrame) -> pd.DataFrame:
-        """Prepare upsell data for database update."""
-        upsell_data = statistical_df[
-            (statistical_df['band_id'].notna()) & 
-            (statistical_df['upsell'].notna()) & 
-            (statistical_df['next_year_date'].notna())
+    def _prepare_upsell_data(self, projection_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Prepare upsell data for database update.
+        
+        Logic:
+        1. Filter records with valid Upsell values
+        2. Group by Sector and DepartureDate, taking MAX upsell per combination
+        3. Format upsell as whole number percentage (without % symbol)
+        """
+        # Filter valid upsell records
+        upsell_data = projection_df[
+            (projection_df['Upsell'].notna()) & 
+            (projection_df['Upsell'] > 0)
         ].copy()
         
         if upsell_data.empty:
             return pd.DataFrame()
 
-        upsell_summary = upsell_data.groupby(['Sector', 'next_year_date']).agg({
-            'upsell': 'max'
+        # Group by Sector and Date, taking maximum upsell value
+        upsell_summary = upsell_data.groupby(['Sector', 'DepartureDate']).agg({
+            'Upsell': 'max'
         }).reset_index()
 
-        upsell_summary['date_formatted'] = pd.to_datetime(upsell_summary['next_year_date']).dt.strftime('%m/%d/%Y')
-        upsell_summary['upsell_percentage'] = upsell_summary['upsell'].apply(
-            lambda x: str(round(x * 100))
+        # Format date as MM/DD/YYYY
+        upsell_summary['date_formatted'] = pd.to_datetime(
+            upsell_summary['DepartureDate']
+        ).dt.strftime('%m/%d/%Y')
+        
+        # Convert upsell to string (already a whole number from earlier calculation)
+        upsell_summary['upsell_percentage'] = upsell_summary['Upsell'].apply(
+            lambda x: str(int(round(x))) if pd.notna(x) else None
         )
+        
+        # Remove any records with null or zero upsell
+        upsell_summary = upsell_summary[
+            (upsell_summary['upsell_percentage'].notna()) & 
+            (upsell_summary['upsell_percentage'] != '0')
+        ]
 
         return upsell_summary
 
@@ -748,7 +727,8 @@ class FareStatisticalAnalysis:
         
         Update Logic:
         - Only update records where mode = 'S' (System) or mode doesn't exist
-        - Never update records where mode = 'M' (Manual)
+        - Skip records where mode = 'M' (Manual) AND value is not empty
+        - Allow update if mode = 'M' but value is empty ("")
         - Set mode = 'S' for all system updates
         """
         updated_count = inserted_count = failed_count = 0
@@ -773,8 +753,10 @@ class FareStatisticalAnalysis:
                     })
                     
                     if existing_record and existing_record.get('mode') == 'M':
-                        self.logger.info(f"Skipping update for {sector} {date_str}: Record is marked as Manual (mode='M')")
-                        continue
+                        existing_value = existing_record.get('value', '').strip()
+                        if existing_value != '':
+                            self.logger.info(f"Skipping update for {sector} {date_str}: Record is marked as Manual (mode='M') with non-empty value")
+                            continue
                     
                     result = collection.update_one(
                         {
@@ -782,15 +764,14 @@ class FareStatisticalAnalysis:
                             'date': date_str,
                             '$or': [
                                 {'mode': 'S'},
-                                {'mode': {'$exists': False}}
+                                {'mode': {'$exists': False}},
+                                {'mode': 'M', 'value': ''}
                             ]
                         },
                         {
                             '$set': {
                                 'value': clean_value,
-                                'mode': 'S',
-                                'updatedAt': datetime.now(),
-                                'updatedBy': 'SYSTEM'
+                                'mode': 'S'
                             }
                         },
                         upsert=True
@@ -815,8 +796,15 @@ class FareStatisticalAnalysis:
             
         return updated_count, inserted_count, failed_count
 
-    def validate_upsell_updates(self, upsell_data: pd.DataFrame) -> Dict:
-        """Validate that upsell updates were correctly written to the database."""
+    def validate_upsell_updates(self, projection_df: pd.DataFrame) -> Dict:
+        """
+        Validate that upsell updates were correctly written to the database.
+        
+        Checks:
+        - Sample of records matches expected values
+        - Manual records were not overwritten
+        - System records were updated correctly
+        """
         validation_results = {
             "status": "not_attempted",
             "sample_size": 0,
@@ -827,6 +815,14 @@ class FareStatisticalAnalysis:
         }
         
         try:
+            # Prepare upsell data (same as update method)
+            upsell_data = self._prepare_upsell_data(projection_df)
+            
+            if upsell_data.empty:
+                validation_results["status"] = "no_data"
+                return validation_results
+            
+            # Sample first N records
             sample_data = upsell_data.head(FareAnalysisConfig.VALIDATION_SAMPLE_SIZE)
             validation_results["sample_size"] = len(sample_data)
             
@@ -845,17 +841,23 @@ class FareStatisticalAnalysis:
                 
                 if not result:
                     not_found += 1
+                    self.logger.warning(f"Record not found: {sector} {date_formatted}")
                 else:
+                    # Check if it's a manual record
                     if result.get('mode') == 'M':
                         manual_skipped += 1
                         self.logger.info(f"Manual record (not updated by system): {sector} {date_formatted}")
                     else:
+                        # Validate system record
                         db_value = result.get('value', '').strip()
                         if db_value == expected_value:
                             matches += 1
                         else:
                             mismatches += 1
-                            self.logger.error(f"Mismatch for {sector} {date_formatted}: Expected {expected_value}, Found {db_value}")
+                            self.logger.error(
+                                f"Mismatch for {sector} {date_formatted}: "
+                                f"Expected {expected_value}, Found {db_value}"
+                            )
             
             validation_results.update({
                 "matches_found": matches,
@@ -873,7 +875,7 @@ class FareStatisticalAnalysis:
         return validation_results
 
     # ============================================================================
-    # S3 METHODS
+    # S3 UPLOAD
     # ============================================================================
     
     def upload_to_s3(self, df: pd.DataFrame) -> None:
@@ -886,63 +888,77 @@ class FareStatisticalAnalysis:
             
             csv_buffer = io.StringIO()
             df.to_csv(csv_buffer, index=False)
-            csv_content = csv_buffer.getvalue()
             
             self.s3_client.put_object(
                 Bucket=self.bucket_name,
                 Key=s3_key,
-                Body=csv_content
+                Body=csv_buffer.getvalue()
             )
             
+            self.logger.info(f"Uploaded to S3: {s3_key}")
+            
         except Exception as e:
-            self.logger.error(f"Error uploading to S3: {e}")
+            self.logger.error(f"S3 upload error: {e}")
             raise
 
     # ============================================================================
-    # MAIN EXECUTION METHOD
+    # MAIN EXECUTION
     # ============================================================================
     
     def run(self) -> Dict:
-        """Main method to run the complete fare analysis pipeline."""
+        """Main execution method."""
         start_time = time.time()
         results = {
             "status": "not_attempted",
             "execution_time_seconds": 0,
-            "output_file": None,
             "total_records": 0,
             "sectors_processed": 0,
-            "total_bands": 0,
-            "bands_with_holidays": 0,
+            "projection_start_date": str(self.start_date),
+            "projection_end_date": str(self.end_date),
             "upsell_table_update": None,
             "validation_results": None
         }
         
         try:
-            df = self._fetch_calendar_data()
-            if df.empty:
+            self.logger.info(f"Starting fare analysis from {self.start_date} to {self.end_date}")
+            
+            # Fetch domestic sectors first
+            self.domestic_sectors_cache = self._fetch_domestic_sectors()
+            self.logger.info(f"Domestic stations loaded: {len(self.domestic_sectors_cache)}")
+            
+            calendar_data = self._fetch_calendar_data()
+            if calendar_data.empty:
                 results["status"] = "no_data"
                 return results
             
-            statistical_df = self.calculate_statistics(df)
-            if statistical_df.empty:
+            sectors = calendar_data['Sector'].unique().tolist()
+            self.logger.info(f"Processing {len(sectors)} domestic sectors")
+            
+            projection_df = self.run_sequential_processing(sectors)
+            
+            if projection_df.empty:
                 results["status"] = "calculation_failed"
                 return results
             
-            statistical_df_with_holidays = self.add_holiday_analysis(statistical_df)
+            self.upload_to_s3(projection_df)
             
-            self.upload_to_s3(statistical_df_with_holidays)
-            
-            upsell_update_results = self.update_upsell_table(statistical_df_with_holidays)
+            upsell_update_results = self.update_upsell_table(projection_df)
             results["upsell_table_update"] = upsell_update_results
             
             if upsell_update_results["status"] == "success":
-                validation_results = self.validate_upsell_updates(statistical_df_with_holidays)
+                validation_results = self.validate_upsell_updates(projection_df)
                 results["validation_results"] = validation_results
+            
+            results.update({
+                "total_records": len(projection_df),
+                "sectors_processed": projection_df['Sector'].nunique(),
+                "status": "success"
+            })
             
         except Exception as e:
             results["status"] = "error"
             results["error"] = str(e)
-            self.logger.error(f"Error in statistical analysis: {str(e)}")
+            self.logger.error(f"Error in fare analysis: {str(e)}")
         
         finally:
             results["execution_time_seconds"] = round(time.time() - start_time, 2)

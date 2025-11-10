@@ -2473,7 +2473,6 @@ public class App implements CommandLineRunner {
             for (String header : headers) {
                 doc.append(header, autoConvert(dataMap.get(header)));
             }
-            doc.append("updatedAt", new Date());
 
             // Upsert operation (replace entire document)
             ReplaceOptions options = new ReplaceOptions().upsert(true);
@@ -2548,8 +2547,7 @@ public class App implements CommandLineRunner {
                     .append(DATE_COLUMN_NAME, date)
                     .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
                     .append(VALUE_COLUMN_NAME, cleanValue)
-                    .append("mode", mode)
-                    .append("updatedAt", new Date());
+                    .append("mode", mode);
 
             // Upsert operation
             ReplaceOptions options = new ReplaceOptions().upsert(true);
