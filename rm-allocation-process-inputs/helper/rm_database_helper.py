@@ -1895,16 +1895,20 @@ class RMDatabaseHelper:
         try:
             sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
-                "RBD": rbd_sector1,
                 "route": "L",
-                "RBD": condition
+                "$and": [
+            {"RBD": rbd_sector1},
+            {"RBD": condition}
+        ]
             })
 
             sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
-                "RBD": rbd_sector2,
                 "route": "L",
-                "RBD": condition
+                "$and": [
+            {"RBD": rbd_sector2},
+            {"RBD": condition}
+        ]
             })
 
             if not sector1_result or not sector2_result:
@@ -2230,7 +2234,7 @@ class RMDatabaseHelper:
             result = self.db.expected_no_shows.find_one({
                 "DepartureDate": str(currFltDate),
                 "Sector": sector,
-                "FlightNumber": int(FltNumber)
+                "FlightNumber": str(FltNumber)
             })
 
             if self.debugMode:

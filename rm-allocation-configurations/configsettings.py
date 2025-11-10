@@ -261,9 +261,9 @@ if env == 'preprod':
     FETCH_INPUTS_ACCESS_KEY = credentials.get('/copilot/qp/' + credenv + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY', '')
     RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + credenv + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     
-    SFTP_USERNAME = '0KProdr4x_sftp'
+    SFTP_USERNAME = '0KTestr4x_sftp'
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
-    SFTP_PASSWORD = credentials.get('/rm/' + credenv + '/rm-allocation/NAV_SFTP_PASSWORD', '')
+    SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + credenv + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
