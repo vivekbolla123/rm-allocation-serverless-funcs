@@ -2234,7 +2234,7 @@ class RMDatabaseHelper:
             result = self.db.expected_no_shows.find_one({
                 "DepartureDate": str(currFltDate),
                 "Sector": sector,
-                "FlightNumber": int(FltNumber)
+                "FlightNumber": str(FltNumber)
             })
 
             if self.debugMode:
