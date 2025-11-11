@@ -251,7 +251,8 @@ class DataProcessor:
                     {
                         "runId": runid,
                         "flightNumber": row['flightNumber'],
-                        "flightDate": row['flightDate']
+                        "flightDate": row['flightDate'],
+                        "sector": row['sector']
                     },
                     {"$set": {
                         "b2cstatus": "Done",
