@@ -1770,11 +1770,12 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def insert_run_fltDate_audit(self, run_id, flightNumber, flightDate, result, b2cstatus, b2bstatus):
+    def insert_run_fltDate_audit(self, run_id, flightNumber,sector, flightDate, result, b2cstatus, b2bstatus):
         try:
             self.db.run_flight_date_audit.insert_one({
                 "runId": run_id,
                 "flightNumber": flightNumber,
+                "sector":sector,
                 "flightDate": flightDate,
                 "result": result,
                 "b2cstatus": b2cstatus,
