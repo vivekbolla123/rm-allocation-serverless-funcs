@@ -153,7 +153,7 @@ class SalesPAHelper:
                 departure_end = row['departure_end']
                 
                 # Check if departure_end is 'Open' or blank
-                is_open_ended = pd.isna(departure_end)
+                is_open_ended = pd.isna(departure_end) or departure_end == "" or departure_end == "open"
                 
                 try:
                     # Parse sector to get origin, destination and their types
