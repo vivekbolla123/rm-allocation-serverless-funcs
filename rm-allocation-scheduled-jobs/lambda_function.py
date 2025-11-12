@@ -32,6 +32,7 @@ from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
 from updateImpForecast import update_imputed_forecast
 from cugReport import CugReport
+from run_paused_scheduled_runs import Run_Paused_Runs
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -97,7 +98,8 @@ module_map = {
     "calendar_upsell": CalUpsell,
     "default_ml": defaultMarketlist,
     "imputed_forecast": update_imputed_forecast,
-    "cug_report": CugReport
+    "cug_report": CugReport,
+    "run_paused_runs": Run_Paused_Runs
 }
 
 
@@ -188,7 +190,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"alloc_summary\": 1}}"
+#   "body": "{\"modules\":{\"run_paused_runs\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

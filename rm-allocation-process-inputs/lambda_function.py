@@ -124,7 +124,7 @@ def lambda_handler(event, context):
                     'statusCode': 200,
                     'body': 'stopped'
                 }
-            elif (status_df.iloc[0]['run_status'] == 'PAUSED'):
+            elif (status_df.iloc[0]['run_status'] in ['PAUSED', 'AUTO-PAUSED']):
                 insert_paused_run(run_id, content)
                 log_time.send_time_log_db()
                 return {
