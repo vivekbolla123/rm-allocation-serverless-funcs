@@ -66,7 +66,7 @@ class AllocationSummaryReport:
     def fetch_allocation_run_summary(self, allocation_run_ids):
         """Get data by joining allocation_run_audit & navitaire_allocation_audit"""
         run_id_list = [item[0] if isinstance(item, tuple) else item for item in allocation_run_ids]
-        
+
         # MongoDB aggregation pipeline
         pipeline = [
             {
@@ -84,7 +84,17 @@ class AllocationSummaryReport:
                     "from": "navitaire_allocation_audit",
                     "localField": "run_id",
                     "foreignField": "run_id",
-                    "as": "navitaire_data"
+                    "as": "navitaire_data",
+                    # OPTIMIZATION: Only fetch necessary fields from lookup
+                    "pipeline": [
+                        {
+                            "$project": {
+                                "run_id": 1,
+                                "end_time": 1,
+                                "failures": 1
+                            }
+                        }
+                    ]
                 }
             },
             {
@@ -101,12 +111,18 @@ class AllocationSummaryReport:
                     },
                     "total_count": {"$size": "$navitaire_data"},
                     "run_time_seconds": {
-    "$dateDiff": {
-        "startDate": {"$dateFromString": {"dateString": "$start_time"}},
-        "endDate": {"$max": "$navitaire_data.end_time"},
-        "unit": "second"
-    }
-}
+                        "$dateDiff": {
+                            "startDate": {"$dateFromString": {"dateString": "$start_time"}},
+                            "endDate": {"$max": "$navitaire_data.end_time"},
+                            "unit": "second"
+                        }
+                    }
+                }
+            },
+            {
+                "$project": {
+                    # Don't include navitaire_data in final output
+                    "navitaire_data": 0  # CRITICAL: Drop the large array before output
                 }
             },
             {
@@ -151,8 +167,12 @@ class AllocationSummaryReport:
                 }
             }
         ]
-        
-        result = list(self.mongo_db.allocation_run_audit.aggregate(pipeline))
+
+        # CRITICAL: Add allowDiskUse=True
+        result = list(self.mongo_db.allocation_run_audit.aggregate(
+            pipeline, 
+            allowDiskUse=True
+        ))
         return result
 
     def fetch_how_count_data(self, run_ids, isconnections):
