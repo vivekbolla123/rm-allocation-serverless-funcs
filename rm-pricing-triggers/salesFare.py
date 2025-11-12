@@ -326,7 +326,7 @@ class SalesFare:
         finally:
             # Save audit regardless of success or failure
             try:
-                audit_table = self.pa_helper.save_run_audit(run_id, output_df, status, self.failure_reason)
+                audit_table = self.pa_helper.save_run_audit(self.analystName, self.currVersion, run_id, output_df, status, self.failure_reason)
                 if audit_table:
                     self.logger.info(f"Audit saved to {audit_table}")
             except Exception as audit_error:

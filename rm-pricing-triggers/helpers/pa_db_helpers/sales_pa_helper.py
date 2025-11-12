@@ -107,8 +107,7 @@ class SalesPAHelper:
                 'tableName': {
                     '$in': [
                         'config_sale_dates',
-                        'config_blackout_dates',
-                        'config_station_master'
+                        'config_blackout_dates'
                     ]
                 }
             }, {'_id': 0}))
@@ -223,7 +222,7 @@ class SalesPAHelper:
             self.logger.error(traceback.format_exc())
             raise
     
-    def save_run_audit(self, run_id, output_df, status, failure_reason=None):
+    def save_run_audit(self, analystName, currVersion, run_id, output_df, status, failure_reason=None):
         """Save audit information with enhanced failure tracking."""
         try:
             if status == 'SUCCESS' and (output_df is None or output_df.empty):
@@ -234,12 +233,27 @@ class SalesPAHelper:
             # Calculate statistics
             total_output_rows = len(output_df) if output_df is not None else 0
             
+            sales_dates_version = None
+            blackout_dates_version = None
+            try:
+                if currVersion is not None and not currVersion.empty:
+                    sales_dates_rows = currVersion[currVersion['table_name'] == 'config_sale_dates']
+                    blackout_dates_rows = currVersion[currVersion['table_name'] == 'config_blackout_dates']
+                    
+                    sales_dates_version = sales_dates_rows['curr_version'].values[0] if not sales_dates_rows.empty else None
+                    blackout_dates_version = blackout_dates_rows['curr_version'].values[0] if not blackout_dates_rows.empty else None
+            except Exception:
+                pass
+            
             audit_data = {
                 'run_id': run_id,
                 'start_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                'total_output_rows': total_output_rows,
                 'status': status,
+                'total_output_rows': total_output_rows,
+                'sales_dates_version': sales_dates_version,
+                'blackout_dates_version': blackout_dates_version,
+                'analystName': analystName,
                 'failure_reason': failure_reason if status == 'FAILED' else None
             }
             
