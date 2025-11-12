@@ -1656,12 +1656,24 @@ class RMDatabaseHelper:
             else:
                 cluster = 5
 
-            result = self.db.config_profile_fares.find_one({
-                "sector": sector,
-                "Month": month,
-                "DOW": dow,
-                "Cluster": cluster
-            })
+            result = self.db.config_profile_fares.find_one(
+    {
+        "sector": sector,
+        "month": month,
+        "dow": dow,
+        "cluster": cluster
+    },
+    {
+        "_id": 0,  # exclude _id
+        "Q0": 1, "Q1": 1, "Q2": 1, "Q3": 1, "Q4": 1,
+        "Q5": 1, "Q6": 1, "Q7": 1, "Q8": 1, "Q9": 1,
+        "Q10": 1, "Q11": 1, "Q12": 1, "Q13": 1, "Q14": 1,
+        "Q15": 1, "Q16": 1, "Q17": 1, "Q18": 1, "Q19": 1,
+        "Q20": 1  # include only Q0 to Q20
+    }
+)
+
+
 
             return pd.DataFrame([result]) if result else pd.DataFrame()
         except Exception as e:
@@ -2234,7 +2246,7 @@ class RMDatabaseHelper:
             result = self.db.expected_no_shows.find_one({
                 "DepartureDate": str(currFltDate),
                 "Sector": sector,
-                "FlightNumber": int(FltNumber)
+                "FlightNumber": str(FltNumber)
             })
 
             if self.debugMode:
