@@ -103,8 +103,8 @@ class SalesPAHelper:
     def get_current_version(self):
         """Get current version information from MongoDB."""
         try:
-            version_data = list(self.db.currentVersion.find({
-                'tableName': {
+            version_data = list(self.db.current_table_version.find({
+                'table_name': {
                     '$in': [
                         'config_sale_dates',
                         'config_blackout_dates'
