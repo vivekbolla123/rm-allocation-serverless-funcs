@@ -717,7 +717,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
         # Generate Date Range
         s_date = datetime.strptime(start_period, "%Y-%m-%d")
         e_date = datetime.strptime(end_period, "%Y-%m-%d")
-        date_range = pd.date_range(start=s_date, end=e_date - timedelta(days=1), freq='D')
+        date_range = pd.date_range(start=s_date, end=e_date , freq='D')
         date_df = pd.DataFrame({'Date': date_range})
 
         # Cross Join
