@@ -249,24 +249,43 @@ class NavDatabaseHelper:
         self.logger = logging.getLogger()
         self.retry_count = 0
 
-    def _execute_query_with_retry(self, query):
+    def _execute_query_with_retry(self, query, max_retries=3):
         """Execute query with automatic reconnection on failure"""
-        @retry_on_connection_error(
-            max_retries=3, 
-            delay=1, 
-            exceptions=(PymssqlError,)
-        )
-        def execute():
+        for attempt in range(max_retries):
             try:
-                return pd.read_sql(query, self.NavitaireConnection)
-            except PymssqlError as e:
-                # If connection is dead, create new one
-                if "connection" in str(e).lower() or "closed" in str(e).lower():
-                    self.logger.warning(f"Connection lost, reconnecting...")
+                # Test if connection is alive
+                try:
+                    self.NavitaireConnection.cursor()
+                except:
+                    # Connection is dead, recreate
+                    logger.warning(f"Connection dead, recreating (attempt {attempt + 1})")
                     self.NavitaireConnection = create_navitaire_connection()
-                    return pd.read_sql(query, self.NavitaireConnection)
+                
+                return pd.read_sql(query, self.NavitaireConnection)
+                
+            except PymssqlError as e:
+                error_msg = str(e).lower()
+                if "connection" in error_msg or "dead" in error_msg or "not connected" in error_msg:
+                    logger.warning(f"Connection error on attempt {attempt + 1}: {str(e)}")
+                    if attempt < max_retries - 1:
+                        # Recreate connection and retry
+                        try:
+                            self.NavitaireConnection.close()
+                        except:
+                            pass
+                        time.sleep(2 ** attempt)  # Exponential backoff
+                        self.NavitaireConnection = create_navitaire_connection()
+                    else:
+                        logger.error(f"Failed after {max_retries} retries")
+                        raise
+                else:
+                    # Non-connection error, don't retry
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error: {str(e)}")
                 raise
-        return execute()
+        
+        raise Exception("Query execution failed after all retries")
 
     def getCurrentBookedLoads(self, startDate, endDate):
         NavitaireQuery = f""" EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
@@ -414,6 +433,39 @@ class NavDatabaseHelper:
             FlightNumber
         """
         return self._execute_query_with_retry(query)
+    
+    def get_w0_rbd(self, start_date, end_date):
+        """Get W0 RBD data"""
+        query = f"""SELECT classofservice,
+           classau,
+           CONVERT(VARCHAR(10), departuredate, 120) AS DepartureDate,
+           IL.flightnumber,
+           IL.departurestation,
+           IL.arrivalstation
+    FROM   {self.NAV_DB_NAME}[Rez].[inventorylegclass] ILC
+           JOIN {self.NAV_DB_NAME}[Rez].[inventoryleg] IL
+             ON IL.[inventorylegid] = ILC.[inventorylegid]
+    WHERE  IL.departuredate >= '{start_date}'
+           AND IL.departuredate <= '{end_date}'
+           AND classofservice = 'W0'
+    ORDER  BY departuredate """
+        return self._execute_query_with_retry(query)
+    
+    def getFltSectDeptTimeForCurrentDay(self):
+        
+        current_date = datetime.now(timezone.utc).date()
+        NavitaireQuery = f"""
+            SELECT
+                DepartureStation Origin,
+                ArrivalStation Destination,
+                TRIM(FlightNumber) as FlightNumber,
+                DepartureDate,
+                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
+            FROM {self.NAV_DB_NAME}rez.inventoryleg
+            WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
+        """
+        # Use retry mechanism
+        return self._execute_query_with_retry(NavitaireQuery)
 
 # ==========================
 # DW Query with Retry
@@ -523,51 +575,6 @@ def quick_optimize(mkt_list, navapihelper):
     
     return mkt_list.drop('api_result', axis=1)
 
-def getFltSectDeptTimeForCurrentDay():
-    try:
-        current_date = datetime.now(timezone.utc).date()
-        NavitaireQuery = f"""
-            SELECT
-                DepartureStation Origin,
-                ArrivalStation Destination,
-                TRIM(FlightNumber) as FlightNumber,
-                DepartureDate,
-                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
-            FROM {configsettings.NAV_DB_NAME}rez.inventoryleg
-            WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
-        """
-        # Use retry mechanism
-        @retry_on_connection_error(max_retries=3, delay=1, exceptions=(PymssqlError,))
-        def execute():
-            return pd.read_sql(NavitaireQuery, NavitaireConnection)
-        return execute()
-    except Exception as e:
-        logger.error(f"Error fetching flight data: {str(e)}")
-        raise
-
-def get_w0_rbd(start_date, end_date):
-    try:
-        NavitaireQuery = f"""SELECT classofservice,
-       classau,
-       CONVERT(VARCHAR(10), departuredate, 120) AS DepartureDate,
-       IL.flightnumber,
-       IL.departurestation,
-       IL.arrivalstation
-FROM   {configsettings.NAV_DB_NAME}[Rez].[inventorylegclass] ILC
-       JOIN {configsettings.NAV_DB_NAME}[Rez].[inventoryleg] IL
-         ON IL.[inventorylegid] = ILC.[inventorylegid]
-WHERE  IL.departuredate >= '{start_date}'
-       AND IL.departuredate <= '{end_date}'
-       AND classofservice = 'W0'
-ORDER  BY departuredate """
-        # Use retry mechanism
-        @retry_on_connection_error(max_retries=3, delay=1, exceptions=(PymssqlError,))
-        def execute():
-            return pd.read_sql(NavitaireQuery, NavitaireConnection)
-        return execute()
-    except Exception as e:
-        logger.error(f"Error fetching W0 RBD data: {str(e)}")
-        raise
 
 def create_flight_lookup_map(flights_df):
     flight_map = {}
@@ -626,9 +633,9 @@ def filter_market_list(market_list_df, ndo0_map):
 
     return filtered_markets_df, skipped_markets_df
 
-def clean_markets_optimized(market_list_df, w0_df):
+def clean_markets_optimized(market_list_df, w0_df,nav_helper):
     try:
-        current_flights_df = getFltSectDeptTimeForCurrentDay()
+        current_flights_df = nav_helper.getFltSectDeptTimeForCurrentDay()
         if current_flights_df.empty:
             logger.info("No current day flights found in Navitaire")
             return market_list_df, 0
@@ -1061,21 +1068,22 @@ def lambda_handler(event, context):
     if route_type == "direct":
         query_type = 'sales' if region == 'SalesInv' else 'standard'
         mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
+        nav_helper = NavDatabaseHelper(
+            navconn=NavitaireConnection,
+            nav_db_name=configsettings.NAV_DB_NAME,
+            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
+        )
         
-        w0_df = get_w0_rbd(start_period, end_period)
+        w0_df = nav_helper.get_w0_rbd(start_period, end_period)
         logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df)
+        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
         logger.info(f"Filtered Market List {mkt_list}")
         mkt_list = mkt_list.reset_index()
         markets_count = mkt_list.shape[0]
         logger.info(f"Total markets: {markets_count}")
 
         # Initialize NavDatabaseHelper
-        nav_helper = NavDatabaseHelper(
-            navconn=NavitaireConnection,
-            nav_db_name=configsettings.NAV_DB_NAME,
-            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
-        )
+       
 
         # Convert PerStart to datetime for joining
         mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
