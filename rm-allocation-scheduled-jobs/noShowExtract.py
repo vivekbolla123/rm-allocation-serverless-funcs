@@ -548,7 +548,7 @@ class ExpectedNoShows:
         try:
             # Just call read_sql and it directly returns a DataFrame
             bookings_df = pd.read_sql(query, self.nav_conn)
-            
+            bookings_df['FlightNumber'] = bookings_df['FlightNumber'].str.strip()
             self.logger.info(f"Successfully fetched {len(bookings_df)} booking records from ESB")
             return bookings_df
         
@@ -669,7 +669,7 @@ class ExpectedNoShows:
             
             # Step 2: Fetch current and next day bookings from ESB
             current_bookings = self.fetch_current_bookings_from_esb()
-            
+            current_bookings['FlightNumber'] = current_bookings['FlightNumber'].str.strip()
             # Step 3: Calculate expected no-shows by joining the datasets
             merged_data = self.calculate_expected_noshows(current_bookings, noshow_rates)
             
