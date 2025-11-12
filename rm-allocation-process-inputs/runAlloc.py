@@ -581,11 +581,6 @@ class DynAlloc:
 			hardfareb2b_updated,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
 			hardfareb2b = hardfareb2b_updated # Update local var
    
-			isB2BMarketFareAvailable = (
-			isB2BMarketFareAvailable or 
-			(pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) or
-			(B2C_opening_price_val is not None)
-		)
 
 			# Profile Fare Quartile calculation
 			actualPercentile_full = final_totalCapacity / PROFILE_FARES_QUARTILE if PROFILE_FARES_QUARTILE != 0 else final_totalCapacity # Avoid DivByZero
@@ -769,7 +764,11 @@ class DynAlloc:
 						B2C_opening_price_val = float(openDataB2C_details['Fare'][0])
 					except (ValueError, TypeError): 
 						self.logger.info(f"Could not parse B2C opening fare '{openDataB2C_details['Fare'][0]}' to float.")
-				
+				isB2BMarketFareAvailable = (
+						isB2BMarketFareAvailable or 
+						(pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) or
+						(B2C_opening_price_val is not None)
+					)
 				# B2B RBD determination
 				if isB2BMarketFareAvailable and not (self.B2B_thresholdflag):
 					discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)
