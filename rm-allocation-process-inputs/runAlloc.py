@@ -769,6 +769,7 @@ class DynAlloc:
 						(pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA) or
 						(B2C_opening_price_val is not None)
 					)
+				self.outputSummaryRow_b2b.lastSevenAvgFare = last_seven_avg_val
 				# B2B RBD determination
 				if isB2BMarketFareAvailable and not (self.B2B_thresholdflag):
 					discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)
@@ -1374,7 +1375,7 @@ class DynAlloc:
 
 		auDataStr = json.dumps(auData)
 
-		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
+		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo,"", flightDate, auDataStr, "Ready", "Ready")
 
 	def getStartEndDate(self, currDate, startNDO, endNDO):
 		startDate = datetime.strptime(startNDO, DATE_FORMAT).date()
