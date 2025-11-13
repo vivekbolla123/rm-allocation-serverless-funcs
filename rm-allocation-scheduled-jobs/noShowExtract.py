@@ -586,7 +586,7 @@ class ExpectedNoShows:
         """
         Aggregate the data to create the flight summary
         """
-        
+        ist = pytz.timezone('Asia/Kolkata')
         try:
             # Group by flight details and aggregate the required metrics
             flight_summary = merged_df.groupby(['DepartureDate', 'Sector', 'FlightNumber', 'TimeCluster']).agg({
@@ -601,7 +601,7 @@ class ExpectedNoShows:
             flight_summary['DepartureDate'] = pd.to_datetime(flight_summary['DepartureDate']).dt.strftime('%m/%d/%Y')
             
             # Add timestamp
-            flight_summary['GeneratedAt'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            flight_summary['GeneratedAt'] = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')
             
             return flight_summary
         
