@@ -232,7 +232,7 @@ class DataProcessor:
                     {"b2bstatus": {"$ne": "Done"}}
                 ]
             },
-            {"result": 1, "flightNumber": 1, "flightDate": 1}
+            {"result": 1, "flightNumber": 1, "flightDate": 1, "sector": 1}
         )
         
         # Generate and write data to the AUUPDATE file
@@ -251,7 +251,8 @@ class DataProcessor:
                     {
                         "runId": runid,
                         "flightNumber": row['flightNumber'],
-                        "flightDate": row['flightDate']
+                        "flightDate": row['flightDate'],
+                        "sector": row['sector']
                     },
                     {"$set": {
                         "b2cstatus": "Done",

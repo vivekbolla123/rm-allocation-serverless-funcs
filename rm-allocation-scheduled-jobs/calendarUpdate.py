@@ -9,7 +9,7 @@ class CalendarUpdate:
         # Get MongoDB client and access the database
         self.mongo_client = params['mongoconn']
         self.mongo_db = self.mongo_client['qp_dw_rmalloc']
-        self.constants = ConstantsUtils(self.mongo_client)
+        self.constants = ConstantsUtils(self.mongo_db)
         self.upsell_value = self.constants.PF_UPSELL_VALUE
 
     def fetch_existing_sectors(self):
@@ -70,10 +70,15 @@ class CalendarUpdate:
             4: 'Fri', 5: 'Sat', 6: 'Sun'
         }
 
+        # Determine half-month indicator
+        month_name = date_obj.strftime('%B')
+        half_indicator = '_H1' if date_obj.day <= 15 else '_H2'
+        mapped_month = month_name + half_indicator
+
         record = {
             'date': date_str,
             'DOW': dow_map[date_obj.weekday()],
-            'mappedMonth': date_obj.strftime('%B'),
+            'mappedMonth': mapped_month,
             'event': ''
         }
 
@@ -87,6 +92,87 @@ class CalendarUpdate:
                 return 0
         except Exception as e:
             self.logger.error(f"Error inserting date_event record: {str(e)}")
+            raise
+
+    def delete_old_records(self):
+        """Delete records older than current date - 2 days from both collections."""
+        try:
+            # Calculate cutoff date (current date - 2 days)
+            cutoff_date = datetime.now() - timedelta(days=2)
+            cutoff_date_str = cutoff_date.strftime('%m/%d/%Y')
+            
+            self.logger.info(f"Deleting records before {cutoff_date_str}")
+            
+            # Delete from config_profile_fare_station_upsell
+            upsell_pipeline = [
+                {
+                    "$addFields": {
+                        "date_obj": {
+                            "$dateFromString": {
+                                "dateString": "$date",
+                                "format": "%m/%d/%Y"
+                            }
+                        }
+                    }
+                },
+                {
+                    "$match": {
+                        "date_obj": {"$lt": cutoff_date}
+                    }
+                }
+            ]
+            
+            # Get IDs to delete from upsell collection
+            upsell_docs = list(self.mongo_db.config_profile_fare_station_upsell.aggregate(upsell_pipeline))
+            upsell_ids = [doc['_id'] for doc in upsell_docs]
+            
+            upsell_deleted = 0
+            if upsell_ids:
+                upsell_result = self.mongo_db.config_profile_fare_station_upsell.delete_many(
+                    {"_id": {"$in": upsell_ids}}
+                )
+                upsell_deleted = upsell_result.deleted_count
+                self.logger.info(f"Deleted {upsell_deleted} records from config_profile_fare_station_upsell")
+            
+            # Delete from config_date_event
+            date_event_pipeline = [
+                {
+                    "$addFields": {
+                        "date_obj": {
+                            "$dateFromString": {
+                                "dateString": "$date",
+                                "format": "%m/%d/%Y"
+                            }
+                        }
+                    }
+                },
+                {
+                    "$match": {
+                        "date_obj": {"$lt": cutoff_date}
+                    }
+                }
+            ]
+            
+            # Get IDs to delete from date_event collection
+            date_event_docs = list(self.mongo_db.config_date_event.aggregate(date_event_pipeline))
+            date_event_ids = [doc['_id'] for doc in date_event_docs]
+            
+            date_event_deleted = 0
+            if date_event_ids:
+                date_event_result = self.mongo_db.config_date_event.delete_many(
+                    {"_id": {"$in": date_event_ids}}
+                )
+                date_event_deleted = date_event_result.deleted_count
+                self.logger.info(f"Deleted {date_event_deleted} records from config_date_event")
+            
+            return {
+                "upsell_deleted": upsell_deleted,
+                "date_event_deleted": date_event_deleted,
+                "cutoff_date": cutoff_date_str
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error deleting old records: {str(e)}")
             raise
 
     def get_next_date(self):
@@ -138,10 +224,17 @@ class CalendarUpdate:
         results = {
             "date": None,
             "upsell_status": "not_attempted",
-            "date_event_status": "not_attempted"
+            "date_event_status": "not_attempted",
+            "delete_status": "not_attempted"
         }
 
         try:
+            # Delete old records first
+            delete_results = self.delete_old_records()
+            results["delete_status"] = "success"
+            results["delete_results"] = delete_results
+
+            # Get next date to insert
             next_date = self.get_next_date()
             results["date"] = next_date
 
@@ -157,6 +250,9 @@ class CalendarUpdate:
 
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
+            if results["delete_status"] == "not_attempted":
+                results["delete_status"] = "error"
+                results["delete_error"] = str(e)
             if results["upsell_status"] == "not_attempted":
                 results["upsell_status"] = "error"
                 results["upsell_error"] = str(e)

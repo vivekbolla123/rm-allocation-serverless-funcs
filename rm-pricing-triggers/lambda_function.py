@@ -12,6 +12,7 @@ from sqlalchemy import create_engine
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
+from salesFare import SalesFare
 
 
 logger = logging.getLogger()
@@ -51,6 +52,7 @@ except Exception as e:
 module_map = {
     'action_sect' : ActionSectors,
     'ladder_gen' : LadderGen,
+    'sales_fare' : SalesFare
 }
 
 
