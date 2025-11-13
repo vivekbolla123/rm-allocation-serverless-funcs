@@ -1342,7 +1342,7 @@ class DynAlloc:
 
 		auDataStr = json.dumps(auData)
 
-		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
+		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate,"", auDataStr, "Ready", "Ready")
 
 	def getStartEndDate(self, currDate, startNDO, endNDO):
 		startDate = datetime.strptime(startNDO, DATE_FORMAT).date()
