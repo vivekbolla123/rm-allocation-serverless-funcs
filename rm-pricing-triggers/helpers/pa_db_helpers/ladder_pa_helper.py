@@ -100,6 +100,7 @@ class LadderPAHelper:
             # Common match conditions
             match_stage = {
                 'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                'channel': 'B2C',
                 '$expr': {
                     '$eq': [
                         {'$concat': ['$source_airport', '$destination_airport']},
@@ -110,51 +111,37 @@ class LadderPAHelper:
                 **route_filter
             }
             
-            # Optimized pipeline - aggregate in MongoDB instead of pulling all data
             pipeline = [
                 {'$match': match_stage},
-                # Get latest record per airline/channel using $sort and $group
                 {
                     '$addFields': {
-                        'gross_fare': {'$toDouble': '$gross_fare'}
+                        'gross_fare_numeric': {'$toDouble': '$gross_fare'}
                     }
                 },
-                {'$sort': {'created_at': -1}},
+                # First count instances of each fare
                 {
                     '$group': {
                         '_id': {
-                            'channel': '$channel',
-                            'dest': '$destination_airport',
                             'source': '$source_airport',
-                            'airline': '$outbound_airline_code',
-                            'fare': '$gross_fare'
+                            'dest': '$destination_airport',
+                            'channel': '$channel',
+                            'fare': '$gross_fare_numeric'
                         },
-                        'created_at': {'$first': '$created_at'}
-                    }
-                },
-                # Count instances of each fare
-                {
-                    '$group': {
-                        '_id': {
-                            'channel': '$_id.channel',
-                            'dest': '$_id.dest',
-                            'source': '$_id.source',
-                            'airline': '$_id.airline'
-                        },
-                        'gross_fare': {'$first': '$_id.fare'},
+                        'airlines': {'$addToSet': '$outbound_airline_code'},
                         'instances': {'$sum': 1}
                     }
                 },
-                # Get the latest entry per airline/channel
+                {'$unwind': '$airlines'},
+                {'$sort': {'_id.fare': 1}},
                 {
                     '$group': {
                         '_id': {
                             'channel': '$_id.channel',
-                            'dest': '$_id.dest',
+                            'airline': '$airlines',
                             'source': '$_id.source',
-                            'airline': '$_id.airline'
+                            'dest': '$_id.dest'
                         },
-                        'gross_fare': {'$first': '$gross_fare'},
+                        'gross_fare': {'$first': '$_id.fare'},
                         'instances': {'$first': '$instances'}
                     }
                 },
