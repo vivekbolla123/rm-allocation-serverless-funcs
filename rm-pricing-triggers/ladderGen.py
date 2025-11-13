@@ -42,13 +42,13 @@ class LadderGen:
         self.min_distinct_fares_required = 150
         self.ladder_bins = 58
         self.total_ladder_points = 64
+        self.COVERAGE_PARAMETER = 3.0
         
         # Data containers
         self.tax_master_dom_data = None
         self.tax_master_intl_data = None
         self.market_fares_data = None
         self.city_pair_data = None
-        self.booked_data = None
         self.currentVersion = None
         # Failure tracking
         self.failure_reason = None
@@ -86,12 +86,6 @@ class LadderGen:
                 success_count += 1
             except Exception as e:
                 self.logger.error(f"City pair data collection failed (non-critical): {str(e)}")
-                
-            try:
-                self.booked_data = self.nav_helper.collect_booked_data()
-                success_count += 1
-            except Exception as e:
-                self.logger.error(f"Booked data collection failed (non-critical): {str(e)}")
             
             # Check if critical data is missing
             critical_failures = []
@@ -114,7 +108,36 @@ class LadderGen:
                 self.failure_reason = f"Data collection process failed: {str(e)}"
             raise
 
-    # Core Ladder Generation Methods
+    def remove_outliers(self, fares):
+        """Remove lower outliers using Modified Z-Score method."""
+        data = pd.DataFrame(fares)
+        
+        if len(data) <= 1:
+            return data
+        
+        fare_l1 = data["Fare"].values
+        
+        MED = np.median(fare_l1)
+        
+        MAD = np.median(np.abs(fare_l1 - MED))
+        if MAD == 0:
+            MAD = 0.15 * MED
+        
+        coverage_value = self.COVERAGE_PARAMETER
+        
+        # Calculate MZS for all fares
+        MZS = np.abs(fare_l1 - MED) / MAD
+        
+        mask = (fare_l1 >= MED) | (MZS < coverage_value)
+        
+        filtered_data = data[mask].copy()
+        
+        removed_count = len(data) - len(filtered_data)
+        if removed_count > 0:
+            self.logger.info(f"Removed {removed_count} lower outliers from {len(data)} fares")
+        
+        return filtered_data
+
     def get_historical_booking_data(self):
         """Get booking data with priority logic."""
         try:
@@ -123,6 +146,7 @@ class LadderGen:
             # Priority 1: Last 30 days
             start_date_30 = current_date - timedelta(days=30)
             combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector)
+            combined_30 = self.remove_outliers(combined_30)
             distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
             
             if distinct_fares_30 >= self.min_distinct_fares_required:
@@ -131,6 +155,7 @@ class LadderGen:
             # Priority 2: Last 60 days
             start_date_60 = current_date - timedelta(days=60)
             combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector)
+            combined_60 = self.remove_outliers(combined_60)
             distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
             
             if distinct_fares_60 >= self.min_distinct_fares_required:
@@ -140,6 +165,7 @@ class LadderGen:
             prev_year_current = current_date.replace(year=current_date.year - 1)
             prev_year_start = prev_year_current + timedelta(days=30)
             combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector)
+            combined_prev = self.remove_outliers(combined_prev)
             distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
             
             if distinct_fares_prev >= self.min_distinct_fares_required:
@@ -326,43 +352,120 @@ class LadderGen:
         except Exception as e:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
             return base_fare
+        
+    def _calculate_base_xqp_fare(self, gross_fare, origin, destination):
+        """Calculate base XQP fare using reverse tax calculation based on route."""
+        try:
+            if self.route == 'D':
+                return self._calculate_base_domestic_fare(gross_fare, origin, destination)
+            elif self.route == 'I':
+                # For international routes, base fare calculation is not required
+                # Return the gross fare as base fare for international
+                self.logger.debug(f"International route: returning gross fare as base fare for {origin}-{destination}")
+                return gross_fare
+            else:
+                raise ValueError(f"Invalid route: {self.route}")
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating base XQP fare: {str(e)}")
+            return gross_fare
 
-    def _find_valid_market_fare(self, market_data, fare_type):
-        """Find valid market fare that satisfies constraints by iterating through individual fares."""
+    def _calculate_base_domestic_fare(self, gross_fare, origin, destination):
+        """Calculate base domestic fare using the correct reverse formula: Base Fare = [Gross Fare - GST×(RCS+CUTE) - RCS - Other Taxes] / (1 + GST)"""
+        try:
+            # Get tax data
+            tax_data = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
+            
+            if tax_data.empty:
+                self.logger.warning(f"No domestic tax data found for base calculation: {origin}")
+                return gross_fare
+            
+            tax_row = tax_data.iloc[0]
+            
+            gst_rate = float(tax_row.get('GST', 0)) / 100  # GST rate (e.g., 18% = 0.18)
+            rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
+            cute = float(tax_row.get('CUTE', 0)) if pd.notna(tax_row.get('CUTE')) else 0
+            asf = float(tax_row.get('ASF', 0)) if pd.notna(tax_row.get('ASF')) else 0
+            psf = float(tax_row.get('PSF', 0)) if pd.notna(tax_row.get('PSF')) else 0
+            udf_df = float(tax_row.get('UDF_DF', 0)) if pd.notna(tax_row.get('UDF_DF')) else 0
+            
+            # Apply same special handling for RCS sectors - set RCS to 0
+            if destination in self.constants.PRICING_RCS_SECTORS:
+                rcs = 0
+            
+            # Start with gross fare and subtract DUF if applicable
+            adjusted_gross_fare = gross_fare
+            
+            # Special handling for DUF sectors - subtract DUF value first
+            if destination in self.constants.PRICING_DUF_SECTORS:
+                duf_value = float(self.constants.PRICING_DUF_SECTORS[destination])
+                adjusted_gross_fare -= duf_value
+            
+            # For base fare calculation, use original GST rate (don't apply GST exemption here)
+            # This is because we need to reverse the original gross fare calculation which might have used 0 GST
+            # But for base fare calculation, we use the original GST rate from tax master
+            
+            # Check if this was a GST exempt sector in gross fare calculation
+            if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
+                # For GST exempt sectors, the gross fare was calculated with GST=0
+                # So reverse calculation: Base Fare = (Gross Fare - DUF - Other Taxes) / 1
+                # Since GST components were 0 in gross fare calculation
+                other_taxes = asf + psf + udf_df + rcs + cute
+                base_fare = adjusted_gross_fare - other_taxes
+            else:
+                # Standard reverse calculation: Base Fare = [Gross Fare - GST×(RCS+CUTE) - RCS - Other Taxes] / (1 + GST)
+                gst_on_taxes = gst_rate * (rcs + cute)
+                other_taxes = asf + psf + udf_df + cute
+                base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
+            
+            return base_fare
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating base domestic fare: {str(e)}")
+
+    def _find_valid_market_fare(self, market_data, fare_type, origin, destination):
+        """Find valid market fare that satisfies yield constraint (domestic only)."""
         try:
             if market_data.empty:
                 return None
             
-            b2c_data = market_data[market_data['channel'] == 'B2C'].copy()
+            # Data is already filtered for B2C and instances >= 2 from MongoDB
+            if fare_type == 'min':
+                sorted_data = market_data.sort_values('gross_fare', ascending=True)
+            else:
+                sorted_data = market_data.sort_values('gross_fare', ascending=False)
             
-            if b2c_data.empty:
-                self.logger.warning("No B2C market data available for fare validation")
+            # For international routes, yield check not needed
+            if self.route == 'I':
+                # Return first fare (already satisfies instances >= 2)
+                return sorted_data.iloc[0]['gross_fare'] if not sorted_data.empty else None
+            
+            # For domestic routes, check yield constraint
+            distance = self._get_distance(origin, destination)
+            if distance == 0:
+                self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
                 return None
             
-            if fare_type == 'min':
-                sorted_data = b2c_data.sort_values('gross_fare', ascending=True)
-            else:
-                sorted_data = b2c_data.sort_values('gross_fare', ascending=False)
-            
             for _, row in sorted_data.iterrows():
-                fare = row['gross_fare']
-                carrier = row['outbound_airline_code']
-                instances = row['instances']
-                
-                if pd.isna(fare) or pd.isna(carrier):
-                    continue
+                gross_fare = row['gross_fare']
                 
                 try:
-                    if instances >= 2:
-                        return fare
+                    # Calculate base fare and yield
+                    base_fare = self._calculate_base_xqp_fare(gross_fare, origin, destination)
+                    yield_value = base_fare / distance
+                    
+                    # Check yield constraint (domestic only)
+                    if yield_value >= 1.5:
+                        self.logger.info(f"Found valid {fare_type} market fare: {gross_fare:.2f} (yield={yield_value:.2f})")
+                        return gross_fare
                     else:
-                        self.logger.debug(f"Market fare {fare:.2f} from {carrier} failed instances check: {instances} < 2")
+                        self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < 1.5")
                         
                 except Exception as e:
-                    self.logger.warning(f"Error checking constraints for market fare {fare}: {str(e)}")
+                    self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
                     continue
             
-            self.logger.warning(f"No valid {fare_type} market fare found that satisfies constraints")
+            self.logger.warning(f"No valid {fare_type} market fare found satisfying yield >= 1.5")
             return None
             
         except Exception as e:
@@ -373,49 +476,57 @@ class LadderGen:
         """Calculate buffer fares f1-f3 and f62-f64."""
         try:
             if not core_fares or booking_data.empty:
-                self.failure_reason = "Missing core fares or booking data for buffer calculation"
+                self.failure_reason = "Missing core fares or booking data"
                 return []
             
             if self.market_fares_data is None or self.market_fares_data.empty:
-                self.failure_reason = "No market fares data available for buffer calculation"
+                self.failure_reason = "No market fares data available"
                 return []
             
-            b2c_market_data = self.market_fares_data[self.market_fares_data['channel'] == 'B2C'].copy()
+            # Extract origin and destination from sector
+            origin = self.sector[:3]
+            destination = self.sector[3:]
             
-            if b2c_market_data.empty:
-                self.failure_reason = "No B2C market fares available for buffer calculation"
-                return []
+            # Data is already filtered for B2C and instances >= 2
+            b2c_data = self.market_fares_data.copy()
             
-            min_booking_fare = booking_data['Fare'].min()
-            max_booking_fare = booking_data['Fare'].max()
+            f4 = core_fares[0]
+            f61 = core_fares[-1]
             
-            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
-            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
+            # Find valid market fares (with yield check for domestic)
+            valid_min_market_fare = self._find_valid_market_fare(b2c_data, 'min', origin, destination)
+            valid_max_market_fare = self._find_valid_market_fare(b2c_data, 'max', origin, destination)
             
-            f4, f61 = core_fares[0], core_fares[-1]
+            # Calculate lower buffer fares (f1, f2, f3)
+            threshold_f4 = 0.96 * f4
             
-            valid_min_market_fare = self._find_valid_market_fare(b2c_market_data, 'min')
-            valid_max_market_fare = self._find_valid_market_fare(b2c_market_data, 'max')
+            if valid_min_market_fare is not None and valid_min_market_fare < threshold_f4:
+                f2 = valid_min_market_fare
+                f1 = f2 - (0.02 * f2)
+                f3 = (f2 + f4) / 2
+                self.logger.info(f"Lower buffer: Using market fare {f2:.2f} (< {threshold_f4:.2f})")
+            else:
+                f3 = 0.98 * f4
+                f2 = 0.98 * f3
+                f1 = 0.98 * f2
+                reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
+                self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
             
-            valid_min_market_fare = float(valid_min_market_fare) if valid_min_market_fare else None
-            valid_max_market_fare = float(valid_max_market_fare) if valid_max_market_fare else None
+            threshold_f61 = 1.04 * f61
             
-            if valid_min_market_fare is None and valid_max_market_fare is None:
-                self.failure_reason = "No valid market fares found that satisfy constraints for buffer calculation"
-                return None
-            
-            f2 = valid_min_market_fare if (valid_min_market_fare and valid_min_market_fare < min_booking_fare) else min_booking_fare
-            threshold = max(0.02 * f2, 50) if self.route == 'D' else 0.02 * f2
-            f1 = f2 - threshold
-            f3 = (f2 + f4) / 2
-            
-            f63 = valid_max_market_fare if (valid_max_market_fare and valid_max_market_fare > max_booking_fare) else max_booking_fare
-            threshold = max(0.02 * f63, 50) if self.route == 'D' else 0.02 * f63
-            f64 = f63 + threshold
-            f62 = (f61 + f63) / 2
+            if valid_max_market_fare is not None and valid_max_market_fare > threshold_f61:
+                f63 = valid_max_market_fare
+                f64 = f63 + (0.02 * f63)
+                f62 = (f61 + f63) / 2
+                self.logger.info(f"Upper buffer: Using market fare {f63:.2f} (> {threshold_f61:.2f})")
+            else:
+                f62 = 1.02 * f61
+                f63 = 1.02 * f62
+                f64 = 1.02 * f63
+                reason = "no valid fare" if valid_max_market_fare is None else f"fare {valid_max_market_fare:.2f} <= {threshold_f61:.2f}"
+                self.logger.info(f"Upper buffer: Using multiplicative approach ({reason})")
             
             complete_ladder = [f1, f2, f3] + core_fares + [f62, f63, f64]
-            
             return complete_ladder
             
         except Exception as e:

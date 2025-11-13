@@ -131,6 +131,11 @@ class LadderPAHelper:
                         'instances': {'$sum': 1}
                     }
                 },
+                {
+                    '$match': {
+                        'instances': {'$gte': 2}
+                    }
+                },
                 {'$unwind': '$airlines'},
                 {'$sort': {'_id.fare': 1}},
                 {
