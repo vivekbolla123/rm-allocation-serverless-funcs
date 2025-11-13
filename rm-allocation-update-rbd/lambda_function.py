@@ -333,7 +333,7 @@ def lambda_handler(event, context):
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
                        content, json.dumps(allocation_result), run_id, allocation_data["b2cRunId"], 
                        allocation_data["b2bRunId"], countOfFailures, countOfTotal)
-        updateRunAudit(run_id, start_date_f, identifier, json.dumps(allocation_result))
+        updateRunAudit(run_id, start_date_f,origin+destination, identifier, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
         log_time.send_time_log_db()
 
@@ -361,17 +361,18 @@ def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2b
     navitaire_allocation_audit_col.insert_one(document)
     print("ADDED ALLOCATION RUN")
 
-def updateRunAudit(run_id, start_date, flight, result):
+def updateRunAudit(run_id, start_date,sector, flight, result):
     dateFormatted = start_date[:10]
-    insert_run_fltDate_audit(run_id, flight, dateFormatted, result)
+    insert_run_fltDate_audit(run_id, sector,flight, dateFormatted, result)
 
     cache_client.incr(KEY_B2B_DONE_COUNT + run_id, 1)
     cache_client.incr(KEY_B2C_DONE_COUNT + run_id, 1)
 
-def insert_run_fltDate_audit(run_id, flightNumber, flightDate, result):
+def insert_run_fltDate_audit(run_id,sector, flightNumber, flightDate, result):
     document = {
         "runId": run_id,
         "flightNumber": flightNumber,
+        "sector": sector,
         "flightDate": flightDate,
         "result": result,
         "b2cstatus": "Done",
