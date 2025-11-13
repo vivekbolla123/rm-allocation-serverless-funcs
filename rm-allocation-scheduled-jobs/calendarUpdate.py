@@ -9,7 +9,7 @@ class CalendarUpdate:
         # Get MongoDB client and access the database
         self.mongo_client = params['mongoconn']
         self.mongo_db = self.mongo_client['qp_dw_rmalloc']
-        self.constants = ConstantsUtils(self.mongo_client)
+        self.constants = ConstantsUtils(self.mongo_db)
         self.upsell_value = self.constants.PF_UPSELL_VALUE
 
     def fetch_existing_sectors(self):
