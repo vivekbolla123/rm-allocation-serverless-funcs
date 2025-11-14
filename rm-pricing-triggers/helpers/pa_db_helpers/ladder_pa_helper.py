@@ -329,8 +329,8 @@ class LadderPAHelper:
                 new_base = ladder_result['ladder_fares'][i]
                 
                 # Calculate all-in fares with taxes
-                current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination)
-                new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination)
+                current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
+                new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
                 
                 current_all_in_fares.append(round(current_all_in, 2))
                 new_all_in_fares.append(round(new_all_in, 2))
@@ -345,10 +345,10 @@ class LadderPAHelper:
                     'route': ladder_result['route'],
                     'fare_point_number': i + 1,
                     'rbd_name': rbd_names[i],
-                    'current_qp_fare': current_qp_fares[i],
-                    'current_all_in_fare': current_all_in_fares[i],
-                    'new_ladder_fare': ladder_result['ladder_fares'][i],
-                    'new_all_in_fare': new_all_in_fares[i],
+                    'current_qp_base_fare': current_qp_fares[i],
+                    'current_qp_all_in_fare': current_all_in_fares[i],
+                    'new_base_ladder_fare': new_all_in_fares[i],
+                    'new_all_in_ladder_fare': ladder_result['ladder_fares'][i],
                     'data_period': ladder_result['data_period'],
                     'distinct_fares_count': ladder_result['distinct_fares_count'],
                     'run_id': run_id,

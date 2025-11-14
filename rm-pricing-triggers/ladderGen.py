@@ -339,7 +339,7 @@ class LadderGen:
         except Exception:
             return 0
 
-    def calculate_all_in_fare(self, base_fare, origin, destination):
+    def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
         """Calculate all-in fare based on route type."""
         try:
             if self.route == 'D':
@@ -347,7 +347,10 @@ class LadderGen:
             else:
                 taxes = self._calculate_taxes_international(base_fare, origin, destination)
             
-            return base_fare + taxes
+            if ftype == "current":
+                return base_fare + taxes
+            else:
+                return base_fare - taxes
             
         except Exception as e:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
