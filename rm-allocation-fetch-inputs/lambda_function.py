@@ -25,6 +25,7 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
+from sqlalchemy.engine.base import Engine
 from urllib.parse import quote_plus
 
 warnings.filterwarnings('ignore')
@@ -285,7 +286,7 @@ class NavDatabaseHelper:
         self.NAV_DB_NAME = nav_db_name
         self.NAV_DB_WB_NAME = nav_db_wb_name
         self.logger = logging.getLogger()
-        self.is_pool = isinstance(navconn, create_engine().__class__)
+        self.is_pool = isinstance(navconn, Engine)
 
     def _validate_connection(self):
         """Validate connection is alive with a simple query"""
