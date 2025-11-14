@@ -28,6 +28,8 @@ class LadderGen:
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
+        self.BUCKET_NAME = configsettings.PA_BUCKET_NAME
+        self.FILE_PATH = configsettings.PA_FILE_PATH
         self.constants = ConstantsUtils(self.db)
         self.pa_helper = LadderPAHelper(self.db, self.db_fares, logger, self.calculate_all_in_fare)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
@@ -52,6 +54,7 @@ class LadderGen:
         self.currentVersion = None
         # Failure tracking
         self.failure_reason = None
+        self.outlier_count = None
         
         
     def collect_all_data(self):
@@ -108,7 +111,7 @@ class LadderGen:
                 self.failure_reason = f"Data collection process failed: {str(e)}"
             raise
 
-    def remove_outliers(self, fares):
+    def remove_outliers(self, fares, period_label=""):
         """Remove lower outliers using Modified Z-Score method."""
         data = pd.DataFrame(fares)
         
@@ -117,24 +120,56 @@ class LadderGen:
         
         fare_l1 = data["Fare"].values
         
+        # Step 1: Calculate Median
         MED = np.median(fare_l1)
         
+        # Step 2: Calculate MAD
         MAD = np.median(np.abs(fare_l1 - MED))
         if MAD == 0:
             MAD = 0.15 * MED
         
+        # Step 3: Calculate MZS for all fares
         coverage_value = self.COVERAGE_PARAMETER
-        
-        # Calculate MZS for all fares
         MZS = np.abs(fare_l1 - MED) / MAD
         
-        mask = (fare_l1 >= MED) | (MZS < coverage_value)
+        # Add MZS column to original data for analysis
+        data_with_mzs = data.copy()
+        data_with_mzs['MZS'] = MZS
+        data_with_mzs['IsOutlier'] = (fare_l1 < MED) & (MZS >= coverage_value)
+        data_with_mzs['Median'] = MED
+        data_with_mzs['MAD'] = MAD
+        data_with_mzs['CoverageThreshold'] = coverage_value
         
+        # ✅ Export BEFORE outlier removal to S3
+        try:
+            # Create filename with sector and date
+            current_date = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"{self.sector}_{current_date}_{period_label}.csv"
+            s3_key = f"{self.FILE_PATH}outliers/{filename}"
+            
+            # Convert DataFrame to CSV in memory
+            csv_buffer = io.StringIO()
+            data_with_mzs.sort_values('Fare').to_csv(csv_buffer, index=False)
+            
+            # Upload to S3
+            s3_client = boto3.client('s3')
+            s3_client.put_object(
+                Bucket=self.BUCKET_NAME,
+                Key=s3_key,
+                Body=csv_buffer.getvalue(),
+                ContentType='text/csv'
+            )
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to export to S3: {str(e)}")
+        
+        # Step 4: Filter - only remove LOWER outliers
+        mask = (fare_l1 >= MED) | (MZS < coverage_value)
         filtered_data = data[mask].copy()
         
         removed_count = len(data) - len(filtered_data)
-        if removed_count > 0:
-            self.logger.info(f"Removed {removed_count} lower outliers from {len(data)} fares")
+        
+        self.outlier_count = removed_count if removed_count > 0 else 0
         
         return filtered_data
 
@@ -146,7 +181,7 @@ class LadderGen:
             # Priority 1: Last 30 days
             start_date_30 = current_date - timedelta(days=30)
             combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector)
-            combined_30 = self.remove_outliers(combined_30)
+            combined_30 = self.remove_outliers(combined_30, period_label="30day")
             distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
             
             if distinct_fares_30 >= self.min_distinct_fares_required:
@@ -155,7 +190,7 @@ class LadderGen:
             # Priority 2: Last 60 days
             start_date_60 = current_date - timedelta(days=60)
             combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector)
-            combined_60 = self.remove_outliers(combined_60)
+            combined_60 = self.remove_outliers(combined_60, period_label="60day")
             distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
             
             if distinct_fares_60 >= self.min_distinct_fares_required:
@@ -163,9 +198,9 @@ class LadderGen:
             
             # Priority 3: Previous year same period
             prev_year_current = current_date.replace(year=current_date.year - 1)
-            prev_year_start = prev_year_current + timedelta(days=30)
+            prev_year_start = prev_year_current - timedelta(days=30)
             combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector)
-            combined_prev = self.remove_outliers(combined_prev)
+            combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
             distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
             
             if distinct_fares_prev >= self.min_distinct_fares_required:
@@ -459,7 +494,6 @@ class LadderGen:
                     
                     # Check yield constraint (domestic only)
                     if yield_value >= 1.5:
-                        self.logger.info(f"Found valid {fare_type} market fare: {gross_fare:.2f} (yield={yield_value:.2f})")
                         return gross_fare
                     else:
                         self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < 1.5")
@@ -595,7 +629,7 @@ class LadderGen:
             
             # Insert initial audit record with IN_PROGRESS status BEFORE data collection
             try:
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'IN_PROGRESS', is_initial=True)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'IN_PROGRESS', is_initial=True)
             except Exception as e:
                 self.logger.error(f"Failed to create initial audit record: {str(e)}")
             
@@ -604,7 +638,7 @@ class LadderGen:
             
             if not data_collection_success:
                 # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
@@ -618,7 +652,7 @@ class LadderGen:
             
             if not ladder_result:
                 # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
@@ -631,14 +665,14 @@ class LadderGen:
             try:
                 file_path = self.pa_helper.save_ladder_to_csv(ladder_result, run_id, self.sector, self.analystName, self.route)
                 # Update audit with success - use original run_id
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, None, ladder_result, file_path, 'SUCCESS', is_initial=False)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, None, ladder_result, file_path, 'SUCCESS', is_initial=False)
                 
             except Exception as e:
                 self.logger.error(f"Error saving results: {str(e)}")
                 self.failure_reason = f"Failed to save results: {str(e)}"
                 
                 # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, self.failure_reason, ladder_result, None, 'FAILED', is_initial=False)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, ladder_result, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': ladder_result,
                     'file_path': None,
@@ -680,7 +714,7 @@ class LadderGen:
             
             # Update audit with failure
             try:
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
+                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
             except Exception as audit_error:
                 self.logger.error(f"Failed to update failure audit: {str(audit_error)}")
             
