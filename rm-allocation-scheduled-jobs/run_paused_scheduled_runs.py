@@ -36,12 +36,12 @@ class Run_Paused_Runs:
                 self.logger.info("Connected to Redis")
             
             # check if any actual paused runs
-            runs = self.get_scheduled_runs_by_status('AUTO-PAUSED')
+            runs = self.get_runs_by_status('AUTO-PAUSED', 6)
             active_runs = [run for run in runs if self.is_run_active(run['run_id'], run['type'])]
 
             # check if a priority run is active
             if active_runs:
-                pri_runs = self.get_scheduled_runs_by_status('PRIORITY')
+                pri_runs = self.get_runs_by_status('PRIORITY', 1)
                 pri_active_runs = [pri_run for pri_run in pri_runs if self.is_run_active(pri_run['run_id'], pri_run['type'])]
 
                 if pri_active_runs:
@@ -70,12 +70,12 @@ class Run_Paused_Runs:
         except Exception as e:
             self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
     
-    def get_scheduled_runs_by_status(self, status):
+    def get_runs_by_status(self, status, hours_back):
         collection = self.db['allocation_run_audit']
 
         # Get current time and one day ago in same string format as stored in DB
-        now = datetime.utcnow()
-        one_day_ago = now - timedelta(days=1)
+        now = datetime.now(datetime.timezone.utc)
+        one_day_ago = now - timedelta(hours=hours_back)
         one_day_ago_str = one_day_ago.strftime("%Y-%m-%d %H:%M:%S")
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
 
