@@ -184,6 +184,25 @@ class DataProcessor:
                 file_content += line
         return file_content
     
+    def generate_file_content_through(self, departurdate, flightno, sector1, sector2, rbds):
+        """
+        Generate file content for through flights (connections with same flight number)
+        Sector format: first 3 chars of sector1 + last 3 chars of sector2
+        """
+        file_content = ""
+        # Combine sectors: first 3 of sector1 + last 3 of sector2
+        combined_sector = sector1[:3] + sector2[-3:]
+        
+        for rbd_value in rbds:
+            if int(rbds[rbd_value]) >= 0:
+                rbd, rbd_value = rbd_value, self.pad_rbd_value(int(rbds[rbd_value]))
+                final_date = self.format_date(departurdate)
+                line = f"{final_date} QP   {flightno.rjust(4, ' ')} {combined_sector}{' ' * (41 - len(combined_sector))}"
+                line += f"C {rbd}{' ' * (9 - len(rbd))}{rbd_value} {rbd_value}\n"
+                file_content += line
+        return file_content
+
+    
     # Function to upload the file to SFTP
     def push_message_back_to_sqs(self, runid):
         # Check current retry count
@@ -266,16 +285,27 @@ class DataProcessor:
                 if row.get("result") is not None:
                     data = json.loads(row["result"])
                     if data["type"] == "R":
-                        departurdate, flightno1, sector1, flightno2, sector2 = data["departureDate"], data["flightNo1"], data["sector1"], data["flightNo2"], data["sector2"]
+                        departurdate = data["departureDate"]
+                        flightno1 = data["flightNo1"]
+                        sector1 = data["sector1"]
+                        flightno2 = data["flightNo2"]
+                        sector2 = data["sector2"]
                         rbds = data["auClasses"]
-                        logger.info(f"started upload for {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2}, {rbds}")
-                        file_content = self.generate_file_content_conn(departurdate, flightno1, sector1, flightno2, sector2, rbds)
+                        
+                        # Check if it's a through flight (same flight numbers)
+                        if flightno1 == flightno2:
+                            logger.info(f"started upload for through flight {departurdate}, {flightno1}, {sector1}, {sector2}, {rbds}")
+                            file_content = self.generate_file_content_through(departurdate, flightno1, sector1, sector2, rbds)
+                        else:
+                            logger.info(f"started upload for connection {departurdate}, {flightno1}, {sector1}, {flightno2}, {sector2}, {rbds}")
+                            file_content = self.generate_file_content_conn(departurdate, flightno1, sector1, flightno2, sector2, rbds)
                     else:
                         departurdate, flightno, sector = data["departureDate"], data["flightNo1"], data["sector1"]
                         rbds = data["auClasses"]
-                        logger.info(f"started upload for {departurdate}, {flightno}, {sector}, {rbds}")
+                        logger.info(f"started upload for direct {departurdate}, {flightno}, {sector}, {rbds}")
                         file_content = self.generate_file_content_direct(departurdate, flightno, sector, rbds)
                     file.write(file_content)
+
 
         # Periodically check if the remote file exists (every 15 seconds)
         self.upload_to_sftp(file_name, runid)
