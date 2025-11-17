@@ -44,9 +44,9 @@ class LadderGen:
         self.min_distinct_fares_required = 150
         self.ladder_bins = 58
         self.total_ladder_points = 64
-        self.COVERAGE_PARAMETER = 3.0
-        self.UP = 5
-        self.MARKET_FLAG = True
+        self.COVERAGE_PARAMETER = self.constants.COVERAGE_PARAMETER
+        self.UP = self.constants.UP
+        self.MARKET_FLAG = self.constants.MARKET_FLAG
         
         # Data containers
         self.tax_master_dom_data = None
@@ -551,7 +551,7 @@ class LadderGen:
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
             
-            if self.MARKET_FLAG and valid_max_market_fare is not None:
+            if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
                 f64 = max(max_booking_fare, valid_max_market_fare)
                 self.logger.info(f"f64 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f64:.2f}")
             else:
