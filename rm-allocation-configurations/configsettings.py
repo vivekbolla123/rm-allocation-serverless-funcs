@@ -213,7 +213,7 @@ if env == 'uat':
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
-    PA_BUCKET_NAME = "qp-s3-fs"
+    PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'
     
 if env == 'preprod':

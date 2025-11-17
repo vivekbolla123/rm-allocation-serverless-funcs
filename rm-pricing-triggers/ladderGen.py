@@ -45,6 +45,8 @@ class LadderGen:
         self.ladder_bins = 58
         self.total_ladder_points = 64
         self.COVERAGE_PARAMETER = 3.0
+        self.UP = 5
+        self.MARKET_FLAG = True
         
         # Data containers
         self.tax_master_dom_data = None
@@ -140,18 +142,13 @@ class LadderGen:
         data_with_mzs['MAD'] = MAD
         data_with_mzs['CoverageThreshold'] = coverage_value
         
-        # ✅ Export BEFORE outlier removal to S3
         try:
-            # Create filename with sector and date
             current_date = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"{self.sector}_{current_date}_{period_label}.csv"
             s3_key = f"{self.FILE_PATH}outliers/{filename}"
-            
-            # Convert DataFrame to CSV in memory
             csv_buffer = io.StringIO()
             data_with_mzs.sort_values('Fare').to_csv(csv_buffer, index=False)
             
-            # Upload to S3
             s3_client = boto3.client('s3')
             s3_client.put_object(
                 Bucket=self.BUCKET_NAME,
@@ -163,7 +160,6 @@ class LadderGen:
         except Exception as e:
             self.logger.warning(f"Failed to export to S3: {str(e)}")
         
-        # Step 4: Filter - only remove LOWER outliers
         mask = (fare_l1 >= MED) | (MZS < coverage_value)
         filtered_data = data[mask].copy()
         
@@ -530,6 +526,12 @@ class LadderGen:
             f4 = core_fares[0]
             f61 = core_fares[-1]
             
+            min_booking_fare = booking_data['Fare'].min()
+            max_booking_fare = booking_data['Fare'].max()
+            
+            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
+            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
+            
             # Find valid market fares (with yield check for domestic)
             valid_min_market_fare = self._find_valid_market_fare(b2c_data, 'min', origin, destination)
             valid_max_market_fare = self._find_valid_market_fare(b2c_data, 'max', origin, destination)
@@ -549,21 +551,49 @@ class LadderGen:
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
             
-            threshold_f61 = 1.04 * f61
-            
-            if valid_max_market_fare is not None and valid_max_market_fare > threshold_f61:
-                f63 = valid_max_market_fare
-                f64 = f63 + (0.02 * f63)
-                f62 = (f61 + f63) / 2
-                self.logger.info(f"Upper buffer: Using market fare {f63:.2f} (> {threshold_f61:.2f})")
+            if self.MARKET_FLAG and valid_max_market_fare is not None:
+                f64 = max(max_booking_fare, valid_max_market_fare)
+                self.logger.info(f"f64 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f64:.2f}")
             else:
-                f62 = 1.02 * f61
-                f63 = 1.02 * f62
-                f64 = 1.02 * f63
-                reason = "no valid fare" if valid_max_market_fare is None else f"fare {valid_max_market_fare:.2f} <= {threshold_f61:.2f}"
-                self.logger.info(f"Upper buffer: Using multiplicative approach ({reason})")
+                f64 = max_booking_fare
+                self.logger.info(f"f64 calculation: using max booking fare = {f64:.2f} (market flag={self.MARKET_FLAG})")
+
+            start_index = (64 - self.UP) - 4
             
-            complete_ladder = [f1, f2, f3] + core_fares + [f62, f63, f64]
+            if start_index < 0 or start_index >= len(core_fares):
+                self.logger.error(f"Invalid start index {start_index} for UP={self.UP}")
+                self.failure_reason = f"Invalid UP parameter: {self.UP}"
+                return []
+            
+            start_fare = core_fares[start_index]
+            upsell_factor = (f64 / start_fare) ** (1 / self.UP) - 1
+            
+            self.logger.info(f"Higher buffer calculation: start_fare=f{64-self.UP}={start_fare:.2f}, "
+                           f"f64={f64:.2f}, UP={self.UP}, upsell_factor={upsell_factor:.6f}")
+            
+            higher_ladder_fares = []
+            current_fare = start_fare
+            
+            for i in range(self.UP):
+                current_fare = current_fare * (1 + upsell_factor)
+                fare_number = (64 - self.UP) + i + 1
+                higher_ladder_fares.append(current_fare)
+                self.logger.info(f"f{fare_number} = {current_fare:.2f}")
+            
+            overlap_count = max(0, (64 - self.UP + self.UP) - 62 + 1)
+            non_overlap_count = self.UP - overlap_count
+            
+            if non_overlap_count > 0:
+                core_fares = core_fares[:-non_overlap_count]
+                core_fares.extend(higher_ladder_fares[:non_overlap_count])
+                higher_buffer = higher_ladder_fares[non_overlap_count:] + [f64]
+            else:
+                higher_buffer = higher_ladder_fares[-3:] + [f64]
+            
+            complete_ladder = [f1, f2, f3] + core_fares + higher_buffer
+            
+            self.logger.info(f"Complete ladder: {len(complete_ladder)} fares (f1-f64)")
+            
             return complete_ladder
             
         except Exception as e:
