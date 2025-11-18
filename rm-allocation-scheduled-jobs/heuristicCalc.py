@@ -254,7 +254,6 @@ class FareStatisticalAnalysis:
     
     def preprocess_holiday_bands(self, calendar_data: pd.DataFrame, holidays_df: pd.DataFrame) -> Dict:
         """Extract historical bands and create mappings to future dates."""
-        self.logger.info("Preprocessing holiday bands...")
         start_time = time.time()
         
         holiday_mappings = {}
@@ -268,8 +267,6 @@ class FareStatisticalAnalysis:
             (holidays_df['holiday_date'].dt.date <= self.end_date)
         ]
         
-        self.logger.info(f"Target holidays found: {len(target_holidays)}")
-        self.logger.info(f"Historical holidays available: {len(historical_holidays)}")
         
         for _, target_holiday in target_holidays.iterrows():
             holiday_name = target_holiday['holiday_name']
@@ -299,14 +296,6 @@ class FareStatisticalAnalysis:
                 
                 if sector_bands:
                     holiday_mappings[holiday_name]['sectors'][sector] = sector_bands
-        
-        if skipped_holidays:
-            self.logger.info(f"\nWARNING: {len(skipped_holidays)} holidays skipped (no historical data):")
-            for h in skipped_holidays:
-                self.logger.info(f"  - {h}")
-        
-        self.logger.info(f"Holiday bands preprocessed in {time.time() - start_time:.2f}s")
-        self.logger.info(f"Holidays mapped: {len(holiday_mappings)}")
         
         return holiday_mappings
 
@@ -577,9 +566,6 @@ class FareStatisticalAnalysis:
         
         for idx, sector in enumerate(sectors, 1):
             try:
-                if idx % 10 == 0:
-                    self.logger.info(f"Processing sector {idx}/{total_sectors}: {sector}")
-                
                 sector_df = self.process_sector_year_projection(
                     sector,
                     self.holiday_mappings_cache,
@@ -814,7 +800,6 @@ class FareStatisticalAnalysis:
                     if existing_record and existing_record.get('mode') == 'M':
                         existing_value = existing_record.get('value', '').strip()
                         if existing_value != '':
-                            self.logger.info(f"Skipping update for {sector} {date_str}: Record is marked as Manual (mode='M') with non-empty value")
                             continue
                     
                     result = collection.update_one(
@@ -839,12 +824,8 @@ class FareStatisticalAnalysis:
                     if result.matched_count > 0:
                         if result.modified_count > 0:
                             updated_count += 1
-                            self.logger.info(f"Updated: {sector} {date_str} = {clean_value} (mode=S)")
-                        else:
-                            self.logger.info(f"No change: {sector} {date_str} = {clean_value}")
                     else:
                         inserted_count += 1
-                        self.logger.info(f"Inserted: {sector} {date_str} = {clean_value} (mode=S)")
                         
                 except Exception as e:
                     failed_count += 1
@@ -905,7 +886,6 @@ class FareStatisticalAnalysis:
                     # Check if it's a manual record
                     if result.get('mode') == 'M':
                         manual_skipped += 1
-                        self.logger.info(f"Manual record (not updated by system): {sector} {date_formatted}")
                     else:
                         # Validate system record
                         db_value = result.get('value', '').strip()
@@ -954,8 +934,6 @@ class FareStatisticalAnalysis:
                 Body=csv_buffer.getvalue()
             )
             
-            self.logger.info(f"Uploaded to S3: {s3_key}")
-            
         except Exception as e:
             self.logger.error(f"S3 upload error: {e}")
             raise
@@ -979,11 +957,8 @@ class FareStatisticalAnalysis:
         }
         
         try:
-            self.logger.info(f"Starting fare analysis from {self.start_date} to {self.end_date}")
-            
             # Fetch domestic sectors first
             self.domestic_sectors_cache = self._fetch_domestic_sectors()
-            self.logger.info(f"Domestic stations loaded: {len(self.domestic_sectors_cache)}")
             
             calendar_data = self._fetch_calendar_data()
             if calendar_data.empty:
@@ -991,7 +966,6 @@ class FareStatisticalAnalysis:
                 return results
             
             sectors = calendar_data['Sector'].unique().tolist()
-            self.logger.info(f"Processing {len(sectors)} domestic sectors")
             
             projection_df = self.run_sequential_processing(sectors)
             
