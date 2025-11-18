@@ -165,6 +165,43 @@ class FareStatisticalAnalysis:
             holidays_df['year'] = holidays_df['holiday_date'].dt.year
         
         return holidays_df
+    
+    def _fetch_mapped_months(self) -> pd.DataFrame:
+        """Fetch mapped months for date range."""
+        start_date = datetime.now()
+        end_date = datetime.now() + timedelta(days=365)
+        start_date_str = start_date.strftime('%m/%d/%Y')  # Changed to MM/DD/YYYY
+        end_date_str = end_date.strftime('%m/%d/%Y')
+        
+        collection = self.db['config_date_event']
+        
+        # Fetch all documents in range
+        query = {}  # Fetch all for now, filter in pandas
+        
+        projection = {
+            '_id': 0,
+            'date': 1,
+            'mappedMonth': 1
+        }
+        
+        results = list(collection.find(query, projection))
+        mapped_month_df = pd.DataFrame(results)
+        
+        if not mapped_month_df.empty:
+            # Convert string date to datetime
+            mapped_month_df['date_dt'] = pd.to_datetime(mapped_month_df['date'], format='%m/%d/%Y')
+            
+            # Filter by date range
+            mapped_month_df = mapped_month_df[
+                (mapped_month_df['date_dt'] >= start_date) & 
+                (mapped_month_df['date_dt'] <= end_date)
+            ]
+            
+            # Keep the datetime version for merging
+            mapped_month_df = mapped_month_df[['date_dt', 'mappedMonth']]
+            mapped_month_df.rename(columns={'date_dt': 'date'}, inplace=True)
+        
+        return mapped_month_df
 
     def _fetch_profile_fares(self) -> pd.DataFrame:
         """Fetch profile fares for upsell calculation - keep H1/H2 separate."""
@@ -533,6 +570,7 @@ class FareStatisticalAnalysis:
         
         self.holiday_mappings_cache = self.preprocess_holiday_bands(calendar_data, holidays_df)
         self.profile_fares_cache = self._fetch_profile_fares()
+        self.mapped_months_cache = self._fetch_mapped_months()
         
         results = []
         total_sectors = len(sectors)
@@ -568,7 +606,7 @@ class FareStatisticalAnalysis:
     # ============================================================================
     
     def _calculate_upsells_vectorized(self, projection_df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate upsells using vectorized operations with H1/H2 logic."""
+        """Calculate upsells using vectorized operations with mappedMonth logic."""
         if projection_df.empty or self.profile_fares_cache is None or self.profile_fares_cache.empty:
             projection_df['ProfileFareQ10'] = None
             projection_df['Upsell'] = None
@@ -576,19 +614,39 @@ class FareStatisticalAnalysis:
         
         profile_fares = self.profile_fares_cache
         
-        # Determine month half for each date
-        projection_df['month_half'] = pd.to_datetime(projection_df['DepartureDate']).apply(
+        # Convert DepartureDate to datetime if not already
+        projection_df['DepartureDate_dt'] = pd.to_datetime(projection_df['DepartureDate'])
+        
+        # Merge with mapped months to get the mappedMonth for each departure date
+        if self.mapped_months_cache is not None and not self.mapped_months_cache.empty:
+            projection_df = projection_df.merge(
+                self.mapped_months_cache,
+                left_on='DepartureDate_dt',
+                right_on='date',
+                how='left'
+            )
+            
+            # Drop the 'date' column from the merge (duplicate of DepartureDate_dt)
+            projection_df.drop(columns=['date'], inplace=True, errors='ignore')
+        else:
+            # If no mapped months cache, create empty mappedMonth column
+            projection_df['mappedMonth'] = None
+        
+        # Calculate fallback month_half
+        projection_df['month_half_calc'] = projection_df['DepartureDate_dt'].apply(
             lambda x: 'H1' if x.day <= 15 else 'H2'
         )
         
-        # Create month_h1_h2 column (e.g., "january_h1", "february_h2")
-        projection_df['month_with_half'] = (
-            projection_df['Month'].str.lower() + '_' + projection_df['month_half'].str.lower()
+        # Use mappedMonth if available, otherwise construct from Month + calculated half
+        projection_df['month_with_half'] = np.where(
+            projection_df['mappedMonth'].notna(),
+            projection_df['mappedMonth'].str.lower(),
+            projection_df['Month'].str.lower() + '_' + projection_df['month_half_calc'].str.lower()
         )
         
         projection_df['dow_lower'] = projection_df['DayOfWeek'].str.lower()
         
-        # Merge with profile fares
+        # Merge with profile fares using the mapped month
         projection_df = projection_df.merge(
             profile_fares[['sector', 'month_lower', 'dow_lower', 'Q10']],
             left_on=['Sector', 'month_with_half', 'dow_lower'],
@@ -597,7 +655,8 @@ class FareStatisticalAnalysis:
         )
         
         projection_df.rename(columns={'Q10': 'ProfileFareQ10'}, inplace=True)
-        projection_df.drop(columns=['sector', 'month_lower', 'dow_lower', 'month_half', 'month_with_half'], 
+        projection_df.drop(columns=['sector', 'month_lower', 'dow_lower', 'month_half_calc', 
+                                    'month_with_half', 'DepartureDate_dt', 'mappedMonth'], 
                         inplace=True, errors='ignore')
         
         # Calculate upsell as whole number percentage
