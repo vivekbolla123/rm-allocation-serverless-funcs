@@ -1360,7 +1360,7 @@ class DynAlloc:
 
 		auData['auClasses'] = auClass
 		auDataStr = json.dumps(auData)
-		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, flightDate, auDataStr, "Ready", "Ready")
+		self.rmdatabasehelper.insert_run_fltDate_audit(self.runId, flightNo, sector,flightDate, auDataStr, "Ready", "Ready")
 
 	def updateS3Push(self, rec):
 		flightNo = rec.flight.split(" ")[1][2:7]

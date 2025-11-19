@@ -12,7 +12,7 @@ import pytz
 import pandas as pd
 import numpy as np
 from uuid import uuid4
-from sqlalchemy import create_engine, text, pool
+from sqlalchemy import create_engine, text, pool, event
 from pandas import read_sql, Timestamp
 from datetime import datetime, timedelta, date, timezone
 from redis import Redis
@@ -25,6 +25,8 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
+from sqlalchemy.engine.base import Engine
+from urllib.parse import quote_plus
 
 warnings.filterwarnings('ignore')
 
@@ -52,6 +54,7 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
 # ==========================
 # RETRY DECORATOR
 # ==========================
@@ -152,6 +155,36 @@ def create_redis_connection():
     logger.info("Connected to Redis")
     return cache_client
 
+def create_navitaire_connection_pool():
+    """Create SQL Server connection pool with SQLAlchemy - RECOMMENDED APPROACH"""
+    connection_string = (
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}"
+    )
+    
+    engine = create_engine(
+        connection_string,
+        pool_pre_ping=True,  # Validates connections before use
+        pool_recycle=3600,   # Recycle connections every hour
+        pool_size=5,
+        max_overflow=10,
+        connect_args={
+            'timeout': 0,      # Query timeout - increased from 30
+            'login_timeout': 120  # Login timeout - increased from 30
+        }
+    )
+    
+    # Add event listener to handle disconnects
+    @event.listens_for(engine, "engine_connect")
+    def receive_engine_connect(conn, branch):
+        if not branch:
+            # Test connection with SELECT 1
+            conn.execute(text("SELECT 1"))
+    
+    logger.info("Navitaire SQL Server connection pool established")
+    return engine
+
 @retry_on_connection_error(
     max_retries=3,
     delay=2,
@@ -159,13 +192,13 @@ def create_redis_connection():
     exceptions=(PymssqlError,)
 )
 def create_navitaire_connection():
-    """Create SQL Server connection with retry logic"""
+    """Create SQL Server connection with retry logic - FALLBACK IF NOT USING POOL"""
     conn = pymssql.connect(
         host=configsettings.NAV_DB_HOST,
         user=configsettings.NAV_DB_USER,
         password=configsettings.NAV_DB_PASSWORD,
-        timeout=30,
-        login_timeout=30
+        timeout=0,          # Increased from 30 to 120 seconds
+        login_timeout=120      # Increased from 30 to 60 seconds
     )
     logger.info("Navitaire SQL Server connection established")
     return conn
@@ -192,7 +225,13 @@ try:
     cache_client = create_redis_connection()
     mongo_client = get_mongo_connection()
     mongo_db = mongo_client[configsettings.MONGO_DB]
-    NavitaireConnection = create_navitaire_connection()
+    
+    # OPTION 1: Use connection pool (RECOMMENDED)
+    NavitaireConnection = create_navitaire_connection_pool()
+    
+    # OPTION 2: Use simple connection (if you can't use pool)
+    # NavitaireConnection = create_navitaire_connection()
+    
     dwconn = create_dw_connection()
     
     logger.info("SUCCESS: All database connections established")
@@ -238,7 +277,7 @@ def mongo_update_with_retry(collection_name, filter_query, update_doc):
     return mongo_db[collection_name].update_one(filter_query, update_doc)
 
 # ==========================
-# NavDatabaseHelper class with Retry
+# NavDatabaseHelper class with Enhanced Retry
 # ==========================
 
 class NavDatabaseHelper:
@@ -247,26 +286,77 @@ class NavDatabaseHelper:
         self.NAV_DB_NAME = nav_db_name
         self.NAV_DB_WB_NAME = nav_db_wb_name
         self.logger = logging.getLogger()
-        self.retry_count = 0
+        self.is_pool = isinstance(navconn, Engine)
 
-    def _execute_query_with_retry(self, query):
-        """Execute query with automatic reconnection on failure"""
-        @retry_on_connection_error(
-            max_retries=3, 
-            delay=1, 
-            exceptions=(PymssqlError,)
-        )
-        def execute():
+    def _validate_connection(self):
+        """Validate connection is alive with a simple query"""
+        try:
+            if self.is_pool:
+                # For SQLAlchemy engine, test with a simple query
+                with self.NavitaireConnection.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+            else:
+                # For pymssql connection
+                cursor = self.NavitaireConnection.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
+            return True
+        except Exception as e:
+            self.logger.warning(f"Connection validation failed: {str(e)}")
+            return False
+
+    def _execute_query_with_retry(self, query, max_retries=3):
+        """Execute query with automatic reconnection on failure - ENHANCED VERSION"""
+        for attempt in range(max_retries):
             try:
-                return pd.read_sql(query, self.NavitaireConnection)
-            except PymssqlError as e:
-                # If connection is dead, create new one
-                if "connection" in str(e).lower() or "closed" in str(e).lower():
-                    self.logger.warning(f"Connection lost, reconnecting...")
-                    self.NavitaireConnection = create_navitaire_connection()
+                # If using connection pool, validation is automatic
+                if self.is_pool:
                     return pd.read_sql(query, self.NavitaireConnection)
-                raise
-        return execute()
+                
+                # For direct connection, validate before use
+                if not self._validate_connection():
+                    self.logger.warning(f"Connection dead, recreating (attempt {attempt + 1})")
+                    try:
+                        self.NavitaireConnection.close()
+                    except:
+                        pass
+                    time.sleep(2 ** attempt)
+                    self.NavitaireConnection = create_navitaire_connection()
+                
+                return pd.read_sql(query, self.NavitaireConnection)
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Check for connection-related errors
+                is_connection_error = any(keyword in error_msg for keyword in [
+                    "connection", "dead", "not connected", "timeout", 
+                    "20003", "20047", "not enabled", "timed out"
+                ])
+                
+                if is_connection_error:
+                    self.logger.warning(f"Connection error on attempt {attempt + 1}: {str(e)}")
+                    if attempt < max_retries - 1:
+                        # Recreate connection and retry
+                        if not self.is_pool:
+                            try:
+                                self.NavitaireConnection.close()
+                            except:
+                                pass
+                            time.sleep(3 ** attempt)  # Longer exponential backoff
+                            self.NavitaireConnection = create_navitaire_connection()
+                        else:
+                            # For pool, just wait and retry
+                            time.sleep(3 ** attempt)
+                    else:
+                        self.logger.error(f"Failed after {max_retries} retries")
+                        raise
+                else:
+                    # Non-connection error, don't retry
+                    self.logger.error(f"Non-connection error: {str(e)}")
+                    raise
+        
+        raise Exception("Query execution failed after all retries")
 
     def getCurrentBookedLoads(self, startDate, endDate):
         NavitaireQuery = f""" EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
@@ -414,6 +504,39 @@ class NavDatabaseHelper:
             FlightNumber
         """
         return self._execute_query_with_retry(query)
+    
+    def get_w0_rbd(self, start_date, end_date):
+        """Get W0 RBD data"""
+        query = f"""SELECT classofservice,
+           classau,
+           CONVERT(VARCHAR(10), departuredate, 120) AS DepartureDate,
+           IL.flightnumber,
+           IL.departurestation,
+           IL.arrivalstation
+    FROM   {self.NAV_DB_NAME}[Rez].[inventorylegclass] ILC
+           JOIN {self.NAV_DB_NAME}[Rez].[inventoryleg] IL
+             ON IL.[inventorylegid] = ILC.[inventorylegid]
+    WHERE  IL.departuredate >= '{start_date}'
+           AND IL.departuredate <= '{end_date}'
+           AND classofservice = 'W0'
+    ORDER  BY departuredate """
+        return self._execute_query_with_retry(query)
+    
+    def getFltSectDeptTimeForCurrentDay(self):
+        
+        current_date = datetime.now(timezone.utc).date()
+        NavitaireQuery = f"""
+            SELECT
+                DepartureStation Origin,
+                ArrivalStation Destination,
+                TRIM(FlightNumber) as FlightNumber,
+                DepartureDate,
+                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
+            FROM {self.NAV_DB_NAME}rez.inventoryleg
+            WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
+        """
+        # Use retry mechanism
+        return self._execute_query_with_retry(NavitaireQuery)
 
 # ==========================
 # DW Query with Retry
@@ -523,51 +646,6 @@ def quick_optimize(mkt_list, navapihelper):
     
     return mkt_list.drop('api_result', axis=1)
 
-def getFltSectDeptTimeForCurrentDay():
-    try:
-        current_date = datetime.now(timezone.utc).date()
-        NavitaireQuery = f"""
-            SELECT
-                DepartureStation Origin,
-                ArrivalStation Destination,
-                TRIM(FlightNumber) as FlightNumber,
-                DepartureDate,
-                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
-            FROM {configsettings.NAV_DB_NAME}rez.inventoryleg
-            WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
-        """
-        # Use retry mechanism
-        @retry_on_connection_error(max_retries=3, delay=1, exceptions=(PymssqlError,))
-        def execute():
-            return pd.read_sql(NavitaireQuery, NavitaireConnection)
-        return execute()
-    except Exception as e:
-        logger.error(f"Error fetching flight data: {str(e)}")
-        raise
-
-def get_w0_rbd(start_date, end_date):
-    try:
-        NavitaireQuery = f"""SELECT classofservice,
-       classau,
-       CONVERT(VARCHAR(10), departuredate, 120) AS DepartureDate,
-       IL.flightnumber,
-       IL.departurestation,
-       IL.arrivalstation
-FROM   {configsettings.NAV_DB_NAME}[Rez].[inventorylegclass] ILC
-       JOIN {configsettings.NAV_DB_NAME}[Rez].[inventoryleg] IL
-         ON IL.[inventorylegid] = ILC.[inventorylegid]
-WHERE  IL.departuredate >= '{start_date}'
-       AND IL.departuredate <= '{end_date}'
-       AND classofservice = 'W0'
-ORDER  BY departuredate """
-        # Use retry mechanism
-        @retry_on_connection_error(max_retries=3, delay=1, exceptions=(PymssqlError,))
-        def execute():
-            return pd.read_sql(NavitaireQuery, NavitaireConnection)
-        return execute()
-    except Exception as e:
-        logger.error(f"Error fetching W0 RBD data: {str(e)}")
-        raise
 
 def create_flight_lookup_map(flights_df):
     flight_map = {}
@@ -626,9 +704,9 @@ def filter_market_list(market_list_df, ndo0_map):
 
     return filtered_markets_df, skipped_markets_df
 
-def clean_markets_optimized(market_list_df, w0_df):
+def clean_markets_optimized(market_list_df, w0_df,nav_helper):
     try:
-        current_flights_df = getFltSectDeptTimeForCurrentDay()
+        current_flights_df = nav_helper.getFltSectDeptTimeForCurrentDay()
         if current_flights_df.empty:
             logger.info("No current day flights found in Navitaire")
             return market_list_df, 0
@@ -710,7 +788,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
         # Generate Date Range
         s_date = datetime.strptime(start_period, "%Y-%m-%d")
         e_date = datetime.strptime(end_period, "%Y-%m-%d")
-        date_range = pd.date_range(start=s_date, end=e_date - timedelta(days=1), freq='D')
+        date_range = pd.date_range(start=s_date, end=e_date , freq='D')
         date_df = pd.DataFrame({'Date': date_range})
 
         # Cross Join
@@ -1061,21 +1139,22 @@ def lambda_handler(event, context):
     if route_type == "direct":
         query_type = 'sales' if region == 'SalesInv' else 'standard'
         mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
+        nav_helper = NavDatabaseHelper(
+            navconn=NavitaireConnection,
+            nav_db_name=configsettings.NAV_DB_NAME,
+            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
+        )
         
-        w0_df = get_w0_rbd(start_period, end_period)
+        w0_df = nav_helper.get_w0_rbd(start_period, end_period)
         logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df)
+        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
         logger.info(f"Filtered Market List {mkt_list}")
         mkt_list = mkt_list.reset_index()
         markets_count = mkt_list.shape[0]
         logger.info(f"Total markets: {markets_count}")
 
         # Initialize NavDatabaseHelper
-        nav_helper = NavDatabaseHelper(
-            navconn=NavitaireConnection,
-            nav_db_name=configsettings.NAV_DB_NAME,
-            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
-        )
+       
 
         # Convert PerStart to datetime for joining
         mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
