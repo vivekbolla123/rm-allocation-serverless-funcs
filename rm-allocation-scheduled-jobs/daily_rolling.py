@@ -52,6 +52,15 @@ class DailyRolling:
             
             # Insert new documents
             if not df.empty:
+                if 'createdAt' not in df.columns:
+                    df['createdAt'] = pd.Timestamp.now()
+                else:
+                    # Fill any NaT values in existing created_at column with current datetime
+                    df['createdAt'] = df['createdAt'].fillna(pd.Timestamp.now())
+                
+                # Replace any remaining NaT values in other columns with None
+                df = df.replace({pd.NaT: None})
+                
                 # Convert DataFrame to list of dictionaries
                 records = df.to_dict('records')
                 

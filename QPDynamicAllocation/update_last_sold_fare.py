@@ -264,7 +264,7 @@ class LastSoldFare:
                 from 
                 (
                   SELECT
-                    B.RecordLocator, B.BookingID, B.BookingUTC, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, 
+                    B.RecordLocator, B.BookingID, B.BookingUTC, B.Status, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, 
                     IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis,
                     Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType in (0,1,2,3) then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
@@ -291,10 +291,11 @@ class LastSoldFare:
                     inner join {self.NAV_DB_NAME}.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
+                    AND B.Status = 2
                     AND (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
 		            OR LEFT(FareBasis, 1) = 'G')
                   GROUP BY
-                    B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
+                    B.BookingID, B.Status, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator, PJS.ClassOfService
                 ) X
               ) Y

@@ -760,7 +760,7 @@ class DynAllocConnections:
         auData['auClasses'] = auClass
         auDataStr = json.dumps(auData)
         self.rmdatabasehelper.insert_run_fltDate_audit(
-            self.runId, flightNo1+"/"+flightNo2, flightDate, auDataStr, "Ready", "Ready")
+            self.runId, flightNo1+"/"+flightNo2,sector1+"/"+sector2, flightDate, auDataStr, "Ready", "Ready")
     def getStrategyFare(self, finalprice, origin, destin, channel, backstop,offset):
         anchorFare = finalprice
         howDetermined=""    
