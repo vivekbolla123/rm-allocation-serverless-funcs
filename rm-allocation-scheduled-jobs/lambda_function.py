@@ -32,6 +32,7 @@ from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
 from updateImpForecast import update_imputed_forecast
 from cugReport import CugReport
+from scheduled_run_fail_alert import ScheduledRunFailureAlert
 from run_paused_scheduled_runs import Run_Paused_Runs
 
 logger = logging.getLogger()
@@ -99,6 +100,7 @@ module_map = {
     "default_ml": defaultMarketlist,
     "imputed_forecast": update_imputed_forecast,
     "cug_report": CugReport,
+    "schd_run_fail_alert": ScheduledRunFailureAlert,
     "run_paused_runs": Run_Paused_Runs
 }
 
