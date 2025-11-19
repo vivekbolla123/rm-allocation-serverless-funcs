@@ -74,7 +74,7 @@ class Run_Paused_Runs:
         collection = self.db['allocation_run_audit']
 
         # Get current time and one day ago in same string format as stored in DB
-        now = datetime.now(datetime.timezone.utc)
+        now = datetime.now(timezone.utc)
         one_day_ago = now - timedelta(hours=hours_back)
         one_day_ago_str = one_day_ago.strftime("%Y-%m-%d %H:%M:%S")
         now_str = now.strftime("%Y-%m-%d %H:%M:%S")
