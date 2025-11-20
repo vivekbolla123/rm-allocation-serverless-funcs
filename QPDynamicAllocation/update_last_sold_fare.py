@@ -1,6 +1,7 @@
 import logging
 from sys import exit
 import json
+from urllib.parse import quote_plus
 
 import pandas as pd
 import pymssql
@@ -35,7 +36,8 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_MONGO_PASSWORD')
-            MONGO_CONN_STRING = f"mongodb://rmuser:{RM_RD_PASSWORD}@10.16.6.179:27017/"
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://rmuser:{encoded_password}@10.16.6.179:27017/"
             # Or if using MongoDB Atlas or other format:
             # MONGO_CONN_STRING = f"mongodb+srv://rmappuser:{RM_RD_PASSWORD}@your-cluster.mongodb.net/"
 
@@ -70,7 +72,8 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_MONGO_PASSWORD')
-            MONGO_CONN_STRING = f"mongodb://testuser:{RM_RD_PASSWORD}@172.24.72.35:27017/"
+            encoded_password = quote_plus(RM_RD_PASSWORD)
+            MONGO_CONN_STRING = f"mongodb://testuser:{encoded_password}@172.24.72.35:27017/"
             
             try:
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -261,7 +264,7 @@ class LastSoldFare:
                 from 
                 (
                   SELECT
-                    B.RecordLocator, B.BookingID, B.BookingUTC, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, 
+                    B.RecordLocator, B.BookingID, B.BookingUTC, B.Status, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, 
                     IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis,
                     Case when PJS.FareJourneyType in (1,4) then SUM(Case when PJC.ChargeType in (0,1,2,3) then (PJC.ChargeAmount*CTM.PositiveNegativeFlag*CCV.ConversionRate) else 0 end) 
@@ -288,10 +291,11 @@ class LastSoldFare:
                     inner join {self.NAV_DB_NAME}.dw.CityPair CP ON CP.DepartureStation = IL.DepartureStation and CP.ArrivalStation = IL.ArrivalStation 
                   WHERE
                     BookingUTC >= {whereCondition}
+                    AND B.Status = 2
                     AND (SUBSTRING(FareBasis, 5, 1) IN ('M', 'R', 'C', 'V', 'Z')
 		            OR LEFT(FareBasis, 1) = 'G')
                   GROUP BY
-                    B.BookingID, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
+                    B.BookingID, B.Status, BP.PassengerID, PJS.SegmentID, IL.InventoryLegID, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate, IL.FlightNumber,
                     PJS.TripNumber, PJS.JourneyNumber, PJS.SegmentNumber, PJS.FareComponentNumber, PJS.FareJourneyType, PJS.FareBasis, B.BookingUTC, B.RecordLocator, PJS.ClassOfService
                 ) X
               ) Y

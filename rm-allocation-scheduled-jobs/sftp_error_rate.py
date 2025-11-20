@@ -40,6 +40,7 @@ class SFTPErrorRate:
         sftp_pushed_list = list(sftp_push_run_id)
 
         run_id = sftp_pushed_list[1]
+        delete_result = self.allocation_summary_report.delete_many({'run_id': run_id})
         allocation_count = self.get_allocation_count([run_id])
         successfulAllocationCount = allocation_count['successfulAllocationCount']
         totalAllocationCount = allocation_count['totalAllocationCount']
@@ -61,6 +62,7 @@ class SFTPErrorRate:
             'Id_Curves': sftp_pushed_list[12],
             'Id_Strategy': sftp_pushed_list[13],
             'Id_QpFares': sftp_pushed_list[14],
+            'region': sftp_pushed_list[15],
             'failures': error_rate,
             'total': total_rbd_count,
             'successfulAllocationCount': successfulAllocationCount,
@@ -269,6 +271,39 @@ class SFTPErrorRate:
                 total_class += compute_data['total_classes']
             
             self.insert_into_error_audit_process(run_id, flight_key, error_rate, total_class)
+            
+    def calculate_runtime(self,start_time, actual_end_time):
+        """Calculate runtime as actual_end_time - start_time
+        
+        Args:
+            start_time: string datetime
+            actual_end_time: datetime object
+        
+        Returns:
+            string representation of runtime duration
+        """
+        try:
+            # Convert start_time string to datetime if it's not already
+            if isinstance(start_time, str):
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                start_dt = start_time
+            
+            # Calculate runtime difference
+            if actual_end_time and start_dt:
+                runtime_delta = actual_end_time - start_dt
+                
+                # Format as string (e.g., "2:30:15" for 2 hours, 30 minutes, 15 seconds)
+                total_seconds = int(runtime_delta.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                
+                return f"{hours}:{minutes:02d}:{seconds:02d}"
+            else:
+                return ''
+        except Exception as e:
+            return ''
     
     def run(self):
         """Compares the AU from Navitaire ODS & RM DB and computes the error_rate and total RBD's from RM DB.
@@ -281,7 +316,7 @@ class SFTPErrorRate:
                     '$match': {
                         'is_sftp_pushed': '1',
                         'update_navitaire_method': 'sftp',
-                        'is_audit_completed': 0
+                        'is_audit_completed': {'$in': ['0', None]}
                     }
                 },
                 {
@@ -304,6 +339,7 @@ class SFTPErrorRate:
                         'end_time': {'$first': {'$ifNull': ['$actual_end_time', '']}},
                         'actual_end_time': {'$max': '$actual_end_time'},
                         'user': {'$first': '$user'},
+                        'region': {'$first': '$region'},
                         'market_list_name': {'$first': '$market_list_name'},
                         'marketListCount': {'$first': '$marketListCount'},
                         'Id_marketList': {'$first': {'$ifNull': ['$market_list', 0]}},
@@ -369,13 +405,14 @@ class SFTPErrorRate:
                             data['end_time'],
                             data['actual_end_time'],
                             data['user'],
-                            data.get('runTime', ''),  # Calculate runtime if needed
+                            self.calculate_runtime(data['start_time'], data['actual_end_time']),  # Calculate runtime if needed
                             data['market_list_name'],
                             data['marketListCount'],
                             data['Id_marketList'],
                             data['Id_Curves'],
                             data['Id_Strategy'],
-                            data['Id_QpFares']
+                            data['Id_QpFares'],
+                            data['region']
                         )
                         index += 1
                         self.add_allocation_summary_report(run_failure, run_total, sftp_push_run_id)
