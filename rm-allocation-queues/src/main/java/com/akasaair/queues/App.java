@@ -2377,52 +2377,111 @@ public class App implements CommandLineRunner {
 
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
-        int dateHeader = 0;
-        int startColumn = 2;
 
+        if (csvData == null || csvData.isEmpty()) {
+            return strategyMap;
+        }
+
+        // Get header row
+        List<String> headerRow = csvData.get(0);
+
+        // Detect which columns are present and their positions
+        int dateColumnIndex = findColumnIndex(headerRow, "Date");
+        int dowColumnIndex = findColumnIndex(headerRow, "DOW");
+        int mappedMonthColumnIndex = findColumnIndex(headerRow, "Mapped Month", "mappedMonth");
+        int eventColumnIndex = findColumnIndex(headerRow, "Event");
+
+        if (dateColumnIndex == -1) {
+            listOfErrors.get().add("Date column is required");
+            return strategyMap;
+        }
+
+        // Determine start column for sectors (after special columns)
+        int startColumn = Math.max(
+                Math.max(dateColumnIndex, dowColumnIndex),
+                Math.max(mappedMonthColumnIndex, eventColumnIndex)
+        ) + 1;
+
+        // If DOW doesn't exist in header, start from after Date column
+        if (dowColumnIndex == -1) {
+            startColumn = dateColumnIndex + 1;
+            // Skip Mapped Month and Event if they exist
+            if (mappedMonthColumnIndex > dateColumnIndex) {
+                startColumn = Math.max(startColumn, mappedMonthColumnIndex + 1);
+            }
+            if (eventColumnIndex > dateColumnIndex) {
+                startColumn = Math.max(startColumn, eventColumnIndex + 1);
+            }
+        }
+
+        // Process data rows
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= dateHeader) continue;
+            if (inputRow.size() <= dateColumnIndex) continue;
 
-            String dateKey = inputRow.get(dateHeader).trim();
+            String dateKey = inputRow.get(dateColumnIndex).trim();
             if (dateKey == null || dateKey.trim().isEmpty()) continue;
             if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
                 listOfErrors.get().add(dateKey + ": Date should have mm/dd/yyyy format");
             }
 
-            for (int j = startColumn; j < inputRow.size(); j++) {
-                if (j >= csvData.get(0).size()) continue;
+            // Process sector columns
+            for (int j = startColumn; j < headerRow.size(); j++) {
+                if (j >= headerRow.size()) continue;
 
-                String stationKey = csvData.get(0).get(j).trim();
-                if (stationKey == null || stationKey.trim().isEmpty()) continue;
+                String sectorKey = headerRow.get(j).trim();
+                if (sectorKey == null || sectorKey.trim().isEmpty()) continue;
 
-                // Skip validation for special columns
-                if (stationKey.equals("Date") ||
-                        stationKey.equals("Mapped Month") || stationKey.equals("Event")) {
-                    continue; // Don't process these columns at all for upsells
+                // Skip special columns if they appear later in the row
+                if (isSpecialColumn(sectorKey)) {
+                    continue;
                 }
 
                 // Validate sector format ONLY for actual sector columns
-                if (i == 1 && !(stationKey.matches("[A-Za-z]{6}"))) {
-                    listOfErrors.get().add(stationKey + ": Sector value should be valid");
+                if (i == 1 && !(sectorKey.matches("[A-Za-z]{6}"))) {
+                    listOfErrors.get().add(sectorKey + ": Sector value should be valid");
                 }
 
                 String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
-                String keyVal = dateKey + stationKey;
+                String keyVal = dateKey + sectorKey;
 
                 // Validate upsell value format
                 if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%?")))) {
-                    listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value with optional %");
+                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value must be a valid Integer value with optional %");
                 }
 
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
-                map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
+                map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorKey);
                 map.put(VALUE_COLUMN_NAME, value);
                 strategyMap.put(keyVal, map);
             }
         }
         return strategyMap;
+    }
+
+    // Helper method to find column index (case-insensitive, handles multiple variations)
+    private int findColumnIndex(List<String> headerRow, String... possibleNames) {
+        for (int i = 0; i < headerRow.size(); i++) {
+            String header = headerRow.get(i).trim();
+            for (String name : possibleNames) {
+                if (header.equalsIgnoreCase(name)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    // Helper method to check if column is a special column
+    private boolean isSpecialColumn(String columnName) {
+        if (columnName == null) return false;
+        String normalized = columnName.trim().toLowerCase();
+        return normalized.equals("date") ||
+                normalized.equals("dow") ||
+                normalized.equals("mapped month") ||
+                normalized.equals("mappedmonth") ||
+                normalized.equals("event");
     }
 
     private Map<String, Document> fetchExistingUpsells(Set<String> dates) {
