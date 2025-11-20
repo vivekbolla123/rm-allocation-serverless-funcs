@@ -78,8 +78,8 @@ class FileUploadWorker:
 
             reader.seek(0)
             csv_df = pd.read_csv(reader)
-            
-            if table == SALE_DISCOUNTS_TABLE:
+
+            if table == SALE_DATES_TABLE:
                 try:
                     sales_df, discounts_df = pivot_sale_fares(csv_df)
                     # Use upsert for both tables

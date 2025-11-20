@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from constants_utils import ConstantsUtils
 import traceback
 import boto3
-from croniter import croniter
+from croniter import croniter, CroniterBadCronError
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -330,17 +330,21 @@ class ScheduledRunFailureAlert:
             # ------------------------------------------------------
             # 3) Compute cron hits in last hour
             # ------------------------------------------------------
-            itr = croniter(cron_pattern, hour_current)
-
+            parsed_pattern = self.aws_to_croniter(cron_pattern)
             cron_hits = []
-            t = itr.get_prev(datetime)
 
-            # Iterate backwards until outside time window
-            while t >= hour_prev:
-                cron_hits.append(t)
-                # Move the iterator to the time we just found, then get the previous one
-                itr = croniter(cron_pattern, t.replace(second=0, microsecond=0))
+            try:
+                itr = croniter(parsed_pattern, hour_current)
                 t = itr.get_prev(datetime)
+
+                # Iterate backwards until outside time window
+                while t >= hour_prev:
+                    cron_hits.append(t)
+                    t = itr.get_prev(datetime)
+            except CroniterBadCronError as cron_e:
+                self.logger.error(cron_e)
+            except Exception as e:
+                self.logger.error(f"Failed to get cron hit time: {e}")
 
             # ------------------------------------------------------
             # Add to results
@@ -427,3 +431,27 @@ class ScheduledRunFailureAlert:
             self.logger.info(f"Email sent to {recipient} successfully.")
         except Exception as e:
             self.logger.error(f"Failed to send email: {e}")
+
+    def aws_to_croniter(self, aws_expr):
+        parts = aws_expr.split()
+
+        # AWS supports 6 or 7 parts:
+        # min hour dom month dow [year]
+        if len(parts) not in (6, 7):
+            raise ValueError("Invalid AWS cron expression")
+
+        minute, hour, dom, month, dow = parts[:5]
+
+        # croniter does not allow '?'
+        if dom == "?":
+            dom = "*"
+        if dow == "?":
+            dow = "*"
+
+        # AWS DOW: 1–7 (1 = Sunday)
+        # UNIX DOW: 0–6 (0 = Sunday)
+        if dow.isdigit():
+            dow = "0" if dow == "0" else str(int(dow) - 1)
+
+        # return UNIX cron (5 fields)
+        return f"{minute} {hour} {dom} {month} {dow}"

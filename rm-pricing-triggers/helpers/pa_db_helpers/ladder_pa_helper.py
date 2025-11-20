@@ -100,6 +100,7 @@ class LadderPAHelper:
             # Common match conditions
             match_stage = {
                 'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                'channel': 'B2C',
                 '$expr': {
                     '$eq': [
                         {'$concat': ['$source_airport', '$destination_airport']},
@@ -110,51 +111,42 @@ class LadderPAHelper:
                 **route_filter
             }
             
-            # Optimized pipeline - aggregate in MongoDB instead of pulling all data
             pipeline = [
                 {'$match': match_stage},
-                # Get latest record per airline/channel using $sort and $group
                 {
                     '$addFields': {
-                        'gross_fare': {'$toDouble': '$gross_fare'}
+                        'gross_fare_numeric': {'$toDouble': '$gross_fare'}
                     }
                 },
-                {'$sort': {'created_at': -1}},
+                # First count instances of each fare
                 {
                     '$group': {
                         '_id': {
-                            'channel': '$channel',
-                            'dest': '$destination_airport',
                             'source': '$source_airport',
-                            'airline': '$outbound_airline_code',
-                            'fare': '$gross_fare'
+                            'dest': '$destination_airport',
+                            'channel': '$channel',
+                            'fare': '$gross_fare_numeric'
                         },
-                        'created_at': {'$first': '$created_at'}
-                    }
-                },
-                # Count instances of each fare
-                {
-                    '$group': {
-                        '_id': {
-                            'channel': '$_id.channel',
-                            'dest': '$_id.dest',
-                            'source': '$_id.source',
-                            'airline': '$_id.airline'
-                        },
-                        'gross_fare': {'$first': '$_id.fare'},
+                        'airlines': {'$addToSet': '$outbound_airline_code'},
                         'instances': {'$sum': 1}
                     }
                 },
-                # Get the latest entry per airline/channel
+                {
+                    '$match': {
+                        'instances': {'$gte': 2}
+                    }
+                },
+                {'$unwind': '$airlines'},
+                {'$sort': {'_id.fare': 1}},
                 {
                     '$group': {
                         '_id': {
                             'channel': '$_id.channel',
-                            'dest': '$_id.dest',
+                            'airline': '$airlines',
                             'source': '$_id.source',
-                            'airline': '$_id.airline'
+                            'dest': '$_id.dest'
                         },
-                        'gross_fare': {'$first': '$gross_fare'},
+                        'gross_fare': {'$first': '$_id.fare'},
                         'instances': {'$first': '$instances'}
                     }
                 },
@@ -172,11 +164,7 @@ class LadderPAHelper:
                 {'$sort': {'channel': 1, 'gross_fare': 1}}
             ]
             
-            # Collect from both collections
-            self.logger.info(f"Collecting market fares for sector {sector} from market_fares_ag...")
             ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
-            
-            self.logger.info(f"Collecting market fares for sector {sector} from market_fares_rg...")
             rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
             
             # Combine data
@@ -198,8 +186,6 @@ class LadderPAHelper:
             
             # Final sort
             market_fares_data = market_fares_data.sort_values(['channel', 'gross_fare']).reset_index(drop=True)
-            
-            self.logger.info(f"Collected {len(market_fares_data)} unique market fare records for sector {sector}")
             
             return market_fares_data, self.failure_reason
             
@@ -337,8 +323,8 @@ class LadderPAHelper:
                 new_base = ladder_result['ladder_fares'][i]
                 
                 # Calculate all-in fares with taxes
-                current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination)
-                new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination)
+                current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
+                new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
                 
                 current_all_in_fares.append(round(current_all_in, 2))
                 new_all_in_fares.append(round(new_all_in, 2))
@@ -353,10 +339,10 @@ class LadderPAHelper:
                     'route': ladder_result['route'],
                     'fare_point_number': i + 1,
                     'rbd_name': rbd_names[i],
-                    'current_qp_fare': current_qp_fares[i],
-                    'current_all_in_fare': current_all_in_fares[i],
-                    'new_ladder_fare': ladder_result['ladder_fares'][i],
-                    'new_all_in_fare': new_all_in_fares[i],
+                    'current_qp_base_fare': current_qp_fares[i],
+                    'current_qp_all_in_fare': current_all_in_fares[i],
+                    'new_base_ladder_fare': new_all_in_fares[i],
+                    'new_all_in_ladder_fare': ladder_result['ladder_fares'][i],
                     'data_period': ladder_result['data_period'],
                     'distinct_fares_count': ladder_result['distinct_fares_count'],
                     'run_id': run_id,
@@ -368,9 +354,6 @@ class LadderPAHelper:
             # Insert into MongoDB
             collection_name = 'ladder_gen_output'
             self.db[collection_name].insert_many(ladder_documents)
-            
-            self.logger.info(f"Saved {len(ladder_documents)} ladder records to MongoDB collection: {collection_name}")
-            
             return collection_name
             
         except Exception as e:
@@ -378,7 +361,7 @@ class LadderPAHelper:
             self.failure_reason = f"Failed to save ladder to database: {str(e)}"
             raise
     
-    def save_run_audit(self, sector, route, analystName, start_time, currVersion, run_id, 
+    def save_run_audit(self, sector, route, analystName, outlier_count, start_time, currVersion, run_id, 
                       failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False):
         """Save or update audit information with enhanced failure tracking.
         
@@ -425,6 +408,7 @@ class LadderPAHelper:
                     'total_ladder_points': None,
                     'core_ladder_points': None,
                     'buffer_ladder_points': None,
+                    'outliers_removed': None,
                     'min_ladder_fare': None,
                     'max_ladder_fare': None,
                     'data_period_used': None,
@@ -439,7 +423,6 @@ class LadderPAHelper:
                 
                 collection.insert_one(initial_audit)
                 
-                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
                 return 'ladder_generation_audits'
                 
             else:
@@ -456,6 +439,7 @@ class LadderPAHelper:
                         'total_ladder_points': total_points,
                         'core_ladder_points': 58 if total_points > 0 else 0,
                         'buffer_ladder_points': 6 if total_points > 0 else 0,
+                        'outliers_removed': outlier_count,
                         'min_ladder_fare': round(min(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None,
                         'max_ladder_fare': round(max(ladder_result['ladder_fares']), 2) if ladder_result and ladder_result.get('ladder_fares') else None,
                         'data_period_used': ladder_result['data_period'] if ladder_result else None,
@@ -470,7 +454,6 @@ class LadderPAHelper:
                     update_doc
                 )
                 
-                self.logger.info(f"Audit record updated with status {status} for run_id: {run_id}")
                 return 'ladder_generation_audits'
             
         except Exception as e:
