@@ -39,29 +39,3 @@ class LadderNavHelper:
             self.logger.warning("City pair data unavailable but not critical for ladder generation")
             city_pair_data = pd.DataFrame()
             return city_pair_data
-        
-    def collect_booked_data(self, date_range_days=30):
-        """Collect passenger booking data from Navitaire stored procedure for PLF calculation."""
-        try:
-            start_date = date.today()
-            end_date = start_date + timedelta(days=date_range_days)
-            
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date.strftime('%Y-%m-%d')
-            
-            query = f"""
-            EXEC {self.nav_db_wb_name}[dbo].[SP_Bookeddata]
-            @DepartureDate_from = N'{start_date_str}',
-            @DepartureDate_to = N'{end_date_str}'
-            """
-            
-            booked_data = pd.read_sql(query, self.nav_conn)
-            
-            return booked_data
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting booked data: {str(e)}")
-            # Booked data is not critical for ladder generation - just log and continue
-            self.logger.warning("Booked data unavailable but not critical for ladder generation")
-            self.booked_data = pd.DataFrame()
-            return self.booked_data
