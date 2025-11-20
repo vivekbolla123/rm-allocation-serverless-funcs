@@ -75,6 +75,8 @@ class ConstantsUtils:
         self.DEFAULT_D3_VALUE = DEFAULT_D3_VALUE
         self.D3_MIN_RULES = json.loads(D3_MIN_RULES)
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
+        self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
+        self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.UP = UP
         self.MARKET_FLAG = MARKET_FLAG
 
@@ -231,6 +233,10 @@ class ConstantsUtils:
                 self.D3_MIN_RULES = json.loads(parameter_value)
             elif parameter_key == D3_MAX_RULES_KEY:
                 self.D3_MAX_RULES = json.loads(parameter_value)
+            elif parameter_key == RM_ALERT_MAIL_ID_KEY:
+                self.RM_ALERT_MAIL_ID = parameter_value
+            elif parameter_key == CLOSED_RM_ALERT_MAIL_ID_KEY:
+                self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
             elif parameter_key == UP_KEY:
                 self.UP = int(parameter_value)
             elif parameter_key == MARKET_FLAG_KEY:
