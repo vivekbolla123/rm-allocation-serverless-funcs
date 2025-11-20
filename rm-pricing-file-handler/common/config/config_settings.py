@@ -78,8 +78,8 @@ if env == 'uat':
 
     S3_BUCKET_NAME = 'uat-qp-applications'
     S3_FILE_PATH_NAME = "test/rm-pricing-admin/"
-    
-    MONGO_USERNAME = "rmuser"
+
+    MONGO_USERNAME = "testuser"
     MONGO_DB = "qp_dw_priaut"
     MONGO_URL = "172.24.72.35"
 
