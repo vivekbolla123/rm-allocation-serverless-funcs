@@ -783,22 +783,23 @@ class DynAlloc:
 					# Collect all available B2B anchor fare candidates
 					b2b_anchor_candidates = []
 					offset_flag=True
-					if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
-						if pd.notna(self.outputSummaryRow_b2b.MktFare_Max) and self.outputSummaryRow_b2b.MktFare_Max!=0:
+					if mkt_fare_flag == 1:
+						if self.outputSummaryRow_b2b.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
+							if pd.notna(self.outputSummaryRow_b2b.MktFare_Max) and self.outputSummaryRow_b2b.MktFare_Max!=0:
+								offset_flag=False
+								
+								b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Max)
+								self.outputSummaryRow_b2b.mktFile = himktFileb2b
+						elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
+							if pd.notna(self.outputSummaryRow_b2b.MktFare_Min) and self.outputSummaryRow_b2b.MktFare_Min!=0:
+								offset_flag=False
+								
+								b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Min)
+								self.outputSummaryRow_b2b.mktFile = lowmktFileb2b
+						elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min) and self.outputSummaryRow_b2b.MktFare_Min!=0:
 							offset_flag=False
-							
-							b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Max)
-							self.outputSummaryRow_b2b.mktFile = himktFileb2b
-					elif self.outputSummaryRow_b2b.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
-						if pd.notna(self.outputSummaryRow_b2b.MktFare_Min) and self.outputSummaryRow_b2b.MktFare_Min!=0:
-							offset_flag=False
-							
 							b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Min)
-							self.outputSummaryRow_b2b.mktFile = lowmktFileb2b
-					elif pd.notna(self.outputSummaryRow_b2b.MktFare_Min) and self.outputSummaryRow_b2b.MktFare_Min!=0:
-						offset_flag=False
-						b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Min)
-					
+
 					# Add last_seven_avg if available
 					if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
 						b2b_anchor_candidates.append(last_seven_avg_val)
