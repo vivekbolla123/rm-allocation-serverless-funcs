@@ -131,6 +131,9 @@ if env == 'prod':
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
+    PA_BUCKET_NAME = "qp-s3-fs"
+    PA_FILE_PATH = 'prod/PA/'
+    
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "app_esb"
     RM_DB_APPUSER_URL = "172.24.87.43"
@@ -210,6 +213,9 @@ if env == 'uat':
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
+    PA_BUCKET_NAME = "uat-qp-s3-fs"
+    PA_FILE_PATH = 'uat/PA/'
+    
 if env == 'preprod':
     credenv='prod'
     RM_DB_APPUSER_USERNAME = "rmappuser"
@@ -278,6 +284,9 @@ if env == 'preprod':
     MONGO_AUTH_SOURCE="admin"
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + credenv + '/secrets/smtp/QP_ALERTS_PWD')
+    
+    PA_BUCKET_NAME = "qp-s3-fs"
+    PA_FILE_PATH = 'prod/PA/'
 
 RM_IT_ALERT_EMAIL = 'closed.rm.italerts@akasaair.com'
 SENDER_EMAIL = 'qp.alerts@akasaair.com'
