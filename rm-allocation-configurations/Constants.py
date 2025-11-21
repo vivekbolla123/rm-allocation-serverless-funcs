@@ -75,6 +75,8 @@ PRICING_DUF_SECTORS = {
 PRICING_RCS_SECTORS = ["GAU","IXA","IXZ","SXR"]
 PRICING_GST_SECTORS = ["IXB","GAU","IXA","AJL"]
 PRICING_CARR_EXCL = ('9I', 'IC', 'S9', 'S5')
+UP = 5
+MARKET_FLAG = True
 
 MIN_D3_D4_VALUE_KEY = 'MIN_D3_D4_VALUE'
 LINEAR_JUMP_VALUE_KEY = 'LINEAR_JUMP_VALUE'
@@ -127,6 +129,8 @@ B2B_FACTOR_MAP_KEY = 'B2B_FACTOR_MAP'
 DEFAULT_D3_VALUE_KEY = 'DEFAULT_D3_VALUE'
 D3_MIN_RULES_KEY = 'D3_MIN_RULES'
 D3_MAX_RULES_KEY = 'D3_MAX_RULES'
+RM_ALERT_MAIL_ID_KEY = 'RM_ALERT_MAIL_ID'
+CLOSED_RM_ALERT_MAIL_ID_KEY = 'CLOSED_RM_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
@@ -155,6 +159,8 @@ PRICING_DUF_SECTORS_KEY = "PRICING_DUF_SECTORS"
 PRICING_RCS_SECTORS_KEY = "PRICING_RCS_SECTORS"
 PRICING_CARR_EXCL_KEY = 'PRICING_CARR_EXCL'
 PRICING_GST_SECTORS_KEY = 'PRICING_GST_SECTORS'
+UP_KEY = "UP"
+MARKET_FLAG_KEY = "MARKET_FLAG"
 LATEST_VERSION = '4.0.0'
 
 TABLE_MARKET_FARES = "market_fares"
@@ -345,3 +351,6 @@ B2B_FACTOR_MAP = '{"4": 0, "3": 0, "2": 0.5, "1": 1, "0": 1}'
 DEFAULT_D3_VALUE = 4
 D3_MIN_RULES = '{"L": {"forecast_start":-9999, "forecast_end":69}, "H": {"forecast_start":70, "forecast_end":9999}}'
 D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84}, "M": {"forecast_start":85, "forecast_end":95}, "H1": {"forecast_start":96, "forecast_end":9999, "ndo_start":0, "ndo_end":3}, "H2": {"forecast_start":96, "forecast_end":9999, "ndo_start":4, "ndo_end":9999}}'
+
+RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
+CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'

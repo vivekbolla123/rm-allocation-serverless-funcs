@@ -32,6 +32,7 @@ from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
 from updateImpForecast import update_imputed_forecast
 from cugReport import CugReport
+from scheduled_run_fail_alert import ScheduledRunFailureAlert
 from heuristicCalc import FareStatisticalAnalysis
 
 logger = logging.getLogger()
@@ -99,6 +100,7 @@ module_map = {
     "default_ml": defaultMarketlist,
     "imputed_forecast": update_imputed_forecast,
     "cug_report": CugReport,
+    "schd_run_fail_alert": ScheduledRunFailureAlert,
     "calc": FareStatisticalAnalysis
 }
 
@@ -190,7 +192,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"alloc_summary\": 1}}"
+#   "body": "{\"modules\":{\"schd_run_fail_alert\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
