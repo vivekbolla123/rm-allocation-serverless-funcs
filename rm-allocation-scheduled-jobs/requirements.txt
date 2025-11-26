@@ -8,6 +8,7 @@ fastparquet
 threadpoolctl==3.4.0
 pymssql==2.2.5
 croniter
+aws_croniter
 pyawscron
 pyarrow==14.0.1
 numpy==1.26.4

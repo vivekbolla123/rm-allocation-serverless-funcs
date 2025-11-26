@@ -2,7 +2,7 @@ import json
 import pytz
 import configsettings
 import pandas as pd
-from datetime import datetime, timedelta, time
+from datetime import date, datetime, timedelta, time
 from constants_utils import ConstantsUtils
 import traceback
 import requests
@@ -21,7 +21,7 @@ class update_imputed_forecast:
         
         # MongoDB connection for RM data (replaces rdconn and wrconn)
         self.mongo_client = params['mongoconn']
-        self.rm_db = self.mongo_client[params['qp_dw_rmalloc']]
+        self.rm_db = self.mongo_client['qp_dw_rmalloc']
         
         # MongoDB Collections (replaces rdconn and wrconn queries)
         self.market_list_collection = self.rm_db['market_list']
@@ -33,7 +33,7 @@ class update_imputed_forecast:
         self.navconn = params['navconn']
         
         self.cache_client = params['cache_client']
-        self.constants = ConstantsUtils(self.mongo_client)
+        self.constants = ConstantsUtils(self.rm_db)
         self.DEDUCTION_PER = self.constants.IMP_FORECAST_DEDUCTION
         self.LIST_LENGTH = 6
         self.session = requests.Session()
@@ -182,10 +182,33 @@ class update_imputed_forecast:
         """
         try:
             # Query for domestic market list
+            if isinstance(min_date, date) and not isinstance(min_date, datetime):
+                min_date = datetime.combine(min_date, datetime.min.time())
+            if isinstance(max_date, date) and not isinstance(max_date, datetime):
+                max_date = datetime.combine(max_date, datetime.max.time())  # Changed to max.time()
+
             query = {
-                'PerStart': {
-                    '$gte': min_date.strftime('%m/%d/%Y'),
-                    '$lte': max_date.strftime('%m/%d/%Y')
+                '$expr': {
+                    '$and': [
+                        {
+                            '$gte': [
+                                {'$dateFromString': {
+                                    'dateString': '$PerStart',
+                                    'format': '%m/%d/%Y'
+                                }},
+                                min_date
+                            ]
+                        },
+                        {
+                            '$lte': [
+                                {'$dateFromString': {
+                                    'dateString': '$PerStart',
+                                    'format': '%m/%d/%Y'
+                                }},
+                                max_date
+                            ]
+                        }
+                    ]
                 }
             }
             
@@ -213,17 +236,24 @@ class update_imputed_forecast:
                 # Rename Destin to Destination
                 market_list.rename(columns={'Destin': 'Destination'}, inplace=True)
                 
+                # Ensure PerStart is string before converting to datetime
+                market_list['PerStart'] = market_list['PerStart'].astype(str)
+                
                 # Convert PerStart to date
                 market_list['DepartureDate'] = pd.to_datetime(
                     market_list['PerStart'], 
-                    format='%m/%d/%Y'
+                    format='%m/%d/%Y',
+                    errors='coerce'  # Handle any bad dates gracefully
                 ).dt.date
                 
-                # Clean FlightNumber
-                market_list['FlightNumber'] = market_list['FlightNumber'].str.strip()
+                # Clean FlightNumber - FIXED: Convert to string first
+                market_list['FlightNumber'] = market_list['FlightNumber'].astype(str).str.strip()
                 
                 # Drop the original PerStart column
                 market_list.drop('PerStart', axis=1, inplace=True)
+                
+                # Optional: Remove rows where date conversion failed
+                market_list = market_list.dropna(subset=['DepartureDate'])
             
             return market_list
             
