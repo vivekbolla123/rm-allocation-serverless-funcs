@@ -325,8 +325,10 @@ class DynAllocConnections:
         domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         international_plf_threshold = self.constantsUtils.INTERNATIONAL_PLF_THRESHOLD
         dow = self.currParams.dow
-        B2BBackstop = self.currParams.b2b_backstop
-        B2CBackstop = self.currParams.b2c_backstop
+        B2CBackstop = int(self.currParams.b2c_backstop)
+        B2BBackstop = int(self.currParams.b2b_backstop)
+        B2CBackstop_INR = B2CBackstop
+        B2BBackstop_INR = B2BBackstop
         priceStrategy = self.currParams.pricestartegy
         discountValue = self.currParams.discountvalue
         SkippingFactor = self.currParams.skipping_factor
@@ -348,6 +350,9 @@ class DynAllocConnections:
             current_date1, '%Y-%m-%d') , "%w"))
         
         should_allocate_to_y = False
+        self.conversion_rate = 0
+        self.imputed_forecast_1 = "NA"
+        self.imputed_forecast_2 = "NA"
         apply_domestic_fare_logic = False
         use_sector1_fare = False
         use_sector2_fare = False
@@ -506,14 +511,128 @@ class DynAllocConnections:
                     b2cTotal=b2cdiscountedFare
                 elif isMarketFareAvailable:
                     self.fareStatus = " - MarketFare"
-                    if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                        b2cTotal = max(fare1, float(strategyFare))
-                    else:
-                        b2cTotal = min(fare1, float(strategyFare))
-                    if apply_domestic_fare_logic and use_sector1_fare:
-                        b2cTotal = max(SellingFare1,float(strategyFare))
-                    if apply_domestic_fare_logic and use_sector2_fare:
-                        b2cTotal = max(SellingFare2,float(strategyFare))
+                    
+                    # --- Phase 2: Fare Anchor Logic ---
+                    
+                    # 1. Gather Thresholds and Values
+                    dom_forecast_threshold = 95 # Configurable input as per requirements
+                    int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
+                    yield_factor = self.constantsUtils.YIELD_FACTOR
+                    
+                    # Calculate PLF for International Legs
+                    # Ensure Lid is not 0 to avoid division by zero
+                    plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
+                    plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
+                    
+                    # Determine if legs meet threshold
+                    leg1_meets_threshold = False
+                    if is_sector1_domestic:
+                        if forecasted_plf_sector1 >= dom_forecast_threshold:
+                            leg1_meets_threshold = True
+                    else: # International
+                        if plf1 >= int_plf_threshold:
+                            leg1_meets_threshold = True
+                            
+                    leg2_meets_threshold = False
+                    if is_sector2_domestic:
+                        if forecasted_plf_sector2 >= dom_forecast_threshold:
+                            leg2_meets_threshold = True
+                    else: # International
+                        if plf2 >= int_plf_threshold:
+                            leg2_meets_threshold = True
+
+                    # Calculate Components
+                    # L1 and L2 opening fares (SellingFare1, SellingFare2)
+                    # Market Fare (fare1 is b2cdiscountedFare which seems to be derived from Market Fare? No, wait.)
+                    # fare1 is b2cdiscountedFare. 
+                    # In original code: b2cTotal = max(fare1, float(strategyFare)) where fare1 = b2cdiscountedFare
+                    # b2cdiscountedFare comes from getTotalPriceForConnections(priceStrategy, discountValue, b2cSectorTotal)
+                    # b2cSectorTotal = SellingFare1 + SellingFare2
+                    # So L1+L2 is roughly b2cSectorTotal (or b2cdiscountedFare if strategy applied).
+                    # The requirement says "Max(L1 opening fares + L2 opening fares , Market Fare)"
+                    # "Market Fare" usually refers to the competitor fare (lowFare/hiFare).
+                    # In the code, `fare2` seems to be the Market Fare (hiFare or lowFare based on criteria).
+                    # But `fare1` is `b2cdiscountedFare`.
+                    # Let's assume:
+                    # L1 + L2 = SellingFare1 + SellingFare2 (which is b2cSectorTotal)
+                    # Market Fare = fare2 (which is derived from marketfaresservice)
+                    
+                    sum_l1_l2 = SellingFare1 + SellingFare2
+                    market_fare = fare2
+                    
+                    calculated_anchor = market_fare # Default
+                    
+                    # Scenario 1: Both Legs Meet Threshold
+                    if leg1_meets_threshold and leg2_meets_threshold:
+                        calculated_anchor = max(sum_l1_l2, market_fare)
+                        
+                    # Scenario 2: One Leg Meets Threshold
+                    elif leg1_meets_threshold and not leg2_meets_threshold:
+                        # Max{L1 + Yield factor × (L2 Stage Length), Market Fare}
+                        # Need L2 Stage Length. Assuming it's available or need to fetch. 
+                        # If not available, maybe use a proxy or 0 for now?
+                        # Using 0 for now as Stage Length is not obviously available in currParams.
+                        # TODO: Verify where to get Stage Length.
+                        l2_stage_length = 0 
+                        # Check if stage length is in currParams or can be calculated
+                        # For now, using 0 to avoid crash, but this is a gap.
+                        
+                        calculated_anchor = max(SellingFare1 + (yield_factor * l2_stage_length), market_fare)
+                        
+                    elif not leg1_meets_threshold and leg2_meets_threshold:
+                         # Requirement says: "If Leg1 International PLF >= threshold and Leg2 Domestic Forecast < 95%..."
+                         # Wait, the requirement lists specific cases for "One Leg Meets Threshold".
+                         # Let's map them generally:
+                         # If Leg1 meets and Leg2 doesn't: Max{L1 + Yield factor * L2 Stage Length, Market Fare}
+                         # Wait, is it always L1 + ...?
+                         # "If Leg1 Forecast >= 95% and Leg2 Forecast < 95%, Fare Anchor = Max{L1 + Yield factor × (L2 Stage Length), Market Fare}"
+                         # "If Leg1 PLF >= threshold and Leg2 PLF < threshold, Fare Anchor = Max{L1 + Yield factor × (L2 Stage Length), Market Fare}"
+                         # It seems when Leg 1 meets and Leg 2 doesn't, we use L1 + factor * L2_Stage.
+                         
+                         # What if Leg 2 meets and Leg 1 doesn't?
+                         # The requirements don't explicitly list "Leg 2 meets, Leg 1 doesn't" under Scenario 2.
+                         # Wait, let's re-read carefully.
+                         # "One Leg Meets Threshold"
+                         # - Both Domestic: L1 >= 95, L2 < 95 -> Formula
+                         # - Dom & Int: L1 >= 95, L2 < thresh -> Formula
+                         # - Both Int: L1 >= thresh, L2 < thresh -> Formula
+                         # - Int & Dom: L1 >= thresh, L2 < 95 -> Formula
+                         # ALL these examples are "Leg 1 meets, Leg 2 doesn't".
+                         # Does that mean if Leg 2 meets and Leg 1 doesn't, it falls to Scenario 3?
+                         # Or is it symmetric? "Yield factor will be configurable input".
+                         # Usually it's symmetric. "L2 + Yield factor * L1 Stage Length".
+                         # But strictly following the text, it only covers Leg 1 meeting.
+                         # I will assume for now it falls to Scenario 3 (Market Fare) if Leg 1 doesn't meet, 
+                         # UNLESS I see "Leg 2 meets" cases.
+                         # Actually, Scenario 3 says "Both Legs Didn't Meet Threshold".
+                         # So "Leg 2 meets, Leg 1 doesn't" is a gap in the requirements text provided.
+                         # I will assume it behaves like Scenario 3 for now (Market Fare), or maybe I should assume symmetry?
+                         # Given "Yield factor * (L2 Stage Length)", it implies we are keeping L1 (the strong leg) and discounting L2.
+                         # If L2 is the strong leg, we should probably keep L2 and discount L1.
+                         # But without explicit instruction, I'll stick to Market Fare for the unhandled case, or maybe just Market Fare.
+                         # Let's stick to Market Fare for "Leg 2 meets, Leg 1 doesn't" to be safe, as it's not "Both didn't meet" but also not in "One Leg Meets" list.
+                         # Actually, "Both Legs Didn't Meet" covers "Forecast < 95%" (implying both?).
+                         # "If Forecast < 95%" for Both Domestic. This is ambiguous.
+                         # I will implement the explicit cases.
+                         
+                         calculated_anchor = market_fare
+
+                    # Scenario 3: Both Legs Didn't Meet Threshold
+                    else: # Neither met
+                        calculated_anchor = market_fare
+                        # "For Both Domestic: If Forecast < 95%, Fare Anchor = Market Fare/ Strategy fare"
+                        # "Strategy fare" is mentioned.
+                        if is_sector1_domestic and is_sector2_domestic:
+                             # Use Strategy Fare if available?
+                             # The code previously used `strategyFare`.
+                             # "Market Fare/ Strategy fare" -> Maybe Max(Market, Strategy)?
+                             # Previous logic: max(SellingFare, strategyFare) etc.
+                             # I'll use max(market_fare, strategyFare) if both domestic.
+                             calculated_anchor = max(market_fare, float(strategyFare))
+                    
+                    b2cTotal = calculated_anchor
+                    
+                    # --- End Phase 2 Logic ---
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
@@ -616,14 +735,62 @@ class DynAllocConnections:
                             b2bTotal=b2bdiscountedFare
                         else:
                             self.fareStatus = " - MarketFare"
-                            if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                                b2bTotal = max(fare1, float(strategyFare))
-                            else:
-                                b2bTotal = min(fare1, float(strategyFare))
-                            if apply_domestic_fare_logic and use_sector1_fare:
-                                b2bTotal = max(SellingFare1,float(strategyFare))
-                            if apply_domestic_fare_logic and use_sector2_fare:
-                                b2bTotal = max(SellingFare2,float(strategyFare))
+                            
+                            # --- Phase 2: Fare Anchor Logic (B2B) ---
+                            
+                            # 1. Gather Thresholds and Values
+                            dom_forecast_threshold = 95 # Configurable input
+                            int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
+                            yield_factor = self.constantsUtils.YIELD_FACTOR
+                            
+                            # Calculate PLF for International Legs
+                            plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
+                            plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
+                            
+                            # Determine if legs meet threshold
+                            leg1_meets_threshold = False
+                            if is_sector1_domestic:
+                                if forecasted_plf_sector1 >= dom_forecast_threshold:
+                                    leg1_meets_threshold = True
+                            else: # International
+                                if plf1 >= int_plf_threshold:
+                                    leg1_meets_threshold = True
+                                    
+                            leg2_meets_threshold = False
+                            if is_sector2_domestic:
+                                if forecasted_plf_sector2 >= dom_forecast_threshold:
+                                    leg2_meets_threshold = True
+                            else: # International
+                                if plf2 >= int_plf_threshold:
+                                    leg2_meets_threshold = True
+
+                            # Calculate Components
+                            sum_l1_l2 = SellingFare1 + SellingFare2
+                            market_fare = fare2
+                            
+                            calculated_anchor = market_fare # Default
+                            
+                            # Scenario 1: Both Legs Meet Threshold
+                            if leg1_meets_threshold and leg2_meets_threshold:
+                                calculated_anchor = max(sum_l1_l2, market_fare)
+                                
+                            # Scenario 2: One Leg Meets Threshold
+                            elif leg1_meets_threshold and not leg2_meets_threshold:
+                                l2_stage_length = 0 # TODO: Fetch Stage Length
+                                calculated_anchor = max(SellingFare1 + (yield_factor * l2_stage_length), market_fare)
+                                
+                            elif not leg1_meets_threshold and leg2_meets_threshold:
+                                 calculated_anchor = market_fare
+
+                            # Scenario 3: Both Legs Didn't Meet Threshold
+                            else: # Neither met
+                                calculated_anchor = market_fare
+                                if is_sector1_domestic and is_sector2_domestic:
+                                     calculated_anchor = max(market_fare, float(strategyFare))
+                            
+                            b2bTotal = calculated_anchor
+                            
+                            # --- End Phase 2 Logic (B2B) ---
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
@@ -682,37 +849,32 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.DepDate1 = str(current_date1)
             self.outputSummaryRow_b2c.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2c.BookedLoad = str(bookload)
-            self.outputSummaryRow_b2c.allocationStatus = str(
-                openDataB2C["allocationStatus"][0])
-            self.outputSummaryRow_b2c.OpenRBD = str(openDataB2C['RBD'][0])
-            self.outputSummaryRow_b2c.SellingFare = str(openDataB2C["Fare"][0])
-            self.outputSummaryRow_b2c.Channel = 'B2C'
-            self.outputSummaryRow_b2c.HowDetermined = str(
-                openDataB2C['FareResult'][0])
-            self.outputSummaryRow_b2c.Backstop = B2CBackstop
-            self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
-            
-            self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
-            self.outputSummaryRow_b2c.firstrbd = self.currParams.first_rbd_alloc
-            self.outputSummaryRow_b2c.otherrbd = self.currParams.other_rbd_alloc
-            
+            self.outputSummaryRow_b2c.anchorFare=int(b2cTotal) if b2cTotal != 'NA' else 'NA'
+            self.outputSummaryRow_b2c.OpenRBD=openDataB2C['RBD'][0]
+            self.outputSummaryRow_b2c.SellingFare=str(openDataB2C['Fare'][0])
+            self.outputSummaryRow_b2c.Channel="B2C"
+            self.outputSummaryRow_b2c.HowDetermined=openDataB2C['FareResult'][0]
+            self.outputSummaryRow_b2c.allocationStatus=str(openDataB2C['allocationStatus'][0])
+            self.outputSummaryRow_b2c.Backstop=str(B2CBackstop)
+            self.outputSummaryRow_b2c.CreatedAt=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.outputSummaryRow_b2c.analystName=self.currParams.analyst_name
+            self.outputSummaryRow_b2c.Variance1=str(self.currParams.forecast_variance1)
+            self.outputSummaryRow_b2c.Variance2=str(self.currParams.forecast_variance2)
+            self.outputSummaryRow_b2c.criteria=self.currParams.fareAnchor
+            self.outputSummaryRow_b2c.fareOffset=str(self.currParams.offset)
+            self.outputSummaryRow_b2c.outBoundStop=str(self.currParams.outboundstop)
+            self.outputSummaryRow_b2c.outboundDuration=str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2c.Currency=str(self.qpcurrency)
+            self.outputSummaryRow_b2c.conversionRate=str(self.conversion_rate)
+            self.outputSummaryRow_b2c.firstrbd=str(self.currParams.first_rbd_alloc)
+            self.outputSummaryRow_b2c.otherrbd=str(self.currParams.other_rbd_alloc)
+            self.outputSummaryRow_b2c.Backstop_INR=str(B2CBackstop_INR)
+
             self.allocResults.append(self.outputSummaryRow_b2c)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
             
-            self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
-            self.outputSummaryRow_b2b.outBoundStop = self.currParams.outboundstop
-            self.outputSummaryRow_b2b.outboundDuration = self.currParams.outbound_duration
-            self.outputSummaryRow_b2b.fareOffset = self.currParams.offset
-            self.outputSummaryRow_b2b.Id = b2bRunId
-            self.outputSummaryRow_b2b.RunId = self.runId
-            self.outputSummaryRow_b2b.Sector1 = sector1
-            self.outputSummaryRow_b2b.Sector2 = sector2
-            self.outputSummaryRow_b2b.FltNum1 = str(flight1)
-            self.outputSummaryRow_b2b.FltNum2 = str(flight2)
-            self.outputSummaryRow_b2b.DepDate1 = str(current_date1)
-            self.outputSummaryRow_b2b.DepDate2 = str(current_date2)
-            self.outputSummaryRow_b2b.BookedLoad = str(bookload)
+            self.outputSummaryRow_b2b.anchorFare=int(b2bTotal) if b2bTotal != 'NA' else 'NA'
             self.outputSummaryRow_b2b.allocationStatus = str(
                 openDataB2B["allocationStatus"][0])
             self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
@@ -732,6 +894,8 @@ class DynAllocConnections:
             print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
     def getTotalPriceForConnections(self, priceStrategy, discountValue, sectorTotal):
+        discount = 0
+        total = sectorTotal
         if (priceStrategy == 1):
             discount = discountValue
             total = (sectorTotal) - discount

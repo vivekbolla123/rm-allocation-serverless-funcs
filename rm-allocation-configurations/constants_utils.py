@@ -79,6 +79,16 @@ class ConstantsUtils:
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.UP = UP
         self.MARKET_FLAG = MARKET_FLAG
+        
+        # Phase 2 Constants
+        self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = {
+            (0, 3): 0,   # Placeholder
+            (4, 7): 0,   # Placeholder
+            (8, 14): 0,  # Placeholder
+            (15, 365): 0 # Placeholder
+        }
+        self.YIELD_FACTOR = 1.0 # Placeholder
+        self.DIRECT_FLIGHT_UPSELL = 1.0 # Placeholder
 
 
         self.logger = logging.getLogger()
