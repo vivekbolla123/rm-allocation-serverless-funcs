@@ -144,6 +144,7 @@ class LastSoldFare:
 
     def get_last_sold_fare(self):
         time = None
+        lastExecTime = None
         if self.cache_client.exists("LastSoldFare:executionTime"):
             lastExecTime = self.cache_client.get("LastSoldFare:executionTime").decode('utf-8')
 

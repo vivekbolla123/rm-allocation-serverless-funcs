@@ -267,26 +267,26 @@ class update_imputed_forecast:
             if not market_list.empty:
                 # Rename Destin to Destination
                 market_list.rename(columns={'Destin': 'Destination'}, inplace=True)
-                
+               
                 # Ensure PerStart is string before converting to datetime
                 market_list['PerStart'] = market_list['PerStart'].astype(str)
-                
+               
                 # Convert PerStart to date
                 market_list['DepartureDate'] = pd.to_datetime(
-                    market_list['PerStart'], 
+                    market_list['PerStart'],
                     format='%m/%d/%Y',
                     errors='coerce'  # Handle any bad dates gracefully
                 ).dt.date
-                
+               
                 # Clean FlightNumber - FIXED: Convert to string first
                 market_list['FlightNumber'] = market_list['FlightNumber'].astype(str).str.strip()
-                
+               
                 # Drop the original PerStart column
                 market_list.drop('PerStart', axis=1, inplace=True)
-                
+               
                 # Optional: Remove rows where date conversion failed
                 market_list = market_list.dropna(subset=['DepartureDate'])
-            
+           
             return market_list
            
         except Exception as e:
