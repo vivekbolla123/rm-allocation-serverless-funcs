@@ -64,7 +64,7 @@ def testCase1():
     schema = Schema(db)
     schema.initializTables()
 
-    DynAlloc(inputData, currParams)
-    # DynAllocSalesInv(inputData, currParams)
+    # DynAlloc(inputData, currParams)
+    DynAllocSalesInv(inputData, currParams)
 
 testCase1()

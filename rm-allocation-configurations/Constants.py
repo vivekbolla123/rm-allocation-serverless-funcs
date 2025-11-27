@@ -77,6 +77,9 @@ PRICING_GST_SECTORS = ["IXB","GAU","IXA","AJL"]
 PRICING_CARR_EXCL = ('9I', 'IC', 'S9', 'S5')
 UP = 5
 MARKET_FLAG = True
+SALE_AU_THRESHOLD_PER_RUN = 30
+SALE_AU_THRESHOLD_OVERALL = 40
+SALE_COMPL_REDUCTION_PER = 10
 
 MIN_D3_D4_VALUE_KEY = 'MIN_D3_D4_VALUE'
 LINEAR_JUMP_VALUE_KEY = 'LINEAR_JUMP_VALUE'
@@ -161,6 +164,9 @@ PRICING_CARR_EXCL_KEY = 'PRICING_CARR_EXCL'
 PRICING_GST_SECTORS_KEY = 'PRICING_GST_SECTORS'
 UP_KEY = "UP"
 MARKET_FLAG_KEY = "MARKET_FLAG"
+SALE_AU_THRESHOLD_PER_RUN_KEY = "SALE_AU_THRESHOLD_PER_RUN"
+SALE_AU_THRESHOLD_OVERALL_KEY = "SALE_AU_THRESHOLD_OVERALL"
+SALE_COMPL_REDUCTION_PER_KEY = "SALE_COMPL_REDUCTION_PER"
 LATEST_VERSION = '4.0.0'
 
 TABLE_MARKET_FARES = "market_fares"
@@ -251,6 +257,9 @@ KEY_B2B_READY_COUNT = 'b2b_ready_count_'
 KEY_B2C_READY_COUNT = 'b2c_ready_count_'
 KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
+KEY_SALES_PENDING_COUNT = 'sales_pending_count_'
+KEY_SALES_READY_COUNT = 'sales_ready_count_'
+KEY_SALES_DONE_COUNT = 'sales_done_count_'
 
 TESTING_INPUT = {
     CONST_CURVES: TEST_DATA,
@@ -349,8 +358,8 @@ TOLERANCE_MAP = '{"4": -1, "3": 10, "2": 15, "1": 25, "0": 25}'
 B2B_FACTOR_MAP = '{"4": 0, "3": 0, "2": 0.5, "1": 1, "0": 1}'
 
 DEFAULT_D3_VALUE = 4
-D3_MIN_RULES = '{"L": {"forecast_start":-9999, "forecast_end":69}, "H": {"forecast_start":70, "forecast_end":9999}}'
-D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84}, "M": {"forecast_start":85, "forecast_end":95}, "H1": {"forecast_start":96, "forecast_end":9999, "ndo_start":0, "ndo_end":3}, "H2": {"forecast_start":96, "forecast_end":9999, "ndo_start":4, "ndo_end":9999}}'
+D3_MIN_RULES = '{"L": {"forecast_start":-9999, "forecast_end":69.999}, "H": {"forecast_start":69.999, "forecast_end":9999}}'
+D3_MAX_RULES = '{"L":{"forecast_start":-9999,"forecast_end":84.999},"M":{"forecast_start":84.999,"forecast_end":95.999},"H1":{"forecast_start":95.999,"forecast_end":9999,"ndo_start":0,"ndo_end":3},"H2":{"forecast_start":95.999,"forecast_end":9999,"ndo_start":4,"ndo_end":9999}}'
 
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'

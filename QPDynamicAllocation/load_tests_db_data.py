@@ -59,6 +59,7 @@ class Schema:
         self.load_generic_collection("forecast_bands", "forecast_bands.csv")
         self.load_generic_collection("imputed_forecast_bands", "imp_forecast_bands.csv")
         self.load_generic_collection("config_station_master", "config_station_master.csv")
+        self.load_generic_collection("sale_inv_market_list", "sale_inv_market_list.csv")
         
         self.transformCollections()
 

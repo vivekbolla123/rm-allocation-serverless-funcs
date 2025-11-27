@@ -51,6 +51,9 @@ KEY_B2B_READY_COUNT = 'b2b_ready_count_'
 KEY_B2C_READY_COUNT = 'b2c_ready_count_'
 KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
+KEY_SALES_PENDING_COUNT = 'sales_pending_count_'
+KEY_SALES_READY_COUNT = 'sales_ready_count_'
+KEY_SALES_DONE_COUNT = 'sales_done_count_'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -98,20 +101,8 @@ def retry_on_connection_error(max_retries=3, delay=2, backoff=2, exceptions=(Exc
 def create_mongo_connection():
     """Create MongoDB connection with retry logic"""
     try:
-        mongo_client = MongoClient(
-            host=configsettings.MONGO_URL,
-            port=27017,
-            username=configsettings.MONGO_USERNAME,
-            password=configsettings.MONGO_PASSWORD,
-            authSource=configsettings.MONGO_AUTH_SOURCE,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=10000,
-            socketTimeoutMS=10000,
-            retryWrites=True,
-            retryReads=True,
-            maxPoolSize=50,
-            minPoolSize=10
-        )
+        mongo_client = MongoClient('mongodb://localhost:27017/')
+
         # Test connection
         mongo_client.admin.command('ping')
         logger.info("MongoDB connection established successfully")
@@ -399,6 +390,30 @@ class NavDatabaseHelper:
         ).reset_index()
         pivot_df.columns = ['DepartureDate', 'FlightNumber',
                             'Origin', 'Destination', 'seats_sold_L', 'seats_sold_P']
+        return pivot_df
+    
+    def get_seats_sold_by_w_class(self, min_date, max_date):
+        query = f'''
+        SELECT DepartureDate, FlightNumber, DepartureStation as Origin, ArrivalStation as Destination,
+            ILCS.[ClassOfService] as class_code, ILCS.[ClassSold] as seats_sold
+        FROM {self.NAV_DB_NAME}[Rez].[InventoryLegVersion] ILV
+        JOIN {self.NAV_DB_NAME}[Rez].[InventoryLegClassSold] ILCS ON ILV.InventoryLegID = ILCS.InventoryLegID
+        WHERE ILV.DepartureDate >= '{min_date}'
+            AND ILV.DepartureDate <= '{max_date}'
+            AND ILCS.ClassOfService IN ('W4', 'W5', 'W6')
+        ORDER BY ILV.ModifiedUTC DESC
+        '''
+        df = self._execute_query_with_retry(query)
+        pivot_df = df.pivot_table(
+            index=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            columns='class_code',
+            values='seats_sold',
+            aggfunc='first'
+        ).reset_index()
+        pivot_df['sector'] = pivot_df['Origin'] + pivot_df['Destination']
+        pivot_df.drop(['Origin', 'Destination'], axis=1, inplace=True)
+        pivot_df.columns = ['departure_date', 'flight_number',
+                            'seats_sold_W4', 'seats_sold_W5', 'seats_sold_W6', 'sector']
         return pivot_df
 
     def get_current_rbds_by_class(self, min_date, max_date):
@@ -840,6 +855,282 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
     finally:
         log_time.end("fetch_and_process_market_list")
 
+
+def fetch_sales_list(start_date, end_date, sector_list):
+    mktList = pd.DataFrame()
+
+    pipeline = [
+        {
+            "$match": {
+                "sector": {"$in": sector_list},
+                "departure_date": {
+                    "$gte": start_date,  
+                    "$lte": end_date  
+                }
+            }
+        },
+        {
+            "$lookup": {
+                "from": "sales_sector_base_load",
+                "localField": "sector",
+                "foreignField": "sector",
+                "as": "base_load_info"
+            }
+        },
+        {
+            "$unwind": "$base_load_info"
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "sector": 1,
+                "departure_date": 1,
+                "series_value": 1,
+                "mapped_month": "$base_load_info.mapped_month",
+                "target_base_load": "$base_load_info.target_base_load"
+            }
+        }
+    ]
+    try:
+        logger.info("Executing sales inv aggregation pipeline")
+        results = list(mongo_db.sales_flight_series.aggregate(pipeline))
+        logger.info(f"Retrieved {len(results)} records from aggregation")
+        
+        if len(results) == 0:
+            logger.warning("No results returned from aggregation pipeline")
+        
+        mktList = pd.DataFrame(results)
+        
+    except Exception as e:
+        logger.error(f"Error in direct route aggregation: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
+    return mktList
+
+# def sector_hist_curr_plf_query(mapped_months, sector_list):
+#     sector_in = ",".join(f"'{s}'" for s in sector_list)
+
+#     return f"""
+#         SELECT 
+#             Sector AS sector,
+#             DATE_FORMAT(DepartureDate, '%%Y-%%m') AS month,
+#             ROUND(AVG(`0`), 2) AS hist_curr_plf
+#         FROM RM_DW_DATA.booking_curves_plf
+#         WHERE DATE_FORMAT(DepartureDate, '%%Y-%%m') IN ({', '.join(f"'{m}'" for m in mapped_months)})
+#         AND Sector IN ({sector_in})
+#         GROUP BY Sector, DATE_FORMAT(DepartureDate, '%%Y-%%m');
+#     """
+
+def sector_hist_curr_plf_query(mapped_months, sector_list):
+    start_day = 0
+    end_day = 91  # Changed to 366 to handle leap years
+
+    # Build the CASE mapping
+    case_when_inner = "\n".join([f"WHEN {i} THEN `{i}`" for i in range(start_day, end_day + 1)])  
+
+    sector_in = ",".join(f"'{s}'" for s in sector_list)
+
+    sql_query = f"""
+    SELECT 
+        Sector AS sector,
+        DATE_FORMAT(DepartureDate, '%%Y-%%m') AS month,
+        ROUND(AVG(
+            CASE 
+                WHEN DATEDIFF(
+                    DepartureDate, DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+                ) BETWEEN {start_day} AND {end_day}
+                THEN 
+                    CASE DATEDIFF(
+                        DepartureDate,
+                        DATE_SUB(CURDATE(), INTERVAL 1 YEAR)
+                    )
+                        {case_when_inner}
+                    END
+            END
+        ), 2) AS hist_curr_plf
+    FROM RM_DW_DATA.booking_curves_plf
+    WHERE DATE_FORMAT(DepartureDate, '%%Y-%%m') IN ({', '.join(f"'{m}'" for m in mapped_months)})
+    AND Sector IN ({sector_in})
+    GROUP BY Sector, DATE_FORMAT(DepartureDate, '%%Y-%%m');
+    """
+
+    return sql_query
+
+def sector_month_start_hist_base_plf_query(mapped_months, sector_list):
+    start_day = 0
+    end_day = 31
+
+    # Build the CASE mapping
+    case_when_inner = "\n".join([f"WHEN {i} THEN `{i}`" for i in range(start_day, end_day + 1)])  
+
+    sector_in = ",".join(f"'{s}'" for s in sector_list)
+
+    sql_query = f"""
+    SELECT 
+        Sector AS sector,
+        DATE_FORMAT(DepartureDate, '%%Y-%%m') AS month,
+        ROUND(AVG(
+            CASE 
+                WHEN DATEDIFF(
+                    DepartureDate, 
+                    DATE_SUB(DepartureDate, INTERVAL DAY(DepartureDate)-1 DAY)
+                ) BETWEEN {start_day} AND {end_day}
+                THEN 
+                    CASE DATEDIFF(
+                        DepartureDate,
+                        DATE_SUB(DepartureDate, INTERVAL DAY(DepartureDate)-1 DAY)
+                    )
+                        {case_when_inner}
+                    END
+            END
+        ), 2) AS hist_base_plf
+    FROM RM_DW_DATA.booking_curves_plf
+    WHERE DATE_FORMAT(DepartureDate, '%%Y-%%m') IN ({', '.join(f"'{m}'" for m in mapped_months)})
+    AND Sector IN ({sector_in})
+    GROUP BY Sector, DATE_FORMAT(DepartureDate, '%%Y-%%m');
+    """
+
+    return sql_query
+
+def fetch_market_list_for_sales(start_date, end_date, sector_list):
+    mktList = pd.DataFrame()
+
+    pipeline = [
+        {
+            "$addFields": {
+                "PerStartDate": {
+                    "$dateFromString": {"dateString": "$PerStart", "format": "%m/%d/%Y"}
+                },
+                "sector": {"$concat": ["$Origin", "$Destin"]}
+            }
+        },
+        {
+            "$match": {
+                "sector": {"$in": sector_list},
+                "PerStartDate": {"$gte": start_date, "$lte": end_date}
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "departure_date": "$PerStartDate", 
+                "flight_number": "$FlightNumber",
+                "sector": 1
+            }
+        }
+    ]
+    try:
+        logger.info("Executing sales inv aggregation pipeline")
+        results = list(mongo_db.market_list.aggregate(pipeline))
+        logger.info(f"Retrieved {len(results)} records from aggregation")
+        
+        if len(results) == 0:
+            logger.warning("No results returned from aggregation pipeline")
+        
+        mktList = pd.DataFrame(results)
+        
+    except Exception as e:
+        logger.error(f"Error in direct route aggregation: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
+    return mktList
+
+
+def fetch_and_process_sales_market_list(start_date_str, end_date_str, sector_list):
+    log_time.start()
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
+
+        nav_helper = NavDatabaseHelper(
+                navconn=NavitaireConnection,
+                nav_db_name=configsettings.NAV_DB_NAME,
+                nav_db_wb_name=configsettings.NAV_DB_WB_NAME
+            )
+
+        sales_list = fetch_sales_list(start_date, end_date, sector_list)
+        mkt_list = fetch_market_list_for_sales(start_date, end_date, sector_list)
+        if not mkt_list.empty:
+            mkt_list['flight_number'] = mkt_list['flight_number'].astype(str)
+
+        w_bookload_list = nav_helper.get_seats_sold_by_w_class(start_date, end_date)
+        w_bookload_list['departure_date'] = pd.to_datetime(w_bookload_list['departure_date'])
+
+        bookload_list = nav_helper.getCurrentBookedLoads(start_date, end_date)
+        bookload_list['DepartureDate'] = pd.to_datetime(bookload_list['DepartureDate'])
+        bookload_list['sector'] = bookload_list['Origin'] + bookload_list['Destination']
+        
+        sales_list['mapped_month'] = sales_list['mapped_month'].astype(str).str[:7]
+        mapped_months = sales_list['mapped_month'].unique().tolist()
+        hist_curr_plf_query = sector_hist_curr_plf_query(mapped_months, sector_list)
+        month_start_hist_base_plf_query = sector_month_start_hist_base_plf_query(mapped_months, sector_list)
+
+        hist_curr_plf_list = execute_dw_query_with_retry(hist_curr_plf_query, dwconn)
+        month_start_hist_base_plf_list = execute_dw_query_with_retry(month_start_hist_base_plf_query, dwconn)
+
+        # Merge hist_curr_plf_list
+        sales_list = sales_list.merge(
+            hist_curr_plf_list[['sector', 'hist_curr_plf', 'month']],
+            how='left',
+            left_on=['sector', "mapped_month"],
+            right_on=['sector', "month"],
+            suffixes=('', '_drop')
+        )
+        sales_list.drop(columns=[col for col in ['month']] + 
+            [col for col in sales_list.columns if col.endswith('_drop')], inplace=True)
+
+        # Merge month_start_hist_base_plf_list
+        sales_list = sales_list.merge(
+            month_start_hist_base_plf_list[['sector', 'hist_base_plf', 'month']],
+            how='left',
+            left_on=['sector', "mapped_month"],
+            right_on=['sector', "month"],
+            suffixes=('', '_drop')
+        )
+        sales_list.drop(columns=[col for col in ['month']] + 
+            [col for col in sales_list.columns if col.endswith('_drop')], inplace=True)
+
+        # Merge mkt_list
+        sales_list = sales_list.merge(
+            mkt_list[['departure_date', 'flight_number', 'sector']],
+            how='left',
+            on=['departure_date', 'sector'],
+            suffixes=('', '_drop')
+        )
+        sales_list.drop(columns=[col for col in sales_list.columns if col.endswith('_drop')], inplace=True)
+
+        # Merge w_bookload_list
+        sales_list = sales_list.merge(
+            w_bookload_list[['departure_date', 'flight_number', 'sector', 'seats_sold_W4', 'seats_sold_W5', 'seats_sold_W6']],
+            how='left',
+            on=['departure_date', 'flight_number', 'sector'],
+            suffixes=('', '_drop')
+        )
+        sales_list.drop(columns=[col for col in sales_list.columns if col.endswith('_drop')], inplace=True)
+
+        # Merge bookload_list
+        sales_list = sales_list.merge(
+            bookload_list[['DepartureDate', 'FlightNumber', 'sector', 'bookedPax', 'adjustedCapacity']],
+            how='left',
+            left_on=['departure_date', 'sector', 'flight_number'],
+            right_on=['DepartureDate', 'sector', 'FlightNumber'],
+            suffixes=('', '_drop')
+        )
+        sales_list.drop(columns=[col for col in ['DepartureDate', 'FlightNumber']] + 
+                        [col for col in sales_list.columns if col.endswith('_drop')], inplace=True)
+        
+        sales_list['departure_date'] = sales_list['departure_date'].astype(str)
+
+        return sales_list
+
+    except Exception as e:
+        logger.error(f"Error in fetch_and_process_sales_market_list: {str(e)}")
+        raise
+    finally:
+        log_time.end("fetch_and_process_sales_market_list")
+
 # Helper functions with retry
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
@@ -1065,6 +1356,9 @@ def lambda_handler(event, context):
     is_connections_required_key = "is_connections_required"
     cug_alloc_key = "cug_alloc"
     mongodb_key = "mongodb"
+    sales_dtd_start_key = "sales_dtd_start"
+    sales_dtd_end_key = "sales_dtd_end"
+    sector_list_key = "sector_list"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
     body = event['body']
@@ -1085,6 +1379,9 @@ def lambda_handler(event, context):
     cug_alloc = "0"
     mongodb = "0"
     salesinv = "0"
+    sales_dtd_start = ""
+    sales_dtd_end = ""
+    sector_list = ""
 
     # Overrides
     if route_type_key in data:
@@ -1115,301 +1412,328 @@ def lambda_handler(event, context):
         cug_alloc = data[cug_alloc_key]
     if mongodb_key in data:
         mongodb = data[mongodb_key]
+    if sales_dtd_start_key in data:
+        sales_dtd_start = data[sales_dtd_start_key]
+    if sales_dtd_end_key in data:
+        sales_dtd_end = data[sales_dtd_end_key]
+    if sector_list_key in data:
+        sector_list = json.loads(data[sector_list_key])
         
-    if region == 'SalesInv':
+    if type == "Adhoc_Sales":
         salesinv = "1"
 
     # Start program
-    if type == "Adhoc":
-        cache_client.set(unique_key_value, 0, 18000)
-        available_slot = deduct_available_slot()
-        if not available_slot:
-            logger.info("No slots available to run Adhoc API!")
-            return False
+    if salesinv == "0":
+        if type == "Adhoc":
+            cache_client.set(unique_key_value, 0, 18000)
+            available_slot = deduct_available_slot()
+            if not available_slot:
+                logger.info("No slots available to run Adhoc API!")
+                return False
 
-    current_utc_time = datetime.utcnow()
-    utc_timezone = pytz.timezone('UTC')
-    ist_timezone = pytz.timezone('Asia/Kolkata')
-    startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
-    curr_date = startTime.date()
-    start_period = datetime.strftime(curr_date + timedelta(days=start_interval), "%Y-%m-%d")
-    end_period = datetime.strftime(curr_date + timedelta(days=end_interval), "%Y-%m-%d")
-    
-    # Fetch market list
-    if route_type == "direct":
-        query_type = 'sales' if region == 'SalesInv' else 'standard'
-        mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
-        nav_helper = NavDatabaseHelper(
-            navconn=NavitaireConnection,
-            nav_db_name=configsettings.NAV_DB_NAME,
-            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
-        )
+        current_utc_time = datetime.utcnow()
+        utc_timezone = pytz.timezone('UTC')
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        startTime = current_utc_time.replace(tzinfo=utc_timezone).astimezone(ist_timezone)
+        curr_date = startTime.date()
+        start_period = datetime.strftime(curr_date + timedelta(days=start_interval), "%Y-%m-%d")
+        end_period = datetime.strftime(curr_date + timedelta(days=end_interval), "%Y-%m-%d")
         
-        w0_df = nav_helper.get_w0_rbd(start_period, end_period)
-        logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
-        logger.info(f"Filtered Market List {mkt_list}")
-        mkt_list = mkt_list.reset_index()
-        markets_count = mkt_list.shape[0]
-        logger.info(f"Total markets: {markets_count}")
+        # Fetch market list
+        if route_type == "direct":
+            mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table)
+            nav_helper = NavDatabaseHelper(
+                navconn=NavitaireConnection,
+                nav_db_name=configsettings.NAV_DB_NAME,
+                nav_db_wb_name=configsettings.NAV_DB_WB_NAME
+            )
+            
+            w0_df = nav_helper.get_w0_rbd(start_period, end_period)
+            logger.info(f"Original Market List {mkt_list}")
+            mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
+            logger.info(f"Filtered Market List {mkt_list}")
+            mkt_list = mkt_list.reset_index()
+            markets_count = mkt_list.shape[0]
+            logger.info(f"Total markets: {markets_count}")
 
-        # Initialize NavDatabaseHelper
-       
+            # Initialize NavDatabaseHelper
+        
 
-        # Convert PerStart to datetime for joining
-        mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
-        min_date = mkt_list['DepartureDate'].min()
-        max_date = mkt_list['DepartureDate'].max()
-        ist = pytz.timezone('Asia/Kolkata')
+            # Convert PerStart to datetime for joining
+            mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
+            min_date = mkt_list['DepartureDate'].min()
+            max_date = mkt_list['DepartureDate'].max()
+            ist = pytz.timezone('Asia/Kolkata')
 
-        curr_date = datetime.now(ist).date()
-        curr_datetime = datetime.now(ist) - timedelta(hours=1)
-        curr_datetime_str = curr_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Fetch Navitaire data with retry
-        booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
-        seats_sold_pivot = nav_helper.get_seats_sold_by_class(min_date, max_date)
-        rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
-        series_seats_data = nav_helper.get_series_seats(min_date, max_date)
-        daily_flights = nav_helper.get_daily_flights(min_date, max_date)
-        opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
-        bookings_count = nav_helper.get_last_bookings_count(
-            departure_start_date=min_date,
-            departure_end_date=max_date,
-            comparison_date=curr_date,
-            comparison_datetime=curr_datetime_str
-        )
-        forecast_plf_query = get_forecast(min_date, max_date)
-        forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
+            curr_date = datetime.now(ist).date()
+            curr_datetime = datetime.now(ist) - timedelta(hours=1)
+            curr_datetime_str = curr_datetime.strftime("%Y-%m-%d %H:%M:%S")
+            
+            # Fetch Navitaire data with retry
+            booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
+            seats_sold_pivot = nav_helper.get_seats_sold_by_class(min_date, max_date)
+            rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
+            series_seats_data = nav_helper.get_series_seats(min_date, max_date)
+            daily_flights = nav_helper.get_daily_flights(min_date, max_date)
+            opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
+            bookings_count = nav_helper.get_last_bookings_count(
+                departure_start_date=min_date,
+                departure_end_date=max_date,
+                comparison_date=curr_date,
+                comparison_datetime=curr_datetime_str
+            )
+            forecast_plf_query = get_forecast(min_date, max_date)
+            forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
 
-        mkt_list = left_join_with_destination_mapping(mkt_list, forecast_plf_list)
-        print(len(mkt_list), " forecast_plf_list")
-        mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
-        print(len(mkt_list), " booked_loads")
-        mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
-        print(len(mkt_list), " seats_sold_pivot")
-        mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
-        print(len(mkt_list), " rbd_pivot")
-        mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
-        print(len(mkt_list), " series_seats_data")
-        mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
-        print(len(mkt_list), " daily_flights")
-        mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
-        print(len(mkt_list), " opening_rbds")
-        mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
-        print(len(mkt_list), " bookings_count")
-        
-    elif route_type == "connections":
-        navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL, configsettings.NAV_OCP_SUBSCRIPTION_KEY, configsettings.NAV_USERNAME, configsettings.NAV_PWD, configsettings.NAV_DOMAIN)
-        update_navitaire_method = "sftp"
-        is_connections_required = "0"
-        region = 'Domestic'
-        
-        mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='connections')
+            mkt_list = left_join_with_destination_mapping(mkt_list, forecast_plf_list)
+            print(len(mkt_list), " forecast_plf_list")
+            mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
+            print(len(mkt_list), " booked_loads")
+            mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
+            print(len(mkt_list), " seats_sold_pivot")
+            mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
+            print(len(mkt_list), " rbd_pivot")
+            mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
+            print(len(mkt_list), " series_seats_data")
+            mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
+            print(len(mkt_list), " daily_flights")
+            mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
+            print(len(mkt_list), " opening_rbds")
+            mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
+            print(len(mkt_list), " bookings_count")
+            
+        elif route_type == "connections":
+            navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL, configsettings.NAV_OCP_SUBSCRIPTION_KEY, configsettings.NAV_USERNAME, configsettings.NAV_PWD, configsettings.NAV_DOMAIN)
+            update_navitaire_method = "sftp"
+            is_connections_required = "0"
+            region = 'Domestic'
+            
+            mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='connections')
 
-        nav_helper = NavDatabaseHelper(
-            navconn=NavitaireConnection,
-            nav_db_name=configsettings.NAV_DB_NAME,
-            nav_db_wb_name=configsettings.NAV_DB_WB_NAME
-        )
+            nav_helper = NavDatabaseHelper(
+                navconn=NavitaireConnection,
+                nav_db_name=configsettings.NAV_DB_NAME,
+                nav_db_wb_name=configsettings.NAV_DB_WB_NAME
+            )
 
-        mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
-        min_date = mkt_list['DepartureDate'].min()
-        max_date = mkt_list['DepartureDate'].max()
-        
-        mkt_list = quick_optimize(mkt_list, navapihelper)
-        
-        original_count = len(mkt_list)
-        mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
-        filtered_count = len(mkt_list)
-        logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
-        
-        if not mkt_list.empty:
-            mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
-            all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
-            min_date = all_dates.min()
-            max_date = all_dates.max()
-        
-        booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
-        forecast_plf_query = get_forecast(min_date, max_date)
-        forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
-        
-        mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
-        mkt_list['Sector1Dest'] = mkt_list['Sector1'].str[3:]
-        mkt_list['Sector2Origin'] = mkt_list['Sector2'].str[:3]
-        mkt_list['Sector2Dest'] = mkt_list['Sector2'].str[3:]
+            mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
+            min_date = mkt_list['DepartureDate'].min()
+            max_date = mkt_list['DepartureDate'].max()
+            
+            mkt_list = quick_optimize(mkt_list, navapihelper)
+            
+            original_count = len(mkt_list)
+            mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
+            filtered_count = len(mkt_list)
+            logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
+            
+            if not mkt_list.empty:
+                mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
+                all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
+                min_date = all_dates.min()
+                max_date = all_dates.max()
+            
+            booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
+            forecast_plf_query = get_forecast(min_date, max_date)
+            forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
+            
+            mkt_list['Sector1Origin'] = mkt_list['Sector1'].str[:3]
+            mkt_list['Sector1Dest'] = mkt_list['Sector1'].str[3:]
+            mkt_list['Sector2Origin'] = mkt_list['Sector2'].str[:3]
+            mkt_list['Sector2Dest'] = mkt_list['Sector2'].str[3:]
 
-        opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
-        opening_rbds['FlightNumber'] = opening_rbds['FlightNumber'].astype('int64')
+            opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
+            opening_rbds['FlightNumber'] = opening_rbds['FlightNumber'].astype('int64')
 
-        booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
-        forecast_plf_list['FlightNumber'] = forecast_plf_list['FlightNumber'].astype('int64')
-        
-        # Merge operations for connections...
-        mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
-            how='left',
-            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
-            how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
-            how='left',
-            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'forecast_variance': 'forecast_variance1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
-            how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'forecast_variance': 'forecast_variance2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
-            how='left',
-            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'bookedPax': 'BookedPax1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
-            how='left',
-            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Lid1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            booked_loads['FlightNumber'] = booked_loads['FlightNumber'].astype('int64')
+            forecast_plf_list['FlightNumber'] = forecast_plf_list['FlightNumber'].astype('int64')
+            
+            # Merge operations for connections...
+            mkt_list = mkt_list.merge(
+                forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
+                how='left',
+                left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'forecastPLF': 'forecastPLF1'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']],
+                how='left',
+                left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'forecastPLF': 'forecastPLF2'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
+                how='left',
+                left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'forecast_variance': 'forecast_variance1'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
+                how='left',
+                left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'forecast_variance': 'forecast_variance2'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
+                how='left',
+                left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'bookedPax': 'BookedPax1'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+                how='left',
+                left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'capacity': 'Lid1'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
-            how='left',
-            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
-            how='left',
-            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Lid2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            mkt_list = mkt_list.merge(
+                booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax']],
+                how='left',
+                left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'bookedPax': 'BookedPax2'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            mkt_list = mkt_list.merge(
+                booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+                how='left',
+                left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'capacity': 'Lid2'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        mkt_list = mkt_list.merge(
-            opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
-            how='left',
-            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            mkt_list = mkt_list.merge(
+                opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
+                how='left',
+                left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B1', 'OpeningRBDB2C': 'OpeningRBDB2C1'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        mkt_list = mkt_list.merge(
-            opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
-            how='left',
-            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            suffixes=('', '_drop')
-        ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
-            columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
-        
-        markets_count = mkt_list.shape[0]
-        mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
+            mkt_list = mkt_list.merge(
+                opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
+                how='left',
+                left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                suffixes=('', '_drop')
+            ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
+                columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+            
+            markets_count = mkt_list.shape[0]
+            mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
+            mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
+            
         mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
         
-    mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
-    
-    # Proceed with SQS
-    start_time = datetime.now()
-    run_id = str(uuid4())
-    log_time.update_run_id(run_id)
+        # Proceed with SQS
+        start_time = datetime.now()
+        run_id = str(uuid4())
+        log_time.update_run_id(run_id)
 
-    del_stack_df = get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id)
+        del_stack_df = get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id)
 
-    if not del_stack_df.empty:
-        insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
-        logger.info(f"Skipping run: {run_id}")
-        log_time.send_time_log_db()
-        return {
-            'statusCode': 200,
-            'body': -1
-        }
+        if not del_stack_df.empty:
+            insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
+            logger.info(f"Skipping run: {run_id}")
+            log_time.send_time_log_db()
+            return {
+                'statusCode': 200,
+                'body': -1
+            }
 
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
-                     username, type, is_connections_required, update_navitaire_method, region, markets_count)
+        insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
+                        username, type, "0", update_navitaire_method, region, markets_count)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
+        cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
+        cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
+        cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
+        cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
+        cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
+        cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
 
-    if type != "Adhoc":
-        send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
-    else:
-        batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
-        for batch_num in range(batches_required[0]):
-            start_idx = batch_num * adhoc_batch_size
-            end_idx = start_idx + adhoc_batch_size
-            batch_df = mkt_list.iloc[start_idx:end_idx]
-            batch_df['runId'] = run_id
-            batch_df['update_navitaire_method'] = update_navitaire_method
-            batch_df['runTime'] = start_time
-            batch_df['route_type'] = route_type
-            batch_df['queue'] = queue_name
-            batch_df['cug_alloc'] = cug_alloc
-            batch_df['mongodb'] = mongodb
-            batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
-            data_to_serialize = batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+        if type != "Adhoc":
+            send_dataframe_to_sqs(mkt_list, queue_name, run_id,
+                                update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
+        else:
+            batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
+            for batch_num in range(batches_required[0]):
+                start_idx = batch_num * adhoc_batch_size
+                end_idx = start_idx + adhoc_batch_size
+                batch_df = mkt_list.iloc[start_idx:end_idx]
+                batch_df['runId'] = run_id
+                batch_df['update_navitaire_method'] = update_navitaire_method
+                batch_df['runTime'] = start_time
+                batch_df['route_type'] = route_type
+                batch_df['queue'] = queue_name
+                batch_df['cug_alloc'] = cug_alloc
+                batch_df['mongodb'] = mongodb
+                batch_df['saleinvflag'] = salesinv
+                temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
+                data_to_serialize = batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        if batches_required[1] > 0:
-            last_batch_df = mkt_list.iloc[-batches_required[1]:]
-            last_batch_df['runId'] = run_id
-            last_batch_df['update_navitaire_method'] = update_navitaire_method
-            last_batch_df['runTime'] = start_time
-            last_batch_df['route_type'] = route_type
-            last_batch_df['queue'] = queue_name
-            last_batch_df['cug_alloc'] = cug_alloc
-            last_batch_df['mongodb'] = mongodb
-            last_batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
-            data_to_serialize = last_batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+            if batches_required[1] > 0:
+                last_batch_df = mkt_list.iloc[-batches_required[1]:]
+                last_batch_df['runId'] = run_id
+                last_batch_df['update_navitaire_method'] = update_navitaire_method
+                last_batch_df['runTime'] = start_time
+                last_batch_df['route_type'] = route_type
+                last_batch_df['queue'] = queue_name
+                last_batch_df['cug_alloc'] = cug_alloc
+                last_batch_df['mongodb'] = mongodb
+                last_batch_df['saleinvflag'] = salesinv
+                temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
+                data_to_serialize = last_batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        update_run_with_batches(batches_required[0] + (1 if batches_required[1] > 0 else 0), run_id)
+            update_run_with_batches(batches_required[0] + (1 if batches_required[1] > 0 else 0), run_id)
+        
+    elif salesinv == "1":
+        sales_list = fetch_and_process_sales_market_list(sales_dtd_start, sales_dtd_end, sector_list)
+
+        markets_count = sales_list.shape[0]
+        logger.info(f"Total sales markets: {markets_count}")
+
+        start_time = datetime.now()
+        run_id = str(uuid4())
+        log_time.update_run_id(run_id)
+
+        insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
+                        username, type, is_connections_required, update_navitaire_method, region, markets_count)
+
+        cache_client.set(KEY_SALES_PENDING_COUNT + run_id, int(markets_count), 86400)
+        cache_client.set(KEY_SALES_READY_COUNT + run_id, 0, 86400)
+        cache_client.set(KEY_SALES_DONE_COUNT + run_id, 0, 86400)
+        
+        send_dataframe_to_sqs(sales_list, queue_name, run_id,
+                                update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
+
 
     end_time = datetime.now()
     logger.info(run_log)
@@ -1425,17 +1749,25 @@ def lambda_handler(event, context):
         "body": markets_count
     }
 
-# if __name__ == "__main__":
-#     # For local testing; adjust event as needed
-#     event = {
-#         "body": json.dumps({
-#             "start_interval": 0,
-#             "end_interval": 7,
-#             "market_list_table_name": "market_list",
-#             "run_type": "Scheduled",
-#             "cug_alloc":0
-#         })
-#     }
-#     context = {}
-#     result = lambda_handler(event, context)
-#     print(result)
+if __name__ == "__main__":
+    # For local testing; adjust event as needed
+    # event = {
+    #     "body": json.dumps({
+    #         "start_interval": 0,
+    #         "end_interval": 7,
+    #         "market_list_table_name": "market_list",
+    #         "run_type": "Scheduled",
+    #         "cug_alloc":0
+    #     })
+    # }
+    event = {
+        "body": json.dumps({
+            "sales_dtd_start": "2025-12-01",
+            "sales_dtd_end": "2025-12-05",
+            "sector_list": "[\"CCUAMD\", \"SXRBOM\", \"GOXPNQ\"]",
+            "run_type": "Adhoc_Sales",
+        })
+    }
+    context = {}
+    result = lambda_handler(event, context)
+    print(result)

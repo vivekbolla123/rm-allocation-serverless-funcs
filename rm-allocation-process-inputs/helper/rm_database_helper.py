@@ -658,6 +658,48 @@ class RMDatabaseHelper:
                 self.logger.warning("Market List is empty!")
         
         return self.mktList
+    
+    def loadSalesRunParams(self):
+        pipeline = [
+            {
+                "$lookup": {
+                    "from": "sales_sector_base_load",
+                    "localField": "sector",
+                    "foreignField": "sector",
+                    "as": "base_load_info"
+                }
+            },
+            {
+                "$unwind": "$base_load_info"
+            },
+            {
+                "$project": {
+                "_id": 0,
+                "sector": 1,
+                "departure_date": 1,
+                "series_value": 1,
+                "mapped_month": "$base_load_info.mapped_month",
+                "target_base_load": "$base_load_info.target_base_load"
+                }
+            }
+        ]
+        try:
+            self.logger.info("Executing sales inv aggregation pipeline")
+            results = list(self.db.sale_inv_market_list.aggregate(pipeline))
+            self.logger.info(f"Retrieved {len(results)} records from aggregation")
+            
+            if len(results) == 0:
+                self.logger.warning("No results returned from aggregation pipeline")
+            
+            self.mktList = pd.DataFrame(results)
+            
+        except Exception as e:
+            self.logger.error(f"Error in direct route aggregation: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            self.mktList = pd.DataFrame()
+        
+        return self.mktList
 
     def insertRunStart(self, startTime, username):
         if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
@@ -773,6 +815,35 @@ class RMDatabaseHelper:
 
             try:
                 self.db.run_summary.insert_one(doc)
+            except Exception as e:
+                self.logger.error(e)
+    
+    def insertSalesSummaryRow(self, allocResults):
+        if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
+            latest_row = allocResults[-1]
+
+            doc = {
+                "id": latest_row.id, 
+                "run_id": latest_row.run_id, 
+                "sector": latest_row.sector, 
+                "flight_number": latest_row.flight_number, 
+                "departure_date": latest_row.departure_date, 
+                "w4": latest_row.w4, 
+                "w5": latest_row.w5, 
+                "w6": latest_row.w6, 
+                "booked_load": latest_row.booked_load, 
+                "w_booked_load": latest_row.w_booked_load, 
+                "mapped_month": latest_row.mapped_month, 
+                "hist_base_load": latest_row.hist_base_load, 
+                "hist_curr_load": latest_row.hist_curr_load, 
+                "curr_completion": latest_row.curr_completion, 
+                "tgt_completion": latest_row.tgt_completion, 
+                "final_distress": latest_row.distress, 
+                "CreatedAt": self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT),
+            }
+
+            try:
+                self.db.run_summary_sales.insert_one(doc)
             except Exception as e:
                 self.logger.error(e)
 

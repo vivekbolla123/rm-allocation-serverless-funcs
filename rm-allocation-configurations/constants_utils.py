@@ -79,6 +79,9 @@ class ConstantsUtils:
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.UP = UP
         self.MARKET_FLAG = MARKET_FLAG
+        self.SALE_AU_THRESHOLD_PER_RUN = SALE_AU_THRESHOLD_PER_RUN
+        self.SALE_AU_THRESHOLD_OVERALL = SALE_AU_THRESHOLD_OVERALL
+        self.SALE_COMPL_REDUCTION_PER = SALE_COMPL_REDUCTION_PER
 
 
         self.logger = logging.getLogger()
@@ -241,6 +244,12 @@ class ConstantsUtils:
                 self.UP = int(parameter_value)
             elif parameter_key == MARKET_FLAG_KEY:
                 self.MARKET_FLAG = parameter_value
+            elif parameter_key == SALE_AU_THRESHOLD_PER_RUN_KEY:
+                self.SALE_AU_THRESHOLD_PER_RUN = parameter_value
+            elif parameter_key == SALE_AU_THRESHOLD_OVERALL_KEY:
+                self.SALE_AU_THRESHOLD_OVERALL = parameter_value
+            elif parameter_key == SALE_COMPL_REDUCTION_PER_KEY:
+                self.SALE_COMPL_REDUCTION_PER = parameter_value
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
