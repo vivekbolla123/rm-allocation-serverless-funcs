@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, List
 from pathlib import Path
 import configsettings as config
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 
 
 class FareAnalysisConfig:
@@ -713,8 +713,7 @@ class FareStatisticalAnalysis:
         """
         # Filter valid upsell records
         upsell_data = projection_df[
-            (projection_df['Upsell'].notna()) & 
-            (projection_df['Upsell'] > 0)
+            (projection_df['Upsell'].notna())
         ].copy()
         
         if upsell_data.empty:
@@ -768,18 +767,13 @@ class FareStatisticalAnalysis:
 
     def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
         """
-        Process a single batch of upsell records using MongoDB.
-        
-        Update Logic:
-        - Only update records where mode = 'S' (System) or mode doesn't exist
-        - Skip records where mode = 'M' (Manual) AND value is not empty
-        - Allow update if mode = 'M' but value is empty ("")
-        - Set mode = 'S' for all system updates
+        Process using MongoDB bulk write operations for better performance.
         """
         updated_count = inserted_count = failed_count = 0
         
         try:
             collection = self.db['config_profile_fare_station_upsell']
+            bulk_operations = []
             
             for record in batch:
                 try:
@@ -787,50 +781,53 @@ class FareStatisticalAnalysis:
                     date_str = record['date']
                     clean_value = record['upsell_value']
                     
+                    # Validation
                     if len(date_str) > 15 or len(sector) > 6 or len(clean_value) > 45:
                         self.logger.error(f"Field length validation failed for {sector} {date_str}")
                         failed_count += 1
                         continue
                     
-                    existing_record = collection.find_one({
-                        'sector': sector,
-                        'date': date_str
-                    })
-                    
-                    if existing_record and existing_record.get('mode') == 'M':
-                        existing_value = existing_record.get('value', '').strip()
-                        if existing_value != '':
-                            continue
-                    
-                    result = collection.update_one(
-                        {
-                            'sector': sector,
-                            'date': date_str,
-                            '$or': [
-                                {'mode': 'S'},
-                                {'mode': {'$exists': False}},
-                                {'mode': 'M', 'value': ''}
-                            ]
-                        },
-                        {
-                            '$set': {
-                                'value': clean_value,
-                                'mode': 'S'
-                            }
-                        },
-                        upsert=True
+                    # Add update operation to bulk
+                    bulk_operations.append(
+                        UpdateOne(
+                            {
+                                'sector': sector,
+                                'date': date_str,
+                                '$or': [
+                                    {'mode': 'S'},
+                                    {'mode': {'$exists': False}},
+                                    {'mode': 'M', 'value': ''}
+                                ]
+                            },
+                            {
+                                '$set': {
+                                    'value': clean_value,
+                                    'mode': 'S'
+                                },
+                                '$setOnInsert': {
+                                    'sector': sector,
+                                    'date': date_str
+                                }
+                            },
+                            upsert=True
+                        )
                     )
-                    
-                    if result.matched_count > 0:
-                        if result.modified_count > 0:
-                            updated_count += 1
-                    else:
-                        inserted_count += 1
-                        
+                            
                 except Exception as e:
                     failed_count += 1
-                    self.logger.error(f"Failed to process record {sector} {date_str}: {str(e)}")
-                    
+                    self.logger.error(f"Failed to prepare record {sector} {date_str}: {str(e)}")
+            
+            # Execute bulk write
+            if bulk_operations:
+                result = collection.bulk_write(bulk_operations, ordered=False)
+                updated_count = result.modified_count
+                inserted_count = result.upserted_count
+                
+                self.logger.info(
+                    f"Bulk write completed: {updated_count} updated, "
+                    f"{inserted_count} inserted, {failed_count} failed"
+                )
+                        
         except Exception as e:
             self.logger.error(f"Batch processing error: {str(e)}")
             
