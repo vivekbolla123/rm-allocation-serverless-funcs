@@ -2565,27 +2565,21 @@ public class App implements CommandLineRunner {
                 }
 
                 // Clean the value (remove % if present)
-                String cleanValue = (newValue != null && !newValue.trim().isEmpty()) 
-                    ? newValue.trim().replace("%", "") 
-                    : null;
+                String cleanValue = (newValue != null && !newValue.trim().isEmpty())
+                        ? newValue.trim().replace("%", "")
+                        : "";  // CHANGED: Empty string instead of null
 
                 // Create unique key for lookup
                 String lookupKey = date + sector;
                 Document existingDoc = existingUpsells.get(lookupKey);
 
-                // If empty value, DELETE the record
-                if (cleanValue == null || cleanValue.trim().isEmpty()) {
-                    Bson deleteFilter = Filters.and(
-                        Filters.eq(DATE_COLUMN_NAME, date),
-                        Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-                    );
-                    bulkOps.add(new DeleteOneModel<>(deleteFilter));
-                    continue;
-                }
+                // REMOVED: No more deletion logic
+                // Empty value now just sets value to "" with mode "M"
 
                 // Determine mode
                 String mode = "M"; // Default for analyst upload
-                if (existingDoc != null) {
+                if (existingDoc != null && !cleanValue.isEmpty()) {
+                    // Only preserve mode if value is NOT empty AND value unchanged
                     String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
                     String existingMode = existingDoc.getString("mode");
 
@@ -2595,36 +2589,36 @@ public class App implements CommandLineRunner {
                     }
                     // If value CHANGED, mark as Manual (mode = "M")
                 }
+                // If cleanValue is empty, always use mode = "M"
 
-                // FIXED: Create filter that matches BOTH date AND sector
+                // Create filter that matches BOTH date AND sector
                 Bson filter = Filters.and(
-                    Filters.eq(DATE_COLUMN_NAME, date),
-                    Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                        Filters.eq(DATE_COLUMN_NAME, date),
+                        Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
                 );
 
                 // Create update document
                 Document updateDoc = new Document()
-                    .append(DATE_COLUMN_NAME, date)
-                    .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-                    .append(VALUE_COLUMN_NAME, cleanValue)
-                    .append("mode", mode)
-                    .append("updatedAt", new Date())
-                    .append("updatedBy", "ANALYST");
+                        .append(DATE_COLUMN_NAME, date)
+                        .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                        .append(VALUE_COLUMN_NAME, cleanValue)  // Can be empty string
+                        .append("mode", mode)
+                        .append("updatedAt", new Date())
+                        .append("updatedBy", "ANALYST");
 
-                // FIXED: Use ReplaceOneModel with upsert=true instead of UpdateOneModel
+                // Use ReplaceOneModel with upsert=true
                 bulkOps.add(new ReplaceOneModel<>(
-                    filter,
-                    updateDoc,
-                    new ReplaceOptions().upsert(true)
+                        filter,
+                        updateDoc,
+                        new ReplaceOptions().upsert(true)
                 ));
             }
 
             if (!bulkOps.isEmpty()) {
                 BulkWriteResult result = collection.bulkWrite(bulkOps);
-                log.info("Upsell bulk write completed: {} inserted, {} modified, {} deleted",
-                    result.getInsertedCount(),
-                    result.getModifiedCount(),
-                    result.getDeletedCount());
+                log.info("Upsell bulk write completed: {} inserted, {} modified",
+                        result.getInsertedCount(),
+                        result.getModifiedCount());
             }
 
         } catch (Exception e) {
