@@ -765,59 +765,73 @@ class FareStatisticalAnalysis:
         
         return total_updated, total_inserted, total_failed
 
-    def _process_single_upsell_batch(self, sector, date_str, clean_value, collection):
-        """Process a single upsell record with mode checking"""
+    def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
+        """
+        Process using MongoDB bulk write operations for better performance.
+        """
+        updated_count = inserted_count = failed_count = 0
+        
         try:
-            # Check existing record
-            existing_record = collection.find_one({
-                'sector': sector,
-                'date': date_str
-            })
+            collection = self.db['config_profile_fare_station_upsell']
+            bulk_operations = []
             
-            # Skip if mode is 'M' and value is NOT empty
-            if existing_record:
-                existing_mode = existing_record.get('mode')
-                existing_value = existing_record.get('value', '')
-                
-                # If mode = 'M' and value is not empty, skip update (protected manual entry)
-                if existing_mode == 'M' and existing_value != '':
-                    self.logger.info(f"Skipping update for {sector} {date_str}: Record is marked as Manual with value (mode='M')")
-                    return
-                
-                # If mode = 'M' and value IS empty, allow system to update
-                if existing_mode == 'M' and existing_value == '':
-                    self.logger.info(f"Updating empty manual record for {sector} {date_str}: Analyst cleared value, system can populate")
+            for record in batch:
+                try:
+                    sector = record['sector']
+                    date_str = record['date']
+                    clean_value = record['upsell_value']
+                    
+                    # Validation
+                    if len(date_str) > 15 or len(sector) > 6 or len(clean_value) > 45:
+                        self.logger.error(f"Field length validation failed for {sector} {date_str}")
+                        failed_count += 1
+                        continue
+                    
+                    # Add update operation to bulk
+                    bulk_operations.append(
+                        UpdateOne(
+                            {
+                                'sector': sector,
+                                'date': date_str,
+                                '$or': [
+                                    {'mode': 'S'},
+                                    {'mode': {'$exists': False}},
+                                    {'mode': 'M', 'value': ''}
+                                ]
+                            },
+                            {
+                                '$set': {
+                                    'value': clean_value,
+                                    'mode': 'S'
+                                },
+                                '$setOnInsert': {
+                                    'sector': sector,
+                                    'date': date_str
+                                }
+                            },
+                            upsert=True
+                        )
+                    )
+                            
+                except Exception as e:
+                    failed_count += 1
+                    self.logger.error(f"Failed to prepare record {sector} {date_str}: {str(e)}")
             
-            # Update the record (mode = 'S' or mode = 'M' with empty value or no mode)
-            result = collection.update_one(
-                {
-                    'sector': sector,
-                    'date': date_str,
-                    '$or': [
-                        {'mode': 'S'},
-                        {'mode': {'$exists': False}},
-                        {'mode': 'M', 'value': ''}  # ADDED: Allow update if M with empty value
-                    ]
-                },
-                {
-                    '$set': {
-                        'value': clean_value,
-                        'mode': 'S',
-                        'updatedAt': datetime.now(),
-                        'updatedBy': 'SYSTEM'
-                    }
-                },
-                upsert=True
-            )
-            
-            if result.modified_count > 0:
-                self.logger.info(f"Updated upsell for {sector} {date_str}: {clean_value}")
-            elif result.upserted_id:
-                self.logger.info(f"Inserted new upsell for {sector} {date_str}: {clean_value}")
+            # Execute bulk write
+            if bulk_operations:
+                result = collection.bulk_write(bulk_operations, ordered=False)
+                updated_count = result.modified_count
+                inserted_count = result.upserted_count
                 
+                self.logger.info(
+                    f"Bulk write completed: {updated_count} updated, "
+                    f"{inserted_count} inserted, {failed_count} failed"
+                )
+                        
         except Exception as e:
-            self.logger.error(f"Error processing upsell for {sector} {date_str}: {str(e)}")
-            raise
+            self.logger.error(f"Batch processing error: {str(e)}")
+            
+        return updated_count, inserted_count, failed_count
 
     def validate_upsell_updates(self, projection_df: pd.DataFrame) -> Dict:
         """
