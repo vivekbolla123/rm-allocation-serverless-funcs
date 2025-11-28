@@ -2546,79 +2546,91 @@ public class App implements CommandLineRunner {
         }
     }
 
-    private void bulkUpsertUpsells(Map<String, Map<String, String>> newData,
-                                   Map<String, Document> existingData) {
-        MongoCollection<Document> collection = database.getCollection(
-                CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
-        );
+    private void bulkUpsertUpsells(Map<String, Map<String, String>> dateEventMap, Map<String, Document> existingUpsells) {
+        try {
+            MongoDatabase database = mongoTemplate.getDb();
+            MongoCollection<Document> collection = database.getCollection(CONFIG_PROFILE_FARE_STATION_UPSELL);
 
-        List<WriteModel<Document>> bulkOps = new ArrayList<>();
+            List<WriteModel<Document>> bulkOps = new ArrayList<>();
 
-        for (Map.Entry<String, Map<String, String>> entry : newData.entrySet()) {
-            String key = entry.getKey();
-            Map<String, String> newRecord = entry.getValue();
+            for (Map.Entry<String, Map<String, String>> entry : dateEventMap.entrySet()) {
+                Map<String, String> rowData = entry.getValue();
 
-            String date = newRecord.get(DATE_COLUMN_NAME);
-            String sector = newRecord.get(SECTOR_COLUMN_NAME.toLowerCase());
-            String newValue = newRecord.get(VALUE_COLUMN_NAME);
+                String date = rowData.get(DATE_COLUMN_NAME);
+                String sector = rowData.get(SECTOR_COLUMN_NAME.toLowerCase());
+                String newValue = rowData.get(VALUE_COLUMN_NAME);
 
-            // Skip if sector is null or empty
-            if (sector == null || sector.trim().isEmpty()) {
-                continue;
-            }
+                // Skip if both date and sector are missing
+                if (date == null || date.trim().isEmpty() || sector == null || sector.trim().isEmpty()) {
+                    continue;
+                }
 
-            // Handle empty values (delete operation)
-            if (newValue == null || newValue.trim().isEmpty()) {
-                Bson deleteFilter = Filters.and(
+                // Clean the value (remove % if present)
+                String cleanValue = (newValue != null && !newValue.trim().isEmpty()) 
+                    ? newValue.trim().replace("%", "") 
+                    : null;
+
+                // Create unique key for lookup
+                String lookupKey = date + sector;
+                Document existingDoc = existingUpsells.get(lookupKey);
+
+                // If empty value, DELETE the record
+                if (cleanValue == null || cleanValue.trim().isEmpty()) {
+                    Bson deleteFilter = Filters.and(
                         Filters.eq(DATE_COLUMN_NAME, date),
                         Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-                );
-                bulkOps.add(new DeleteOneModel<>(deleteFilter));
-                continue;
-            }
-
-            // Remove % and convert to integer string
-            String cleanValue = newValue.replaceAll("%", "").trim();
-
-            // Determine mode: Manual or System
-            String mode = "M"; // Default for analyst upload
-            Document existingDoc = existingData.get(key);
-
-            if (existingDoc != null) {
-                String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
-                String existingMode = existingDoc.getString("mode");
-
-                // If value unchanged, preserve existing mode
-                if (cleanValue.equals(existingValue)) {
-                    mode = (existingMode != null) ? existingMode : "S";
+                    );
+                    bulkOps.add(new DeleteOneModel<>(deleteFilter));
+                    continue;
                 }
-                // If value changed, mark as Manual (mode = "M")
-            }
 
-            // Create filter (composite key = date + sector)
-            Bson filter = Filters.and(
+                // Determine mode
+                String mode = "M"; // Default for analyst upload
+                if (existingDoc != null) {
+                    String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
+                    String existingMode = existingDoc.getString("mode");
+
+                    // If value UNCHANGED, preserve existing mode
+                    if (cleanValue.equals(existingValue)) {
+                        mode = (existingMode != null) ? existingMode : "S";
+                    }
+                    // If value CHANGED, mark as Manual (mode = "M")
+                }
+
+                // FIXED: Create filter that matches BOTH date AND sector
+                Bson filter = Filters.and(
                     Filters.eq(DATE_COLUMN_NAME, date),
                     Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
-            );
+                );
 
-            // Create update document
-            Document updateDoc = new Document()
+                // Create update document
+                Document updateDoc = new Document()
                     .append(DATE_COLUMN_NAME, date)
                     .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
                     .append(VALUE_COLUMN_NAME, cleanValue)
-                    .append("mode", mode);
+                    .append("mode", mode)
+                    .append("updatedAt", new Date())
+                    .append("updatedBy", "ANALYST");
 
-            // Upsert operation
-            ReplaceOptions options = new ReplaceOptions().upsert(true);
-            bulkOps.add(new ReplaceOneModel<>(filter, updateDoc, options));
-        }
+                // FIXED: Use ReplaceOneModel with upsert=true instead of UpdateOneModel
+                bulkOps.add(new ReplaceOneModel<>(
+                    filter,
+                    updateDoc,
+                    new ReplaceOptions().upsert(true)
+                ));
+            }
 
-        if (!bulkOps.isEmpty()) {
-            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
-            BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
-            log.info("Bulk upserted " + result.getModifiedCount() + " modified, " +
-                    result.getInsertedCount() + " inserted, " +
-                    result.getDeletedCount() + " deleted upsells");
+            if (!bulkOps.isEmpty()) {
+                BulkWriteResult result = collection.bulkWrite(bulkOps);
+                log.info("Upsell bulk write completed: {} inserted, {} modified, {} deleted",
+                    result.getInsertedCount(),
+                    result.getModifiedCount(),
+                    result.getDeletedCount());
+            }
+
+        } catch (Exception e) {
+            log.error("Error in bulkUpsertUpsells: " + e.getMessage(), e);
+            throw new RuntimeException(e);
         }
     }
 
