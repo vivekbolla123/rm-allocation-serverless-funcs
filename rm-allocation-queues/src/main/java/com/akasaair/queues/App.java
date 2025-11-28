@@ -2548,7 +2548,6 @@ public class App implements CommandLineRunner {
 
     private void bulkUpsertUpsells(Map<String, Map<String, String>> dateEventMap, Map<String, Document> existingUpsells) {
         try {
-            MongoDatabase database = mongoTemplate.getDb();
             MongoCollection<Document> collection = database.getCollection(CONFIG_PROFILE_FARE_STATION_UPSELL);
 
             List<WriteModel<Document>> bulkOps = new ArrayList<>();
