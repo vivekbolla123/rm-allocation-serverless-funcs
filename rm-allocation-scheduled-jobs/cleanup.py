@@ -1,101 +1,290 @@
-from sqlalchemy import text
 import configsettings
 import pandas as pd
 import awswrangler as wr
+from datetime import datetime, timedelta
 
 class CleanUpConfig:
 
     def __init__(self, logger, params, overrides, context):
         self.logger = logger
-        self.rm_rd_conn = params['rdconn']
-        self.rm_wr_conn = params['wrconn']
+        # Get MongoDB client
+        self.mongo_client = params['mongoconn']
 
     def run(self):
-        """This method gets configurations from cleanup_config table and performs Delete operation on specified criteria """
+        """This method gets configurations from cleanup_config collection and performs Delete operation on specified criteria"""
         try:
-            data_query = text("SELECT schema_name, table_name, time_column, max_days, is_archive_db, is_archive_s3 FROM cleanup_config")
-            data = self.rm_rd_conn.execute(data_query)
-            if data:
-                for row in data:
+            # Access the database that contains cleanup_config
+            # Assuming it's in QP_DW_RMALLOC, adjust if needed
+            mongo_db = self.mongo_client['qp_dw_rmalloc']
+            
+            # Get all cleanup configurations
+            cleanup_configs = list(mongo_db.cleanup_config.find({}))
+            
+            if cleanup_configs:
+                for config in cleanup_configs:
                     archive = False
-                    schema, table_name, time_column, max_days, is_archive_db, is_archive_s3 = row
+                    database_name = config.get('schema_name').lower()
+                    collection_name = config.get('table_name')
+                    time_column = config.get('time_column')
+                    max_days = config.get('max_days')
+                    is_archive_db = config.get('is_archive_db', False)
+                    is_archive_s3 = config.get('is_archive_s3', False)
 
-                    archive = self.archive_before_delete(schema, table_name, time_column, max_days, is_archive_db, is_archive_s3)
+                    # Archive data before deletion
+                    archive = self.archive_before_delete(
+                        database_name, 
+                        collection_name, 
+                        time_column, 
+                        max_days, 
+                        is_archive_db, 
+                        is_archive_s3
+                    )
+                    
                     if archive:
-                        delete_query = text(f"DELETE FROM {schema}.{table_name} WHERE {time_column} < NOW() - INTERVAL :max_days DAY")
-                        result = self.rm_wr_conn.execute(delete_query, {"max_days": max_days})
-                        self.logger.info(f"{result.rowcount} records deleted from {schema}.{table_name}!")
+                        # Calculate cutoff date
+                        cutoff_date = (datetime.now() - timedelta(days=max_days))
+                        
+                        # Get the database and perform delete
+                        target_db = self.mongo_client[database_name]
+                        result = target_db[collection_name].delete_many({
+    "$expr": {
+        "$lt": [
+            {
+                "$cond": {
+                    "if": {"$eq": [{"$type": f"${time_column}"}, "date"]},
+                    "then": f"${time_column}",
+                    "else": {
+                        "$dateFromString": {
+                            "dateString": {
+                                "$replaceOne": {
+                                    "input": f"${time_column}",
+                                    "find": "T",
+                                    "replacement": " "
+                                }
+                            },
+                            "format": "%Y-%m-%d %H:%M:%S"
+                        }
+                    }
+                }
+            },
+            cutoff_date
+        ]
+    }
+})
+                        
+                        self.logger.info(f"{result.deleted_count} records deleted from {database_name}.{collection_name}!")
             else:
-                self.logger.info("No table configured for clean up!")
+                self.logger.info("No collection configured for clean up!")
+                
         except Exception as err:
-            self.logger.error(err)
+            self.logger.error(f"Error in cleanup run: {err}")
+            
+    def _normalize_to_datetime(self, date_value):
+        """Convert date value to datetime object, handling both datetime and string formats."""
+        if isinstance(date_value, datetime):
+            return date_value
+        elif isinstance(date_value, str):
+            try:
+                # Try common datetime formats
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y/%m/%d', '%Y-%m-%dT%H:%M:%S']:
+                    try:
+                        return datetime.strptime(date_value, fmt)
+                    except ValueError:
+                        continue
+                # If none of the formats work, try pandas to_datetime for flexible parsing
+                return pd.to_datetime(date_value)
+            except Exception as e:
+                self.logger.warning(f"Could not parse date string '{date_value}': {e}")
+                raise
+        else:
+            raise ValueError(f"Unsupported date type: {type(date_value)}")
 
-    def archive_before_delete(self, schema, table_name, time_column, max_days, is_archive_db, is_archive_s3):
+    def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3, date_format='%Y-%m-%d %H:%M:%S', batch_size=1000):
+        """Archive data to S3 and/or archive database before deletion with optimized batching"""
         try:
             if not is_archive_db and not is_archive_s3:
                 self.logger.info("Archive Skipped as per configuration!")
                 return True
 
-            if is_archive_s3:
-                date_query = f"""
-                    SELECT DATE(MIN({time_column})) as min_date,
-                        DATE(MAX({time_column})) as max_date
-                    FROM {schema}.{table_name}
-                    WHERE {time_column} < NOW() - INTERVAL {max_days} DAY
-                """
-                dates_df = pd.read_sql(date_query, con=self.rm_rd_conn)
-                min_date = dates_df.iloc[0]['min_date']
-                max_date = dates_df.iloc[0]['max_date']
-
-                if not min_date or not max_date:
-                    self.logger.info("Archive skipped since no data to archive")
-                    return True
-
-                base_path = f"s3://{configsettings.S3_BUCKET_NAME}/{configsettings.S3_FILE_PATH}rm-admin/archives"
-
-                query = f"""
-                    SELECT *, DATE({time_column}) as archive_date
-                    FROM {schema}.{table_name}
-                    WHERE {time_column} < NOW() - INTERVAL {max_days} DAY
-                """
-                df = pd.read_sql(sql=query, con=self.rm_rd_conn)
-
-                if min_date == max_date:
-                    year, month, day = str(min_date).split('-')
-                    s3_path = base_path + f"/table={table_name}/year={year}/month={month}/day={day}/"
-    
-                    wr.s3.to_parquet(
-                        df=df.drop(columns=['archive_date']),
-                        path=s3_path,
-                        dataset=True,
-                        mode='append',
-                        compression='snappy',
-                        filename_prefix=f"{table_name}_{str(min_date).replace('-', '')}_"
-                    )
-                    self.logger.info(f"Archived records for {min_date} to S3 at {s3_path}")
-                else:
-                    grouped = df.groupby('archive_date')
-                    for archive_date, group_df in grouped:
-                        year, month, day = str(archive_date).split('-')
-                        s3_path = base_path + f"/table={table_name}/year={year}/month={month}/day={day}/"
-        
-                        wr.s3.to_parquet(
-                            df=group_df.drop(columns=['archive_date']), 
-                            path=s3_path,
-                            dataset=True,
-                            mode='append',
-                            compression='snappy',
-                            filename_prefix=f"{table_name}_{str(archive_date).replace('-', '')}_"
-                        )
-                        self.logger.info(f"Archived records for {archive_date} to S3 at {s3_path}")
-
-                self.logger.info(f"Successfully archived records from {schema}.{table_name} to S3")
+            source_db = self.mongo_client[database_name]
+            cutoff_date = datetime.now() - timedelta(days=max_days)
+            cutoff_date_str = cutoff_date.strftime(date_format)
+            query = {time_column: {"$lt": cutoff_date_str}}
             
-            if is_archive_db:
-                archive_query = text(f"INSERT INTO QP_RM_ARCHIVES.{table_name} SELECT * FROM {schema}.{table_name} WHERE {time_column} < NOW() - INTERVAL :max_days DAY")
-                self.rm_rd_conn.execute(archive_query, {"max_days": max_days})
+            # Check if any documents exist without loading them
+            if source_db[collection_name].count_documents(query, limit=1) == 0:
+                self.logger.info("Archive skipped since no data to archive")
+                return True
+
+            total_archived = 0
+            archive_db = self.mongo_client['qp_rm_archives'] if is_archive_db else None
+            
+            # Process in batches using cursor
+            cursor = source_db[collection_name].find(query).batch_size(batch_size)
+            
+            if is_archive_s3:
+                # Accumulate ALL documents by date before writing
+                date_batches = {}
+                
+                for doc in cursor:
+                    # Archive to DB if needed (streaming)
+                    if is_archive_db:
+                        try:
+                            archive_db[collection_name].insert_one(doc)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to archive document to DB: {e}")
+                    
+                    # Accumulate by date for S3
+                    if time_column not in doc:
+                        continue
+                        
+                    doc_date = self._normalize_to_datetime(doc[time_column])
+                    date_key = doc_date.date()
+                    
+                    if date_key not in date_batches:
+                        date_batches[date_key] = []
+                    
+                    date_batches[date_key].append(doc)
+                    total_archived += 1
+                
+                # Write all accumulated batches to S3 (one file per date)
+                for date_key, documents in date_batches.items():
+                    if documents:
+                        self._write_batch_to_s3(documents, collection_name, date_key)
+                        self.logger.info(f"Wrote {len(documents)} records for {date_key} to S3")
+                
+                self.logger.info(f"Successfully archived {total_archived} records from {database_name}.{collection_name} to S3")
+            
+            elif is_archive_db:
+                # Only archive to DB (no S3) - use bulk insert for efficiency
+                batch = []
+                for doc in cursor:
+                    batch.append(doc)
+                    total_archived += 1
+                    
+                    if len(batch) >= batch_size:
+                        archive_db[collection_name].insert_many(batch, ordered=False)
+                        self.logger.info(f"Archived batch of {len(batch)} documents")
+                        batch = []
+                
+                # Insert remaining documents
+                if batch:
+                    archive_db[collection_name].insert_many(batch, ordered=False)
+                    self.logger.info(f"Archived final batch of {len(batch)} documents")
+                
+                self.logger.info(f"Archived {total_archived} documents to QP_RM_ARCHIVES.{collection_name}")
 
             return True
+            
         except Exception as error:
-            self.logger.error(error)
+            self.logger.error(f"Error in archive_before_delete: {error}")
             return False
+
+    def _write_batch_to_s3(self, documents, collection_name, date_key):
+        """Helper method to write a batch of documents to S3"""
+        try:
+            base_path = f"s3://{configsettings.S3_BUCKET_NAME}/{configsettings.S3_FILE_PATH}rm-admin/archives"
+            
+            year = date_key.year
+            month = str(date_key.month).zfill(2)
+            day = str(date_key.day).zfill(2)
+            s3_path = base_path + f"/collection={collection_name}/year={year}/month={month}/day={day}/"
+            
+            # Sanitize documents before converting to DataFrame
+            sanitized_docs = []
+            for doc in documents:
+                sanitized_doc = self._sanitize_document(doc)
+                sanitized_docs.append(sanitized_doc)
+            
+            # Convert batch to DataFrame
+            df = pd.DataFrame(sanitized_docs)
+            df_to_save = df.drop(columns=['_id'], errors='ignore')
+            
+            # Debug: Log data types
+            self.logger.info(f"DataFrame dtypes: {df_to_save.dtypes.to_dict()}")
+            
+            # Convert all columns to consistent types
+            for col in df_to_save.columns:
+                col_dtype = df_to_save[col].dtype
+                
+                # Handle object dtype columns
+                if col_dtype == 'object':
+                    # Check for mixed types in the column
+                    sample_types = df_to_save[col].dropna().apply(type).unique()
+                    self.logger.info(f"Column '{col}' has types: {sample_types}")
+                    
+                    # Convert to string for safety
+                    df_to_save[col] = df_to_save[col].astype(str)
+                
+                # Handle float columns that might have NaN
+                elif 'float' in str(col_dtype):
+                    df_to_save[col] = df_to_save[col].astype('float64')
+            
+            # Generate unique filename with timestamp
+            import uuid
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            unique_id = str(uuid.uuid4())[:8]
+            filename = f"{collection_name}_{date_key.strftime('%Y%m%d')}_{timestamp}_{unique_id}.parquet"
+            full_s3_path = s3_path + filename
+            
+            # Write to S3
+            wr.s3.to_parquet(
+                df=df_to_save,
+                path=full_s3_path,
+                compression='snappy'
+            )
+            
+            self.logger.info(f"Wrote batch of {len(documents)} records for {date_key} to S3")
+            
+        except Exception as e:
+            self.logger.error(f"Error writing batch to S3: {e}")
+            raise
+
+    def _sanitize_document(self, doc):
+        """Sanitize MongoDB document for parquet serialization - convert everything to basic types"""
+        from bson import Decimal128, Int64, ObjectId
+        import numpy as np
+        
+        sanitized = {}
+        for key, value in doc.items():
+            # Skip _id entirely
+            if key == '_id':
+                continue
+                
+            # Handle None/null
+            if value is None:
+                sanitized[key] = None
+            # Handle MongoDB types
+            elif isinstance(value, Decimal128):
+                sanitized[key] = float(str(value))
+            elif isinstance(value, Int64):
+                sanitized[key] = int(value)
+            elif isinstance(value, ObjectId):
+                sanitized[key] = str(value)
+            elif isinstance(value, bytes):
+                sanitized[key] = value.hex()
+            # Handle datetime
+            elif isinstance(value, datetime):
+                sanitized[key] = value.isoformat()
+            # Handle numpy types
+            elif isinstance(value, (np.integer, np.floating)):
+                sanitized[key] = value.item()
+            # Handle nested dict
+            elif isinstance(value, dict):
+                sanitized[key] = str(value)  # Convert nested dicts to string
+            # Handle lists
+            elif isinstance(value, list):
+                # Convert complex lists to JSON strings
+                sanitized[key] = str(value)
+            # Handle everything else
+            else:
+                # Force convert to basic Python types
+                try:
+                    if isinstance(value, (int, float, str, bool)):
+                        sanitized[key] = value
+                    else:
+                        sanitized[key] = str(value)
+                except:
+                    sanitized[key] = str(value)
+        
+        return sanitized

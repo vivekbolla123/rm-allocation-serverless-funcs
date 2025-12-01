@@ -47,10 +47,9 @@ class DynAllocSalesInv:
         self.RBD_QUEUE_URL = inputData["RBD_QUEUE_URL"]
         
         self.sqs = self.currParams.sqs
-        self.conn = self.currParams.dbconn
-        self.wrconn = self.currParams.wrconn
         self.dwconn = self.currParams.dwconn
         self.cache_client = self.currParams.cache_client
+        self.mongoclient = self.currParams.mongodbclient
 
         self.allocResults = []
         self.AUFileData = []
@@ -63,8 +62,8 @@ class DynAllocSalesInv:
         
         self.logger = OwnLogger(self.runId, self.inputSource)
         self.timeutils = TimeUtils(self.inputSource)
-        self.constantsUtils = ConstantsUtils(self.conn)
-        self.rmdatabasehelper = RMDatabaseHelper(self.conn, self.wrconn, self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
+        self.constantsUtils = ConstantsUtils(self.mongoclient)
+        self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient, self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client, self.currParams)
         self.redishelper = RedisHelper(self.runId, self.cache_client, self.inputSource)
         self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, None)
 

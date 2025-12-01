@@ -32,7 +32,7 @@ class RBDAllocations:
         B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
         B2CRBDs['id'] = B2CRBDs.reset_index().index + 1
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
-        maxRBDPrice = B2CRBDs['Total'].iloc[-1]
+        maxRBDPrice = B2CRBDs['TOTAL'].iloc[-1]
         openingRBD = openDataB2C['RBD'][0]
         openbuketFlag = False
         openingRBDPrice = 0
@@ -61,7 +61,7 @@ class RBDAllocations:
         obRBDIndex = -1
         if overBookingFare is not None and overBookingFare > 0 and overBookingSeats > 0:
             # Find the closest RBD to the overbooking fare
-            B2CRBDs['FareDiff'] = abs(B2CRBDs['Total'] - overBookingFare)
+            B2CRBDs['FareDiff'] = abs(B2CRBDs['TOTAL'] - overBookingFare)
             obRBDIndex = B2CRBDs['FareDiff'].idxmin()
             B2CRBDs = B2CRBDs.drop('FareDiff', axis=1)
         
@@ -74,15 +74,15 @@ class RBDAllocations:
                 remainingRBD = maxRBDIndex - openRBDIndex
                 firstRDBAllocation = int(currParams.first_rbd_alloc)
                 otherRDBAllocation = int(currParams.other_rbd_alloc)
-                price = B2CRBDs['Total'][b2cctr]
+                price = B2CRBDs['TOTAL'][b2cctr]
                 b2bFactor = float(currParams.b2b_factor)
                 nextPrice = price
                 if size > b2cctr:
-                    nextPrice = B2CRBDs['Total'][b2cctr + 1]
+                    nextPrice = B2CRBDs['TOTAL'][b2cctr + 1]
                 currRec.set_class_attribute(b2cctr + 1, 'class_of_service', RBDLabel)
                 if RBDLabel == openingRBD:
                     openbuketFlag = True
-                    openingRBDPrice = B2CRBDs['Total'][b2cctr]
+                    openingRBDPrice = B2CRBDs['TOTAL'][b2cctr]
                     newProfileFares = []
                     if profileFare != 'NA':
                         for x in profileExtract:
@@ -157,7 +157,7 @@ class RBDAllocations:
             self.logger.info("Applying D-0 Spoilage Reduction override.")
             try:
                 # 1. Find the RBD closest to the last seven sold average fare
-                B2CRBDs['FareDiff'] = B2CRBDs['Total'] - float(last_seven_avg_fare)
+                B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(last_seven_avg_fare)
                 higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] > 0]
                 target_rbd_df_index = higher_fares['FareDiff'].idxmin()
                 
@@ -518,7 +518,7 @@ class RBDAllocations:
 
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, openingB2CRBD, 'L')
 
-        openingB2CPrice = self.constantsutils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['Total'][0]
+        openingB2CPrice = self.constantsutils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['TOTAL'][0]
 
         openbuketFlag = False
         openingRBD = openDataB2B['RBD'][0]
@@ -529,7 +529,7 @@ class RBDAllocations:
 
         for b2bctr in range(B2BRBDs.shape[0]):
             RBDLabel = B2BRBDs['RBD'][b2bctr]
-            price = B2BRBDs['Total'][b2bctr]
+            price = B2BRBDs['TOTAL'][b2bctr]
             b2bStatus = openDataB2B['statusInd'][0]
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
             if overBookingCount>0 or B2B_thresholdflag:
@@ -570,14 +570,14 @@ class RBDAllocations:
     def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice,groupbookload,currBookedLoad,month,sector):
         rbd_list = list(json.loads(GROUP_QUOTATION).values())
         group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
-        group_alloc_df=group_alloc_df.sort_values(by='Total').reset_index(drop=True)
+        group_alloc_df=group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         if int(autoGroup) == 1 and (not profilefarextract.empty):
             potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector,month)
             max_au = currBookedLoad-groupbookload+int(potential_seats)
             max_au = min(adjustedCapacity-50, max_au)
             profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
-            profilefarextract = profilefarextract.melt(var_name='RBD', value_name='Total')
+            profilefarextract = profilefarextract.melt(var_name='RBD', value_name='TOTAL')
 
             # Calculate base allocation unit
             base_unit = math.ceil(adjustedCapacity / 10)
@@ -586,10 +586,10 @@ class RBDAllocations:
             except (ValueError, TypeError):
                 upsell_value = 0
                 
-            profilefarextract['Upsell'] = profilefarextract['Total'] * (1 + upsell_value / 100)
+            profilefarextract['Upsell'] = profilefarextract['TOTAL'] * (1 + upsell_value / 100)
 
             # Sort the dataframe by original fares
-            profilefarextract = profilefarextract.sort_values(by='Total').reset_index(drop=True)
+            profilefarextract = profilefarextract.sort_values(by='TOTAL').reset_index(drop=True)
 
             # Initialize allocation dictionary
             allocation_dict = {RBD: {'allocation': 0, 'price_diff': 0} for RBD in profilefarextract['RBD']}
@@ -597,7 +597,7 @@ class RBDAllocations:
             # Initialize allocation counter
             allocation_counter = 0
             profilefarextract = profilefarextract.merge(
-            group_alloc_df[['RBD', 'Total']],
+            group_alloc_df[['RBD', 'TOTAL']],
             on='RBD',
             how='left',
             suffixes=('', '_QP')
@@ -610,10 +610,10 @@ class RBDAllocations:
                 # Find the nearest original fare that hasn't been fully allocated
                 if profilefarextract.empty:
                     break
-                nearest_index = (profilefarextract['Total_QP'] - upsell_price).abs().idxmin()
-                nearest_price = profilefarextract['Total'][nearest_index]
+                nearest_index = (profilefarextract['TOTAL_QP'] - upsell_price).abs().idxmin()
+                nearest_price = profilefarextract['TOTAL'][nearest_index]
                 RBDLabel = profilefarextract['RBD'][nearest_index]
-                price_diff = openingRBDPrice - profilefarextract.loc[nearest_index, 'Total_QP']
+                price_diff = openingRBDPrice - profilefarextract.loc[nearest_index, 'TOTAL_QP']
                 if RBDLabel == profilefarextract.iloc[-1]['RBD'] and allocation_dict[RBDLabel]['allocation'] > 0:
                     continue
                 # Calculate allocation for this RBD
@@ -667,7 +667,7 @@ class RBDAllocations:
         tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE,depdate)
         alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
-        tbf_rbds = tbf_rbds.sort_values(by='Total').reset_index(drop=True)
+        tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
         remaining_tbf_rbds = tbf_rbds.copy()
         latest_allocations = {}
         desired_order = ['TF', 'TE', 'TD', 'TC', 'TB', 'TY']
@@ -685,11 +685,11 @@ class RBDAllocations:
                 incremental = alloc_row['incremental']
                 
                 # Calculate differences with all TBF RBDs
-                differences = abs(tbf_rbds['Total'] - jumping_price)
+                differences = abs(tbf_rbds['TOTAL'] - jumping_price)
                 min_diff = differences.min()
                 nearest_idx = differences.idxmin()
                 nearest_rbd = tbf_rbds.loc[nearest_idx, 'RBD']
-                nearest_total = tbf_rbds.loc[nearest_idx, 'Total']
+                nearest_total = tbf_rbds.loc[nearest_idx, 'TOTAL']
                 
                 # Check if this jumping price has the closest match to any TBF RBD
                 # Compare with all other jumping prices
@@ -704,7 +704,7 @@ class RBDAllocations:
                 }
 
             if not discounted_df.empty:
-                # Get the first allocated RBD (will be one with lowest Total based on sorting)
+                # Get the first allocated RBD (will be one with lowest TOTAL based on sorting)
                 first_allocated_rbd = None
                 for rbd in desired_order:
                     if rbd in latest_allocations and latest_allocations[rbd]['index'] != 'NA':
@@ -724,7 +724,7 @@ class RBDAllocations:
                         adjusted_price = original_price - discount_amount
                         
                         # Find the next highest RBD based on the adjusted price
-                        next_rbd_differences = tbf_rbds['Total'] - adjusted_price
+                        next_rbd_differences = tbf_rbds['TOTAL'] - adjusted_price
                         next_rbd_differences = next_rbd_differences[next_rbd_differences > 0]  # Only higher prices
                         
                         if not next_rbd_differences.empty:
@@ -734,15 +734,15 @@ class RBDAllocations:
                             
                             while not remaining_tbf.empty:
                                 # Find the next nearest RBD above current_price
-                                next_rbd_diffs = remaining_tbf['Total'] - current_price
+                                next_rbd_diffs = remaining_tbf['TOTAL'] - current_price
                                 next_rbd_diffs = next_rbd_diffs[next_rbd_diffs > 0]  # Only higher prices
                                 
                                 if not next_rbd_diffs.empty:
                                     next_nearest_idx = next_rbd_diffs.idxmin()
                                     next_nearest_rbd = remaining_tbf.loc[next_nearest_idx, 'RBD']
-                                    next_rbd_total = remaining_tbf.loc[next_nearest_idx, 'Total']
+                                    next_rbd_total = remaining_tbf.loc[next_nearest_idx, 'TOTAL']
                                     
-                                    # Find the index in alloc_df that's closest to this next RBD's Total
+                                    # Find the index in alloc_df that's closest to this next RBD's TOTAL
                                     next_alloc_diff = abs(alloc_df['price'] - next_rbd_total)
                                     next_alloc_idx = next_alloc_diff.idxmin()
                                     
@@ -827,7 +827,7 @@ class RBDAllocations:
         - AND (B2C - opening fare) <= 30% of B2C fare
         """
         w_rbd_list = self.constantsutils.CUG_RBD.split(',')
-        w_rbds = B2CRBDs[B2CRBDs['RBD'].isin(w_rbd_list) & B2CRBDs['Total'].notna()].copy()
+        w_rbds = B2CRBDs[B2CRBDs['RBD'].isin(w_rbd_list) & B2CRBDs['TOTAL'].notna()].copy()
 
         open_rbd = None
         opening_fare = None
@@ -871,16 +871,16 @@ class RBDAllocations:
             if min(fare1, fare2) == fare2:
                 # Only filter if profile_fare_numeric is valid
                 if profile_fare_numeric is not None:
-                    less_than_profile = valid_rbds[valid_rbds['Total'] < profile_fare_numeric]
+                    less_than_profile = valid_rbds[valid_rbds['TOTAL'] < profile_fare_numeric]
                 else:
                     less_than_profile = pd.DataFrame()  # Empty DataFrame
                     
                 if less_than_profile.empty:
                     fare = b2copeningfare - (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
-                    if fare < max(valid_rbds['Total'].tolist()):
+                    if fare < max(valid_rbds['TOTAL'].tolist()):
                         
                         # Get values greater than fare
-                        higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
+                        higher_values = valid_rbds[valid_rbds['TOTAL'] > fare]['TOTAL']
                         
                         if not higher_values.empty:
                             # Find the minimum of values greater than fare (next highest)
@@ -888,40 +888,40 @@ class RBDAllocations:
                             closest_idx = higher_values.idxmin()
                                                     
                             open_rbd = valid_rbds.loc[closest_idx, 'RBD']
-                            opening_fare = valid_rbds.loc[closest_idx, 'Total']
+                            opening_fare = valid_rbds.loc[closest_idx, 'TOTAL']
 
                             print(f"Next higher value: {next_higher_value} at index: {closest_idx}")
                         else:
                             print("No values higher than fare found")
                             open_rbd = None
                 else:
-                    closest_idx = (less_than_profile['Total'] - profile_fare_numeric).abs().idxmin()
+                    closest_idx = (less_than_profile['TOTAL'] - profile_fare_numeric).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
-                    opening_fare = valid_rbds.loc[closest_idx, 'Total']
+                    opening_fare = valid_rbds.loc[closest_idx, 'TOTAL']
             else:
-                less_than_profile = valid_rbds[valid_rbds['Total'] < fare1]
+                less_than_profile = valid_rbds[valid_rbds['TOTAL'] < fare1]
                 if less_than_profile.empty:
                     # Handle empty case - open at 'WE'
                     we_rbd = valid_rbds[valid_rbds['RBD'] == 'WE']
                     if not we_rbd.empty:
                         open_rbd = 'WE'
-                        opening_fare = we_rbd.iloc[0]['Total']
+                        opening_fare = we_rbd.iloc[0]['TOTAL']
                     else:
                         open_rbd = None
                         opening_fare = None
                 else:
-                    closest_idx = (less_than_profile['Total'] - fare1).abs().idxmin()
+                    closest_idx = (less_than_profile['TOTAL'] - fare1).abs().idxmin()
                     open_rbd = valid_rbds.loc[closest_idx, 'RBD']
-                    opening_fare = valid_rbds.loc[closest_idx, 'Total']
+                    opening_fare = valid_rbds.loc[closest_idx, 'TOTAL']
 
             # Condition 2: Fare gap check
             if open_rbd is not None:
                 if (b2copeningfare - opening_fare) > (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare):
                     fare = b2copeningfare - (self.constantsutils.CUG_B2C_OPENING_THRESHOLD * b2copeningfare)
-                    if fare < max(valid_rbds['Total'].tolist()):
+                    if fare < max(valid_rbds['TOTAL'].tolist()):
                         
                         # Get values greater than fare
-                        higher_values = valid_rbds[valid_rbds['Total'] > fare]['Total']
+                        higher_values = valid_rbds[valid_rbds['TOTAL'] > fare]['TOTAL']
                         
                         if not higher_values.empty:
                             # Find the minimum of values greater than fare (next highest)
@@ -929,7 +929,7 @@ class RBDAllocations:
                             closest_idx = higher_values.idxmin()
                                                     
                             open_rbd = valid_rbds.loc[closest_idx, 'RBD']
-                            opening_fare = valid_rbds.loc[closest_idx, 'Total']
+                            opening_fare = valid_rbds.loc[closest_idx, 'TOTAL']
 
                             print(f"Next higher value: {next_higher_value} at index: {closest_idx}")
                         else:
@@ -1008,11 +1008,11 @@ class RBDAllocations:
                 RBDLabel = B2CRBDs['RBD'][b2cctr]
                 firstRDBAllocation = int(currParams.first_rbd_alloc)
                 otherRDBAllocation = int(currParams.other_rbd_alloc)
-                price = B2CRBDs['Total'][b2cctr]
+                price = B2CRBDs['TOTAL'][b2cctr]
                 b2bFactor = float(currParams.b2b_factor)
                 nextPrice = price
                 if size > b2cctr:
-                    nextPrice = B2CRBDs['Total'][b2cctr + 1]
+                    nextPrice = B2CRBDs['TOTAL'][b2cctr + 1]
 
                 currRec.set_class_attribute(b2cctr + 1, 'class_of_service', RBDLabel)
                 if RBDLabel == openingRBD:

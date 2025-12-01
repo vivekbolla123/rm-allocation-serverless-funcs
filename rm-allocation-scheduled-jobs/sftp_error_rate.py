@@ -3,7 +3,7 @@ import traceback
 import pandas as pd
 import requests
 import configsettings
-from sqlalchemy import text
+from datetime import datetime
 
 from allocation_summary import AllocationSummaryReport
 
@@ -11,18 +11,24 @@ class SFTPErrorRate:
 
     def __init__(self, logger, params, overrides, context):
         self.logger = logger
-        self.rm_rd_conn = params['rdconn']
-        self.rm_wr_conn = params['wrconn']
+        self.mongoconn = params['mongoconn']  # Single MongoDB connection
         self.navconn = params['navconn']
         self.context = context
         self.isconnections = False
+        
+        # MongoDB collections
+        self.db = self.mongoconn["qp_dw_rmalloc"]
+        self.db_reports = self.mongoconn["qp_rm_reports"]
+        self.allocation_summary_report = self.db_reports['allocation_summary_report']
+        self.allocation_run_audit = self.db['allocation_run_audit']
+        self.run_flight_date_audit = self.db['run_flight_date_audit']
+        self.error_audit_process = self.db['error_audit_process']
 
     def get_allocation_count(self, run_id):
         """Fetch Successful Allocation Count & Total Allocation Count from run_summary 
-        by agrregating allocationStatus for given run_id"""
+        by aggregating allocationStatus for given run_id"""
         params = {}
-        params['rdconn'] = self.rm_rd_conn
-        params['wrconn'] = self.rm_wr_conn
+        params['mongoconn'] = self.mongoconn
 
         alloc_summary = AllocationSummaryReport(self.logger, params, {}, self.context)
         allocation_count = alloc_summary.fetch_how_count_data(run_id, self.isconnections)
@@ -34,20 +40,39 @@ class SFTPErrorRate:
         sftp_pushed_list = list(sftp_push_run_id)
 
         run_id = sftp_pushed_list[1]
+        delete_result = self.allocation_summary_report.delete_many({'run_id': run_id})
         allocation_count = self.get_allocation_count([run_id])
-        successfulAllocationCount = allocation_count[0]
-        totalAllocationCount = allocation_count[1]
+        successfulAllocationCount = allocation_count['successfulAllocationCount']
+        totalAllocationCount = allocation_count['totalAllocationCount']
 
-        sftp_pushed_list.extend([error_rate, total_rbd_count, successfulAllocationCount, totalAllocationCount])
-
-        insert_query = """INSERT INTO QP_RM_REPORTS.allocation_summary_report 
-                        (report_time_reference, run_id, type, dtd, start_time, end_time, actual_end_time, 
-                        user, runTime, market_list_name, marketListCount, Id_marketList, Id_Curves, Id_Strategy, Id_QpFares,
-                        failures, total, successfulAllocationCount, totalAllocationCount)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        # Prepare document for MongoDB
+        document = {
+            'report_time_reference': sftp_pushed_list[0],
+            'run_id': sftp_pushed_list[1],
+            'type': sftp_pushed_list[2],
+            'dtd': sftp_pushed_list[3],
+            'start_time': sftp_pushed_list[4],
+            'end_time': sftp_pushed_list[5],
+            'actual_end_time': sftp_pushed_list[6],
+            'user': sftp_pushed_list[7],
+            'runTime': sftp_pushed_list[8],
+            'market_list_name': sftp_pushed_list[9],
+            'marketListCount': sftp_pushed_list[10],
+            'Id_marketList': sftp_pushed_list[11],
+            'Id_Curves': sftp_pushed_list[12],
+            'Id_Strategy': sftp_pushed_list[13],
+            'Id_QpFares': sftp_pushed_list[14],
+            'region': sftp_pushed_list[15],
+            'failures': error_rate,
+            'total': total_rbd_count,
+            'successfulAllocationCount': successfulAllocationCount,
+            'totalAllocationCount': totalAllocationCount,
+            'created_at': datetime.utcnow()
+        }
         
-        add_summary_report = self.rm_wr_conn.execute(insert_query, tuple(sftp_pushed_list))
-        if add_summary_report.rowcount > 0:
+        result = self.allocation_summary_report.insert_one(document)
+        
+        if result.inserted_id:
             self.logger.info(f"Added allocation_summary_report for run_id: '{run_id}' ")
             self.update_audit_complete(run_id)
             return True
@@ -58,9 +83,12 @@ class SFTPErrorRate:
     def update_audit_complete(self, run_id):
         """Update is_audit_completed"""
 
-        update_query = "UPDATE allocation_run_audit SET is_audit_completed='1' WHERE run_id =%s "
-        update_data = self.rm_wr_conn.execute(update_query, run_id)
-        if update_data.rowcount > 0:
+        result = self.allocation_run_audit.update_one(
+            {'run_id': run_id},
+            {'$set': {'is_audit_completed': '1', 'updated_at': datetime.utcnow()}}
+        )
+        
+        if result.modified_count > 0:
             self.logger.info(f"Updated is_audit_completed='1' for run_id: '{run_id}' in allocation_run_audit")
         else:
             self.logger.warning("No Records Updated in allocation_run_audit!")
@@ -128,14 +156,14 @@ class SFTPErrorRate:
         for res in flight_audit_result:
             result, flight_key = None, None
             try:
-                result = json.loads(res[2])
+                result = json.loads(res['result'])
                 sector = result['sector1']
                 origin, destination = sector[:2], sector[2:]
-                flight_num = res[0]
+                flight_num = res['flightNumber']
                 flight_key = origin + destination + flight_num
-                flight_date = res[1]
+                flight_date = res['flightDate']
             except Exception as err:
-                self.logger.debug(f"RunId: {res[3]} Flight No.: {res[0]} & Flight Date: {res[1]} has no AUs")
+                self.logger.debug(f"RunId: {res['runId']} Flight No.: {res['flightNumber']} & Flight Date: {res['flightDate']} has no AUs")
                 continue
             
             if not flight_key in flights:
@@ -153,32 +181,49 @@ class SFTPErrorRate:
         return flights
 
     def insert_into_error_audit_process(self, run_id, flight_num, error, total):
-        insert_query = """INSERT INTO error_audit_process (run_id, flight_number, error, total) VALUES (%s, %s, %s, %s)"""
-        self.rm_wr_conn.execute(insert_query, (run_id, flight_num, error, total))
+        document = {
+            'run_id': run_id,
+            'flight_number': flight_num,
+            'error': error,
+            'total': total,
+            'created_at': datetime.utcnow()
+        }
+        self.error_audit_process.insert_one(document)
 
     def check_run_in_error_audit_process(self, run_id, flight_num):
         """Checks if total & error is computed for given run_id for all flights in run_flight_date_audit.
             If run_id and flight number found in 'error_audit_process', skip iteration because error_rate & total is already computed"""
         
-        query = text("SELECT run_id FROM error_audit_process WHERE run_id = :run_id AND flight_number = :flight_num")
-        error_audit = self.rm_rd_conn.execute(query, {"run_id": run_id, "flight_num": flight_num}).fetchone()        
+        error_audit = self.error_audit_process.find_one({
+            'run_id': run_id,
+            'flight_number': flight_num
+        })
         
-        if not error_audit:
-            return False
-        
-        return True
+        return error_audit is not None
     
     def aggregate_compute_data(self, run_id):
         """Aggregate sum of error & total."""
-        query = text("SELECT SUM(error) AS total_failures, SUM(total) AS total FROM error_audit_process WHERE run_id = :run_id")
-        agg_data = self.rm_rd_conn.execute(query, {"run_id": run_id}).fetchone()
-        self.logger.info(f"run_id: {run_id} Total failure: {int(agg_data[0])} & Total RBD count: {int(agg_data[1])} ")
+        pipeline = [
+            {'$match': {'run_id': run_id}},
+            {'$group': {
+                '_id': None,
+                'total_failures': {'$sum': '$error'},
+                'total': {'$sum': '$total'}
+            }}
+        ]
         
-        return agg_data[0], agg_data[1]
+        result = list(self.error_audit_process.aggregate(pipeline))
+        
+        if result:
+            total_failures = int(result[0]['total_failures'])
+            total = int(result[0]['total'])
+            self.logger.info(f"run_id: {run_id} Total failure: {total_failures} & Total RBD count: {total} ")
+            return total_failures, total
+        
+        return 0, 0
 
     def delete_error_audit_process(self):
-        delete_query = """TRUNCATE error_audit_process"""
-        self.rm_wr_conn.execute(delete_query)
+        self.error_audit_process.delete_many({})
     
     def process_flight_data(self, run_id, flights, regular_flights_df, connection_flights_df):
         """Process flight data and compute error rates"""
@@ -196,11 +241,9 @@ class SFTPErrorRate:
             error_rate, total_class = 0, 0
             
             if "/" in flight_num:  # Connection flight
-                self.isconnections=True
+                self.isconnections = True
                 # Filter connection flights data
                 flightnums = flight_num.split("/")
-                # flight_filter = f"%{flightnums[0]}%%{flightnums[1]}%"
-                # filtered_data = connection_flights_df[connection_flights_df['FlightInfo'].str.contains(flight_filter, regex=False)]
                 flight_filter = lambda x: all(fn in x for fn in flightnums)
                 filtered_data = connection_flights_df[connection_flights_df['FlightInfo'].apply(flight_filter)]
             else:  # Regular flight
@@ -228,50 +271,112 @@ class SFTPErrorRate:
                 total_class += compute_data['total_classes']
             
             self.insert_into_error_audit_process(run_id, flight_key, error_rate, total_class)
+            
+    def calculate_runtime(self,start_time, actual_end_time):
+        """Calculate runtime as actual_end_time - start_time
+        
+        Args:
+            start_time: string datetime
+            actual_end_time: datetime object
+        
+        Returns:
+            string representation of runtime duration
+        """
+        try:
+            # Convert start_time string to datetime if it's not already
+            if isinstance(start_time, str):
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                start_dt = start_time
+            
+            # Calculate runtime difference
+            if actual_end_time and start_dt:
+                runtime_delta = actual_end_time - start_dt
+                
+                # Format as string (e.g., "2:30:15" for 2 hours, 30 minutes, 15 seconds)
+                total_seconds = int(runtime_delta.total_seconds())
+                hours = total_seconds // 3600
+                minutes = (total_seconds % 3600) // 60
+                seconds = total_seconds % 60
+                
+                return f"{hours}:{minutes:02d}:{seconds:02d}"
+            else:
+                return ''
+        except Exception as e:
+            return ''
     
     def run(self):
         """Compares the AU from Navitaire ODS & RM DB and computes the error_rate and total RBD's from RM DB.
             Updates the same in allocation_summary_report"""
 
         try:
-            # get run_ids of pending audits
-            sftp_pushed_run_ids = self.rm_rd_conn.execute(f"""SELECT start_time AS report_time_reference,
-                                                            run_id AS runId, 
-                                                            IFNULL(type, 0) AS type,
-                                                            IFNULL(CONCAT(dtd_start, '-', dtd_end), 0) AS dtd,
-                                                            start_time, 
-                                                            IFNULL(actual_end_time, '') AS end_time,
-                                                            IFNULL(actual_end_time, '') AS actual_end_time,
-                                                            user, 
-                                                            IFNULL(SEC_TO_TIME(TIMESTAMPDIFF(SECOND, start_time, MAX(actual_end_time))), '') AS runTime,
-                                                            market_list_name,
-                                                            marketListCount,
-                                                            IFNULL(market_list, 0) AS Id_marketList,
-                                                            IFNULL(Curves, 0) AS Id_Curves,
-                                                            IFNULL(d1_d2_strategies, 0) AS Id_Strategy,
-                                                            IFNULL(Fares, 0) AS Id_QpFares
-                                                            FROM allocation_run_audit 
-                                                            WHERE is_sftp_pushed = '1' AND 
-                                                            update_navitaire_method='sftp' AND 
-                                                            is_audit_completed = '0' 
-                                                            GROUP BY run_id
-                                                            ORDER BY start_time""").fetchall()
+            # Get run_ids of pending audits
+            pipeline = [
+                {
+                    '$match': {
+                        'is_sftp_pushed': '1',
+                        'update_navitaire_method': 'sftp',
+                        'is_audit_completed': {'$in': ['0', None]}
+                    }
+                },
+                {
+                    '$group': {
+                        '_id': '$run_id',
+                        'report_time_reference': {'$first': '$start_time'},
+                        'run_id': {'$first': '$run_id'},
+                        'type': {'$first': {'$ifNull': ['$type', 0]}},
+                        'dtd': {'$first': {
+                            '$ifNull': [
+                                {'$concat': [
+                                    {'$toString': '$dtd_start'},
+                                    '-',
+                                    {'$toString': '$dtd_end'}
+                                ]},
+                                '0'
+                            ]
+                        }},
+                        'start_time': {'$first': '$start_time'},
+                        'end_time': {'$first': {'$ifNull': ['$actual_end_time', '']}},
+                        'actual_end_time': {'$max': '$actual_end_time'},
+                        'user': {'$first': '$user'},
+                        'region': {'$first': '$region'},
+                        'market_list_name': {'$first': '$market_list_name'},
+                        'marketListCount': {'$first': '$marketListCount'},
+                        'Id_marketList': {'$first': {'$ifNull': ['$market_list', 0]}},
+                        'Id_Curves': {'$first': {'$ifNull': ['$Curves', 0]}},
+                        'Id_Strategy': {'$first': {'$ifNull': ['$d1_d2_strategies', 0]}},
+                        'Id_QpFares': {'$first': {'$ifNull': ['$Fares', 0]}}
+                    }
+                },
+                {
+                    '$sort': {'start_time': 1}
+                }
+            ]
+            
+            sftp_pushed_run_ids = list(self.allocation_run_audit.aggregate(pipeline))
             
             if sftp_pushed_run_ids:
                 index = 0
-
                 total_sftp_push = len(sftp_pushed_run_ids)
+                
                 for data in sftp_pushed_run_ids:
-                    run_id = data[1]
+                    run_id = data['run_id']
                     self.logger.info(f"Run id: {run_id} :: START")
                     
-                    flight_audit_query = text("""SELECT flightNumber, flightDate, result, runId 
-                                            FROM run_flight_date_audit 
-                                            WHERE runId = :run_id 
-                                            AND (b2bstatus = 'Done' OR b2cstatus ='Done') 
-                                            AND result is NOT NULL""")
-                    
-                    flight_audit_result = self.rm_rd_conn.execute(flight_audit_query, {"run_id": run_id}).fetchall()
+                    # Query flight audit data
+                    flight_audit_result = list(self.run_flight_date_audit.find({
+                        'runId': run_id,
+                        '$or': [
+                            {'b2bstatus': 'Done'},
+                            {'b2cstatus': 'Done'}
+                        ],
+                        'result': {'$ne': None}
+                    }, {
+                        'flightNumber': 1,
+                        'flightDate': 1,
+                        'result': 1,
+                        'runId': 1
+                    }))
                     
                     if not flight_audit_result:
                         self.logger.warning(f"No flight date audit for runId: '{run_id}' ")
@@ -290,7 +395,25 @@ class SFTPErrorRate:
                     self.delete_error_audit_process()
                     
                     if index < total_sftp_push:
-                        sftp_push_run_id = sftp_pushed_run_ids[index]
+                        # Convert MongoDB document to tuple format for compatibility
+                        sftp_push_run_id = (
+                            data['report_time_reference'],
+                            data['run_id'],
+                            data['type'],
+                            data['dtd'],
+                            data['start_time'],
+                            data['end_time'],
+                            data['actual_end_time'],
+                            data['user'],
+                            self.calculate_runtime(data['start_time'], data['actual_end_time']),  # Calculate runtime if needed
+                            data['market_list_name'],
+                            data['marketListCount'],
+                            data['Id_marketList'],
+                            data['Id_Curves'],
+                            data['Id_Strategy'],
+                            data['Id_QpFares'],
+                            data['region']
+                        )
                         index += 1
                         self.add_allocation_summary_report(run_failure, run_total, sftp_push_run_id)
 

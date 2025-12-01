@@ -2,7 +2,6 @@ package com.akasaair.queues;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.amazonaws.services.lambda.runtime.events.S3Event;
 import org.junit.jupiter.api.Test;
 
 import java.sql.SQLException;

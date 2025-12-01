@@ -50,8 +50,8 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final String AUDIT_EMPTY_IDENTIFIER = "<N>";
     public static final String CHANGE_TYPE_MARKETLIST = "ML";
     public static Map<String, String> STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
-    public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");
-    public final static String S3_BUCKET_NAME = System.getenv("S3_BUCKET_NAME");
+//    public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");
+//    public final static String S3_BUCKET_NAME = System.getenv("S3_BUCKET_NAME");
     public final static String FILE_NAME = System.getenv("FILE_NAME");
 
     static {

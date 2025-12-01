@@ -4,11 +4,10 @@ from Constants import *
 import logging
 
 class MarketFareMongoDB:
-    def __init__(self, conn,db,inputSource):
+    def __init__(self,db,inputSource):
         self.db = db
         self.logger = logging.getLogger(__name__)
         self.gsi_name = 'ChannelDepartureDateGSI'
-        self.conn=conn
         self.inputSource=inputSource
 
     def _convert_gross_fare_to_int(self, df):
@@ -438,13 +437,28 @@ class MarketFareMongoDB:
             return pd.DataFrame()
 
     def getRoutedDestination(self, origin, destination):
-        query = f'''
-            SELECT routedSector 
-            FROM config_marketFares_rerouting 
-            WHERE sector = concat('{origin}','{destination}')
-        '''
+    
         try:
-            return pd.read_sql(query, self.conn)
+            collection = self.db['config_marketFares_rerouting']
+            
+            # Concatenate origin and destination
+            sector = f'{origin}{destination}'
+            
+            # Query MongoDB
+            results = collection.find(
+                {'sector': sector},
+                {'_id': 0, 'routedSector': 1}  # Only return routedSector field
+            )
+            
+            # Convert to DataFrame
+            df = pd.DataFrame(list(results))
+            
+            # If no results, return empty DataFrame with proper column
+            if df.empty:
+                df = pd.DataFrame(columns=['routedSector'])
+            
+            return df
+            
         except Exception as e:
             self.logger.error(e)
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['routedSector'])

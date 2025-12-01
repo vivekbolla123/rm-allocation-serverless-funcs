@@ -5,6 +5,7 @@ public interface ErrorMessagesConstants {
     String INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE = "Invalid Number of Rows or columns";
     String INVALID_TABLE_NAME_ERROR_MESSAGE = "Invalid table Name";
     String DATABASE_ACCESS_ERROR_MESSAGE = "Database access error";
+    String OBJECT_ID_NOT_FOUND = "Object ID not found in DB, Stopping upload.";
     String FILE_UPLOAD_ERROR_MESSAGE = "Error in the uploaded file";
     public static final String INVALID_SALES_DATE_RANGE_ERROR = "'end_date' cannot be before 'start_date'."; // Existing
     public static final String INVALID_SALES_DATE_FORMAT_ERROR = "Invalid date format. Expected MM/dd/yyyy."; // Existing

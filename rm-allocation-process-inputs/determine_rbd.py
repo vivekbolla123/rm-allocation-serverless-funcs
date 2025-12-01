@@ -762,7 +762,7 @@ class DetermineRBD:
 
         if defFareData.shape[0] != 0:
             if channel == B2C_CHANNEL:
-                openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['Total'][0]], 'FareResult': ['Unable to Match Mkt - B2C allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
+                openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['TOTAL'][0]], 'FareResult': ['Unable to Match Mkt - B2C allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
                 return openResult
 
             if channel == B2B_CHANNEL:
@@ -770,7 +770,7 @@ class DetermineRBD:
                     openResult = {'RBD':  [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Market Fare higher than ' + self.constantsutils.HIGHEST_B2B_RBD_VALUE + ' levels - skipping B2B allocation'], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
                     return openResult
                 else:
-                    openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['Total'][0]], 'FareResult': ['Unable to Match Mkt - B2B allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
+                    openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['TOTAL'][0]], 'FareResult': ['Unable to Match Mkt - B2B allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
                     return openResult
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Unable to fetch extreme published Fares'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [0]}
@@ -791,7 +791,7 @@ class DetermineRBD:
         defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route)
 
         if defFareData.shape[0] != 0:
-            if rbddata['Total'][0] < defFareData['Total'][0] and backstop > 0:
+            if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
                 backstopFlag = True
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
@@ -802,31 +802,31 @@ class DetermineRBD:
             if len(defFareData) == 0:
                 extremeFareFlag = True
                 RBDtoOpen = rbddata['RBD'][0]
-                FareToOpen = rbddata['Total'][0]
+                FareToOpen = rbddata['TOTAL'][0]
             else:
                 if rbddata['RBD'][0] == defFareData['RBD'][0]:
                     extremeFareFlag = True
                     RBDtoOpen = rbddata['RBD'][0]
-                    FareToOpen = rbddata['Total'][0]
+                    FareToOpen = rbddata['TOTAL'][0]
                 else:
                     backstopFlag = True
                     RBDtoOpen = defFareData['RBD'][0]
-                    FareToOpen = defFareData['Total'][0]
+                    FareToOpen = defFareData['TOTAL'][0]
         else:
             if defFareData.shape[0] != 0:
-                if float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch]):
-                    offsetToFetch = min(len(defFareData['Total'])-1, offsetToFetch)
-                    if rbddata['Total'][0] < defFareData['Total'][offsetToFetch] and backstop > 0:
+                if float(defFareData['TOTAL'][0]) >= float(rbddata['TOTAL'][offsetToFetch]):
+                    offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
+                    if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
                         backstopFlag = True
                     RBDtoOpen = defFareData['RBD'][0]
-                    FareToOpen = defFareData['Total'][0]
+                    FareToOpen = defFareData['TOTAL'][0]
                 else:
                     RBDtoOpen = rbddata['RBD'][offsetToFetch]
-                    FareToOpen = rbddata['Total'][offsetToFetch]
+                    FareToOpen = rbddata['TOTAL'][offsetToFetch]
                     
             else:
                 RBDtoOpen = rbddata['RBD'][offsetToFetch]
-                FareToOpen = rbddata['Total'][offsetToFetch]
+                FareToOpen = rbddata['TOTAL'][offsetToFetch]
                     
         self.logger.info('Determining ' + channel + ' Fare ' + str(FareToOpen) + " " + str(RBDtoOpen))
 
@@ -835,7 +835,7 @@ class DetermineRBD:
             limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
             limitB2BFare = 0
             if defFareData.shape[0] != 0:
-                limitB2BFare = float(limitB2BFare_Data['Total'][0])
+                limitB2BFare = float(limitB2BFare_Data['TOTAL'][0])
 
             if float(anchorFare) > limitB2BFare:
                 # Outside B2B Levels - stick with B2C
@@ -893,28 +893,28 @@ class DetermineRBD:
             if len(defFareData) == 0:
                 extremeFareFlag = True
                 RBDtoOpen = rbddata['RBD'][0]
-                FareToOpen = rbddata['Total'][0]
+                FareToOpen = rbddata['TOTAL'][0]
             else:
                 if rbddata['RBD'][0] == defFareData['RBD'][0]:
                     extremeFareFlag = True
                     RBDtoOpen = rbddata['RBD'][0]
-                    FareToOpen = rbddata['Total'][0]
+                    FareToOpen = rbddata['TOTAL'][0]
                 else:
                     RBDtoOpen = defFareData['RBD'][0]
-                    FareToOpen = defFareData['Total'][0]
+                    FareToOpen = defFareData['TOTAL'][0]
         else:
             if defFareData.shape[0] != 0:
-                if float(defFareData['Total'][0]) >= float(rbddata['Total'][offsetToFetch]):
-                    offsetToFetch = min(len(defFareData['Total'])-1, offsetToFetch)
+                if float(defFareData['TOTAL'][0]) >= float(rbddata['TOTAL'][offsetToFetch]):
+                    offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
                     RBDtoOpen = defFareData['RBD'][0]
-                    FareToOpen = defFareData['Total'][0]
+                    FareToOpen = defFareData['TOTAL'][0]
                 else:
                     RBDtoOpen = rbddata['RBD'][offsetToFetch]
-                    FareToOpen = rbddata['Total'][offsetToFetch]
+                    FareToOpen = rbddata['TOTAL'][offsetToFetch]
 
             else:
                 RBDtoOpen = rbddata['RBD'][offsetToFetch]
-                FareToOpen = rbddata['Total'][offsetToFetch]
+                FareToOpen = rbddata['TOTAL'][offsetToFetch]
                     
         self.logger.info('Determining ' + channel + ' Fare ' + str(FareToOpen) + " " + str(RBDtoOpen))
 
@@ -923,7 +923,7 @@ class DetermineRBD:
             limitB2BFare_Data = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'HI', 0, route)
             limitB2BFare = 0
             if defFareData.shape[0] != 0:
-                limitB2BFare = float(limitB2BFare_Data['Total'][0])
+                limitB2BFare = float(limitB2BFare_Data['TOTAL'][0])
 
             if float(anchorFare) > limitB2BFare:
                 # Outside B2B Levels - stick with B2C

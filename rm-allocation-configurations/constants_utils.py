@@ -75,11 +75,15 @@ class ConstantsUtils:
         self.DEFAULT_D3_VALUE = DEFAULT_D3_VALUE
         self.D3_MIN_RULES = json.loads(D3_MIN_RULES)
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
+        self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
+        self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
+        self.UP = UP
+        self.MARKET_FLAG = MARKET_FLAG
         self.TBF_RBD_ALLOC_CAP = TBF_RBD_ALLOC_CAP
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
-        self.conn = conn
+        self.db = conn
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
@@ -229,14 +233,22 @@ class ConstantsUtils:
                 self.D3_MIN_RULES = json.loads(parameter_value)
             elif parameter_key == D3_MAX_RULES_KEY:
                 self.D3_MAX_RULES = json.loads(parameter_value)
+            elif parameter_key == RM_ALERT_MAIL_ID_KEY:
+                self.RM_ALERT_MAIL_ID = parameter_value
+            elif parameter_key == CLOSED_RM_ALERT_MAIL_ID_KEY:
+                self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
+            elif parameter_key == UP_KEY:
+                self.UP = int(parameter_value)
+            elif parameter_key == MARKET_FLAG_KEY:
+                self.MARKET_FLAG = parameter_value
             elif parameter_key == TBF_RBD_ALLOC_CAP_KEY:
                 self.TBF_RBD_ALLOC_CAP = int(parameter_value)
                 
     def get_parameters(self):
-        parameterValueQuery = "SELECT parameterKey,parameterValue FROM rm_parameter_values"
         parameterValue = None  # Initialize with a default value
         try:
-            parameterValue = pd.read_sql(parameterValueQuery, self.conn)
+            results = list(self.db.rm_parameter_values.find({}, {"parameterKey": 1, "parameterValue": 1, "_id": 0}))
+            parameterValue = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
