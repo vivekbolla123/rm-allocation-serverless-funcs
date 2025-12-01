@@ -1418,6 +1418,13 @@ class RMDatabaseHelper:
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
+        if anchorFare == CONST_NA or pd.isna(anchorFare):
+            self.logger.info('Strategy Fare not available.')
+            openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Strategy Fare NA'],
+                         'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
+            self.redishelper.updateRunAudit()
+            return openResult, None
+        
         try:
             results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
             rbddata = pd.DataFrame(results)

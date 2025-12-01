@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from constants_utils import ConstantsUtils
 import traceback
 import boto3
-from croniter import croniter
+from aws_croniter import AwsCroniter
+from aws_croniter.exceptions import AwsCroniterExpressionError
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -105,11 +106,11 @@ class ScheduledRunFailureAlert:
                         })
 
             if failed_runs:
-                self.compose_and_send_email("Scheduled Run Not Completed Alert", failed_runs)
+                self.compose_and_send_email("RM Alert: Scheduled Run Not Completed", failed_runs)
                 self.logger.info("Sent Alert mail for failed runs")
             
             if missing_runs:
-                self.compose_and_send_email("Scheduled Run Not Started Alert", missing_runs)
+                self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
                 self.logger.info("Sent Alert mail for runs that failed to start")
 
             self.logger.info("Run method completed.")
@@ -190,9 +191,9 @@ class ScheduledRunFailureAlert:
                                 "$cond": [
                                     {
                                         "$or": [
-                                            {"$not": ["$total"]},           # total missing
-                                            {"$eq": ["$total", 0]},          # total = 0
-                                            {"$not": ["$failures"]}          # failures missing
+                                            {"$eq": ["$total", None]},  
+                                            {"$eq": ["$total", 0]},
+                                            {"$eq": ["$failures", None]}
                                         ]
                                     },
                                     0,  # return 0 if fields missing
@@ -330,17 +331,22 @@ class ScheduledRunFailureAlert:
             # ------------------------------------------------------
             # 3) Compute cron hits in last hour
             # ------------------------------------------------------
-            itr = croniter(cron_pattern, hour_current)
-
             cron_hits = []
-            t = itr.get_prev(datetime)
 
-            # Iterate backwards until outside time window
-            while t >= hour_prev:
-                cron_hits.append(t)
-                # Move the iterator to the time we just found, then get the previous one
-                itr = croniter(cron_pattern, t.replace(second=0, microsecond=0))
-                t = itr.get_prev(datetime)
+            try:
+                itr = AwsCroniter(cron_pattern)
+                
+                t = itr.get_prev(hour_current)[0]
+                
+                # Iterate backwards until outside time window
+                while t >= hour_prev:
+                    cron_hits.append(t)
+                    t = itr.get_prev(t)[0]  
+                    
+            except AwsCroniterExpressionError as cron_e:
+                self.logger.error(cron_e)
+            except Exception as e:
+                self.logger.error(f"Failed to get cron hit time: {e}")
 
             # ------------------------------------------------------
             # Add to results

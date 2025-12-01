@@ -6,7 +6,7 @@ from urllib.parse import quote_plus
 import pandas as pd
 import pymssql
 from redis import Redis
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from boto3 import client
 from pymongo import MongoClient
 
@@ -144,14 +144,31 @@ class LastSoldFare:
 
     def get_last_sold_fare(self):
         time = None
+        lastExecTime = None
         if self.cache_client.exists("LastSoldFare:executionTime"):
-            time = self.cache_client.get("LastSoldFare:executionTime").decode('utf-8')
+            lastExecTime = self.cache_client.get("LastSoldFare:executionTime").decode('utf-8')
+
+        curr_minus_20 = datetime.now(timezone.utc) - timedelta(minutes=20)
+        time = curr_minus_20.replace(second=0, microsecond=0, tzinfo=None)
+
+        try:
+            if lastExecTime:
+                lastExecTime = datetime.strptime(lastExecTime, '%Y-%m-%d %H:%M:%S').replace(second=0, tzinfo=None)
+
+                if lastExecTime < time:
+                    time = lastExecTime - timedelta(minutes=20)
+
+        except Exception as e:
+            self.logger.error(f"Error parsing last execution time: {e}")
+            time = curr_minus_20.replace(second=0)
+
+        time = time.strftime("%Y-%m-%d %H:%M:%S")
         
         whereCondition = f"'{str(time)}'"
         if time is None:
             whereCondition = "DATEADD(HOUR, -960, GETDATE())"  # 40 days
 
-        self.cache_client.set("LastSoldFare:executionTime", datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        self.cache_client.set("LastSoldFare:executionTime", datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
         
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
