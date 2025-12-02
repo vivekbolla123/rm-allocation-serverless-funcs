@@ -838,7 +838,7 @@ class RMDatabaseHelper:
                 "hist_curr_load": latest_row.hist_curr_load, 
                 "curr_completion": latest_row.curr_completion, 
                 "tgt_completion": latest_row.tgt_completion, 
-                "final_distress": latest_row.distress, 
+                "final_distress": latest_row.final_distress, 
                 "CreatedAt": self.timeutils.getCurrentDateTime().strftime(DATE_TIME_FORMAT),
             }
 

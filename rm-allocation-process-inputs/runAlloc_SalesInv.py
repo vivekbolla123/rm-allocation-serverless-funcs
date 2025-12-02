@@ -46,7 +46,7 @@ class DynAllocSalesInv:
         self.NavitaireUpdateMethod = self.currParams.update_navitaire_method 
         self.RBD_QUEUE_URL = inputData["RBD_QUEUE_URL"]
         
-        # self.sqs = self.currParams.sqs
+        self.sqs = self.currParams.sqs
         self.dwconn = self.currParams.dwconn
         self.cache_client = self.currParams.cache_client
         self.mongoclient = self.currParams.mongodbclient
@@ -171,7 +171,8 @@ class DynAllocSalesInv:
 
                     rec.set_class_attribute(rbd_counter, 'class_of_service', rbd)
                     rec.set_class_attribute(rbd_counter, 'class_au', final_au)
-                    self.outputSummaryRow[rbd.lower()] = final_au - curr_load
+                    self.outputSummaryRow.__setattr__(rbd.lower(), final_au - curr_load)
+                    # [rbd.lower()] = final_au - curr_load
 
                     new_bookedLoad = final_au
                     rbd_counter += 1
@@ -197,7 +198,7 @@ class DynAllocSalesInv:
             self.outputSummaryRow.tgt_completion = tgt_completion_per
             self.outputSummaryRow.final_distress = distress_au - curr_load
             
-            self.populate_summary_rows(is_skipped=False)
+            self.populate_summary_rows()
 
             self.redishelper.updateSalesRunAuditReady()
 
