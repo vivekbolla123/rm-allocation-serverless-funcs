@@ -109,9 +109,9 @@ class ScheduledRunFailureAlert:
                 self.compose_and_send_email("RM Alert: Scheduled Run Not Completed", failed_runs)
                 self.logger.info("Sent Alert mail for failed runs")
             
-            if missing_runs:
-                self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
-                self.logger.info("Sent Alert mail for runs that failed to start")
+            # if missing_runs:
+            #     self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
+            #     self.logger.info("Sent Alert mail for runs that failed to start")
 
             self.logger.info("Run method completed.")
 
