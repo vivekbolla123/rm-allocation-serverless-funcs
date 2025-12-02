@@ -990,6 +990,22 @@ class DynAlloc:
 				# else:
 				# 	self.logger.info("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
 
+				# --- GDS RBD Allocation ---
+				# Map B2C RBDs to GDS RBDs and allocate same AU
+				for b2c_rbd, gds_rbd in GDS_MAPPING.items():
+					# Find the B2C RBD in the current allocation
+					b2c_au = None
+					for i in range(1, self.AU_COLUMN_LENGTH + 1):
+						if getattr(currRec_fullalloc, f"class_of_service_{i}", None) == b2c_rbd:
+							b2c_au = getattr(currRec_fullalloc, f"class_au_{i}", None)
+							break
+					
+					if b2c_au is not None:
+						# Allocate GDS RBD
+						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_of_service', gds_rbd)
+						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_au', b2c_au)
+						current_brd_counter += 1
+
 				self.AUFileData.append(currRec_fullalloc)
 				if self.inputSource.isUpdateNavitaire:
 					if current_nav_update_method_full == CONST_API: self.updateNavitaire(currRec_fullalloc)
@@ -1488,6 +1504,9 @@ class DynAlloc:
 		self.LOWEST_B2C_RBD_VALUE = self.constantsUtils.LOWEST_B2C_RBD_VALUE
 		self.HIGHEST_B2B_RBD_VALUE = self.constantsUtils.HIGHEST_B2B_RBD_VALUE
 		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
+		
+		# Increase AU_COLUMN_LENGTH to accommodate GDS RBDs
+		self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
 
 		if inputData["latestCode"]:
 			code_version = self.rmdatabasehelper.getLatestCodeVersion()
