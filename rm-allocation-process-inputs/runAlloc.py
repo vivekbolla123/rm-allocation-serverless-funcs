@@ -894,7 +894,7 @@ class DynAlloc:
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
-						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,
+						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,
 						determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 						last_seven_avg_fare=last_seven_avg_val
 					)
@@ -904,7 +904,7 @@ class DynAlloc:
 					float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
-					imp_forecast, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
+					imp_forecast,self.outputSummaryRow_b2c.strategyFare, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 						last_seven_avg_fare=last_seven_avg_val
 				)
 
