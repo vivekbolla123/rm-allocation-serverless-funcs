@@ -664,7 +664,7 @@ class DynAlloc:
 									trigger_hours = 12
 								else:
 									# For flights departing between 12 PM and 8 AM (next day)
-									trigger_hours = 8
+									trigger_hours = 12
 
 								if hours_to_departure <= trigger_hours:
 									self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")

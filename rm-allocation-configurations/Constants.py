@@ -356,7 +356,7 @@ RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
 
 GDS_MAPPING = {
-    'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E0': 'ET', 'F0': 'FT',
-    'J0': 'HT', 'N0': 'IT', 'Q3': 'JT', 'Q7': 'KT', 'R2': 'MT', 'R7': 'NT',
+    'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',
+    'J': 'HT', 'N': 'IT', 'Q3': 'JT', 'Q7': 'KT', 'R2': 'MT', 'R7': 'NT',
     'T3': 'OT', 'T6': 'QT', 'U2': 'RT', 'U7': 'TT', 'V2': 'UT', 'V7': 'VT'
 }
