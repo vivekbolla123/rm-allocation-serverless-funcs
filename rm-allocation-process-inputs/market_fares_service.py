@@ -44,7 +44,7 @@ class MarketFareService:
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
             lowmktFile = mktFareRange['mktFile'][0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
-            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
+            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
                 lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
                 hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
                 lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
@@ -190,7 +190,7 @@ class MarketFareService:
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
             lowmktFile = mktFareRange['mktFile'][0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
-            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR) and (len(mktFareRange)>1)):
+            if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
                 lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
                 hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
                 lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]

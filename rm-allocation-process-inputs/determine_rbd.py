@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria):
 
         origin = currParams.origin
         destin = currParams.destin
@@ -27,7 +27,7 @@ class DetermineRBD:
         overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
+        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
         if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
             hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
             if hardrbddata.shape[0] == 0 and  hardAnchorFare!=CONST_NA:
@@ -42,7 +42,7 @@ class DetermineRBD:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
         else:
-            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
+            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L', strategy_criteria)
            
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
         timeString = 'Pre10'
@@ -117,7 +117,7 @@ class DetermineRBD:
 
         if anchorFare != 0:
             offset = 0
-            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
+            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
             if rbddata.shape[0] == 0:
                 openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             else:
@@ -872,13 +872,13 @@ class DetermineRBD:
         except:
             return False
         
-    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route):
+    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route, strategy_criteria=None):
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
         # Calculating the offset that is required based on entries remaining in the RBD table
         offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1)
-        if int(offset) < 0:
+        if int(offset) < 0 and not (strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR)):
             offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
