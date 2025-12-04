@@ -79,6 +79,7 @@ class ConstantsUtils:
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.UP = UP
         self.MARKET_FLAG = MARKET_FLAG
+        self.RBD_VALUES = RBD_VALUES
 
 
         self.logger = logging.getLogger()
@@ -241,6 +242,8 @@ class ConstantsUtils:
                 self.UP = int(parameter_value)
             elif parameter_key == MARKET_FLAG_KEY:
                 self.MARKET_FLAG = parameter_value
+            elif parameter_key == RBD_VALUES_KEY:
+                self.RBD_VALUES = parameter_value
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value

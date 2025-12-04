@@ -13,6 +13,7 @@ from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
 from salesFare import SalesFare
+from fareFile import FareFiling
 
 
 logger = logging.getLogger()
@@ -52,7 +53,8 @@ except Exception as e:
 module_map = {
     'action_sect' : ActionSectors,
     'ladder_gen' : LadderGen,
-    'sales_fare' : SalesFare
+    'sales_fare' : SalesFare,
+    'fare_filing': FareFiling
 }
 
 
@@ -127,6 +129,14 @@ def lambda_handler(event, context):
 #         "analyst": "Kenneth Menezes"
 #     },
 #     "modules": {"sales_fare": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes",
+#         "type": "Saver"
+#     },
+#     "modules": {"fare_filing": 1}
 # }
  
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
