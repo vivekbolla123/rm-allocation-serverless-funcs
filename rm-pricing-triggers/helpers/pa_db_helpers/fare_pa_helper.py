@@ -108,6 +108,57 @@ class FarePAHelper:
             self.logger.error(f"Error collecting QP fares data: {str(e)}")
             raise
 
+    def _identify_existing_qp_sectors(self, sectors_to_check):
+        """
+        Identify which sectors already exist in qp_fares with Fare_Direction F or T.
+        Sectors not found will use 'W' in farebasis instead of 'B'.
+        """
+        try:
+            # Query qp_fares to check which sectors exist
+            qp_fares_check = list(self.db.qp_fares.aggregate([
+                {
+                    '$match': {
+                        'Carrier_Code': 'QP',
+                        'Fare_Direction': {'$in': ['F', 'T']}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'SECTOR': {
+                            '$cond': {
+                                'if': {'$eq': ['$Fare_Direction', 'F']},
+                                'then': {'$concat': ['$Origin', '$Destination']},
+                                'else': {'$concat': ['$Destination', '$Origin']}
+                            }
+                        }
+                    }
+                },
+                {
+                    '$group': {
+                        '_id': '$SECTOR'
+                    }
+                }
+            ]))
+            
+            # Extract unique sectors
+            self.existing_qp_sectors = {item['_id'] for item in qp_fares_check}
+            
+            # Log which sectors are new vs existing
+            new_sectors = [s for s in sectors_to_check if s not in self.existing_qp_sectors]
+            existing_sectors = [s for s in sectors_to_check if s in self.existing_qp_sectors]
+            
+            if new_sectors:
+                self.logger.info(f"New sectors (will use 'W' in farebasis): {new_sectors}")
+            if existing_sectors:
+                self.logger.info(f"Existing sectors (will use 'B' in farebasis): {existing_sectors}")
+            return self.existing_qp_sectors
+            
+        except Exception as e:
+            self.logger.error(f"Error identifying existing QP sectors: {str(e)}")
+            # On error, assume all sectors are new (use 'W')
+            self.existing_qp_sectors = set()
+
     def collect_upsell_data(self, isSaver):
         """Collect Product Upsell data from MongoDB."""
         try:
@@ -177,7 +228,8 @@ class FarePAHelper:
                     '_id': 0,
                     'sector': 1,
                     'rbd': 1,
-                    'fare': 1
+                    'fare': 1,
+                    'currency': 1
                 }
             ))
             
@@ -262,6 +314,85 @@ class FarePAHelper:
         except Exception as e:
             self.logger.error(f"Error collecting product rules data: {str(e)}")
             raise
+        
+    def _get_existing_sort_prices(self):
+        """Get existing sort prices from QP fares for rules 5001, 5002, 5006."""
+        try:
+            sort_prices = {}
+            
+            # Query QP fares for rules 5001, 5002, 5006
+            qp_sort_prices = list(self.db.qp_fares.aggregate([
+                {
+                    '$match': {
+                        'Carrier_Code': 'QP',
+                        'Rule_Nbr': {'$in': ['5001', '5002', '5006']},
+                        'Fare_Direction': {'$in': ['F', 'T']}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'SECTOR': {
+                            '$cond': {
+                                'if': {'$eq': ['$Fare_Direction', 'F']},
+                                'then': {'$concat': ['$Origin', '$Destination']},
+                                'else': {'$concat': ['$Destination', '$Origin']}
+                            }
+                        },
+                        'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
+                        'Rule_Nbr': 1,
+                        'Sort_Price': 1
+                    }
+                }
+            ]))
+            
+            # Build lookup dictionary: sector_rbd_rule -> sort_price
+            for item in qp_sort_prices:
+                key = f"{item['SECTOR']}_{item['RBD']}_{item['Rule_Nbr']}"
+                sort_prices[key] = item.get('Sort_Price', None)
+            
+            self.logger.info(f"Loaded {len(sort_prices)} existing sort prices for rules 5001, 5002, 5006")
+            return sort_prices
+            
+        except Exception as e:
+            self.logger.error(f"Error getting existing sort prices: {str(e)}")
+            return {}
+
+    def _determine_fare_direction(self, sector):
+        """
+        Determine the actual origin, destination, and fare direction based on QP fares convention.
+        """
+        try:
+            origin = sector[:3]
+            destination = sector[3:]
+            exists_as_f = list(self.db.qp_fares.find({
+                'Carrier_Code': 'QP',
+                'Origin': origin,
+                'Destination': destination,
+                'Fare_Direction': 'F'
+            }).limit(1))
+            
+            if exists_as_f:
+                return origin, destination, 'F'
+            
+            exists_as_t = list(self.db.qp_fares.find({
+                'Carrier_Code': 'QP',
+                'Origin': destination,
+                'Destination': origin,
+                'Fare_Direction': 'F'
+            }).limit(1))
+            
+            if exists_as_t:
+                return destination, origin, 'T'
+            if origin < destination:
+                return origin, destination, 'F'
+            else:
+                return destination, origin, 'T'
+            
+        except Exception as e:
+            self.logger.error(f"Error determining fare direction for {sector}: {str(e)}")
+            return sector[:3], sector[3:], 'F'
+
     
     def save_ladder_to_database(self, route, analystName, ladder_df, run_id):
         """Save fare ladder to MongoDB collection."""
@@ -308,8 +439,7 @@ class FarePAHelper:
             self.logger.error(f"Unable to get current version: {str(e)}")
             raise
         
-    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, 
-                    run_type=None, sectors_list=None, status='SUCCESS', is_initial=False):
+    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, run_type=None, sectors_list=None, status='SUCCESS', is_initial=False):
         """Save or update audit information for fare filing runs.
         
         Args:
@@ -371,12 +501,17 @@ class FarePAHelper:
                     'qp_fares_version': qp_fares_version,
                     'tax_master_version': tax_master_version,
                     'analyst': analystName,
+                    'confirmation': 'PENDING',
+                    'confirmed_at': None,
+                    'confirmed_by': None,
+                    'upsert_master_result': None,
+                    'update_qp_fares_result': None,
                     'failure_reason': None
                 }
                 
                 collection.insert_one(initial_audit)
                 
-                self.logger.info(f"Initial audit record created with status IN_PROGRESS for run_id: {run_id}")
+                self.logger.info(f"Initial audit record created with status IN_PROGRESS and confirmation PENDING for run_id: {run_id}")
                 return 'fare_filing_run_audits'
                 
             else:

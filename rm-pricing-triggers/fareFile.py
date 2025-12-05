@@ -36,6 +36,8 @@ class FareFiling:
         
         # RBD list for iteration
         self.rbd_list = None
+        
+        self.existing_qp_sectors = set()
 
     def collect_all_data(self):
         """Collect all required data for fare filing based on type."""
@@ -51,6 +53,9 @@ class FareFiling:
                 saver_sectors = self.saver_data['sector'].unique().tolist()
                 self.logger.info(f"Found {len(saver_sectors)} unique sectors in saver table: {saver_sectors}")
                 
+                # NEW: Check which sectors exist in qp_fares
+                self.existing_qp_sectors = self.pa_helper._identify_existing_qp_sectors(saver_sectors)
+            
                 # Collect product upsell data
                 self.product_upsell_data = self.pa_helper.collect_upsell_data(self.isSaver)
                 
@@ -115,6 +120,9 @@ class FareFiling:
                 # Get unique sectors from product upsell
                 unique_sectors = self.product_upsell_data['sector'].unique().tolist()
                 
+                # NEW: Check which sectors exist in qp_fares
+                self.existing_qp_sectors = self.pa_helper._identify_existing_qp_sectors(unique_sectors)
+                
                 # Fetch from QP fares for rule 1001 only
                 self.qp_fares_data = self.pa_helper.collect_qp_fares(unique_sectors)
                 
@@ -168,11 +176,16 @@ class FareFiling:
             self.logger.warning(f"Error getting saver fare for {sector}-{rbd}: {str(e)}")
             return None
         
-    def calculate_all_in_fare(self, base_fare, origin, destination):
-        """Calculate all-in fare based on route type."""
+    def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
+        """Calculate all-in fare or extract base fare depending on ftype.
+        """
         try:
             taxes = self._calculate_taxes_domestic(base_fare, origin, destination)
-            return base_fare + taxes
+            
+            if ftype == "base":
+                return base_fare + taxes
+            else:
+                return base_fare - taxes
             
         except Exception as e:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
@@ -196,11 +209,9 @@ class FareFiling:
             psf = float(tax_row.get('PSF', 0)) if pd.notna(tax_row.get('PSF')) else 0
             udf_df = float(tax_row.get('UDF_DF', 0)) if pd.notna(tax_row.get('UDF_DF')) else 0
             
-            # Apply special handling for RCS sectors
             if destination in self.constants.PRICING_RCS_SECTORS:
                 rcs = 0
             
-            # Add DUF for specific sectors
             duf = 0
             if destination in self.constants.PRICING_DUF_SECTORS:
                 duf = float(self.constants.PRICING_DUF_SECTORS[destination])
@@ -253,8 +264,17 @@ class FareFiling:
             self.logger.warning(f"Invalid RBD range {rbd_start}-{rbd_end}: {str(e)}")
             return []
 
-    def generate_farebasis(self, rbd, rule_nbr, ow_rt, ndo, route_type='D'):
-        """Generate fare basis code following the 8-character format."""
+    def generate_farebasis(self, rbd, rule_nbr, ow_rt, ndo, sector, route_type='D'):
+        """Generate fare basis code following the 8-character format.
+        
+        Args:
+            rbd: RBD code
+            rule_nbr: Rule number
+            ow_rt: One way or return
+            ndo: NDO value
+            sector: Sector code (e.g., 'BOMDEL')
+            route_type: Route type ('D' or 'I')
+        """
         try:
             # Get letter for rule number
             letter = self.product_rules_dict.get(rule_nbr, 'R')
@@ -268,7 +288,12 @@ class FareFiling:
             # NDO character (default 'X')
             ndo_char = ndo if pd.notna(ndo) and ndo else 'X'
             
-            farebasis = f"{rbd}{ow_rt_char}7{letter}B{route_char}{ndo_char}"
+            # NEW: Determine 6th character based on sector existence in qp_fares
+            # Use 'W' for new sectors, 'B' for existing sectors
+            sixth_char = 'B' if sector in self.existing_qp_sectors else 'W'
+            
+            # Format: RBD(2) + OW/RT(1) + '7' + Letter(1) + B/W(1) + Route(1) + NDO(1)
+            farebasis = f"{rbd}{ow_rt_char}7{letter}{sixth_char}{route_char}{ndo_char}"
             
             return farebasis
             
@@ -280,6 +305,9 @@ class FareFiling:
         """Calculate product upsells for all sectors and rule numbers."""
         try:
             all_output_rows = []
+            
+            # First, get existing sort prices from QP fares for rules 5001, 5002, 5006
+            existing_sort_prices = self.pa_helper._get_existing_sort_prices()
             
             # Get unique combinations of sector, rule_nbr, and RBD range
             unique_combos = self.product_upsell_data.groupby(
@@ -313,15 +341,16 @@ class FareFiling:
                 
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Get saver BASE fare for this RBD
-                    saver_base_fare = self.get_saver_fares(sector, rbd)
+                    # Get saver fare for this RBD
+                    # NOTE: Saver fares are ALL-IN fares
+                    saver_allin_fare = self.get_saver_fares(sector, rbd)
                     
-                    if saver_base_fare is None:
+                    if saver_allin_fare is None:
                         self.logger.warning(f"No saver fare found for {sector}-{rbd}")
                         continue
                     
-                    # Calculate all-in fare for saver
-                    saver_allin_fare = self.calculate_all_in_fare(saver_base_fare, origin, destination)
+                    # Extract base fare from saver all-in fare
+                    saver_base_fare = self.calculate_all_in_fare(saver_allin_fare, origin, destination, ftype="allin")
                     
                     # Process each upsell row (different footnotes/OW_RT combinations)
                     for _, upsell_row in upsell_rows.iterrows():
@@ -339,8 +368,8 @@ class FareFiling:
                         # Apply upsell
                         upsell_type = upsell_row['type']
                         upsell_value = float(upsell_row['value']) if pd.notna(upsell_row['value']) else 0
-                        min_value = float(upsell_row['min_value']) if pd.notna(upsell_row['min_value']) else None
-                        max_value = float(upsell_row['max_value']) if pd.notna(upsell_row['max_value']) else None
+                        min_value = float(upsell_row['min_value']) if (pd.notna(upsell_row['min_value']) and upsell_row['min_value'] != '') else None
+                        max_value = float(upsell_row['max_value']) if (pd.notna(upsell_row['max_value']) and upsell_row['max_value'] != '') else None
                         
                         upsold_fare = self.apply_upsell(
                             fare_for_upsell, 
@@ -350,23 +379,13 @@ class FareFiling:
                             max_value
                         )
                         
-                        # Now determine the final base and all-in fare
+                        # Now determine the final base fare for output
                         if base_all_in == 'Base':
-                            # Upsold fare is base fare
+                            # Upsold fare is already base fare
                             final_base_fare = round(upsold_fare)
-                            final_all_in_fare = round(self.calculate_all_in_fare(final_base_fare, origin, destination))
                         else:
-                            # Upsold fare is all-in fare
-                            final_all_in_fare = round(upsold_fare)
-                            # Need to back-calculate base fare from all-in
-                            # Using approximation: base = all_in - taxes_on_saver_base * (all_in/saver_allin)
-                            taxes_on_saver = saver_allin_fare - saver_base_fare
-                            if saver_allin_fare > 0:
-                                ratio = final_all_in_fare / saver_allin_fare
-                                estimated_taxes = taxes_on_saver * ratio
-                                final_base_fare = round(final_all_in_fare - estimated_taxes)
-                            else:
-                                final_base_fare = round(final_all_in_fare * 0.75)  # Fallback
+                            # Upsold fare is all-in fare, extract base fare
+                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
                         
                         # Get other parameters
                         ow_rt = upsell_row.get('ow_rt', 'O')
@@ -381,30 +400,50 @@ class FareFiling:
                         if pd.isna(footnote):
                             footnote = ''
                         
-                        # Sort price logic: Same as fare amount except for rules 5001, 5002, 5006
+                        # UPDATED Sort price logic
+                        sort_price = upsell_row.get('sort_price')
+                        
                         if rule_nbr in ['5001', '5002', '5006']:
-                            sort_price = upsell_row.get('sort_price')
+                            if pd.notna(sort_price) and sort_price != '':
+                                # Use provided sort price
+                                sort_price = float(sort_price)
+                            else:
+                                # Check if sector exists in QP fares
+                                if sector in self.existing_qp_sectors:
+                                    # Get existing sort price from QP fares
+                                    existing_price = existing_sort_prices.get(f"{sector}_{rbd}_{rule_nbr}", None)
+                                    if existing_price is not None:
+                                        sort_price = existing_price
+                                    else:
+                                        # Sector exists but no sort price found, use fare amount
+                                        sort_price = final_base_fare
+                                else:
+                                    # Sector doesn't exist in QP ladder, use fare amount
+                                    sort_price = final_base_fare
+                        else:
+                            # For all other rules, sort price = fare amount if not provided
                             if pd.isna(sort_price) or sort_price == '':
                                 sort_price = final_base_fare
                             else:
                                 sort_price = float(sort_price)
-                        else:
-                            sort_price = final_base_fare
                         
-                        # Generate farebasis
-                        farebasis = self.generate_farebasis(rbd, rule_nbr, ow_rt, ndo, route_type='D')
+                        # Generate farebasis - NOW PASSING SECTOR
+                        farebasis = self.generate_farebasis(rbd, rule_nbr, ow_rt, ndo, sector, route_type='D')
+                        
+                        # Determine actual origin, destination and fare direction based on QP fares convention
+                        actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
                         
                         # Create output row matching qp_fares schema
                         output_row = {
                             'Carrier_Code': 'QP',
-                            'Action_Code': 'I',  # Default to Insert
-                            'Origin': origin,
-                            'Destination': destination,
+                            'Action_Code': 'I',
+                            'Origin': actual_origin,
+                            'Destination': actual_destination,
                             'Fare_Basis_Code': farebasis,
                             'OW_RT': ow_rt,
                             'Routing': '',
                             'Footnote': footnote,
-                            'Currency': 'INR',  # Assuming domestic
+                            'Currency': 'INR',
                             'Fare_Amount': final_base_fare,
                             'Point_Price': 0,
                             'Effective_Date': '',
@@ -414,7 +453,7 @@ class FareFiling:
                             'Sequence': '',
                             'SOS_Charge': 0,
                             'Sort_Price': sort_price,
-                            'Fare_Direction': 'T',
+                            'Fare_Direction': fare_direction,
                             'Trip_Direction': '',
                             'Inbound_Outbound': '',
                             'Discontinue_Date': '',
@@ -452,13 +491,12 @@ class FareFiling:
             for _, saver_row in self.saver_data.iterrows():
                 sector = saver_row['sector']
                 rbd = saver_row['rbd']
-                base_fare = saver_row['fare']  # This is already BASE FARE
+                allin_fare = saver_row['fare']  # This is ALL-IN FARE from saver table
                 
+                # Extract base fare from all-in fare
                 origin = sector[:3]
                 destination = sector[3:]
-                
-                # Base fare is already provided, just use it
-                base_fare = round(base_fare)
+                base_fare = round(self.calculate_all_in_fare(allin_fare, origin, destination, ftype="allin"))
                 
                 # Determine rule number(s) based on RBD
                 rules_to_generate = []
@@ -471,17 +509,20 @@ class FareFiling:
                     # B2B only RBDs (ZJ to Z0, excluding V9 to Y0) generate only 2001
                     rules_to_generate.append('2001')
                 
+                # Determine actual origin, destination and fare direction based on QP fares convention
+                actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
+                
                 # Generate fare records for each applicable rule
                 for rule_nbr in rules_to_generate:
-                    # Generate farebasis
-                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', 'X', route_type='D')
+                    # Generate farebasis - NOW PASSING SECTOR
+                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', 'X', sector, route_type='D')
                     
                     # Create output row matching qp_fares schema
                     output_row = {
                         'Carrier_Code': 'QP',
                         'Action_Code': 'I',
-                        'Origin': origin,
-                        'Destination': destination,
+                        'Origin': actual_origin,
+                        'Destination': actual_destination,
                         'Fare_Basis_Code': farebasis,
                         'OW_RT': 'O',
                         'Routing': '',
@@ -496,7 +537,7 @@ class FareFiling:
                         'Sequence': '',
                         'SOS_Charge': 0,
                         'Sort_Price': base_fare,
-                        'Fare_Direction': 'T',
+                        'Fare_Direction': fare_direction,
                         'Trip_Direction': '',
                         'Inbound_Outbound': '',
                         'Discontinue_Date': '',
