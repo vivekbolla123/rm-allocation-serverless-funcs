@@ -56,7 +56,7 @@ CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
 
 THRESHOLD_TIME = 12
-PF_UPSELL_VALUE = '47%'
+PF_UPSELL_VALUE = '47'
 
 CHECK_THRESHOLD_UPDATE_RBD = 20
 
@@ -212,6 +212,8 @@ MAX_FARE_ANCHOR = "MAX"
 MINO_FARE_ANCHOR = "MINO"
 MAXO_FARE_ANCHOR = "MAXO"
 OWNF_FARE_ANCHOR = "OWNF"
+MINC_FARE_ANCHOR = "MINC"
+MINOC_FARE_ANCHOR = "MINOC"
 
 YES_FLAG = 'Y'
 NO_FLAG = 'N'
@@ -356,3 +358,9 @@ D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84}, "M": {"foreca
 
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
+
+GDS_MAPPING = {
+    'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',
+    'J': 'HT', 'N': 'IT', 'Q3': 'JT', 'Q7': 'KT', 'R2': 'MT', 'R7': 'NT',
+    'T3': 'OT', 'T6': 'QT', 'U2': 'RT', 'U7': 'TT', 'V2': 'UT', 'V7': 'VT'
+}
