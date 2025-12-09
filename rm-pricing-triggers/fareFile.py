@@ -180,7 +180,7 @@ class FareFiling:
         """Calculate all-in fare or extract base fare depending on ftype.
         """
         try:
-            taxes = self._calculate_taxes_domestic(base_fare, origin, destination)
+            taxes = self._calculate_taxes_domestic(base_fare, origin, destination, ftype)
             
             if ftype == "base":
                 return base_fare + taxes
@@ -191,7 +191,7 @@ class FareFiling:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
             return base_fare
         
-    def _calculate_taxes_domestic(self, base_fare, origin, destination):
+    def _calculate_taxes_domestic(self, base_fare, origin, destination,ftype):
         """Calculate all taxes for domestic fare to get all-in fare."""
         try:
             if self.tax_master_dom_data is None or self.tax_master_dom_data.empty:
@@ -218,11 +218,14 @@ class FareFiling:
             
             # Calculate GST
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                gst = 0
-            else:
-                gst = gst_rate * (base_fare + rcs + cute)
+                gst_rate = 0
             
-            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf
+            if(ftype == 'base'):
+                total_taxes = asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf
+            else:
+                # Base Fare=Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]/ (1+GST) 
+                total_taxes = ((gst_rate * (rcs + cute)) + rcs + duf + asf + psf + udf_df)/(1+gst_rate)
+                
             return total_taxes
             
         except Exception as e:
@@ -385,7 +388,7 @@ class FareFiling:
                             final_base_fare = round(upsold_fare)
                         else:
                             # Upsold fare is all-in fare, extract base fare
-                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
+                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="base"))
                         
                         # Get other parameters
                         ow_rt = upsell_row.get('ow_rt', 'O')
@@ -496,7 +499,7 @@ class FareFiling:
                 # Extract base fare from all-in fare
                 origin = sector[:3]
                 destination = sector[3:]
-                base_fare = round(self.calculate_all_in_fare(allin_fare, origin, destination, ftype="allin"))
+                base_fare = round(self.calculate_all_in_fare(allin_fare, origin, destination, ftype="base"))
                 
                 # Determine rule number(s) based on RBD
                 rules_to_generate = []

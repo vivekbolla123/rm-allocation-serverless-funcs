@@ -178,7 +178,8 @@ class FarePAHelper:
                     'sort_price': 1,
                     'base_all_in': 1,
                     'min_value': 1,
-                    'max_value': 1
+                    'max_value': 1,
+                    'pos': 1
                 }
             ))
             
@@ -208,7 +209,8 @@ class FarePAHelper:
                     'sort_price': 1,
                     'base_all_in': 1,
                     'min_value': 1,
-                    'max_value': 1
+                    'max_value': 1,
+                    'pos': 1
                 }
             ))
             
@@ -229,7 +231,8 @@ class FarePAHelper:
                     'sector': 1,
                     'rbd': 1,
                     'fare': 1,
-                    'currency': 1
+                    'currency': 1,
+                    'pos': 1
                 }
             ))
             
