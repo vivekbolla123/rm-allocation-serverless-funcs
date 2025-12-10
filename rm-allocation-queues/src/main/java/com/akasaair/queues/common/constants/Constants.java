@@ -35,7 +35,8 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final int NDO_SIZE = 366;
     public static final double LF_VALUE = 1.05;
     public static final String LF_VALUE_KEY = "LF_VALUE";
-    public static final double PLFTHRESHOLD_VALUE = 103.0;
+    public static final double PLFTHRESHOLD_VALUE = 105.0;
+    public static final String PLFTHRESHOLD_VALUE_KEY = "PLFTHRESHOLD_VALUE";
     public static final int DAYS_TO_ENTER_INTO_MARKET_LIST = 30;
     public static final String TEMP = "temp";
     public static final String PARAMETER_RBD_VALUES = "RBD_VALUES";
