@@ -182,11 +182,7 @@ class FareFiling:
         try:
             taxes = self._calculate_taxes_domestic(base_fare, origin, destination, ftype)
             
-            if ftype == "base":
-                return base_fare + taxes
-            else:
-                return base_fare - taxes
-            
+            return taxes            
         except Exception as e:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
             return base_fare
@@ -221,10 +217,11 @@ class FareFiling:
                 gst_rate = 0
             
             if(ftype == 'base'):
-                total_taxes = asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf
+                total_taxes = base_fare + asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf
             else:
                 # Base Fare=Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]/ (1+GST) 
-                total_taxes = ((gst_rate * (rcs + cute)) + rcs + duf + asf + psf + udf_df)/(1+gst_rate)
+                # Base Fare={Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]}/ (1+GST)
+                total_taxes = (base_fare - ((gst_rate * (rcs + cute)) + rcs + duf + asf + psf + udf_df))/(1+gst_rate)
                 
             return total_taxes
             
@@ -499,7 +496,7 @@ class FareFiling:
                 # Extract base fare from all-in fare
                 origin = sector[:3]
                 destination = sector[3:]
-                base_fare = round(self.calculate_all_in_fare(allin_fare, origin, destination, ftype="base"))
+                base_fare = round(self.calculate_all_in_fare(allin_fare, origin, destination, ftype="allin"))
                 
                 # Determine rule number(s) based on RBD
                 rules_to_generate = []

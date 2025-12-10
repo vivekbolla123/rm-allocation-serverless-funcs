@@ -9,6 +9,7 @@ from common.utils.common_helper import calculate_duration
 from common.utils.s3_helper import S3Helper
 from common.utils.db_helper import DbHelper
 from common.processors.sale_discount_processor import pivot_sale_fares
+from common.processors.saver_processor import format_saver_file
 
 
 class FileUploadWorker:
@@ -91,6 +92,16 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Sale_fare_discount to DB")
                     raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
+            elif table == SAVER_TABLE:
+                try:
+                    saver_df = format_saver_file(csv_df)
+                    # Use upsert for both tables
+                    self.insert_file_data(saver_df, SAVER_TABLE, user_name, use_upsert=True)
+
+                    self.s3_helper.store_file(file_content, SAVER_TABLE, self.obj_id)
+                except Exception as e:
+                    self.list_of_errors.append("Error Uploading Saver to DB")
+                    raise RuntimeError(f"Error processing Saver content: {str(e)}")
             else:
                 try:
                     # Determine if we should use upsert or replace

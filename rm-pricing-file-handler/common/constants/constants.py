@@ -10,6 +10,7 @@ COMMA = ','
 # table/column name constants
 SALE_DISCOUNTS_TABLE = "config_sale_discounts"
 SALE_DATES_TABLE = "config_sale_dates"
+SAVER_TABLE = "saver"
 
 #error constants
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
