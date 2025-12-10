@@ -221,7 +221,7 @@ class FareFiling:
             else:
                 # Base Fare=Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]/ (1+GST) 
                 # Base Fare={Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]}/ (1+GST)
-                total_taxes = (base_fare - ((gst_rate * (rcs + cute)) + rcs + duf + asf + psf + udf_df))/(1+gst_rate)
+                total_taxes = (base_fare - ((gst_rate * (rcs + cute)) + rcs + cute + duf + asf + psf + udf_df))/(1+gst_rate)
                 
             return total_taxes
             
