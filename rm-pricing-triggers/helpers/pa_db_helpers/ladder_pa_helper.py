@@ -223,6 +223,7 @@ class LadderPAHelper:
                 'Carrier_Code': 'QP',
                 'Rule_Nbr': '1001' if route == 'D' else 'R101',
                 'OW_RT': 'O',
+                'Fare_Basis_Code': { '$regex': '/^[^W]/' },
                 '$or': [
                     {'Footnote': {'$exists': False}},
                     {'Footnote': None},
