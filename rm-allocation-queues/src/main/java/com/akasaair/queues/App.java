@@ -831,6 +831,46 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case MARKET_FARE_ADJUSTMENTS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadMarketFareAdjustments(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing market_list_salesinv file content");
+                            throw new RuntimeException("Error processing market_list_salesinv file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing market_list_salesinv file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 default -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -4343,6 +4383,157 @@ public class App implements CommandLineRunner {
             listOfErrors.get().add(errorMsg);
             log.error(DATABASE_ACCESS_ERROR_MESSAGE);
             e.printStackTrace();
+        }
+    }
+
+    public void uploadMarketFareAdjustments(Reader file, String tableName, String userName, Object role,
+                                             String obj_id) throws DataMismatchedException {
+        List<MarketListSalesInvEntity> entityList = new ArrayList<>();
+        try {
+//            createTable(tableName, MARKET_LIST_SALESINV_TABLE_NAME);
+
+            String uuid = obj_id;
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<Document> deleteQueries = new ArrayList<>();
+            List<Document> documentsToInsert = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String airlineCode = row.get(1).trim();
+                    String adjustmentStr = row.get(2).trim();
+
+                    // Validate empty fields
+                    if (sector.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": sector cannot be empty");
+                        continue;
+                    }
+
+                    if (airlineCode.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": airline_code cannot be empty");
+                        continue;
+                    }
+
+                    if (adjustmentStr.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": adjustment cannot be empty");
+                        continue;
+                    }
+
+                    // Validate adjustment value
+                    if (!isValidAdjustment(adjustmentStr)) {
+                        listOfErrors.get().add("Line " + (i + 1) + ": Invalid adjustment value '" + adjustmentStr + "'. Must be a positive or negative number");
+                        continue;
+                    }
+
+                    double adjustment = Double.parseDouble(adjustmentStr);
+
+                    // Create delete query document
+                    Document deleteQuery = new Document()
+                            .append("sector", sector)
+                            .append("airlineCode", airlineCode);
+
+                    deleteQueries.add(deleteQuery);
+
+                    // Create MongoDB document for insertion
+                    Document doc = new Document()
+                            .append("sector", sector)
+                            .append("airlineCode", airlineCode)
+                            .append("adjustment", adjustment)
+                            .append("createdAt", new Date());
+
+                    documentsToInsert.add(doc);
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (NumberFormatException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Invalid number format for adjustment value");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            deleteExistingRecords(deleteQueries, tableName);
+
+            insertDocuments(documentsToInsert, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    private void deleteExistingRecords(List<Document> deleteQueries, String collectionName) {
+        if (deleteQueries.isEmpty()) {
+            System.out.println("No records to delete");
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            for (Document query : deleteQueries) {
+                collection.deleteMany(query);
+            }
+
+            System.out.println("Deleted existing records for " + deleteQueries.size() + " sector-airline combinations");
+
+        } catch (Exception e) {
+            System.err.println("Error deleting existing records: " + e.getMessage());
+            throw new RuntimeException("Failed to delete existing records", e);
+        }
+    }
+
+    private boolean isValidAdjustment(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            double num = Double.parseDouble(value);
+            // Check if it's a valid number (not NaN or Infinity)
+            return !Double.isNaN(num) && !Double.isInfinite(num);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private void insertDocuments(List<Document> documents, String collectionName) {
+        if (documents.isEmpty()) {
+            System.out.println("No documents to insert");
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            collection.insertMany(documents);
+
+            System.out.println("Successfully inserted " + documents.size() + " documents into " + collectionName);
+
+        } catch (Exception e) {
+            System.err.println("Error inserting documents: " + e.getMessage());
+            throw new RuntimeException("Failed to insert documents into " + collectionName, e);
         }
     }
 }
