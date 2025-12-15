@@ -19,6 +19,7 @@ class LadderEsbHelper:
             wherecondition = f"""WHERE PX.BookingDate >= '{start_date}' AND PX.BookingDate < '{end_date}'
                     {fareBasis}
                     AND LEFT(PX.FareBasis, 1) NOT IN ('S', 'W')
+                    AND LEFT(PX.FareBasis, 3) NOT IN ('C')
                     AND CONCAT(PX.Origin, PX.Destination) = '{sector}'
                     AND PX.BookingID IS NOT NULL
                     AND IL.FlightNumber < 7000"""

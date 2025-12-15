@@ -6,9 +6,9 @@ class LadderNavHelper:
 
     def __init__(self, nav_conn, nav_db_name, nav_db_dw_name, nav_db_wb_name, logger):
         self.nav_conn = nav_conn
-        self.nav_db_name = 'REZ0KOD01.'
-        self.nav_db_dw_name = 'REZ0KDW01.'
-        self.nav_db_wb_name = 'REZ0KWB01.'
+        self.nav_db_name = nav_db_name
+        self.nav_db_dw_name = nav_db_dw_name
+        self.nav_db_wb_name = nav_db_wb_name
         self.logger = logger
         
         self.failure_reason = None
