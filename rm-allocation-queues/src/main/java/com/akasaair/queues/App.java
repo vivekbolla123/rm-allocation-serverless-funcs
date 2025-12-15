@@ -3805,9 +3805,14 @@ public class App implements CommandLineRunner {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.get().add(lineNum + "PLF Threshold must be a valid number");
                         } else {
+                            Double plflimit = PLFTHRESHOLD_VALUE;
+                            String plf_value = searchResults(PLFTHRESHOLD_VALUE_KEY);
+                            if(!plf_value.isEmpty()){
+                                plflimit = Double.parseDouble(plf_value);
+                            }
                             double value = Double.parseDouble(numericValue);
-                            if (value > PLFTHRESHOLD_VALUE) {
-                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            if (value > plflimit) {
+                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than " + plflimit + " percent");
                             }
                         }
                     }
@@ -3840,9 +3845,14 @@ public class App implements CommandLineRunner {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.get().add(lineNum + "PLF Threshold must be a valid number");
                         } else {
+                            Double plflimit = PLFTHRESHOLD_VALUE;
+                            String plf_value = searchResults(PLFTHRESHOLD_VALUE_KEY);
+                            if(!plf_value.isEmpty()){
+                                plflimit = Double.parseDouble(plf_value);
+                            }
                             double value = Double.parseDouble(numericValue);
-                            if (value > PLFTHRESHOLD_VALUE) {
-                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            if (value > plflimit) {
+                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than " + plflimit + " percent");
                             }
                         }
                     }

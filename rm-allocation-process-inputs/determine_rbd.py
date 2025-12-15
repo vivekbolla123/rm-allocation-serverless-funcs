@@ -697,6 +697,8 @@ class DetermineRBD:
                 howDetermined = 'AllocationY_Interpollated_Max_own_fare_UpsellN'
                 
                 # Calculate v1 based on dPLF
+                if dPLF <= -15:
+                    dPLF = -15
                 if dPLF > -self.constantsutils.OWN_FARE_DELTA_B:
                     v1 = max_value + (delta / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
                 else:
@@ -722,6 +724,8 @@ class DetermineRBD:
                 howDetermined = "AllocationY_interpolated_lastSold_Profile_fare_UpsellN"
                 min_fare = min(float(lastSoldFare), float(profileFare))
                 fare_diff = abs(float(lastSoldFare) - float(profileFare))
+                if dPLF < -15:
+                    dPLF = -15
                 v1 = min_fare + (fare_diff / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
                 v2 = calculate_tolerance_value()
                 
