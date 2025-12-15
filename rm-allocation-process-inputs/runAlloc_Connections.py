@@ -462,7 +462,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.FlightNumber_Max=hiFilghtNum
                 self.outputSummaryRow_b2c.mktFile=himktFile
                 fare2 = hiFare
-                if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
+                if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR or criteria == MINC_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR:
                     fare2 = lowFare
                     self.outputSummaryRow_b2c.mktFile=lowmktFile
                 b2cdiscount = "NA"
@@ -590,7 +590,7 @@ class DynAllocConnections:
                                 priceStrategy, discountValue, b2bSectorTotal)
                         fare1=b2bdiscountedFare
                         fare2 = hiFare
-                        if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR:
+                        if criteria == MINO_FARE_ANCHOR or criteria == MIN_FARE_ANCHOR or criteria == MINC_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR:
                             fare2 = lowFare
                             self.outputSummaryRow_b2b.mktFile=lowmktFile
                         self.outputSummaryRow_b2b.discountedFare=b2bdiscountedFare   
