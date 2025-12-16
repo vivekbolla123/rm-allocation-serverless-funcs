@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from constants_utils import ConstantsUtils
 import traceback
 import boto3
-from croniter import croniter, CroniterBadCronError
+from aws_croniter import AwsCroniter
+from aws_croniter.exceptions import AwsCroniterExpressionError
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -105,12 +106,12 @@ class ScheduledRunFailureAlert:
                         })
 
             if failed_runs:
-                self.compose_and_send_email("Scheduled Run Not Completed Alert", failed_runs)
+                self.compose_and_send_email("RM Alert: Scheduled Run Not Completed", failed_runs)
                 self.logger.info("Sent Alert mail for failed runs")
             
-            if missing_runs:
-                self.compose_and_send_email("Scheduled Run Not Started Alert", missing_runs)
-                self.logger.info("Sent Alert mail for runs that failed to start")
+            # if missing_runs:
+            #     self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
+            #     self.logger.info("Sent Alert mail for runs that failed to start")
 
             self.logger.info("Run method completed.")
 
@@ -190,9 +191,9 @@ class ScheduledRunFailureAlert:
                                 "$cond": [
                                     {
                                         "$or": [
-                                            {"$not": ["$total"]},           # total missing
-                                            {"$eq": ["$total", 0]},          # total = 0
-                                            {"$not": ["$failures"]}          # failures missing
+                                            {"$eq": ["$total", None]},  
+                                            {"$eq": ["$total", 0]},
+                                            {"$eq": ["$failures", None]}
                                         ]
                                     },
                                     0,  # return 0 if fields missing
@@ -330,18 +331,19 @@ class ScheduledRunFailureAlert:
             # ------------------------------------------------------
             # 3) Compute cron hits in last hour
             # ------------------------------------------------------
-            parsed_pattern = self.aws_to_croniter(cron_pattern)
             cron_hits = []
 
             try:
-                itr = croniter(parsed_pattern, hour_current)
-                t = itr.get_prev(datetime)
-
+                itr = AwsCroniter(cron_pattern)
+                
+                t = itr.get_prev(hour_current)[0]
+                
                 # Iterate backwards until outside time window
                 while t >= hour_prev:
                     cron_hits.append(t)
-                    t = itr.get_prev(datetime)
-            except CroniterBadCronError as cron_e:
+                    t = itr.get_prev(t)[0]  
+                    
+            except AwsCroniterExpressionError as cron_e:
                 self.logger.error(cron_e)
             except Exception as e:
                 self.logger.error(f"Failed to get cron hit time: {e}")
@@ -431,27 +433,3 @@ class ScheduledRunFailureAlert:
             self.logger.info(f"Email sent to {recipient} successfully.")
         except Exception as e:
             self.logger.error(f"Failed to send email: {e}")
-
-    def aws_to_croniter(self, aws_expr):
-        parts = aws_expr.split()
-
-        # AWS supports 6 or 7 parts:
-        # min hour dom month dow [year]
-        if len(parts) not in (6, 7):
-            raise ValueError("Invalid AWS cron expression")
-
-        minute, hour, dom, month, dow = parts[:5]
-
-        # croniter does not allow '?'
-        if dom == "?":
-            dom = "*"
-        if dow == "?":
-            dow = "*"
-
-        # AWS DOW: 1–7 (1 = Sunday)
-        # UNIX DOW: 0–6 (0 = Sunday)
-        if dow.isdigit():
-            dow = "0" if dow == "0" else str(int(dow) - 1)
-
-        # return UNIX cron (5 fields)
-        return f"{minute} {hour} {dom} {month} {dow}"

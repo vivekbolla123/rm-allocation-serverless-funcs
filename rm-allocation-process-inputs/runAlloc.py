@@ -664,7 +664,7 @@ class DynAlloc:
 									trigger_hours = 12
 								else:
 									# For flights departing between 12 PM and 8 AM (next day)
-									trigger_hours = 8
+									trigger_hours = 12
 
 								if hours_to_departure <= trigger_hours:
 									self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
@@ -719,7 +719,7 @@ class DynAlloc:
 				if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 					self.outputSummaryRow_b2c.mktFile = himktFileb2c
-				elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR]:
+				elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
 					self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 					self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 				
@@ -755,7 +755,7 @@ class DynAlloc:
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 												overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val, 
-												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band
+												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria
 											)
 
 				# Get B2C Opening Price for potential B2B derivation
@@ -824,7 +824,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 						)
 				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA and not (self.B2B_thresholdflag):
 					# b2b_discount_fare_active = True 
@@ -847,7 +847,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance,final_plf,
 							overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 						) 
 				else: 
 					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable or b2b threshold hit'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
@@ -894,7 +894,7 @@ class DynAlloc:
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 						remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
-						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,
+						profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,
 						determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 						last_seven_avg_fare=last_seven_avg_val
 					)
@@ -904,7 +904,7 @@ class DynAlloc:
 					float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
-					imp_forecast, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
+					imp_forecast,self.outputSummaryRow_b2c.strategyFare, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 						last_seven_avg_fare=last_seven_avg_val
 				)
 
@@ -989,6 +989,22 @@ class DynAlloc:
 				# 	)
 				# else:
 				# 	self.logger.info("Could not find W8 slot for sales_inv_allocation in Full Mode AU Grid.")
+
+				# --- GDS RBD Allocation ---
+				# Map B2C RBDs to GDS RBDs and allocate same AU
+				for b2c_rbd, gds_rbd in GDS_MAPPING.items():
+					# Find the B2C RBD in the current allocation
+					b2c_au = None
+					for i in range(1, self.AU_COLUMN_LENGTH + 1):
+						if getattr(currRec_fullalloc, f"class_of_service_{i}", None) == b2c_rbd:
+							b2c_au = getattr(currRec_fullalloc, f"class_au_{i}", None)
+							break
+					
+					if b2c_au is not None:
+						# Allocate GDS RBD
+						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_of_service', gds_rbd)
+						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_au', b2c_au)
+						current_brd_counter += 1
 
 				self.AUFileData.append(currRec_fullalloc)
 				if self.inputSource.isUpdateNavitaire:
@@ -1488,6 +1504,9 @@ class DynAlloc:
 		self.LOWEST_B2C_RBD_VALUE = self.constantsUtils.LOWEST_B2C_RBD_VALUE
 		self.HIGHEST_B2B_RBD_VALUE = self.constantsUtils.HIGHEST_B2B_RBD_VALUE
 		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
+		
+		# Increase AU_COLUMN_LENGTH to accommodate GDS RBDs
+		self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
 
 		if inputData["latestCode"]:
 			code_version = self.rmdatabasehelper.getLatestCodeVersion()

@@ -1431,10 +1431,10 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return is_valid
 
-    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route):
+    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
-        if anchorFare == CONST_NA or pd.isna(anchorFare):
+        if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare):
             self.logger.info('Strategy Fare not available.')
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Strategy Fare NA'],
                          'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
@@ -1475,14 +1475,72 @@ class RMDatabaseHelper:
 }
 
         sortorder = -1  # desc
+        use_pipeline = False
 
         if int(offset) < 0:
-            query["TOTAL"] = {"$lt": int(anchorFare)}
+            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                pipeline = [
+                    {"$match": query},
+                    {
+                        "$addFields": {
+                            "fare_diff": {"$abs": {"$subtract": ["$TOTAL", float(anchorFare)]}}
+                        }
+                    },
+                    {"$sort": {"fare_diff": 1}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "closest_total": {"$first": "$TOTAL"},
+                            "all_docs": {"$push": "$$ROOT"}
+                        }
+                    },
+                     {"$unwind": "$all_docs"},
+                    {
+                        "$addFields": {
+                            "all_docs.closest_total": "$closest_total"
+                        }
+                    },
+                    {"$replaceRoot": {"newRoot": "$all_docs"}},
+                    {"$match": {"$expr": {"$lte": ["$TOTAL", "$$ROOT.closest_total"]}}},
+                    {"$sort": {"TOTAL": -1}}
+                ]
+                use_pipeline = True
+            else:
+                query["TOTAL"] = {"$lt": int(anchorFare)}
             sortorder = -1
+
         if int(offset) >= 0:
             anchorFare = float(anchorFare)
             if anchorFare > 0:
-                query["TOTAL"] = {"$gte": int(anchorFare)}
+                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                    pipeline = [
+                        {"$match": query},
+                        {
+                            "$addFields": {
+                                "fare_diff": {"$abs": {"$subtract": ["$TOTAL", anchorFare]}}
+                            }
+                        },
+                        {"$sort": {"fare_diff": 1}},
+                        {
+                            "$group": {
+                                "_id": None,
+                                "closest_total": {"$first": "$TOTAL"},
+                                "all_docs": {"$push": "$$ROOT"}
+                            }
+                        },
+                        {"$unwind": "$all_docs"},
+                        {
+                            "$addFields": {
+                                "all_docs.closest_total": "$closest_total"
+                            }
+                        },
+                        {"$replaceRoot": {"newRoot": "$all_docs"}},
+                        {"$match": {"$expr": {"$gte": ["$TOTAL", "$$ROOT.closest_total"]}}},
+                        {"$sort": {"TOTAL": 1}}
+                    ]
+                    use_pipeline = True
+                else:
+                    query["TOTAL"] = {"$gte": int(anchorFare)}
             else:
                 query["TOTAL"] = {"$gte": 1000000}
             sortorder = 1
@@ -1491,7 +1549,10 @@ class RMDatabaseHelper:
             self.logger.info(query)
 
         try:
-            results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
+            if use_pipeline:
+                results = list(self.db.fares.aggregate(pipeline))
+            else:
+                results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
