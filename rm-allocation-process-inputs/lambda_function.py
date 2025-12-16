@@ -120,17 +120,11 @@ def lambda_handler(event, context):
             if (status_df.iloc[0]['run_status'] == 'DELETED'):
                 logger.info(f"Skipping run: {run_id}")
                 log_time.send_time_log_db()
-                return {
-                    'statusCode': 200,
-                    'body': 'stopped'
-                }
+                continue 
             elif (status_df.iloc[0]['run_status'] in ['PAUSED', 'AUTO-PAUSED']):
                 insert_paused_run(run_id, content)
                 log_time.send_time_log_db()
-                return {
-                    'statusCode': 200,
-                    'body': 'paused'
-                }
+                continue
 
         # Route to the correct logic based on the message flags
         if is_sales_inventory:
@@ -210,7 +204,7 @@ def insert_paused_run( run_id, content):
         
         # Insert into MongoDB
         result = collection.insert_one(document)
-        logger.info(f"Successfully inserted paused run record with id: {result.inserted_id}")
+        logger.info(f"Successfully inserted paused run record with id: {run_id}")
         
     except Exception as e:
         logger.error(f"Error inserting paused run record: {str(e)}")

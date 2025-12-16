@@ -82,10 +82,6 @@ class Run_Paused_Runs:
         cursor = collection.find(
             {
                 'run_status': status,
-                '$or': [
-                    {'actual_end_time': {'$exists': False}},
-                    {'actual_end_time': None}
-                ],
                 'start_time': {
                     '$gte': one_day_ago_str,
                     '$lte': now_str
