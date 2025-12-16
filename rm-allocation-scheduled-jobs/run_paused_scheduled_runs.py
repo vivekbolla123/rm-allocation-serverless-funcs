@@ -54,15 +54,15 @@ class Run_Paused_Runs:
                         status = 'AUTO-PLAYED'
                         run_records = self.get_paused_run_records(run_id)
 
+                        self.update_run_status(run_id, status)
+                        self.add_operation_log(run_id, status, self.USERNAME)
+
                         if run_records:
                             is_sent = self.send_message_batches(run_records)
                             
                             if is_sent:
                                 self.logger.info(f"Sent all messages to SQS for run {run_id}")
                                 self.delete_paused_run_data(run_id)
-                                self.update_run_status(run_id, status)
-                                self.add_operation_log(run_id, status, self.USERNAME)
-                        
                         else:
                             self.logger.info(f"No records found for run {run_id}")
 
