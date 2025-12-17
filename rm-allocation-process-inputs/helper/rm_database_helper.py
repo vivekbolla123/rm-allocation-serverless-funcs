@@ -930,6 +930,14 @@ class RMDatabaseHelper:
         
         return df
 
+    def getMarketFareAdjustments(self, origin, destin):
+        try:
+            results = list(self.db.market_fare_adjustments.find({ "sector": origin + destin }))
+            return pd.DataFrame(results)
+        except Exception as e:
+            self.logger.error(f"Error getting Market fare adjustments: {e}")
+            return pd.DataFrame()
+
     def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
         
         try:
