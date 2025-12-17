@@ -68,8 +68,8 @@ class MarketFareService:
         try:
             mf_adjustments = self.rmdatabasehelper.getMarketFareAdjustments(currParams.origin, currParams.destin)
 
-            low_fare_adj = mf_adjustments[mf_adjustments['airline_code'] == lowAirlineCode]['adjustment']
-            hi_fare_adj = mf_adjustments[mf_adjustments['airline_code'] == hiAirlineCode]['adjustment']
+            low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
+            hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
 
             if not low_fare_adj.empty:
                 low_fare_adj_value = int(low_fare_adj.values[0])
