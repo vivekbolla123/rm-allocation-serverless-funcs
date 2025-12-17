@@ -1324,10 +1324,10 @@ class DynAlloc:
 		return totalCapacity, self.b2boverbookingflag
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount, bookload):
-		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and (int(totalCapacity) == int(adjustedCapacity)) and overBookingCount>0 and bookload < float(adjustedCapacity)
+		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and (int(totalCapacity) == int(adjustedCapacity)) and overBookingCount>0 and bookload <= float(adjustedCapacity)
 	
 	def canOverbookManual(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount, bookload):
-		return plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0 and bookload < float(adjustedCapacity)
+		return plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and int(adjustedCapacity) == int(totalCapacity) and overBookingCount>0 and bookload <= float(adjustedCapacity)
 	
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")
