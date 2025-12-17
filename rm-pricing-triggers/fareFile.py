@@ -51,7 +51,7 @@ class FareFiling:
                 
                 # Get unique sectors from saver table - THIS IS THE SOURCE OF TRUTH
                 saver_sectors = self.saver_data['sector'].unique().tolist()
-                self.logger.info(f"Found {len(saver_sectors)} unique sectors in saver table: {saver_sectors}")
+                print(f"Found {len(saver_sectors)} unique sectors in saver table: {saver_sectors}")
                 
                 # NEW: Check which sectors exist in qp_fares
                 self.existing_qp_sectors = self.pa_helper._identify_existing_qp_sectors(saver_sectors)
@@ -64,7 +64,7 @@ class FareFiling:
                 missing_sectors = [s for s in saver_sectors if s not in upsell_sectors]
                 
                 if missing_sectors:
-                    self.logger.info(f"Found {len(missing_sectors)} sectors in saver not in product_upsell, checking master")
+                    print(f"Found {len(missing_sectors)} sectors in saver not in product_upsell, checking master")
                     
                     # Collect product upsell master data
                     self.product_upsell_master_data = self.pa_helper.collect_upsell_master_data(self.isSaver)
@@ -90,7 +90,7 @@ class FareFiling:
                     
                     # Append master rows to product_upsell_data
                     self.product_upsell_data = pd.concat([self.product_upsell_data, master_rows], ignore_index=True)
-                    self.logger.info(f"Added {len(master_rows)} rows from master for missing sectors")
+                    print(f"Added {len(master_rows)} rows from master for missing sectors")
                 
                 # CRITICAL FIX: Filter product_upsell_data to ONLY include saver sectors
                 # This ensures we only process upsells for sectors that exist in saver table
@@ -103,7 +103,7 @@ class FareFiling:
                     
                     if original_count > filtered_count:
                         removed_sectors = original_count - filtered_count
-                        self.logger.info(f"Filtered out {removed_sectors} upsell rows for sectors not in saver table")
+                        print(f"Filtered out {removed_sectors} upsell rows for sectors not in saver table")
                     
                     if self.product_upsell_data.empty:
                         error_msg = f"No product upsell data found for saver sectors: {saver_sectors}"
@@ -149,6 +149,24 @@ class FareFiling:
             self.logger.error(f"Error in data collection: {str(e)}")
             self.logger.error(traceback.format_exc())
             raise
+        
+    def get_pos_from_saver(self, sector, rbd):
+        """Get POS value from saver table."""
+        try:
+            if self.isSaver:
+                fare_row = self.saver_data[
+                    (self.saver_data['sector'] == sector) & 
+                    (self.saver_data['rbd'] == rbd)
+                ]
+                if not fare_row.empty:
+                    pos = fare_row.iloc[0].get('pos', 'B')
+                    return pos if pd.notna(pos) and pos != '' else 'B'
+            
+            return 'B'
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting POS for {sector}-{rbd}: {str(e)}")
+            return 'B'
 
     def get_saver_fares(self, sector, rbd):
         """Get base saver fare for a given sector and RBD."""
@@ -264,7 +282,7 @@ class FareFiling:
             self.logger.warning(f"Invalid RBD range {rbd_start}-{rbd_end}: {str(e)}")
             return []
 
-    def generate_farebasis(self, rbd, rule_nbr, ow_rt, ndo, sector, route_type='D'):
+    def generate_farebasis(self, rbd, rule_nbr, ow_rt, ndo, sector, pos=None, route_type='D'):
         """Generate fare basis code following the 8-character format.
         
         Args:
@@ -273,6 +291,7 @@ class FareFiling:
             ow_rt: One way or return
             ndo: NDO value
             sector: Sector code (e.g., 'BOMDEL')
+            pos: POS value ('B' or 'W')
             route_type: Route type ('D' or 'I')
         """
         try:
@@ -288,11 +307,14 @@ class FareFiling:
             # NDO character (default 'X')
             ndo_char = ndo if pd.notna(ndo) and ndo else 'X'
             
-            # NEW: Determine 6th character based on sector existence in qp_fares
-            # Use 'W' for new sectors, 'B' for existing sectors
-            sixth_char = 'B' if sector in self.existing_qp_sectors else 'W'
+            # Determine 6th character (POS)
+            if pos is not None and pos != '':
+                sixth_char = pos
+            else:
+                # Fallback to existing logic
+                sixth_char = 'B' if sector in self.existing_qp_sectors else 'W'
             
-            # Format: RBD(2) + OW/RT(1) + '7' + Letter(1) + B/W(1) + Route(1) + NDO(1)
+            # Format: RBD(2) + OW/RT(1) + '7' + Letter(1) + POS(1) + Route(1) + NDO(1)
             farebasis = f"{rbd}{ow_rt_char}7{letter}{sixth_char}{route_char}{ndo_char}"
             
             return farebasis
@@ -349,11 +371,22 @@ class FareFiling:
                         self.logger.warning(f"No saver fare found for {sector}-{rbd}")
                         continue
                     
+                    # Get POS from saver table
+                    pos_value = None
+                    if self.isSaver:
+                        pos_value = self.get_pos_from_saver(sector, rbd)
+                    
                     # Extract base fare from saver all-in fare
                     saver_base_fare = self.calculate_all_in_fare(saver_allin_fare, origin, destination, ftype="allin")
                     
                     # Process each upsell row (different footnotes/OW_RT combinations)
                     for _, upsell_row in upsell_rows.iterrows():
+                        # Get POS from upsell if not from saver
+                        if pos_value is None:
+                            pos_value = upsell_row.get('pos', 'B')
+                            if pd.isna(pos_value) or pos_value == '':
+                                pos_value = 'B'
+                        
                         # Determine if we need base or all-in fare for upsell calculation
                         base_all_in = upsell_row.get('base_all_in', 'All-in')
                         if pd.isna(base_all_in) or base_all_in == '':
@@ -385,7 +418,7 @@ class FareFiling:
                             final_base_fare = round(upsold_fare)
                         else:
                             # Upsold fare is all-in fare, extract base fare
-                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="base"))
+                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
                         
                         # Get other parameters
                         ow_rt = upsell_row.get('ow_rt', 'O')
@@ -427,8 +460,8 @@ class FareFiling:
                             else:
                                 sort_price = float(sort_price)
                         
-                        # Generate farebasis - NOW PASSING SECTOR
-                        farebasis = self.generate_farebasis(rbd, rule_nbr, ow_rt, ndo, sector, route_type='D')
+                        # Generate farebasis - NOW PASSING POS
+                        farebasis = self.generate_farebasis(rbd, rule_nbr, ow_rt, ndo, sector, pos=pos_value, route_type='D')
                         
                         # Determine actual origin, destination and fare direction based on QP fares convention
                         actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
@@ -476,8 +509,8 @@ class FareFiling:
         except Exception as e:
             self.logger.error(f"Error calculating product upsells: {str(e)}")
             self.logger.error(traceback.format_exc())
-            raise
-
+            raise    
+        
     def generate_saver_output(self):
         """Generate output rows for saver fares (rule 1001 and 2001)."""
         try:
@@ -492,6 +525,11 @@ class FareFiling:
                 sector = saver_row['sector']
                 rbd = saver_row['rbd']
                 allin_fare = saver_row['fare']  # This is ALL-IN FARE from saver table
+                
+                # Get POS from saver
+                pos_value = saver_row.get('pos', 'B')
+                if pd.isna(pos_value) or pos_value == '':
+                    pos_value = 'B'
                 
                 # Extract base fare from all-in fare
                 origin = sector[:3]
@@ -514,8 +552,8 @@ class FareFiling:
                 
                 # Generate fare records for each applicable rule
                 for rule_nbr in rules_to_generate:
-                    # Generate farebasis - NOW PASSING SECTOR
-                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', 'X', sector, route_type='D')
+                    # Generate farebasis - NOW PASSING POS
+                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', 'X', sector, pos=pos_value, route_type='D')
                     
                     # Create output row matching qp_fares schema
                     output_row = {
@@ -550,7 +588,7 @@ class FareFiling:
                     
                     saver_rows.append(output_row)
             
-            self.logger.info(f"Generated {len(saver_rows)} saver fare records")
+            print(f"Generated {len(saver_rows)} saver fare records")
             return saver_rows
             
         except Exception as e:
@@ -614,14 +652,14 @@ class FareFiling:
             # Log summary
             type_desc = "Saver Revision" if self.isSaver else "Product Upsell"
             
-            self.logger.info(f"\n{'='*60}")
-            self.logger.info(f"Fare Filing Complete - {type_desc}")
-            self.logger.info(f"{'='*60}")
-            self.logger.info(f"Total fares generated: {len(fare_ladder)}")
-            self.logger.info(f"Unique sectors: {len(sectors_list)} - {sectors_list}")
-            self.logger.info(f"Unique rule numbers: {fare_ladder['Rule_Nbr'].nunique()}")
-            self.logger.info(f"Output saved to: {table_name}")
-            self.logger.info(f"Run ID: {self.run_id}")
+            print(f"\n{'='*60}")
+            print(f"Fare Filing Complete - {type_desc}")
+            print(f"{'='*60}")
+            print(f"Total fares generated: {len(fare_ladder)}")
+            print(f"Unique sectors: {len(sectors_list)} - {sectors_list}")
+            print(f"Unique rule numbers: {fare_ladder['Rule_Nbr'].nunique()}")
+            print(f"Output saved to: {table_name}")
+            print(f"Run ID: {self.run_id}")
             
             return {
                 'fare_ladder': fare_ladder,
