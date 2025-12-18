@@ -41,6 +41,7 @@ public interface TableNamesConstants {
     public static final String GROUP_POTENTIAL_SEATS_TABLE_NAME = "group_potential_seats";
     public static final String MARKET_LIST_SALESINV_TABLE_NAME = "market_list_salesinv";
     public static final String MARKET_LIST_SALESINV_ADHOC_TABLE_NAME = "market_list_salesinv_adhoc";
+    public static final String MARKET_FARE_ADJUSTMENTS_TABLE_NAME = "market_fare_adjustments";
 
 
 }
