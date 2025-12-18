@@ -20,7 +20,7 @@ class RBDAllocations:
     def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
-        
+        plfthreshold = plfthreshold.replace('%','')
         # Calculate overbooking seats (if any)
         overBookingSeats = totalCapacity - baseCapacity if adjustedCapacity is not None else 0
         
@@ -155,6 +155,7 @@ class RBDAllocations:
         if hard_anchor_fare !="" and  pd.notna(hard_anchor_fare) and hard_anchor_fare!=0 and hard_anchor_fare !="NA" :
             self.logger.info("Hard Anchor Fare detected. Skipping Spoilage Reduction override.")
             try:
+                plfthreshold = int(plfthreshold)
                 # 1. Find the RBD closest to the last seven sold average fare
                 B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(hard_anchor_fare)
                 higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] > 0]
@@ -227,7 +228,7 @@ class RBDAllocations:
                             au_class_index_to_update = i + 1
                             if i == target_rbd_df_index:
                                 # At the target RBD, dump 97% of the remaining seats
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(au_at_target_rbd))
+                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_target_rbd, totalCapacity)))
                             else:
                                 au_at_next_rbds = au_at_next_rbds+other_rbd_alloc_value
                                 # For all subsequent (more expensive) RBDs, open up fully
