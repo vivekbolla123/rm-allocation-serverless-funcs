@@ -20,7 +20,9 @@ class RBDAllocations:
     def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
-        plfthreshold = plfthreshold.replace('%','')
+        
+        if isinstance(plfthreshold, str):
+            plfthreshold = plfthreshold.replace('%','')
         # Calculate overbooking seats (if any)
         overBookingSeats = totalCapacity - baseCapacity if adjustedCapacity is not None else 0
         
