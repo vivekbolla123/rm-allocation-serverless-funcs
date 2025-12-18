@@ -42,11 +42,16 @@ class LadderGen:
         self.min_fare_threshold_domestic = lambda fare: max(0.02 * fare, 50)
         self.min_fare_threshold_international = lambda fare: 0.02 * fare
         self.min_distinct_fares_required = 150
-        self.ladder_bins = 58
+        self.ladder_bins_b2c = 58
+        self.ladder_bins_b2b = 16
         self.total_ladder_points = 64
         self.COVERAGE_PARAMETER = self.constants.COVERAGE_PARAMETER
-        self.UP = self.constants.UP
+        self.UP_B2C = self.constants.UP_B2C
+        self.UP_B2B = self.constants.UP_B2B
         self.MARKET_FLAG = self.constants.MARKET_FLAG
+        self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD
+        self.B2B_CHANNEL = "B2B"
+        self.B2C_CHANNEL = "B2C"
         
         # Data containers
         self.tax_master_dom_data = None
@@ -169,67 +174,78 @@ class LadderGen:
         
         return filtered_data
 
-    def get_historical_booking_data(self):
+    def get_historical_booking_data(self, channel):
         """Get booking data with priority logic."""
         try:
             current_date = datetime.now().date()
+            if channel == self.B2C_CHANNEL:
+                # Priority 1: Last 30 days
+                start_date_30 = current_date - timedelta(days=30)
+                combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector, channel)
+                combined_30 = self.remove_outliers(combined_30, period_label="30day")
+                distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
+                
+                if distinct_fares_30 >= self.min_distinct_fares_required:
+                    return combined_30, "Last 30 days"
+                
+                # Priority 2: Last 60 days
+                start_date_60 = current_date - timedelta(days=60)
+                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
+                combined_60 = self.remove_outliers(combined_60, period_label="60day")
+                distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
+                
+                if distinct_fares_60 >= self.min_distinct_fares_required:
+                    return combined_60, "Last 60 days"
+                
+                # Priority 3: Previous year same period
+                prev_year_current = current_date.replace(year=current_date.year - 1)
+                prev_year_start = prev_year_current - timedelta(days=30)
+                combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector, channel)
+                combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
+                distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
+                
+                if distinct_fares_prev >= self.min_distinct_fares_required:
+                    return combined_prev, "Previous year same period"
+                
+                self.failure_reason = f"Insufficient distinct fares across all periods. Found: 30-day: {distinct_fares_30}, 60-day: {distinct_fares_60}, Previous year: {distinct_fares_prev}. Required: {self.min_distinct_fares_required} for Channel:{channel}"
+                self.logger.warning(self.failure_reason)
+                return pd.DataFrame(), "Insufficient distinct fares"
             
-            # Priority 1: Last 30 days
-            start_date_30 = current_date - timedelta(days=30)
-            combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector)
-            combined_30 = self.remove_outliers(combined_30, period_label="30day")
-            distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
-            
-            if distinct_fares_30 >= self.min_distinct_fares_required:
-                return combined_30, "Last 30 days"
-            
-            # Priority 2: Last 60 days
-            start_date_60 = current_date - timedelta(days=60)
-            combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector)
-            combined_60 = self.remove_outliers(combined_60, period_label="60day")
-            distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
-            
-            if distinct_fares_60 >= self.min_distinct_fares_required:
+            else:
+                # Priority 2: Last 60 days
+                start_date_60 = current_date - timedelta(days=60)
+                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
+                combined_60 = self.remove_outliers(combined_60, period_label="60day")
                 return combined_60, "Last 60 days"
-            
-            # Priority 3: Previous year same period
-            prev_year_current = current_date.replace(year=current_date.year - 1)
-            prev_year_start = prev_year_current - timedelta(days=30)
-            combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector)
-            combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
-            distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
-            
-            if distinct_fares_prev >= self.min_distinct_fares_required:
-                return combined_prev, "Previous year same period"
-            
-            self.failure_reason = f"Insufficient distinct fares across all periods. Found: 30-day: {distinct_fares_30}, 60-day: {distinct_fares_60}, Previous year: {distinct_fares_prev}. Required: {self.min_distinct_fares_required}"
-            self.logger.warning(self.failure_reason)
-            return pd.DataFrame(), "Insufficient distinct fares"
             
         except Exception as e:
             self.logger.error(f"Error in booking data collection: {str(e)}")
             self.failure_reason = f"Booking data collection failed: {str(e)}"
             raise
 
-    def create_fare_bins(self, booking_data):
+    def create_fare_bins(self, booking_data, channel):
         """Create 58 equal bins and calculate mean fares."""
         try:
+            if(channel == self.B2C_CHANNEL):
+                ladderBins = self.ladder_bins_b2c
+            else:
+                ladderBins = self.ladder_bins_b2b
             if booking_data.empty:
                 self.failure_reason = "Empty booking data provided for fare bin creation"
                 return []
             
             sorted_fares = booking_data['Fare'].sort_values().values
-            if len(sorted_fares) < self.ladder_bins:
-                self.failure_reason = f"Insufficient data points for binning. Found: {len(sorted_fares)}, Required: {self.ladder_bins}"
+            if len(sorted_fares) < ladderBins:
+                self.failure_reason = f"Insufficient data points for binning. Found: {len(sorted_fares)}, Required: {ladderBins}"
                 return []
             
-            bin_size = len(sorted_fares) // self.ladder_bins
-            remainder = len(sorted_fares) % self.ladder_bins
+            bin_size = len(sorted_fares) // ladderBins
+            remainder = len(sorted_fares) % ladderBins
             
             fare_points = []
             start_idx = 0
             
-            for i in range(self.ladder_bins):
+            for i in range(ladderBins):
                 current_bin_size = bin_size + (1 if i < remainder else 0)
                 end_idx = start_idx + current_bin_size
                 
@@ -239,8 +255,8 @@ class LadderGen:
                 
                 start_idx = end_idx
             
-            if len(fare_points) != self.ladder_bins:
-                self.failure_reason = f"Fare bin creation failed. Expected {self.ladder_bins} bins, got {len(fare_points)}"
+            if len(fare_points) != ladderBins:
+                self.failure_reason = f"Fare bin creation failed. Expected {ladderBins} bins, got {len(fare_points)}"
                 return []
             
             return fare_points
@@ -430,24 +446,14 @@ class LadderGen:
             # Start with gross fare and subtract DUF if applicable
             adjusted_gross_fare = gross_fare
             
-            # Special handling for DUF sectors - subtract DUF value first
             if destination in self.constants.PRICING_DUF_SECTORS:
                 duf_value = float(self.constants.PRICING_DUF_SECTORS[destination])
                 adjusted_gross_fare -= duf_value
-            
-            # For base fare calculation, use original GST rate (don't apply GST exemption here)
-            # This is because we need to reverse the original gross fare calculation which might have used 0 GST
-            # But for base fare calculation, we use the original GST rate from tax master
-            
-            # Check if this was a GST exempt sector in gross fare calculation
+                
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                # For GST exempt sectors, the gross fare was calculated with GST=0
-                # So reverse calculation: Base Fare = (Gross Fare - DUF - Other Taxes) / 1
-                # Since GST components were 0 in gross fare calculation
                 other_taxes = asf + psf + udf_df + rcs + cute
                 base_fare = adjusted_gross_fare - other_taxes
             else:
-                # Standard reverse calculation: Base Fare = [Gross Fare - GST×(RCS+CUTE) - RCS - Other Taxes] / (1 + GST)
                 gst_on_taxes = gst_rate * (rcs + cute)
                 other_taxes = asf + psf + udf_df + cute
                 base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
@@ -505,7 +511,7 @@ class LadderGen:
             self.logger.error(f"Error finding valid market fare: {str(e)}")
             return None
 
-    def calculate_buffer_fares(self, core_fares, booking_data):
+    def calculate_buffer_fares_b2c(self, core_fares, booking_data):
         """Calculate buffer fares f1-f3 and f62-f64."""
         try:
             if not core_fares or booking_data.empty:
@@ -520,8 +526,8 @@ class LadderGen:
             origin = self.sector[:3]
             destination = self.sector[3:]
             
-            # Data is already filtered for B2C and instances >= 2
-            b2c_data = self.market_fares_data.copy()
+            # Filter for B2C data
+            b2c_data = self.market_fares_data[self.market_fares_data['channel'] == 'B2C'].copy()
             
             f4 = core_fares[0]
             f61 = core_fares[-1]
@@ -551,6 +557,7 @@ class LadderGen:
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
             
+            # Calculate f64 (highest fare)
             if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
                 f64 = max(max_booking_fare, valid_max_market_fare)
                 self.logger.info(f"f64 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f64:.2f}")
@@ -558,41 +565,44 @@ class LadderGen:
                 f64 = max_booking_fare
                 self.logger.info(f"f64 calculation: using max booking fare = {f64:.2f} (market flag={self.MARKET_FLAG})")
 
-            start_index = (64 - self.UP) - 4
+            # Calculate higher buffer fares using UP_B2C
+            # For UP_B2C=5: Generate f60, f61, f62, f63, f64
+            # Start from f(64-UP_B2C) = f59
+            start_index = (64 - self.UP_B2C) - 4  # f59 is at index 55 in core_fares (f4-f61)
             
             if start_index < 0 or start_index >= len(core_fares):
-                self.logger.error(f"Invalid start index {start_index} for UP={self.UP}")
-                self.failure_reason = f"Invalid UP parameter: {self.UP}"
+                self.logger.error(f"Invalid start index {start_index} for UP_B2C={self.UP_B2C}")
+                self.failure_reason = f"Invalid UP_B2C parameter: {self.UP_B2C}"
                 return []
             
-            start_fare = core_fares[start_index]
-            upsell_factor = (f64 / start_fare) ** (1 / self.UP) - 1
+            start_fare = core_fares[start_index]  # f59
+            upsell_factor = (f64 / start_fare) ** (1 / self.UP_B2C) - 1
             
-            self.logger.info(f"Higher buffer calculation: start_fare=f{64-self.UP}={start_fare:.2f}, "
-                           f"f64={f64:.2f}, UP={self.UP}, upsell_factor={upsell_factor:.6f}")
+            self.logger.info(f"Higher buffer calculation: start_fare=f{64-self.UP_B2C}={start_fare:.2f}, "
+                f"f64={f64:.2f}, UP_B2C={self.UP_B2C}, upsell_factor={upsell_factor:.6f}")
             
+            # Generate f60, f61, f62, f63, f64 (5 fares total)
             higher_ladder_fares = []
             current_fare = start_fare
             
-            for i in range(self.UP):
+            for i in range(self.UP_B2C):
                 current_fare = current_fare * (1 + upsell_factor)
-                fare_number = (64 - self.UP) + i + 1
+                fare_number = (64 - self.UP_B2C) + i + 1
                 higher_ladder_fares.append(current_fare)
                 self.logger.info(f"f{fare_number} = {current_fare:.2f}")
             
-            overlap_count = max(0, (64 - self.UP + self.UP) - 62 + 1)
-            non_overlap_count = self.UP - overlap_count
+            overlap_count = 2  # f60 and f61
             
-            if non_overlap_count > 0:
-                core_fares = core_fares[:-non_overlap_count]
-                core_fares.extend(higher_ladder_fares[:non_overlap_count])
-                higher_buffer = higher_ladder_fares[non_overlap_count:] + [f64]
-            else:
-                higher_buffer = higher_ladder_fares[-3:] + [f64]
+            # Remove the overlapping fares from core_fares
+            core_fares = core_fares[:-overlap_count]  # Remove last 2 fares (f60, f61)
             
-            complete_ladder = [f1, f2, f3] + core_fares + higher_buffer
+            # Complete ladder: [f1, f2, f3] + core_fares[f4-f59] + higher_ladder_fares[f60-f64]
+            complete_ladder = [f1, f2, f3] + core_fares + higher_ladder_fares
             
-            self.logger.info(f"Complete ladder: {len(complete_ladder)} fares (f1-f64)")
+            self.logger.info(f"Complete B2C ladder: {len(complete_ladder)} fares (f1-f64)")
+            self.logger.info(f"  Lower buffer: f1, f2, f3")
+            self.logger.info(f"  Core: f4-f59 ({len(core_fares)} fares)")
+            self.logger.info(f"  Higher buffer: f60-f64 ({len(higher_ladder_fares)} fares)")
             
             return complete_ladder
             
@@ -601,30 +611,148 @@ class LadderGen:
             self.failure_reason = f"Buffer fare calculation failed: {str(e)}"
             raise
         
+    def calculate_buffer_fares_b2b(self, core_fares, booking_data, b2c_min):
+        """Calculate buffer fares f1-f2 and f19-f20 for B2B ladder."""
+        try:
+            if not core_fares or booking_data.empty:
+                self.failure_reason = "Missing core fares or booking data"
+                return []
+            
+            if self.market_fares_data is None or self.market_fares_data.empty:
+                self.failure_reason = "No market fares data available"
+                return []
+            
+            # Extract origin and destination from sector
+            origin = self.sector[:3]
+            destination = self.sector[3:]
+            
+            # Filter for B2B data
+            b2b_data = self.market_fares_data[self.market_fares_data['channel'] == 'B2B'].copy()
+            
+            f3 = core_fares[0]  # Lowest bin fare
+            f18 = core_fares[-1]  # Highest bin fare
+            
+            min_booking_fare = booking_data['Fare'].min()
+            max_booking_fare = booking_data['Fare'].max()
+            
+            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
+            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
+            
+            # Find valid B2B market fares
+            valid_min_market_fare = self._find_valid_market_fare(b2b_data, 'min', origin, destination)
+            valid_max_market_fare = self._find_valid_market_fare(b2b_data, 'max', origin, destination)
+            
+            # Calculate lower buffer fares (f1, f2)
+            # Case 1: If XQP fare exists that is < f3 AND satisfies constraint (XQP > B2C_min + threshold)
+            if (valid_min_market_fare is not None and 
+                valid_min_market_fare < f3 and 
+                valid_min_market_fare > b2c_min + self.B2B_THRESHOLD):
+                f2 = valid_min_market_fare
+                f1 = f2 - (0.02 * f2)
+                self.logger.info(f"Lower buffer: Using B2B market fare f2={f2:.2f}, f1={f1:.2f}")
+            
+            # Case 2: If f3 < B2C(V9) - threshold
+            elif f3 < (b2c_min - self.B2B_THRESHOLD):
+                f2 = 0.98 * f3
+                f1 = 0.96 * f2
+                self.logger.info(f"Lower buffer: f3 < B2C-threshold, using multiplicative f2={f2:.2f}, f1={f1:.2f}")
+            
+            # Case 3: No XQP fare satisfying constraints
+            else:
+                f1 = b2c_min - self.B2B_THRESHOLD
+                f2 = (f1 + f3) / 2
+                self.logger.info(f"Lower buffer: No valid XQP fare, f1={f1:.2f}, f2={f2:.2f}")
+            
+            # Calculate f20 (highest buffer fare)
+            if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
+                f20 = max(max_booking_fare, valid_max_market_fare)
+                self.logger.info(f"f20 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f20:.2f}")
+            else:
+                f20 = max_booking_fare
+                self.logger.info(f"f20 calculation: using max booking fare = {f20:.2f} (market flag={self.MARKET_FLAG})")
+            
+            # Calculate higher buffer fares using UP_B2B
+            # For UP_B2B=5: Generate f16, f17, f18, f19, f20
+            # Start from f(20-UP_B2B) = f15
+            start_index = (20 - self.UP_B2B) - 3  # f15 is at index 12 in core_fares (f3-f18)
+            
+            if start_index < 0 or start_index >= len(core_fares):
+                self.logger.error(f"Invalid start index {start_index} for UP_B2B={self.UP_B2B}")
+                self.failure_reason = f"Invalid UP_B2B parameter: {self.UP_B2B}"
+                return []
+            
+            start_fare = core_fares[start_index]  # f15
+            upsell_factor = (f20 / start_fare) ** (1 / self.UP_B2B) - 1
+            
+            self.logger.info(f"Higher buffer calculation: start_fare=f{20-self.UP_B2B}={start_fare:.2f}, "
+                f"f20={f20:.2f}, UP_B2B={self.UP_B2B}, upsell_factor={upsell_factor:.6f}")
+            
+            # Generate f16, f17, f18, f19, f20 (5 fares total)
+            higher_ladder_fares = []
+            current_fare = start_fare
+            
+            for i in range(self.UP_B2B):
+                current_fare = current_fare * (1 + upsell_factor)
+                fare_number = (20 - self.UP_B2B) + i + 1
+                higher_ladder_fares.append(current_fare)
+                self.logger.info(f"f{fare_number} = {current_fare:.2f}")
+            
+            # The last fare in higher_ladder_fares IS f20, so don't append it again
+            # higher_ladder_fares = [f16, f17, f18, f19, f20]
+            
+            # Calculate how many fares overlap with core
+            # Core fares are f3-f18 (16 fares)
+            # We generate f16-f20 (5 fares)
+            # f16, f17, f18 overlap with core
+            overlap_count = 3  # f16, f17, f18
+            
+            # Remove the overlapping fares from core_fares
+            core_fares = core_fares[:-overlap_count]  # Remove last 3 fares (f16, f17, f18)
+            
+            # Complete B2B ladder: [f1, f2] + core_fares[f3-f15] + higher_ladder_fares[f16-f20]
+            complete_ladder = [f1, f2] + core_fares + higher_ladder_fares
+            
+            self.logger.info(f"Complete B2B ladder: {len(complete_ladder)} fares (f1-f20)")
+            self.logger.info(f"  Lower buffer: f1, f2")
+            self.logger.info(f"  Core: f3-f15 ({len(core_fares)} fares)")
+            self.logger.info(f"  Higher buffer: f16-f20 ({len(higher_ladder_fares)} fares)")
+            self.logger.info(f"B2B-B2C constraint: f1={f1:.2f} > B2C_min={b2c_min:.2f} + {self.B2B_THRESHOLD} = {b2c_min + self.B2B_THRESHOLD:.2f}")
+            
+            return complete_ladder
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating B2B buffer fares: {str(e)}")
+            self.failure_reason = f"B2B buffer fare calculation failed: {str(e)}"
+            raise
+    
     def generate_saver_ladder(self):
         """Main ladder generation method."""
         try:
-            booking_data, data_period = self.get_historical_booking_data()
-            if booking_data.empty:
+            booking_data_b2c, data_period = self.get_historical_booking_data(self.B2C_CHANNEL)
+            booking_data_b2b, data_period = self.get_historical_booking_data(self.B2B_CHANNEL)
+            if booking_data_b2c.empty or booking_data_b2b.empty:
                 if not self.failure_reason:
                     self.failure_reason = "No booking data available for ladder generation"
                 return None
             
-            fare_points = self.create_fare_bins(booking_data)
-            if not fare_points:
+            fare_points_b2c = self.create_fare_bins(booking_data_b2c, self.B2C_CHANNEL)
+            fare_points_b2b = self.create_fare_bins(booking_data_b2b, self.B2B_CHANNEL)
+            if not fare_points_b2c or not fare_points_b2b:
                 if not self.failure_reason:
                     self.failure_reason = "Failed to create fare bins"
                 return None
             
-            adjusted_fare_points = self.apply_minimum_threshold(fare_points)
-            if not adjusted_fare_points:
+            adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c)
+            adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b)
+            if not adjusted_fare_points_b2c or not adjusted_fare_points_b2b:
                 if not self.failure_reason:
                     self.failure_reason = "Failed to apply minimum threshold"
                 return None
                 
-            complete_ladder = self.calculate_buffer_fares(adjusted_fare_points, booking_data)
+            complete_ladder_b2c = self.calculate_buffer_fares_b2c(adjusted_fare_points_b2c, booking_data_b2c)
+            complete_ladder_b2b = self.calculate_buffer_fares_b2b(adjusted_fare_points_b2b, booking_data_b2b, min(complete_ladder_b2c))
             
-            if not complete_ladder:
+            if not complete_ladder_b2c or not complete_ladder_b2b:
                 if not self.failure_reason:
                     self.failure_reason = "Failed to calculate buffer fares"
                 return None
@@ -633,9 +761,12 @@ class LadderGen:
                 'sector': self.sector,
                 'route': self.route,
                 'data_period': data_period,
-                'total_booking_records': len(booking_data),
-                'distinct_fares_count': len(booking_data['Fare'].unique()),
-                'ladder_fares': complete_ladder,
+                'total_booking_records_b2c': len(booking_data_b2c),
+                'total_booking_records_b2b': len(booking_data_b2b),
+                'distinct_fares_count_b2c': len(booking_data_b2c['Fare'].unique()),
+                'distinct_fares_count_b2b': len(booking_data_b2b['Fare'].unique()),
+                'ladder_fares_b2c': complete_ladder_b2c,
+                'ladder_fares_b2b': complete_ladder_b2b,
                 'generation_timestamp': datetime.now()
             }
             
@@ -712,26 +843,33 @@ class LadderGen:
                 }
             
             route_desc = "Domestic" if self.route == 'D' else "International"
-            print(f"Ladder generation completed: {self.sector} ({route_desc})")
+            self.logger.info(f"Ladder generation completed: {self.sector} ({route_desc})")
             
             return {
                 'ladder_result': ladder_result,
                 'file_path': file_path,
-                'run_id': run_id,  # Return the save_run_id for output table reference
+                'run_id': run_id,
                 'route': self.route,
                 'route_description': route_desc,
                 'sector': self.sector,
                 'status': 'SUCCESS',
                 'summary': {
-                    'total_ladder_points': len(ladder_result['ladder_fares']),
-                    'min_fare': round(min(ladder_result['ladder_fares']), 2),
-                    'max_fare': round(max(ladder_result['ladder_fares']), 2),
+                    'b2c_total_ladder_points': len(ladder_result['ladder_fares_b2c']),
+                    'b2c_min_fare': round(min(ladder_result['ladder_fares_b2c']), 2),
+                    'b2c_max_fare': round(max(ladder_result['ladder_fares_b2c']), 2),
+                    'b2b_total_ladder_points': len(ladder_result['ladder_fares_b2b']),
+                    'b2b_min_fare': round(min(ladder_result['ladder_fares_b2b']), 2),
+                    'b2b_max_fare': round(max(ladder_result['ladder_fares_b2b']), 2),
                     'data_period': ladder_result['data_period'],
-                    'booking_records_used': ladder_result['total_booking_records'],
-                    'distinct_fares_analyzed': ladder_result['distinct_fares_count'],
+                    'booking_records_used_b2c': ladder_result['total_booking_records_b2c'],
+                    'booking_records_used_b2b': ladder_result['total_booking_records_b2b'],
+                    'distinct_fares_analyzed_b2c': ladder_result['distinct_fares_count_b2c'],
+                    'distinct_fares_analyzed_b2b': ladder_result['distinct_fares_count_b2b'],
                     'generation_time': ladder_result['generation_timestamp'].strftime('%Y-%m-%d %H:%M:%S'),
-                    'core_fare_points': 58,
-                    'buffer_fare_points': 6
+                    'b2c_core_fare_points': 58,
+                    'b2c_buffer_fare_points': 6,
+                    'b2b_core_fare_points': 16,
+                    'b2b_buffer_fare_points': 4
                 }
             }
             
