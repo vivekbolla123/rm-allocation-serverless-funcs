@@ -22,3 +22,5 @@ def format_saver_file(df: pd.DataFrame) -> pd.DataFrame:
     mapped = mapped.mask(isna)
 
     df['rbd'] = mapped
+    
+    return df
