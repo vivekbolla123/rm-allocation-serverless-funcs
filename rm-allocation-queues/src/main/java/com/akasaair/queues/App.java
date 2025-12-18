@@ -3354,6 +3354,10 @@ public class App implements CommandLineRunner {
             return value;
         }
 
+        if (value.toLowerCase().contains("e")) {
+            return value;
+        }
+
         try {
             double d = Double.parseDouble(value);
             // If it's a whole number, return as int
