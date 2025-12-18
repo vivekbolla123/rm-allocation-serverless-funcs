@@ -64,6 +64,23 @@ class MarketFareService:
                     hardfare = hardmktFareRange['gross_fare'].iloc[-1]
 
             isMarketFareAvailable = True
+
+        try:
+            mf_adjustments = self.rmdatabasehelper.getMarketFareAdjustments(currParams.origin, currParams.destin)
+
+            low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
+            hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
+
+            if not low_fare_adj.empty:
+                low_fare_adj_value = int(low_fare_adj.values[0])
+                lowFare += low_fare_adj_value
+
+            if not hi_fare_adj.empty:
+                hi_fare_adj_value = int(hi_fare_adj.values[0])
+                hiFare += hi_fare_adj_value
+
+        except Exception as e:
+            self.logger.info(f"Market Fare Adjustment not applied due to reason {e}")
         
         return int(lowFare),int(hiFare),lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare,lowmktFile,himktFile
 
