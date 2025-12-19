@@ -166,7 +166,7 @@ class RBDAllocations:
                 opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
 
                 # Ensure the system isn't already opening at a price point higher than the target
-                if opening_rbd_df_index > target_rbd_df_index and bookedload<plfthreshold:
+                if opening_rbd_df_index == target_rbd_df_index and bookedload<plfthreshold:
                     self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
             
                     # Calculate 97% of total capacity for the target RBD
