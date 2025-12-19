@@ -196,7 +196,7 @@ class RBDAllocations:
                             # For all other higher RBDs: open up fully
                             currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
                     
-                elif bookedload<plfthreshold:
+                elif opening_rbd_df_index < target_rbd_df_index and bookedload<plfthreshold:
                     # 2. Determine the number of seats allocated normally *before* the target RBD
                     allocated_seats_before_target = 0
                     if target_rbd_df_index > 0:
