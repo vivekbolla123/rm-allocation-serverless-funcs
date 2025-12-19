@@ -331,6 +331,9 @@ class FareFiling:
             # First, get existing sort prices from QP fares for rules 5001, 5002, 5006
             existing_sort_prices = self.pa_helper._get_existing_sort_prices()
             
+            # Track which primary rules were processed (for companion generation)
+            primary_rules_processed = {}  # Key: (sector, rbd, ow_rt, footnote, ndo, pos), Value: {rule: fare}
+            
             # Get unique combinations of sector, rule_nbr, and RBD range
             unique_combos = self.product_upsell_data.groupby(
                 ['sector', 'rule_nbr', 'rbd_start', 'rbd_end']
@@ -342,7 +345,11 @@ class FareFiling:
                 rbd_start = combo_row['rbd_start']
                 rbd_end = combo_row['rbd_end']
                 
-                # Get all upsell rows for this combination (may have different footnotes/OW_RT)
+                # Skip companion rules in main loop - process them separately later
+                if rule_nbr in ['5002', '5006']:
+                    continue
+                
+                # Get all upsell rows for this combination
                 upsell_rows = self.product_upsell_data[
                     (self.product_upsell_data['sector'] == sector) &
                     (self.product_upsell_data['rule_nbr'] == rule_nbr) &
@@ -364,7 +371,6 @@ class FareFiling:
                 # Process each RBD in the range
                 for rbd in rbd_range:
                     # Get saver fare for this RBD
-                    # NOTE: Saver fares are ALL-IN fares
                     saver_allin_fare = self.get_saver_fares(sector, rbd)
                     
                     if saver_allin_fare is None:
@@ -433,40 +439,41 @@ class FareFiling:
                         if pd.isna(footnote):
                             footnote = ''
                         
-                        # UPDATED Sort price logic
+                        # Store fare for companion rule generation (1002 -> 5002, 1006 -> 5006)
+                        if rule_nbr in ['1002', '1006']:
+                            key = (sector, rbd, ow_rt, footnote, ndo, pos_value)
+                            if key not in primary_rules_processed:
+                                primary_rules_processed[key] = {}
+                            primary_rules_processed[key][rule_nbr] = final_base_fare
+                        
+                        # Sort price logic
                         sort_price = upsell_row.get('sort_price')
                         
                         if rule_nbr in ['5001', '5002', '5006']:
                             if pd.notna(sort_price) and sort_price != '':
-                                # Use provided sort price
                                 sort_price = float(sort_price)
                             else:
-                                # Check if sector exists in QP fares
                                 if sector in self.existing_qp_sectors:
-                                    # Get existing sort price from QP fares
                                     existing_price = existing_sort_prices.get(f"{sector}_{rbd}_{rule_nbr}", None)
                                     if existing_price is not None:
                                         sort_price = existing_price
                                     else:
-                                        # Sector exists but no sort price found, use fare amount
                                         sort_price = final_base_fare
                                 else:
-                                    # Sector doesn't exist in QP ladder, use fare amount
                                     sort_price = final_base_fare
                         else:
-                            # For all other rules, sort price = fare amount if not provided
                             if pd.isna(sort_price) or sort_price == '':
                                 sort_price = final_base_fare
                             else:
                                 sort_price = float(sort_price)
                         
-                        # Generate farebasis - NOW PASSING POS
+                        # Generate farebasis
                         farebasis = self.generate_farebasis(rbd, rule_nbr, ow_rt, ndo, sector, pos=pos_value, route_type='D')
                         
-                        # Determine actual origin, destination and fare direction based on QP fares convention
+                        # Determine actual origin, destination and fare direction
                         actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
                         
-                        # Create output row matching qp_fares schema
+                        # Create output row
                         output_row = {
                             'Carrier_Code': 'QP',
                             'Action_Code': 'I',
@@ -492,12 +499,16 @@ class FareFiling:
                             'Discontinue_Date': '',
                             'In_Batch': '',
                             'OpenJaw': 'TRUE',
-                            # Additional columns for reference
                             'RBD': rbd,
                             'Sector': sector
                         }
                         
                         all_output_rows.append(output_row)
+            
+            # Now process companion rules (5002 from 1002, 5006 from 1006)
+            self.logger.info(f"Processing companion rules using {len(primary_rules_processed)} primary rule fares")
+            companion_rows = self._generate_companion_rules_simple(primary_rules_processed, existing_sort_prices)
+            all_output_rows.extend(companion_rows)
             
             # If it's Saver type, also include the saver fares themselves
             if self.isSaver:
@@ -509,7 +520,151 @@ class FareFiling:
         except Exception as e:
             self.logger.error(f"Error calculating product upsells: {str(e)}")
             self.logger.error(traceback.format_exc())
-            raise    
+            raise
+
+    def _generate_companion_rules_simple(self, primary_rules_processed, existing_sort_prices):
+        """Generate companion rules from primary rules."""
+        try:
+            companion_rows = []
+            
+            # Mapping of primary to companion rules
+            companion_mapping = {
+                '1002': '5002',
+                '1006': '5006'
+            }
+            
+            # Process each primary rule fare
+            for key, rule_fares in primary_rules_processed.items():
+                sector, rbd, ow_rt, footnote, ndo, pos_value = key
+                origin = sector[:3]
+                destination = sector[3:]
+                
+                # Check each primary rule
+                for primary_rule, primary_base_fare in rule_fares.items():
+                    companion_rule = companion_mapping.get(primary_rule)
+                    if not companion_rule:
+                        continue
+                    
+                    # Look for companion upsell data
+                    companion_upsell = self.product_upsell_data[
+                        (self.product_upsell_data['rule_nbr'] == companion_rule) &
+                        (self.product_upsell_data['sector'] == sector)
+                    ]
+                    
+                    # If not found, check master
+                    if companion_upsell.empty and self.product_upsell_master_data is not None:
+                        companion_upsell = self.product_upsell_master_data[
+                            (self.product_upsell_master_data['rule_nbr'] == companion_rule) &
+                            (self.product_upsell_master_data['sector'] == sector)
+                        ]
+                    
+                    if companion_upsell.empty:
+                        continue
+                    
+                    # Find matching row with same parameters
+                    matching_row = companion_upsell[
+                        (companion_upsell['ow_rt'].fillna('O') == ow_rt) &
+                        (companion_upsell['footnote'].fillna('') == footnote) &
+                        (companion_upsell['ndo'].fillna('X') == ndo) &
+                        (companion_upsell['pos'].fillna('B') == pos_value)
+                    ]
+                    
+                    if matching_row.empty:
+                        # Try without strict matching - just take first row for this sector
+                        matching_row = companion_upsell.head(1)
+                    
+                    if matching_row.empty:
+                        continue
+                    
+                    upsell_row = matching_row.iloc[0]
+                    
+                    # Convert primary base to all-in
+                    primary_allin_fare = self.calculate_all_in_fare(primary_base_fare, origin, destination, ftype="base")
+                    
+                    # Determine base or all-in for companion upsell
+                    base_all_in = upsell_row.get('base_all_in', 'All-in')
+                    if pd.isna(base_all_in) or base_all_in == '':
+                        base_all_in = 'All-in'
+                    
+                    # Apply companion upsell
+                    if base_all_in == 'Base':
+                        fare_for_upsell = primary_base_fare
+                    else:
+                        fare_for_upsell = primary_allin_fare
+                    
+                    upsell_type = upsell_row['type']
+                    upsell_value = float(upsell_row['value']) if pd.notna(upsell_row['value']) else 0
+                    min_value = float(upsell_row['min_value']) if (pd.notna(upsell_row['min_value']) and upsell_row['min_value'] != '') else None
+                    max_value = float(upsell_row['max_value']) if (pd.notna(upsell_row['max_value']) and upsell_row['max_value'] != '') else None
+                    
+                    upsold_fare = self.apply_upsell(fare_for_upsell, upsell_type, upsell_value, min_value, max_value)
+                    
+                    # Convert to base fare
+                    if base_all_in == 'Base':
+                        final_base_fare = round(upsold_fare)
+                    else:
+                        final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
+                    
+                    # Sort price
+                    sort_price = upsell_row.get('sort_price')
+                    if pd.notna(sort_price) and sort_price != '':
+                        sort_price = float(sort_price)
+                    else:
+                        if sector in self.existing_qp_sectors:
+                            existing_price = existing_sort_prices.get(f"{sector}_{rbd}_{companion_rule}", None)
+                            if existing_price is not None:
+                                sort_price = existing_price
+                            else:
+                                sort_price = final_base_fare
+                        else:
+                            sort_price = final_base_fare
+                    
+                    # Generate farebasis
+                    farebasis = self.generate_farebasis(rbd, companion_rule, ow_rt, ndo, sector, pos=pos_value, route_type='D')
+                    
+                    # Determine fare direction
+                    actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
+                    
+                    # Create output row
+                    output_row = {
+                        'Carrier_Code': 'QP',
+                        'Action_Code': 'I',
+                        'Origin': actual_origin,
+                        'Destination': actual_destination,
+                        'Fare_Basis_Code': farebasis,
+                        'OW_RT': ow_rt,
+                        'Routing': '',
+                        'Footnote': footnote,
+                        'Currency': 'INR',
+                        'Fare_Amount': final_base_fare,
+                        'Point_Price': 0,
+                        'Effective_Date': '',
+                        'Tariff_No': '',
+                        'Rule_Nbr': companion_rule,
+                        'Link': '',
+                        'Sequence': '',
+                        'SOS_Charge': 0,
+                        'Sort_Price': sort_price,
+                        'Fare_Direction': fare_direction,
+                        'Trip_Direction': '',
+                        'Inbound_Outbound': '',
+                        'Discontinue_Date': '',
+                        'In_Batch': '',
+                        'OpenJaw': 'TRUE',
+                        'RBD': rbd,
+                        'Sector': sector
+                    }
+                    
+                    companion_rows.append(output_row)
+                    self.logger.debug(f"Generated {companion_rule} from {primary_rule}: {primary_base_fare} -> {final_base_fare}")
+            
+            self.logger.info(f"Generated {len(companion_rows)} companion rule records")
+            return companion_rows
+            
+        except Exception as e:
+            self.logger.error(f"Error generating companion rules: {str(e)}")
+            self.logger.error(traceback.format_exc())
+            return []
         
     def generate_saver_output(self):
         """Generate output rows for saver fares (rule 1001 and 2001)."""
