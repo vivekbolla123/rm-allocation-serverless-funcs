@@ -77,9 +77,11 @@ class ConstantsUtils:
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
         self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
-        self.UP = UP
+        self.UP_B2C = UP_B2C
+        self.UP_B2B = UP_B2B
         self.MARKET_FLAG = MARKET_FLAG
         self.RBD_VALUES = RBD_VALUES
+        self.B2B_THRESHOLD = B2B_THRESHOLD
 
 
         self.logger = logging.getLogger()
@@ -238,12 +240,16 @@ class ConstantsUtils:
                 self.RM_ALERT_MAIL_ID = parameter_value
             elif parameter_key == CLOSED_RM_ALERT_MAIL_ID_KEY:
                 self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
-            elif parameter_key == UP_KEY:
-                self.UP = int(parameter_value)
+            elif parameter_key == UP_B2C_KEY:
+                self.UP_B2C = int(parameter_value)
+            elif parameter_key == UP_B2B_KEY:
+                self.UP_B2B = int(parameter_value)
             elif parameter_key == MARKET_FLAG_KEY:
                 self.MARKET_FLAG = parameter_value
             elif parameter_key == RBD_VALUES_KEY:
                 self.RBD_VALUES = parameter_value
+            elif parameter_key == B2B_THRESHOLD_KEY:
+                self.B2B_THRESHOLD = parameter_value
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
