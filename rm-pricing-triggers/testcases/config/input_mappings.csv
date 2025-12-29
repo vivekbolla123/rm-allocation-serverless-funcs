@@ -1,0 +1,8 @@
+module_key,collection_name,csv_filename,date_columns,special_columns
+sales_fare,config_sale_dates,config_sale_dates.csv,"sale_start,sale_end,departure_start,departure_end","departure_end:handle_open"
+sales_fare,config_blackout_dates,config_blackout_dates.csv,"start_date,end_date",
+sales_fare,config_station_master,config_station_master.csv,,
+sales_fare,active_sectors,active_sectors.csv,,
+ladder_gen,historical_bookings,historical_bookings.csv,"booking_date,travel_date",
+ladder_gen,sectors,sectors.csv,,
+fare_filing,fare_classes,fare_classes.csv,"effective_date,expiry_date",

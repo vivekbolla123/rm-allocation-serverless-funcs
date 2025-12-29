@@ -1,0 +1,5 @@
+module_key,helper_attribute,helper_module,helper_class,mock_class
+sales_fare,pa_helper,helpers.pa_db_helpers.sales_pa_helper,SalesPAHelper,MockDBHelper
+sales_fare,nav_helper,helpers.nav_db_helpers.sales_nav_helper,SalesNavHelper,MockDBHelper
+ladder_gen,pa_helper,helpers.pa_db_helpers.ladder_pa_helper,LadderPAHelper,MockDBHelper
+ladder_gen,nav_helper,helpers.nav_db_helpers.ladder_nav_helper,LadderNavHelper,MockDBHelper

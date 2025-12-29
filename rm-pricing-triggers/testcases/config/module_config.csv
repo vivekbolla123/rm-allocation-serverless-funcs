@@ -1,0 +1,5 @@
+module_key,module_class,module_file,default_overrides
+sales_fare,SalesFare,salesFare,{"analyst": "Test Analyst"}
+ladder_gen,LadderGen,ladderGen,{"analyst": "Test Analyst", "route": "D", "sector": "BOMDEL"}
+fare_filing,FareFiling,fareFile,{"analyst": "Test Analyst", "type": "Saver"}
+action_sect,ActionSectors,actionableSectors,{"analyst": "Test Analyst", "route": "I"}

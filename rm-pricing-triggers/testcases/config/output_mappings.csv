@@ -1,0 +1,4 @@
+module_key,output_filename,sort_columns,comparison_exclude_columns
+sales_fare,sales_fare_output.csv,"LOC1,LOC2,TRAVELSTART","run_id,_id"
+ladder_gen,ladder_output.csv,"sector,fare_class","run_id,timestamp"
+fare_filing,fare_filing_output.csv,"origin,destination,effective_date","run_id,created_at"
