@@ -326,27 +326,43 @@ class SimpleTestRunner:
             # Inject mock helper before importing the module
             self.inject_mock_helper()
             
-            # Import the module
-            module = importlib.import_module(self.config['module_file'])
+            # Use unittest.mock to patch datetime and uuid
+            from unittest.mock import patch
+            from simple_mock_helper import FIXED_REFERENCE_TIME
             
-            # Get the class
-            module_class = getattr(module, self.config['class_name'])
+            # Create mock UUID that returns a fixed string
+            class MockUUID:
+                def __str__(self):
+                    return 'test-fixed-uuid-12345'
             
-            # Create instance
-            module_instance = module_class(
-                logger=self.logger,
-                params=self.params,
-                overrides=self.overrides,
-                context=self.context
-            )
-            
-            # Run the module
-            self.logger.info("Executing module.run()...")
-            result = module_instance.run()
-            
-            self.logger.info("✓ Module execution completed successfully")
-            
-            return result
+            with patch('datetime.datetime') as mock_datetime, \
+                 patch('uuid.uuid4', return_value=MockUUID()):
+                
+                # Configure the mock datetime
+                mock_datetime.now.return_value = FIXED_REFERENCE_TIME
+                mock_datetime.side_effect = lambda *args, **kw: FIXED_REFERENCE_TIME
+                
+                # Import the module
+                module = importlib.import_module(self.config['module_file'])
+                
+                # Get the class
+                module_class = getattr(module, self.config['class_name'])
+                
+                # Create instance
+                module_instance = module_class(
+                    logger=self.logger,
+                    params=self.params,
+                    overrides=self.overrides,
+                    context=self.context
+                )
+                
+                # Run the module
+                self.logger.info("Executing module.run()...")
+                result = module_instance.run()
+                
+                self.logger.info("✓ Module execution completed successfully")
+                
+                return result
             
         except Exception as e:
             self.logger.error(f"✗ Module execution failed: {str(e)}")

@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 # Configuration - ONLY THING YOU NEED TO CHANGE
-TEST_MODULE = 'sales_fare'  # Change this to test different modules
+TEST_MODULE = 'action_sect'  # Change this to test different modules
 
 # Fixed reference time for consistent test results
 FIXED_REFERENCE_TIME = datetime(2024, 12, 29, 12, 0, 0)  # 2024-12-29 12:00:00
@@ -174,10 +174,9 @@ class SimpleMockHelper:
             output_filename = f"actionable_sectors_output.csv"
             output_path = os.path.join(OUTPUTS_DIR, output_filename)
             
-            # Add metadata columns
+            # Add metadata columns with fixed values for deterministic testing
             actionable_df = actionable_df.copy()
-            actionable_df['run_id'] = run_id
-            actionable_df['created_at'] = pd.Timestamp.now()
+            actionable_df['created_at'] = FIXED_REFERENCE_TIME  # Use fixed timestamp
             actionable_df['route'] = route
             actionable_df['analyst'] = analyst_name
             
@@ -201,9 +200,9 @@ class SimpleMockHelper:
             output_filename = f"ladder_gen_output.csv"
             output_path = os.path.join(OUTPUTS_DIR, output_filename)
             
-            # Create ladder output records
+            # Create ladder output records with fixed timestamp
             ladder_documents = []
-            created_at = pd.Timestamp.now()
+            created_at = FIXED_REFERENCE_TIME  # Use fixed timestamp
             
             # Process B2B ladder (20 fares)
             ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
@@ -222,7 +221,6 @@ class SimpleMockHelper:
                         'data_period': ladder_result.get('data_period', 30),
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
-                        'run_id': run_id,
                         'created_at': created_at,
                         'analyst': analyst_name
                     }
@@ -251,7 +249,6 @@ class SimpleMockHelper:
                         'data_period': ladder_result.get('data_period', 30),
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
-                        'run_id': run_id,
                         'created_at': created_at,
                         'analyst': analyst_name
                     }
@@ -287,9 +284,8 @@ class SimpleMockHelper:
                 # For other modules, return placeholder data
                 self.logger.warning(f"[TEST MODE] Using placeholder output for {self.module_key}")
                 output_df = pd.DataFrame({
-                    'run_id': [run_id],
                     'module': [self.module_key],
-                    'timestamp': [pd.Timestamp.now()],
+                    'timestamp': [FIXED_REFERENCE_TIME],  # Use fixed timestamp
                     'status': ['completed'],
                     'note': ['Placeholder output - implement specific logic']
                 })
@@ -369,7 +365,6 @@ class SimpleMockHelper:
                         travel_end = period_end.strftime('%m/%d/%Y')
                     
                     output_row = {
-                        'run_id': run_id,
                         'ACTION': 'I',
                         'ID': '',
                         'LOC1': origin,
