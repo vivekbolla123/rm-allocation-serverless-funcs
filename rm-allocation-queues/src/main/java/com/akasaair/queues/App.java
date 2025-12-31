@@ -2485,9 +2485,14 @@ public class App implements CommandLineRunner {
                 String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
                 String keyVal = dateKey + sectorKey;
 
-                // Validate upsell value format
-                if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%?")))) {
-                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value must be a valid Integer value with optional %");
+                // Validate upsell value format - % symbol is not allowed
+                if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+")))) {
+                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value must be a valid Integer value without % symbol");
+                }
+                
+                // Additional validation to explicitly reject % symbol
+                if (value != null && !value.isEmpty() && value.contains("%")) {
+                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value cannot contain % symbol. Please provide numeric values only");
                 }
 
                 Map<String, String> map = new HashMap<>();
@@ -2604,10 +2609,10 @@ public class App implements CommandLineRunner {
                     continue;
                 }
 
-                // Clean the value (remove % if present)
+                // Use the value as-is since % symbol is not allowed
                 String cleanValue = (newValue != null && !newValue.trim().isEmpty())
-                        ? newValue.trim().replace("%", "")
-                        : "";  // CHANGED: Empty string instead of null
+                        ? newValue.trim()
+                        : "";  // Empty string if null or empty
 
                 // Create unique key for lookup
                 String lookupKey = date + sector;
