@@ -40,7 +40,15 @@ class MarkRunCompleted:
         b2cDoneCount = self.cache_client.get(KEY_B2C_DONE_COUNT + run_id)
         
         try:
-            is_complete = int(b2bDoneCount) + int(b2cDoneCount) >= int(b2bPendingCount) + int(b2cPendingCount)
+            # for connections
+            if audit_type.lower().endswith('connections'):
+                db_total_count, db_done_count = self.get_conn_run_counts(run_id)
+                is_complete = db_done_count >= db_total_count
+
+            # for direct
+            else:
+                is_complete = int(b2bDoneCount) + int(b2cDoneCount) >= int(b2bPendingCount) + int(b2cPendingCount)
+
         except Exception as e:
             self.logger.info(f"Run Id: {run_id} failed due to reason {e}")
             is_complete = False
@@ -81,3 +89,41 @@ class MarkRunCompleted:
         )
         
         self.logger.info(f"Slot Available after Adhoc run is completed: {add_slot}")
+
+    def get_conn_run_counts(self, run_id):
+        total_count = done_count = 0
+
+        try:
+            collection = self.db['run_flight_date_audit']
+            result = collection.aggregate([
+                {"$match": {"runId": run_id}},
+                {
+                    "$group": {
+                        "_id": None,
+                        "total": {"$sum": 1},
+                        "done": {
+                            "$sum": {
+                                "$cond": [
+                                    {
+                                        "$and": [
+                                            {"$eq": ["$b2bstatus", "Done"]},
+                                            {"$eq": ["$b2cstatus", "Done"]}
+                                        ]
+                                    },
+                                    1,
+                                    0
+                                ]
+                            }
+                        }
+                    }
+                }
+            ])
+
+            # Extract result safely
+            data = next(result, {"total": 0, "done": 0})
+            total_count = data['total']
+            done_count = data['done']
+        except Exception as e:
+            self.logger.error(f"Unable to get DB Done count for run {run_id}")
+
+        return total_count, done_count

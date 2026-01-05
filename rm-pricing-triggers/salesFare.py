@@ -47,6 +47,9 @@ class SalesFare:
         # Expand DOMESTIC/INTERNATIONAL sectors into actual sectors
         self.expand_domestic_international_sectors()
         
+        # Validate sectors before processing
+        self.validate_sectors()
+        
         self.logger.info("Data collection completed")
     
     def expand_domestic_international_sectors(self):
@@ -183,12 +186,28 @@ class SalesFare:
             if origin == '**' or destination == '**':
                 # For wildcards, check the non-wildcard station
                 station = origin if destination == '**' else destination
-                route = station_route.get(station, 'D')
+                route = station_route.get(station, None)
+                
+                # If station not found in master, raise error
+                if route is None:
+                    raise ValueError(f"Station '{station}' not found in station_master")
+                
                 return 'DOMESTIC' if route == 'D' else 'INTERNATIONAL'
             
             # Check both stations
-            origin_route = station_route.get(origin, 'D')
-            dest_route = station_route.get(destination, 'D')
+            origin_route = station_route.get(origin, None)
+            dest_route = station_route.get(destination, None)
+            
+            # Collect missing stations
+            missing_stations = []
+            if origin_route is None:
+                missing_stations.append(origin)
+            if dest_route is None:
+                missing_stations.append(destination)
+            
+            # If any station is missing, raise error
+            if missing_stations:
+                raise ValueError(f"Station(s) not found in station_master: {', '.join(missing_stations)}")
             
             # If both domestic, return DOMESTIC, otherwise INTERNATIONAL
             if origin_route == 'D' and dest_route == 'D':
@@ -196,9 +215,48 @@ class SalesFare:
             else:
                 return 'INTERNATIONAL'
                 
+        except ValueError:
+            # Re-raise ValueError as-is
+            raise
         except Exception as e:
-            self.logger.warning(f"Error determining sector type for {sector}: {str(e)}")
-            return 'DOMESTIC'  # Default to domestic
+            # Wrap other exceptions
+            raise ValueError(f"Error determining sector type for '{sector}': {str(e)}")
+        
+    def validate_sectors(self):
+        """
+        Validate that all sectors in sales_fares_data have valid stations in station_master.
+        
+        Raises:
+            ValueError: If any sector contains stations not in station_master
+        """
+        self.logger.info("Validating sectors against station master...")
+        
+        if self.sales_fares_data is None or self.sales_fares_data.empty:
+            self.logger.warning("No sales fare data to validate")
+            return
+        
+        # Create station route lookup
+        station_route = dict(zip(self.station_master['station'], self.station_master['route']))
+        
+        # Track all validation errors
+        validation_errors = []
+        unique_sectors = self.sales_fares_data['sector'].unique()
+        
+        for sector in unique_sectors:
+            try:
+                sector_type = self.get_sector_type(sector, station_route)
+                self.logger.info(f"  ✓ Sector '{sector}' validated as {sector_type}")
+            except ValueError as e:
+                error_msg = f"Sector '{sector}': {str(e)}"
+                validation_errors.append(error_msg)
+                self.logger.error(f"  ✗ {error_msg}")
+        
+        # If there are any validation errors, raise exception
+        if validation_errors:
+            error_summary = f"Sector validation failed for {len(validation_errors)} sector(s):\n" + "\n".join(f"  - {err}" for err in validation_errors)
+            raise ValueError(error_summary)
+        
+        self.logger.info(f"All {len(unique_sectors)} sectors validated successfully")
     
     def split_date_range_by_blackouts(self, sector, start_date, end_date, is_open_ended=False):
         """
@@ -301,7 +359,7 @@ class SalesFare:
         try:
             self.logger.info(f"Starting sales fare processing... Run ID: {run_id}")
             
-            # Collect data
+            # Collect data (includes validation)
             self.collect_data()
             
             # Pass additional context needed for parsing
@@ -316,7 +374,14 @@ class SalesFare:
             
             self.logger.info("Sales fare processing completed successfully")
             
+        except ValueError as ve:
+            # Validation errors - these are user-fixable data issues
+            status = 'FAILED'
+            self.failure_reason = f"Validation error: {str(ve)}"
+            self.logger.error(f"Validation failed: {str(ve)}")
+            
         except Exception as e:
+            # Other errors - system/code issues
             status = 'FAILED'
             if not self.failure_reason:
                 self.failure_reason = f"Processing failed: {str(e)}"

@@ -17,7 +17,7 @@ class DetermineRBD:
         self.redishelper = redisHelper
 
     def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria):
-
+        hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
         forecastAllocFlag = int(getattr(currParams, 'forecastAllocFlag', 0))
@@ -37,7 +37,7 @@ class DetermineRBD:
             hardAnchorFare=hardopenResult['Fare'][0]
             
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
@@ -51,7 +51,7 @@ class DetermineRBD:
         
         strategyFare = openResult['Fare'][0]
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
         
         anchorValue = ''
     
@@ -74,7 +74,7 @@ class DetermineRBD:
                 openResult['RBD']=['NA']
                 openResult['Fare']=['NA']
                 
-                return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+                return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
 
             self.logger.info("totalCapacity: " + str(totalCapacity))
             self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -114,7 +114,8 @@ class DetermineRBD:
             upsell = CONST_NA
             howDetermined = howDetermined+'_Manual_inventory_retained_skipping_allocation'
             anchorFare =  0
-
+        if anchorFare == hardAnchorFare:
+            hard_anchor_flag = True
         if anchorFare != 0:
             offset = 0
             openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
@@ -124,7 +125,7 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare,hard_anchor_flag
 
     def calculate_overbooking_fare_and_status(
         self,

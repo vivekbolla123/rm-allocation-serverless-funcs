@@ -8,12 +8,18 @@ class LadderEsbHelper:
         self.rm_rd_esb_conn = rm_rd_esb_conn
         self.logger = logger
 
-    def collect_combined_booking_data(self, start_date, end_date, sector):
+    def collect_combined_booking_data(self, start_date, end_date, sector, channel):
         """Optimized single query for both flown and booked data."""
+        if(channel == "B2B"):
+            fareBasis = f"""AND LEFT(PX.FareBasis, 1) = 'Z'"""
+        else:
+            fareBasis = f"""AND SUBSTRING(PX.FareBasis, 5, 1) = 'R'"""
+        
         try:
             wherecondition = f"""WHERE PX.BookingDate >= '{start_date}' AND PX.BookingDate < '{end_date}'
-                    AND SUBSTRING(PX.FareBasis, 5, 1) = 'R'
+                    {fareBasis}
                     AND LEFT(PX.FareBasis, 1) NOT IN ('S', 'W')
+                    AND LEFT(PX.FareBasis, 3) NOT IN ('C')
                     AND CONCAT(PX.Origin, PX.Destination) = '{sector}'
                     AND PX.BookingID IS NOT NULL
                     AND IL.FlightNumber < 7000"""
