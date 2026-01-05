@@ -413,8 +413,27 @@ class LadderPAHelper:
             
             # Save B2B ladder first (20 fares with Z* RBDs)
             ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
-            if ladder_fares_b2b and len(ladder_fares_b2b) == 20:
-                for i in range(20):
+            self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: 20)")
+            
+            if ladder_fares_b2b:
+                # Handle cases where B2B ladder might not be exactly 20 fares
+                expected_b2b_count = 20
+                actual_b2b_count = len(ladder_fares_b2b)
+                
+                if actual_b2b_count != expected_b2b_count:
+                    self.logger.warning(f"B2B ladder count mismatch: got {actual_b2b_count}, expected {expected_b2b_count}")
+                    # Pad or truncate to match expected count
+                    if actual_b2b_count < expected_b2b_count:
+                        # Pad with the last fare value
+                        last_fare = ladder_fares_b2b[-1] if ladder_fares_b2b else 0
+                        ladder_fares_b2b.extend([last_fare] * (expected_b2b_count - actual_b2b_count))
+                        self.logger.info(f"Padded B2B ladder from {actual_b2b_count} to {len(ladder_fares_b2b)} fares")
+                    else:
+                        # Truncate to expected count
+                        ladder_fares_b2b = ladder_fares_b2b[:expected_b2b_count]
+                        self.logger.info(f"Truncated B2B ladder from {actual_b2b_count} to {len(ladder_fares_b2b)} fares")
+                
+                for i in range(min(len(ladder_fares_b2b), 20)):
                     current_base = current_qp_fares_b2b[i]
                     new_base = ladder_fares_b2b[i]
                     
@@ -430,8 +449,8 @@ class LadderPAHelper:
                         'rbd_name': rbd_names_b2b[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_base, 2),
-                        'new_all_in_ladder_fare': round(new_all_in, 2),
+                        'new_base_ladder_fare': round(new_all_in, 2),
+                        'new_all_in_ladder_fare': round(new_base, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -443,8 +462,27 @@ class LadderPAHelper:
             
             # Save B2C ladder (64 fares with V9-Y0 RBDs)
             ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', [])
-            if ladder_fares_b2c and len(ladder_fares_b2c) == 64:
-                for i in range(64):
+            self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: 64)")
+            
+            if ladder_fares_b2c:
+                # Handle cases where B2C ladder might not be exactly 64 fares
+                expected_b2c_count = 64
+                actual_b2c_count = len(ladder_fares_b2c)
+                
+                if actual_b2c_count != expected_b2c_count:
+                    self.logger.warning(f"B2C ladder count mismatch: got {actual_b2c_count}, expected {expected_b2c_count}")
+                    # Pad or truncate to match expected count
+                    if actual_b2c_count < expected_b2c_count:
+                        # Pad with the last fare value
+                        last_fare = ladder_fares_b2c[-1] if ladder_fares_b2c else 0
+                        ladder_fares_b2c.extend([last_fare] * (expected_b2c_count - actual_b2c_count))
+                        self.logger.info(f"Padded B2C ladder from {actual_b2c_count} to {len(ladder_fares_b2c)} fares")
+                    else:
+                        # Truncate to expected count
+                        ladder_fares_b2c = ladder_fares_b2c[:expected_b2c_count]
+                        self.logger.info(f"Truncated B2C ladder from {actual_b2c_count} to {len(ladder_fares_b2c)} fares")
+                
+                for i in range(min(len(ladder_fares_b2c), 64)):
                     current_base = current_qp_fares_b2c[i]
                     new_base = ladder_fares_b2c[i]
                     
@@ -472,12 +510,24 @@ class LadderPAHelper:
                     ladder_documents.append(doc)
             
             # Validate we have exactly 84 documents
-            if len(ladder_documents) != 84:
-                self.logger.warning(f"Expected 84 ladder documents but got {len(ladder_documents)}")
+            b2b_docs = len([d for d in ladder_documents if d['channel']=='B2B'])
+            b2c_docs = len([d for d in ladder_documents if d['channel']=='B2C'])
+            total_docs = len(ladder_documents)
+            
+            self.logger.info(f"Document count summary: B2B={b2b_docs}, B2C={b2c_docs}, Total={total_docs}")
+            
+            if total_docs != 84:
+                self.logger.warning(f"Expected 84 ladder documents but got {total_docs}")
+                self.logger.warning(f"  B2B documents: {b2b_docs} (expected: 20)")
+                self.logger.warning(f"  B2C documents: {b2c_docs} (expected: 64)")
             
             # Insert into MongoDB
             if ladder_documents:
                 self.db[collection_name].insert_many(ladder_documents)
+                self.logger.info(f"Saved {total_docs} ladder fares (B2B: {b2b_docs}, B2C: {b2c_docs})")
+            else:
+                self.logger.error("No ladder documents to save!")
+                return None
                 self.logger.info(f"Saved {len(ladder_documents)} ladder fares "
                             f"(B2B: {len([d for d in ladder_documents if d['channel']=='B2B'])}, "
                             f"B2C: {len([d for d in ladder_documents if d['channel']=='B2C'])})")
