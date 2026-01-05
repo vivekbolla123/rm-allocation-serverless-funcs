@@ -679,14 +679,14 @@ public class AuditHelper {
                 log.info("Dataset created for write with {} rows", dataset.count());
 
                 Dataset<Row> df = dataset.toDF();
-                df = df.withColumn("PerStart", functions.lit(currentDateTime.toLocalDate().toString()))
+                df = df.withColumn("changedAtDate", functions.lit(currentDateTime.toLocalDate().toString()))
                         .coalesce(1);
 
                 df.write()
                         .format("delta")
                         .mode("append")
                         .option("mergeSchema", "true")
-                        .partitionBy("PerStart")
+                        .partitionBy("changedAtDate")
                         .save(S3_PATH);
             } catch (NoClassDefFoundError e) {
                 log.error("NoClassDefFoundError: {}", e.getMessage());
