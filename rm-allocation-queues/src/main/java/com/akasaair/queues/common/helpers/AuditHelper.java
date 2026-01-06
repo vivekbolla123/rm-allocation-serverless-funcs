@@ -664,10 +664,11 @@ public class AuditHelper {
             return;
         }
 
-        String S3_PATH = "s3a://uat-qp-applications/test/rm-admin/ml-audits/direct/";
+        String BASE_PATH = "s3a://"+ S3_BUCKET_NAME + "/" + S3_FILE_PATH_NAME + "ml-audits/";
+        String S3_PATH = BASE_PATH + "direct/";
         String className = entityClass.getSimpleName();
         if (className.equals("MarketListConnAuditEntity")) {
-            S3_PATH = "s3a://uat-qp-applications/test/rm-admin/ml-audits/connections/";
+            S3_PATH = BASE_PATH +  "connections/";
         }
 
         try {
