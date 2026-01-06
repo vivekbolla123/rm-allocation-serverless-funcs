@@ -1,0 +1,15 @@
+table_name,curr_version
+qp_fares,v1.0
+tax_mast_dom,v1.0
+tax_mast_intl,v1.0
+rm_parameter_values,v1.0
+config_sale_dates,v1.0
+config_sale_discounts,v1.0
+config_blackout_dates,v1.0
+product_upsell,v1.0
+product_upsell_master,v1.0
+saver,v1.0
+product_rules,v1.0
+config_footnote_master,v1.0
+market_fares_ag,v1.0
+market_fares_rg,v1.0
