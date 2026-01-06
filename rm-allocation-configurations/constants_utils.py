@@ -80,7 +80,6 @@ class ConstantsUtils:
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
         self.MARKET_FLAG = MARKET_FLAG
-<<<<<<< HEAD
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = {
@@ -91,9 +90,7 @@ class ConstantsUtils:
         }
         self.YIELD_FACTOR = 1.4 # Placeholder
         self.DIRECT_FLIGHT_UPSELL = 10 # Placeholder
-=======
         self.B2B_THRESHOLD = B2B_THRESHOLD
->>>>>>> f64daf2abcf2514a78210bd3561c4d615c3da555
 
 
         self.logger = logging.getLogger()
