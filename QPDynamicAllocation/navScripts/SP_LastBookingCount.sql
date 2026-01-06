@@ -47,7 +47,7 @@ SELECT
        AND DepartureStation = IL.DepartureStation 
        AND ArrivalStation = IL.ArrivalStation 
        AND DepartureDate = IL.DepartureDate
-       AND BookingDateTime <= @ComparisonDate) AS BookingsCount,
+       AND BookingDateTime <= @ComparisonDateTime) AS BookingsCount,
     (SELECT COUNT(DISTINCT PassengerID) 
      FROM CommonCTE 
      WHERE FlightNumber = IL.FlightNumber 

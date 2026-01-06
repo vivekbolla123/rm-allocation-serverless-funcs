@@ -170,7 +170,7 @@ class RBDAllocations:
                     self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
             
                     # Calculate 97% of total capacity for the target RBD
-                    ninety_seven_percent_seats = round(totalCapacity * (plfthreshold/100))
+                    ninety_seven_percent_seats = max(round(totalCapacity * (plfthreshold/100)), currBookedLoad+first_rbd_alloc)
                     remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
                     
                     # Find the next level RBD (one level higher in price than target)
