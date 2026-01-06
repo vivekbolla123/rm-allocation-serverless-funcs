@@ -6,7 +6,7 @@ import com.akasaair.queues.common.aws.S3FileStorageDao;
 import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
-//import com.akasaair.queues.common.helpers.AuditHelper;
+import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
 import com.mongodb.MongoException;
 import com.mongodb.bulk.BulkWriteResult;
@@ -96,7 +96,7 @@ public class App implements CommandLineRunner {
     private final MongoDatabase database2;
 
     private final S3FileStorageDao s3FileStorageDao;
-//    private final AuditHelper auditHelper;
+    private final AuditHelper auditHelper;
 
     private final S3Client s3Client;
     private static final ThreadLocal<List<String>> listOfErrors = ThreadLocal.withInitial(ArrayList::new);
@@ -111,12 +111,12 @@ public class App implements CommandLineRunner {
         UPSELL,
         DISTRESS
     }
-    public App(S3FileStorageDao s3FileStorageDao, DependencyFactory dependencyFactory, MongoConnection mongoConnection) {
+    public App(S3FileStorageDao s3FileStorageDao, DependencyFactory dependencyFactory, MongoConnection mongoConnection, AuditHelper auditHelper) {
         this.s3FileStorageDao = s3FileStorageDao;
         this.s3Client = dependencyFactory.s3Client();
         this.database = mongoConnection.getDatabase();
         this.database2 = mongoConnection.getDatabase();
-//        this.auditHelper = auditHelper;
+        this.auditHelper = auditHelper;
     }
 
     public static void main(String[] args) {
@@ -1272,13 +1272,13 @@ public class App implements CommandLineRunner {
             if (!validMarketListEntityList.isEmpty()) {
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
 
-//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-//                    try {
-//                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
-//                    } catch (Exception e) {
-//                        log.error("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
-//                    }
-//                }
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    try {
+                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        log.error("Failed to build audit logs for table: {}. Error: {}", tableName, e.getMessage());
+                    }
+                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
@@ -2157,13 +2157,13 @@ public class App implements CommandLineRunner {
             if (!validMarketListConnectionsEntityList.isEmpty()) {
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
 
-//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-//                    try {
-//                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
-//                    } catch (Exception e) {
-//                        log.error("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
-//                    }
-//                }
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    try {
+                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        log.error("Failed to build connection audit logs for table: {}. Error: {}", tableName, e.getMessage());
+                    }
+                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
