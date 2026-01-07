@@ -462,13 +462,13 @@ public class App implements CommandLineRunner {
 
                         try (Reader reader = new StringReader(fileContent)) {
                             if (finalTableName.equalsIgnoreCase(MARKET_LIST_CONNECTIONS_TABLE_NAME)) {
-                                uploadMarketListConnectionsFile(reader, table, userName, role_obj, obj_id);
+                                uploadMarketListConnectionsFile(reader, table, userName, role_obj, obj_id, adhocUsername);
                             } else if (finalTableName.toLowerCase()
                                     .startsWith(MARKET_LIST_ADHOC_CONNECTIONS_TABLE_NAME)) {
-                                uploadMarketListConnectionsFile(reader, finalTableName, userName, role_obj, obj_id);
+                                uploadMarketListConnectionsFile(reader, finalTableName, userName, role_obj, obj_id, adhocUsername);
                             } else {
                                 uploadMarketListFile(reader, finalTableName, userName, role_obj, finalRoute,
-                                        obj_id);
+                                        obj_id, adhocUsername);
                             }
                         } catch (Exception e) {
                             listOfErrors.get().add("Error Uploading MarketList to DB. Please check File content.");
@@ -1232,7 +1232,7 @@ public class App implements CommandLineRunner {
     }
 
     public void uploadMarketListFile(Reader file, String tableName, String userName, Object role, String route,
-                                     String obj_id) {
+                                     String obj_id, String adhocUsername) {
         List<MarketListEntity> validMarketListEntityList = new ArrayList<>();
         try {
             List<String> permissions = getRoleAccess(role);
@@ -1282,6 +1282,11 @@ public class App implements CommandLineRunner {
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+
+                    // Adhoc ID List Update
+                    if (!adhocUsername.isBlank()) {
+                        insertIntoAdhocIdList(route, adhocUsername);
+                    }
                 } else {
                     deleteRecords(validMarketListEntityList, tableName);
                 }
@@ -2109,7 +2114,7 @@ public class App implements CommandLineRunner {
     }
 
     public void uploadMarketListConnectionsFile(Reader file, String tableName, String userName, Object role,
-                                                String obj_id) {
+                                                String obj_id, String adhocUsername) {
         List<String> methodScopedErrors = new ArrayList<>();
         List<MarketListConnectionsEntity> validMarketListConnectionsEntityList = new ArrayList<>();
         int numOfRowsProcessed = 0;
@@ -2167,6 +2172,11 @@ public class App implements CommandLineRunner {
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
+
+                    // Adhoc ID List Update
+                    if (!adhocUsername.isBlank()) {
+                        insertIntoAdhocIdList(CONNECTIONS, adhocUsername);
+                    }
                 } else {
                     deleteSpecificConnectionRecords(validMarketListConnectionsEntityList, tableName);
                 }
@@ -4538,6 +4548,20 @@ public class App implements CommandLineRunner {
         } catch (Exception e) {
             System.err.println("Error inserting documents: " + e.getMessage());
             throw new RuntimeException("Failed to insert documents into " + collectionName, e);
+        }
+    }
+
+    public void insertIntoAdhocIdList(String adhocIdListName, String adhocId) {
+        try {
+            MongoCollection<Document> collection = database.getCollection("adhoc_id_list");
+
+            collection.updateOne(
+                    Filters.exists(adhocIdListName, true),
+                    Updates.addToSet(adhocIdListName, adhocId.toLowerCase()),
+                    new UpdateOptions().upsert(true)
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert adhocId into adhoc_id_list", e);
         }
     }
 }
