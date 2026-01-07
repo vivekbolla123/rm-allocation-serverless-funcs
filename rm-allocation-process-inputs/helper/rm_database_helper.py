@@ -1306,7 +1306,7 @@ class RMDatabaseHelper:
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
             
-            print(f"DEBUG: match_conditions: {match_conditions}")
+           
             
             # --- 4. Query Collections and Combine ---
             all_results = []
@@ -1353,8 +1353,7 @@ class RMDatabaseHelper:
                 self.logger.warning("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
 
-            print(f"DEBUG: all_results[0] keys: {all_results[0].keys() if all_results else 'Empty'}")
-            print(f"DEBUG: all_results[0]: {all_results[0] if all_results else 'Empty'}")
+        
 
             # --- 5. Deduplicate and Sort in Pandas (Replicates SQL Window Function) ---
             df = pd.DataFrame(all_results)

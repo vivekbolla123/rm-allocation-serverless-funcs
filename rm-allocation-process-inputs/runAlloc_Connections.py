@@ -411,6 +411,8 @@ class DynAllocConnections:
 
             if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2) or  self.qpcurrency==''):
                 # unable to get bookload aborting
+                b2bTotal = "NA"
+                b2cTotal = "NA"
                 lowFare="NA"
                 lowAirlineCode="NA"
                 lowFilghtNum="NA"
@@ -651,6 +653,7 @@ class DynAllocConnections:
                 
                 if (b2b_rbd_sector1 == CONST_NA or pd.isna(b2b_rbd_sector1) or b2b_rbd_sector2 == CONST_NA or pd.isna(b2b_rbd_sector2)):
                     # unable to get bookload aborting
+                    b2bTotal = "NA"
                     openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                         'BaseLeg B2B SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     if b2b_rbd_sector1 != CONST_NA and not pd.isna(b2b_rbd_sector1):
@@ -675,11 +678,13 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                     self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
                     if (b2cTotal == 0 ):
+                        b2bTotal = "NA"
                         openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2C Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     elif  b2b_rbd_sector1=='' or b2b_rbd_sector2=='':
+                        b2bTotal = "NA"
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
@@ -887,6 +892,24 @@ class DynAllocConnections:
             self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
             self.outputSummaryRow_b2b.firstrbd = self.currParams.first_rbd_alloc
             self.outputSummaryRow_b2b.otherrbd = self.currParams.other_rbd_alloc
+            self.outputSummaryRow_b2b.Id = b2bRunId
+            self.outputSummaryRow_b2b.RunId = self.runId
+            self.outputSummaryRow_b2b.Sector1 = sector1
+            self.outputSummaryRow_b2b.Sector2 = sector2
+            self.outputSummaryRow_b2b.FltNum1 = str(flight1)
+            self.outputSummaryRow_b2b.FltNum2 = str(flight2)
+            self.outputSummaryRow_b2b.DepDate1 = str(current_date1)
+            self.outputSummaryRow_b2b.DepDate2 = str(current_date2)
+            self.outputSummaryRow_b2b.BookedLoad = str(bookload)
+            self.outputSummaryRow_b2b.CreatedAt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.outputSummaryRow_b2b.Variance1 = str(self.currParams.forecast_variance1)
+            self.outputSummaryRow_b2b.Variance2 = str(self.currParams.forecast_variance2)
+            self.outputSummaryRow_b2b.Currency = str(self.qpcurrency)
+            self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
+            self.outputSummaryRow_b2b.fareOffset = str(self.currParams.offset)
+            self.outputSummaryRow_b2b.outBoundStop = str(self.currParams.outboundstop)
+            self.outputSummaryRow_b2b.outboundDuration = str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2b.conversionRate = str(self.conversion_rate)
             self.allocResults.append(self.outputSummaryRow_b2b)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
