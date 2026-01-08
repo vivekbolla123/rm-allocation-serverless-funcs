@@ -11,6 +11,7 @@ COMMA = ','
 SALE_DISCOUNTS_TABLE = "config_sale_discounts"
 SALE_DATES_TABLE = "config_sale_dates"
 SAVER_TABLE = "saver"
+PRODUCT_UPSELL_TABLE = "product_upsell"
 
 #error constants
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
