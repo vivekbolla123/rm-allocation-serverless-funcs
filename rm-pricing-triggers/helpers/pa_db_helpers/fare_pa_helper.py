@@ -17,90 +17,177 @@ class FarePAHelper:
         self.db = mongo_db
         self.logger = logger
         
-    def collect_qp_fares(self, sectors):
-        """Collect QP fares data from MongoDB for rule 1001 (Saver).
-        Filters data to only include active sectors."""
+    def collect_qp_fares(self, sectors, base_footnotes=None, base_ndos=None):
+        """Collect QP fares data from MongoDB for rules 1001 and 2001 (Saver).
+        Fetches both rules since they can have different footnotes and NDO combinations.
+        Now supports footnote and NDO filtering for optimized queries.
+        
+        Args:
+            sectors: List of sectors to fetch
+            base_footnotes: List of footnotes to fetch (if None, fetch all including empty)
+            base_ndos: List of NDOs to fetch (if None, fetch all including empty)
+        """
         try:
             if isinstance(sectors, pd.Series):
                 sectors = sectors.tolist()
             
-            # Build base match conditions for rule 1001 only
-            base_match = {
-                'Carrier_Code': 'QP',
-                'Rule_Nbr': '1001',  # Only get Saver fares
-                'Fare_Direction': {'$in': ['F', 'T']},
-                'OW_RT': {'$in': ['O', 'C']},
-                '$or': [
+            if not sectors:
+                return pd.DataFrame()
+            
+            # Build sector match conditions for better performance
+            sector_conditions = []
+            for sector in sectors:
+                origin = sector[:3]
+                destination = sector[3:]
+                sector_conditions.extend([
+                    # Forward direction: Origin-Destination with Fare_Direction F
+                    {
+                        'Origin': origin,
+                        'Destination': destination,
+                        'Fare_Direction': 'F'
+                    },
+                    # Reverse direction: Destination-Origin with Fare_Direction F  
+                    {
+                        'Origin': destination,
+                        'Destination': origin,
+                        'Fare_Direction': 'F'
+                    }
+                ])
+            
+            # Build footnote conditions
+            footnote_conditions = []
+            if base_footnotes:
+                # Include specific footnotes
+                footnote_conditions.extend([
+                    {'Footnote': footnote} for footnote in base_footnotes if footnote
+                ])
+                # Also include empty footnotes if not explicitly excluded
+                if '' in base_footnotes or None in base_footnotes:
+                    footnote_conditions.extend([
+                        {'Footnote': {'$exists': False}},
+                        {'Footnote': None},
+                        {'Footnote': ''}
+                    ])
+            else:
+                # Default: include all footnotes (empty and non-empty)
+                footnote_conditions = [
                     {'Footnote': {'$exists': False}},
                     {'Footnote': None},
-                    {'Footnote': ''}
+                    {'Footnote': ''},
+                    {'Footnote': {'$exists': True, '$ne': None, '$ne': ''}}
+                ]
+            
+            # Build NDO conditions from fare basis code
+            ndo_conditions = []
+            if base_ndos:
+                # Extract NDO from 8th position of fare basis code
+                for ndo in base_ndos:
+                    if ndo:
+                        ndo_conditions.append({
+                            'Fare_Basis_Code': {'$regex': f'^.{{7}}{ndo}$'}
+                        })
+                # Also include 'X' as default NDO if not explicitly excluded
+                if 'X' in base_ndos or '' in base_ndos or None in base_ndos:
+                    ndo_conditions.append({
+                        'Fare_Basis_Code': {'$regex': '^.{7}X$'}
+                    })
+            else:
+                # Default: include all NDOs
+                ndo_conditions = [
+                    {'Fare_Basis_Code': {'$exists': True}}
+                ]
+            
+            # Build optimized match conditions - fetch both 1001 and 2001
+            # Both rules are needed since they can have different footnotes/NDOs
+            base_match = {
+                'Carrier_Code': 'QP',
+                'Rule_Nbr': {'$in': ['1001', '2001']},  # Fetch both rules
+                'OW_RT': {'$in': ['O', 'C']},
+                '$and': [
+                    {'$or': sector_conditions},
+                    {'$or': footnote_conditions},
+                    {'$or': ndo_conditions}
                 ]
             }
             
-            # MongoDB aggregation pipeline
+            # Simplified aggregation pipeline - only get what we need
             pipeline = [
                 {'$match': base_match},
                 {
                     '$project': {
                         '_id': 0,
+                        'Origin': 1,
+                        'Destination': 1,
+                        'Fare_Direction': 1,
+                        'Fare_Basis_Code': 1,
+                        'Fare_Amount': 1,
+                        'Currency': 1,
+                        'Routing': 1,
+                        'Rule_Nbr': 1,
+                        'Footnote': 1,
+                        # Calculate sector and RBD in projection for efficiency
                         'SECTOR': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
                                 'then': {'$concat': ['$Origin', '$Destination']},
-                                'else': {
-                                    '$cond': {
-                                        'if': {'$eq': ['$Fare_Direction', 'T']},
-                                        'then': {'$concat': ['$Destination', '$Origin']},
-                                        'else': {'$concat': ['$Origin', '$Destination']}
-                                    }
-                                }
+                                'else': {'$concat': ['$Destination', '$Origin']}
                             }
                         },
+                        'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
+                        'NDO': {'$substr': ['$Fare_Basis_Code', 7, 1]}
+                    }
+                },
+                # Add final sector filter to ensure we only get requested sectors
+                {
+                    '$match': {
+                        'SECTOR': {'$in': sectors}
+                    }
+                },
+                {
+                    '$project': {
+                        'SECTOR': 1,
                         'Org': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
                                 'then': '$Origin',
-                                'else': {
-                                    '$cond': {
-                                        'if': {'$eq': ['$Fare_Direction', 'T']},
-                                        'then': '$Destination',
-                                        'else': '$Origin'
-                                    }
-                                }
+                                'else': '$Destination'
                             }
                         },
                         'Dst': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
                                 'then': '$Destination',
-                                'else': {
-                                    '$cond': {
-                                        'if': {'$eq': ['$Fare_Direction', 'T']},
-                                        'then': '$Origin',
-                                        'else': '$Destination'
-                                    }
-                                }
+                                'else': '$Origin'
                             }
                         },
                         'route': '$Routing',
-                        'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
+                        'RBD': 1,
+                        'NDO': 1,
                         'Fare_Basis_Code': 1,
                         'TOTAL': '$Fare_Amount',
                         'currency': '$Currency',
                         'fare_direction': '$Fare_Direction',
                         'rule_number': '$Rule_Nbr',
-                        'channel': 'B2C'
+                        'footnote': '$Footnote',
+                        'channel': {
+                            '$cond': {
+                                'if': {'$eq': ['$Rule_Nbr', '1001']},
+                                'then': 'B2C',
+                                'else': 'B2B'
+                            }
+                        }
                     }
                 }
             ]
             
-            # Execute aggregation
+            # Execute optimized aggregation
             all_qp_fares = list(self.db.qp_fares.aggregate(pipeline))
             qp_fares_data = pd.DataFrame(all_qp_fares)
             
-            # Filter for requested sectors
-            if not qp_fares_data.empty and sectors:
-                qp_fares_data = qp_fares_data[qp_fares_data['SECTOR'].isin(sectors)]
+            self.logger.info(f"Collected {len(qp_fares_data)} QP fares records (rules 1001/2001) for {len(sectors)} sectors")
+            if not qp_fares_data.empty:
+                rule_counts = qp_fares_data['rule_number'].value_counts().to_dict()
+                self.logger.info(f"Rule breakdown: {rule_counts}")
             
             return qp_fares_data
             
@@ -160,7 +247,7 @@ class FarePAHelper:
             self.existing_qp_sectors = set()
 
     def collect_upsell_data(self, isSaver):
-        """Collect Product Upsell data from MongoDB."""
+        """Collect Product Upsell data from MongoDB with base footnote and NDO support."""
         try:
             product_upsell = list(self.db.product_upsell.find(
                 {},
@@ -179,7 +266,9 @@ class FarePAHelper:
                     'base_all_in': 1,
                     'min_value': 1,
                     'max_value': 1,
-                    'pos': 1
+                    'pos': 1,
+                    'base_footnote': 1,
+                    'base_ndo': 1
                 }
             ))
             
@@ -191,7 +280,7 @@ class FarePAHelper:
             raise
         
     def collect_upsell_master_data(self, isSaver):
-        """Collect Product Upsell master data from MongoDB."""
+        """Collect Product Upsell master data from MongoDB with base footnote and NDO support."""
         try:
             product_upsell_master = list(self.db.product_upsell_master.find(
                 {},
@@ -210,7 +299,9 @@ class FarePAHelper:
                     'base_all_in': 1,
                     'min_value': 1,
                     'max_value': 1,
-                    'pos': 1
+                    'pos': 1,
+                    'base_footnote': 1,
+                    'base_ndo': 1
                 }
             ))
             
@@ -222,7 +313,7 @@ class FarePAHelper:
             raise
         
     def collect_saver_data(self, isSaver):
-        """Collect Saver data from MongoDB."""
+        """Collect Saver data from MongoDB with footnote and NDO support."""
         try:
             saver = list(self.db.saver.find(
                 {},
@@ -232,7 +323,9 @@ class FarePAHelper:
                     'rbd': 1,
                     'fare': 1,
                     'currency': 1,
-                    'pos': 1
+                    'pos': 1,
+                    'footnote': 1,
+                    'ndo': 1
                 }
             ))
             

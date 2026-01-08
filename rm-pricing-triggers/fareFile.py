@@ -127,8 +127,29 @@ class FareFiling:
                 # NEW: Check which sectors exist in qp_fares
                 self.existing_qp_sectors = self.pa_helper._identify_existing_qp_sectors(unique_sectors)
                 
-                # Fetch from QP fares for rule 1001 only
-                self.qp_fares_data = self.pa_helper.collect_qp_fares(unique_sectors)
+                # Extract unique base footnotes and NDOs for optimized QP fares query
+                base_footnotes = []
+                base_ndos = []
+                
+                if 'base_footnote' in self.product_upsell_data.columns:
+                    base_footnotes = self.product_upsell_data['base_footnote'].dropna().unique().tolist()
+                    # Include empty footnotes as well
+                    base_footnotes.extend(['', None])
+                
+                if 'base_ndo' in self.product_upsell_data.columns:
+                    base_ndos = self.product_upsell_data['base_ndo'].dropna().unique().tolist()
+                    # Include default NDO as well
+                    base_ndos.extend(['X', '', None])
+                
+                print(f"Base footnotes for QP query: {base_footnotes}")
+                print(f"Base NDOs for QP query: {base_ndos}")
+                
+                # Fetch from QP fares for rules 1001 and 2001 with footnote/NDO filtering
+                self.qp_fares_data = self.pa_helper.collect_qp_fares(
+                    unique_sectors, 
+                    base_footnotes=base_footnotes if base_footnotes else None,
+                    base_ndos=base_ndos if base_ndos else None
+                )
                 
                 if self.qp_fares_data.empty:
                     raise ValueError(f"No QP fares found for sectors: {unique_sectors}")
@@ -172,30 +193,88 @@ class FareFiling:
             self.logger.warning(f"Error getting POS for {sector}-{rbd}: {str(e)}")
             return 'B'
 
-    def get_saver_fares(self, sector, rbd):
-        """Get base saver fare for a given sector and RBD."""
+    def get_saver_fares(self, sector, rbd, base_footnote=None, base_ndo=None):
+        """Get base saver fare for a given sector and RBD with footnote/NDO matching."""
         try:
             if self.isSaver:
-                # Get from saver table - this is BASE FARE
-                fare_row = self.saver_data[
+                # Get from saver table - this is ALL-IN FARE
+                fare_conditions = (
                     (self.saver_data['sector'] == sector) & 
                     (self.saver_data['rbd'] == rbd)
-                ]
+                )
+                
+                # Add footnote matching if specified
+                if base_footnote is not None:
+                    if base_footnote == '' or base_footnote is None:
+                        # Match empty footnotes
+                        fare_conditions = fare_conditions & (
+                            (self.saver_data['footnote'].isna()) |
+                            (self.saver_data['footnote'] == '') |
+                            (self.saver_data['footnote'] == None)
+                        )
+                    else:
+                        # Match specific footnote
+                        fare_conditions = fare_conditions & (self.saver_data['footnote'] == base_footnote)
+                
+                # Add NDO matching if specified
+                if base_ndo is not None:
+                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
+                        # Match default NDO
+                        fare_conditions = fare_conditions & (
+                            (self.saver_data['ndo'].isna()) |
+                            (self.saver_data['ndo'] == '') |
+                            (self.saver_data['ndo'] == 'X') |
+                            (self.saver_data['ndo'] == None)
+                        )
+                    else:
+                        # Match specific NDO
+                        fare_conditions = fare_conditions & (self.saver_data['ndo'] == base_ndo)
+                
+                fare_row = self.saver_data[fare_conditions]
                 if not fare_row.empty:
                     return fare_row.iloc[0]['fare']
             else:
                 # Get from QP fares table - TOTAL is BASE FARE
-                fare_row = self.qp_fares_data[
+                fare_conditions = (
                     (self.qp_fares_data['SECTOR'] == sector) & 
                     (self.qp_fares_data['RBD'] == rbd)
-                ]
+                )
+                
+                # Add footnote matching if specified
+                if base_footnote is not None:
+                    if base_footnote == '' or base_footnote is None:
+                        # Match empty footnotes
+                        fare_conditions = fare_conditions & (
+                            (self.qp_fares_data['footnote'].isna()) |
+                            (self.qp_fares_data['footnote'] == '') |
+                            (self.qp_fares_data['footnote'] == None)
+                        )
+                    else:
+                        # Match specific footnote
+                        fare_conditions = fare_conditions & (self.qp_fares_data['footnote'] == base_footnote)
+                
+                # Add NDO matching if specified
+                if base_ndo is not None:
+                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
+                        # Match default NDO
+                        fare_conditions = fare_conditions & (
+                            (self.qp_fares_data['NDO'].isna()) |
+                            (self.qp_fares_data['NDO'] == '') |
+                            (self.qp_fares_data['NDO'] == 'X') |
+                            (self.qp_fares_data['NDO'] == None)
+                        )
+                    else:
+                        # Match specific NDO
+                        fare_conditions = fare_conditions & (self.qp_fares_data['NDO'] == base_ndo)
+                
+                fare_row = self.qp_fares_data[fare_conditions]
                 if not fare_row.empty:
                     return fare_row.iloc[0]['TOTAL']
             
             return None
             
         except Exception as e:
-            self.logger.warning(f"Error getting saver fare for {sector}-{rbd}: {str(e)}")
+            self.logger.warning(f"Error getting saver fare for {sector}-{rbd} (footnote: {base_footnote}, NDO: {base_ndo}): {str(e)}")
             return None
         
     def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
@@ -297,7 +376,6 @@ class FareFiling:
             sector: Sector code (e.g., 'BOMDEL')
             pos: POS value ('B' or 'W')
             route_type: Route type ('D' or 'I')
-            footnote: Footnote value (affects NDO position)
         """
         try:
             # Get letter for rule number
@@ -310,10 +388,7 @@ class FareFiling:
             route_char = 'I' if route_type == 'D' else 'Z'
             
             # NDO character - if footnote exists, use footnote, otherwise use NDO
-            if footnote and footnote.strip():
-                ndo_char = footnote.strip()
-            else:
-                ndo_char = ndo if pd.notna(ndo) and ndo else 'X'
+            ndo_char = ndo if pd.notna(ndo) and ndo else 'X'
             
             # Determine 6th character (POS)
             if pos is not None and pos != '':
@@ -383,11 +458,20 @@ class FareFiling:
                 
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Get saver fare for this RBD
-                    saver_allin_fare = self.get_saver_fares(sector, rbd)
+                    # Get base footnote and NDO from upsell configuration
+                    base_footnote = combo_row.get('base_footnote', None)
+                    if pd.isna(base_footnote):
+                        base_footnote = None
+                    
+                    base_ndo = combo_row.get('base_ndo', None)
+                    if pd.isna(base_ndo):
+                        base_ndo = None
+                    
+                    # Get saver fare for this RBD with footnote/NDO matching
+                    saver_allin_fare = self.get_saver_fares(sector, rbd, base_footnote, base_ndo)
                     
                     if saver_allin_fare is None:
-                        self.logger.warning(f"No saver fare found for {sector}-{rbd}")
+                        self.logger.warning(f"No saver fare found for {sector}-{rbd} (base_footnote: {base_footnote}, base_ndo: {base_ndo})")
                         continue
                     
                     # Get POS from saver table
@@ -773,6 +857,16 @@ class FareFiling:
                 if pd.isna(pos_value) or pos_value == '':
                     pos_value = 'B'
                 
+                # Get footnote from saver
+                saver_footnote = saver_row.get('footnote', '')
+                if pd.isna(saver_footnote):
+                    saver_footnote = ''
+                
+                # Get NDO from saver
+                saver_ndo = saver_row.get('ndo', 'X')
+                if pd.isna(saver_ndo) or saver_ndo == '':
+                    saver_ndo = 'X'
+                
                 # Extract base fare from all-in fare
                 origin = sector[:3]
                 destination = sector[3:]
@@ -794,8 +888,8 @@ class FareFiling:
                 
                 # Generate fare records for each applicable rule
                 for rule_nbr in rules_to_generate:
-                    # Generate farebasis - NOW PASSING POS
-                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', 'X', sector, pos=pos_value, route_type='D', footnote='')
+                    # Generate farebasis with footnote and NDO
+                    farebasis = self.generate_farebasis(rbd, rule_nbr, 'O', saver_ndo, sector, pos=pos_value, route_type='D', footnote=saver_footnote)
                     
                     # Create output row matching qp_fares schema
                     output_row = {
@@ -806,7 +900,7 @@ class FareFiling:
                         'Fare_Basis_Code': farebasis,
                         'OW_RT': 'O',
                         'Routing': '',
-                        'Footnote': '',
+                        'Footnote': saver_footnote,
                         'Currency': 'INR',
                         'Fare_Amount': base_fare,
                         'Point_Price': 0,
