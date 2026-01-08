@@ -1,0 +1,4 @@
+parameterKey,parameterValue
+fare_filter_allfares,"{""excluded_class_prefixes"": [], ""excluded_classes"": [""G9"", ""G8"", ""G7""]}"
+fare_filter_b2bfares,"{""excluded_class_prefixes"": [""W"", ""G""], ""included_fare_basis"": [""M""]}"
+fare_filter_b2cfares,"{""excluded_class_prefixes"": [""W"", ""G""], ""included_fare_basis"": [""R"", ""C"", ""V"", ""Z""]}"

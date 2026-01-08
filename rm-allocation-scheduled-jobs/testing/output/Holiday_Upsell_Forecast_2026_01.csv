@@ -1,0 +1,113 @@
+Sector,DepartureDate,ProjectedAF,Holidays,Bands,Weights,HistoricalFares,MatchTypes,MappedDOW,Month,DayOfWeek,ProfileFareQ10,Upsell
+BLRCCU,2026-09-16,6733.15,Ganesh Chaturthi,S4,0.0000,6733.15,dow_matched,Wednesday,September,Wednesday,8706.0,-23.0
+BLRCCU,2026-09-17,6733.15,Ganesh Chaturthi,S4,0.0000,6733.15,dow_matched,Thursday,September,Thursday,9092.0,-26.0
+BLRCCU,2026-09-18,6733.15,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0025,6733.15|6733.15,dow_matched|dow_matched,Friday|Friday,September,Friday,9557.0,-30.0
+BLRCCU,2026-09-19,6733.15,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0067,6733.15|6733.15,dow_matched|dow_matched,Saturday|Saturday,September,Saturday,10034.0,-33.0
+BLRCCU,2026-09-20,6733.15,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0183,6733.15|6733.15,dow_matched|dow_matched,Sunday|Sunday,September,Sunday,9109.5,-26.0
+BLRCCU,2026-09-21,6733.15,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0498,6733.15|6733.15,dow_matched|dow_matched,Monday|Monday,September,Monday,8601.5,-22.0
+BLRCCU,2026-09-22,6733.15,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.1353,6733.15|6733.15,dow_matched|dow_matched,Tuesday|Tuesday,September,Tuesday,7372.75,-9.0
+BLRCCU,2026-09-23,6733.15,Dussehra,P2,0.3679,6733.15,dow_matched,Wednesday,September,Wednesday,8706.0,-23.0
+BLRCCU,2026-09-24,6733.15,Dussehra,P2,1.0000,6733.15,dow_matched,Thursday,September,Thursday,9092.0,-26.0
+BLRCCU,2026-10-21,6800.35,Diwali,S1,1.0000,6800.35,direct,Wednesday,October,Wednesday,7252.75,-6.0
+BLRCCU,2026-10-22,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Thursday,October,Thursday,6557.0,4.0
+BLRCCU,2026-10-23,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Friday,October,Friday,6883.5,-1.0
+BLRCCU,2026-10-24,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Saturday,October,Saturday,7238.5,-6.0
+BLRCCU,2026-10-25,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Sunday,October,Sunday,7486.331666666666,-9.0
+BLRCCU,2026-10-26,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Monday,October,Monday,7138.831666666666,-5.0
+BLRCCU,2026-10-27,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Tuesday,October,Tuesday,7339.5,-7.0
+BLRCCU,2026-10-28,6800.35,Dussehra,S4,0.0000,6800.35,dow_matched,Wednesday,October,Wednesday,7252.75,-6.0
+DELAMD,2026-09-16,5500.25,Ganesh Chaturthi,S4,0.0000,5500.25,dow_matched,Wednesday,September,Wednesday,3668.25,50.0
+DELAMD,2026-09-17,5500.25,Ganesh Chaturthi,S4,0.0000,5500.25,dow_matched,Thursday,September,Thursday,3899.25,41.0
+DELAMD,2026-09-18,5500.25,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0025,5500.25|5500.25,dow_matched|dow_matched,Friday|Friday,September,Friday,4285.0,28.0
+DELAMD,2026-09-19,5500.25,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0067,5500.25|5500.25,dow_matched|dow_matched,Saturday|Saturday,September,Saturday,3843.0,43.0
+DELAMD,2026-09-20,5500.25,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0183,5500.25|5500.25,dow_matched|dow_matched,Sunday|Sunday,September,Sunday,4132.5,33.0
+DELAMD,2026-09-21,5500.25,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0498,5500.25|5500.25,dow_matched|dow_matched,Monday|Monday,September,Monday,3365.5,63.0
+DELAMD,2026-09-22,5500.25,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.1353,5500.25|5500.25,dow_matched|dow_matched,Tuesday|Tuesday,September,Tuesday,3454.5,59.0
+DELAMD,2026-09-23,5500.25,Dussehra,P2,0.3679,5500.25,dow_matched,Wednesday,September,Wednesday,3668.25,50.0
+DELAMD,2026-09-24,5500.25,Dussehra,P2,1.0000,5500.25,dow_matched,Thursday,September,Thursday,3899.25,41.0
+DELAMD,2026-10-22,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Thursday,October,Thursday,2947.5,93.0
+DELAMD,2026-10-23,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Friday,October,Friday,3645.0,56.0
+DELAMD,2026-10-24,5700.65,Dussehra|Diwali,S4|S1,0.0000|1.0000,5700.65|5700.65,dow_matched|direct,Saturday|Saturday,October,Saturday,3011.0,89.0
+DELAMD,2026-10-25,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Sunday,October,Sunday,3051.0,87.0
+DELAMD,2026-10-26,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Monday,October,Monday,2940.5,94.0
+DELAMD,2026-10-27,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Tuesday,October,Tuesday,2917.5,95.0
+DELAMD,2026-10-28,5700.65,Dussehra,S4,0.0000,5700.65,dow_matched,Wednesday,October,Wednesday,3077.75,85.0
+AMDCCU,2026-09-16,4800.75,Ganesh Chaturthi,S4,0.0000,4800.75,dow_matched,Wednesday,September,Wednesday,,
+AMDCCU,2026-09-17,4800.75,Ganesh Chaturthi,S4,0.0000,4800.75,dow_matched,Thursday,September,Thursday,,
+AMDCCU,2026-09-18,4800.75,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0025,4800.75|4800.75,dow_matched|dow_matched,Friday|Friday,September,Friday,,
+AMDCCU,2026-09-19,4800.75,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0067,4800.75|4800.75,dow_matched|dow_matched,Saturday|Saturday,September,Saturday,,
+AMDCCU,2026-09-20,4800.75,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0183,4800.75|4800.75,dow_matched|dow_matched,Sunday|Sunday,September,Sunday,,
+AMDCCU,2026-09-21,4800.75,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0498,4800.75|4800.75,dow_matched|dow_matched,Monday|Monday,September,Monday,,
+AMDCCU,2026-09-22,4800.75,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.1353,4800.75|4800.75,dow_matched|dow_matched,Tuesday|Tuesday,September,Tuesday,,
+AMDCCU,2026-09-23,4800.75,Dussehra,P2,0.3679,4800.75,dow_matched,Wednesday,September,Wednesday,,
+AMDCCU,2026-09-24,4800.75,Dussehra,P2,1.0000,4800.75,dow_matched,Thursday,September,Thursday,,
+AMDCCU,2026-10-22,5100.25,Dussehra|Diwali,S4|S1,0.0000|1.0000,5100.25|5100.25,dow_matched|direct,Thursday|Thursday,October,Thursday,,
+AMDCCU,2026-10-23,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Friday,October,Friday,,
+AMDCCU,2026-10-24,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Saturday,October,Saturday,,
+AMDCCU,2026-10-25,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Sunday,October,Sunday,,
+AMDCCU,2026-10-26,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Monday,October,Monday,,
+AMDCCU,2026-10-27,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Tuesday,October,Tuesday,,
+AMDCCU,2026-10-28,5100.25,Dussehra,S4,0.0000,5100.25,dow_matched,Wednesday,October,Wednesday,,
+BLRAMD,2026-09-16,7200.5,Ganesh Chaturthi,S4,0.0000,7200.50,dow_matched,Wednesday,September,Wednesday,5241.25,37.0
+BLRAMD,2026-09-17,7200.5,Ganesh Chaturthi,S4,0.0000,7200.50,dow_matched,Thursday,September,Thursday,5976.5,20.0
+BLRAMD,2026-09-18,7200.5,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0025,7200.50|7200.50,dow_matched|dow_matched,Friday|Friday,September,Friday,6773.5,6.0
+BLRAMD,2026-09-19,7200.5,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0067,7200.50|7200.50,dow_matched|dow_matched,Saturday|Saturday,September,Saturday,7024.0,3.0
+BLRAMD,2026-09-20,7200.5,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0183,7200.50|7200.50,dow_matched|dow_matched,Sunday|Sunday,September,Sunday,5886.5,22.0
+BLRAMD,2026-09-21,7200.5,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.0498,7200.50|7200.50,dow_matched|dow_matched,Monday|Monday,September,Monday,5629.168333333334,28.0
+BLRAMD,2026-09-22,7200.5,Ganesh Chaturthi|Dussehra,S4|P2,0.0000|0.1353,7200.50|7200.50,dow_matched|dow_matched,Tuesday|Tuesday,September,Tuesday,5179.0,39.0
+BLRAMD,2026-09-23,7200.5,Dussehra,P2,0.3679,7200.50,dow_matched,Wednesday,September,Wednesday,5241.25,37.0
+BLRAMD,2026-09-24,7200.5,Dussehra,P2,1.0000,7200.50,dow_matched,Thursday,September,Thursday,5976.5,20.0
+CCUDEL,2026-09-18,6100.3,Dussehra,P2,0.0025,6100.30,dow_matched,Friday,September,Friday,,
+CCUDEL,2026-09-19,6100.3,Dussehra,P2,0.0067,6100.30,dow_matched,Saturday,September,Saturday,,
+CCUDEL,2026-09-20,6100.3,Dussehra,P2,0.0183,6100.30,dow_matched,Sunday,September,Sunday,,
+CCUDEL,2026-09-21,6100.3,Dussehra,P2,0.0498,6100.30,dow_matched,Monday,September,Monday,,
+CCUDEL,2026-09-22,6100.3,Dussehra,P2,0.1353,6100.30,dow_matched,Tuesday,September,Tuesday,,
+CCUDEL,2026-09-23,6100.3,Dussehra|Diwali,P2|P4,0.3679|0.0000,6100.30|6100.30,dow_matched|dow_matched,Wednesday|Wednesday,September,Wednesday,,
+CCUDEL,2026-09-24,6100.3,Dussehra|Diwali,P2|P4,1.0000|0.0000,6100.30|6100.30,dow_matched|dow_matched,Thursday|Thursday,September,Thursday,,
+CCUDEL,2026-09-25,6100.3,Diwali,P4,0.0000,6100.30,dow_matched,Friday,September,Friday,,
+CCUDEL,2026-09-26,6100.3,Diwali,P4,0.0000,6100.30,dow_matched,Saturday,September,Saturday,,
+CCUDEL,2026-09-27,6100.3,Diwali,P4,0.0000,6100.30,dow_matched,Sunday,September,Sunday,,
+CCUDEL,2026-09-28,6100.3,Diwali,P4,0.0000,6100.30,dow_matched,Monday,September,Monday,,
+CCUDEL,2026-09-29,6100.3,Diwali,P4,0.0000,6100.30,dow_matched,Tuesday,September,Tuesday,,
+CCUDEL,2026-10-22,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Thursday,October,Thursday,5163.5,22.0
+CCUDEL,2026-10-23,6300.55,Dussehra|Diwali,S4|S1,0.0000|1.0000,6300.55|6300.55,dow_matched|direct,Friday|Friday,October,Friday,5336.5,18.0
+CCUDEL,2026-10-24,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Saturday,October,Saturday,5195.5,21.0
+CCUDEL,2026-10-25,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Sunday,October,Sunday,6108.331666666666,3.0
+CCUDEL,2026-10-26,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Monday,October,Monday,5460.0,15.0
+CCUDEL,2026-10-27,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Tuesday,October,Tuesday,5045.5,25.0
+CCUDEL,2026-10-28,6300.55,Dussehra,S4,0.0000,6300.55,dow_matched,Wednesday,October,Wednesday,5090.5,24.0
+AMDBLR,2026-09-23,5900.8,Diwali,P4,0.0000,5900.80,dow_matched,Wednesday,September,Wednesday,4403.0,34.0
+AMDBLR,2026-09-24,5900.8,Diwali,P4,0.0000,5900.80,dow_matched,Thursday,September,Thursday,4417.331666666666,34.0
+AMDBLR,2026-09-25,5800.900002,Dussehra|Diwali,P1|P4,1.0000|0.0000,5800.90|5900.80,direct|dow_matched,Friday|Friday,September,Friday,4670.5,24.0
+AMDBLR,2026-09-26,5800.9,Diwali,P4,0.0000,5800.90,dow_matched,Saturday,September,Saturday,4201.25,38.0
+AMDBLR,2026-09-27,5800.9,Diwali,P4,0.0000,5800.90,dow_matched,Sunday,September,Sunday,4243.75,37.0
+AMDBLR,2026-09-28,5900.8,Diwali,P4,0.0000,5900.80,dow_matched,Monday,September,Monday,4178.5,41.0
+AMDBLR,2026-09-29,5900.8,Dussehra|Diwali,P1|P4,1.0000|0.0000,5900.80|5900.80,direct|dow_matched,Tuesday|Tuesday,September,Tuesday,4245.331666666666,39.0
+DELCCU,2026-09-23,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Wednesday,September,Wednesday,,
+DELCCU,2026-09-24,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Thursday,September,Thursday,,
+DELCCU,2026-09-25,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Friday,September,Friday,,
+DELCCU,2026-09-26,6500.4,Dussehra|Diwali,P1|P4,1.0000|0.0000,6500.40|6500.40,direct|dow_matched,Saturday|Saturday,September,Saturday,,
+DELCCU,2026-09-27,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Sunday,September,Sunday,,
+DELCCU,2026-09-28,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Monday,September,Monday,,
+DELCCU,2026-09-29,6500.4,Diwali,P4,0.0000,6500.40,dow_matched,Tuesday,September,Tuesday,,
+CCUAMD,2026-09-23,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Wednesday,September,Wednesday,,
+CCUAMD,2026-09-24,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Thursday,September,Thursday,,
+CCUAMD,2026-09-25,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Friday,September,Friday,,
+CCUAMD,2026-09-26,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Saturday,September,Saturday,,
+CCUAMD,2026-09-27,4900.6,Dussehra|Diwali,P1|P4,1.0000|0.0000,4900.60|4900.60,direct|dow_matched,Sunday|Sunday,September,Sunday,,
+CCUAMD,2026-09-28,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Monday,September,Monday,,
+CCUAMD,2026-09-29,4900.6,Diwali,P4,0.0000,4900.60,dow_matched,Tuesday,September,Tuesday,,
+BLRDEL,2026-09-23,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Wednesday,September,Wednesday,5594.331666666666,39.0
+BLRDEL,2026-09-24,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Thursday,September,Thursday,5915.5,32.0
+BLRDEL,2026-09-25,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Friday,September,Friday,6564.0,19.0
+BLRDEL,2026-09-26,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Saturday,September,Saturday,8314.0,-6.0
+BLRDEL,2026-09-27,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Sunday,September,Sunday,6767.5,15.0
+BLRDEL,2026-09-28,7800.2,Dussehra|Diwali,P1|P4,1.0000|0.0000,7800.20|7800.20,direct|dow_matched,Monday|Monday,September,Monday,6161.75,27.0
+BLRDEL,2026-09-29,7800.2,Diwali,P4,0.0000,7800.20,dow_matched,Tuesday,September,Tuesday,5654.5,38.0
+DELBLR,2026-10-15,6200.45,Dussehra,S3,0.0009,6200.45,dow_matched,Thursday,October,Thursday,6429.0,-4.0
+DELBLR,2026-10-16,6200.45,Dussehra,S3,0.0003,6200.45,dow_matched,Friday,October,Friday,6922.0,-10.0
+DELBLR,2026-10-17,6200.45,Dussehra,S3,0.0001,6200.45,dow_matched,Saturday,October,Saturday,6329.0,-2.0
+DELBLR,2026-10-18,6200.45,Dussehra,S3,0.0000,6200.45,dow_matched,Sunday,October,Sunday,6851.0,-9.0
+DELBLR,2026-10-19,6200.45,Dussehra,S3,0.0000,6200.45,dow_matched,Monday,October,Monday,6570.0,-6.0
+DELBLR,2026-10-20,6200.45,Dussehra|Diwali,S3|S1,0.0000|1.0000,6200.45|6200.45,dow_matched|direct,Tuesday|Tuesday,October,Tuesday,6328.5,-2.0
+DELBLR,2026-10-21,6200.45,Dussehra,S3,0.0000,6200.45,dow_matched,Wednesday,October,Wednesday,6442.668333333334,-4.0

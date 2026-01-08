@@ -1,0 +1,4 @@
+Origin,Destin,FlightNumber,DepartureDate
+BOM,DEL,1001,2026-01-15
+DEL,BOM,1002,2026-01-15
+BOM,CCU,1010,2026-01-15
