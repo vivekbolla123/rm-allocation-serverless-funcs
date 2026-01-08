@@ -1,0 +1,4 @@
+Sector,Channel,Carrier,Min_QP,Max_QP,Min_QP_RBD,Max_QP_RBD,Action_RBD,XQP_Fare,Fare_difference,PLF,Instances,Base_XQP_Fare,Distance,New_Fare_Point,Yield,Action_required,Req_Min_Instances,Req_Min_FD,Req_Min_Yield,Req_Discared_Carrier,Req_Forward_PLF,Constraint,run_id,created_at,route,analyst
+BOMDEL,B2C,6E,8500,9500,ZR,ZF,ZR,9200,700,0.78,15,9200,1138,8800,0.082,Max_Action,TRUE,TRUE,TRUE,FALSE,TRUE,Satisfied,RUN001,2025-01-01 10:00:00,D,Test User
+DELBOM,B2C,6E,8200,9200,ZR,ZF,ZR,8900,700,0.75,12,8900,1138,8500,0.079,Max_Action,TRUE,TRUE,TRUE,FALSE,TRUE,Satisfied,RUN001,2025-01-01 10:00:00,D,Test User
+BOMBLR,B2C,6E,6500,7500,ZR,ZF,ZR,7200,700,0.82,18,7200,842,6800,0.091,Max_Action,TRUE,TRUE,TRUE,FALSE,TRUE,Satisfied,RUN001,2025-01-01 10:00:00,D,Test User

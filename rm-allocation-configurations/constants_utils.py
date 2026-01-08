@@ -249,7 +249,7 @@ class ConstantsUtils:
             elif parameter_key == RBD_VALUES_KEY:
                 self.RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
-                self.B2B_THRESHOLD = parameter_value
+                self.B2B_THRESHOLD = float(parameter_value)
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
