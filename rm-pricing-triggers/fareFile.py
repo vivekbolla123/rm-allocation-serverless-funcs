@@ -605,7 +605,12 @@ class FareFiling:
             
             # Now process companion rules (5002 from 1002, 5006 from 1006, 2001 from 1007)
             self.logger.info(f"Processing companion rules using {len(primary_rules_processed)} primary rule fares")
-            self.logger.info(f"Primary rules keys: {list(primary_rules_processed.keys())[:5]}...")  # Show first 5 keys
+            
+            # Log all primary rule keys for debugging
+            for key, rules in primary_rules_processed.items():
+                sector, rbd, ow_rt, footnote, ndo, pos = key
+                self.logger.info(f"Primary key: sector={sector}, rbd={rbd}, ow_rt={ow_rt}, footnote='{footnote}', ndo={ndo}, pos={pos}, rules={list(rules.keys())}")
+            
             companion_rows = self._generate_companion_rules_simple(primary_rules_processed, existing_sort_prices)
             all_output_rows.extend(companion_rows)
             
@@ -628,9 +633,17 @@ class FareFiling:
         - 1002 -> 5002
         - 1006 -> 5006  
         - 1007 -> 2001 (B2B RBD range: ZJ to Y0, 84 RBDs)
+        
+        CRITICAL: Companion rules must have EXACT footnote matching with their primary rules.
+        If 1002 has footnote "CJAN", then 5002 must also have footnote "CJAN".
+        If 1002 has empty footnote, then 5002 must also have empty footnote.
+        
+        FAILURE CONDITION: If a companion rule configuration exists but no matching primary rule
+        is found, the run will fail with detailed error information.
         """
         try:
             companion_rows = []
+            missing_primary_rules = []  # Track missing primary rules for failure reporting
             
             # Mapping of primary to companion rules
             companion_mapping = {
@@ -662,7 +675,12 @@ class FareFiling:
                 companion_rule = config_row['rule_nbr']
                 sector = config_row['sector']
                 
-                self.logger.info(f"Processing companion rule {companion_rule} for sector {sector}")
+                # Get companion rule parameters for logging
+                companion_footnote = config_row.get('footnote', '')
+                if pd.isna(companion_footnote):
+                    companion_footnote = ''
+                
+                self.logger.info(f"Processing companion rule {companion_rule} for sector {sector} with footnote '{companion_footnote}'")
                 
                 # Find the corresponding primary rule
                 primary_rule = None
@@ -695,11 +713,7 @@ class FareFiling:
                     self.logger.warning(f"Invalid RBD range for {sector}-{companion_rule}: {rbd_start} to {rbd_end}")
                     continue
                 
-                # Get companion rule parameters
-                companion_footnote = config_row.get('footnote', '')
-                if pd.isna(companion_footnote):
-                    companion_footnote = ''
-                
+                # Get companion rule parameters (footnote already extracted above for logging)
                 companion_ow_rt = config_row.get('ow_rt', 'O')
                 if pd.isna(companion_ow_rt) or companion_ow_rt == '':
                     companion_ow_rt = 'O'
@@ -714,36 +728,50 @@ class FareFiling:
                 
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Look for corresponding primary rule fare with flexible matching
                     primary_base_fare = None
                     
-                    # Try multiple key combinations to find the primary rule
-                    search_keys = [
-                        (sector, rbd, companion_ow_rt, companion_footnote, companion_ndo, companion_pos),
-                        (sector, rbd, companion_ow_rt, '', companion_ndo, companion_pos),  # Empty footnote
-                        (sector, rbd, 'O', companion_footnote, companion_ndo, companion_pos),  # Default OW_RT
-                        (sector, rbd, 'O', '', companion_ndo, companion_pos),  # Default OW_RT + empty footnote
-                        (sector, rbd, companion_ow_rt, companion_footnote, 'X', companion_pos),  # Default NDO
-                        (sector, rbd, 'O', '', 'X', companion_pos),  # All defaults
-                    ]
+                    # Search for primary rule with EXACT matching of footnote, ow_rt, ndo, pos
+                    exact_search_key = (sector, rbd, companion_ow_rt, companion_footnote, companion_ndo, companion_pos)
                     
-                    for search_key in search_keys:
-                        if search_key in primary_rules_processed and primary_rule in primary_rules_processed[search_key]:
-                            primary_base_fare = primary_rules_processed[search_key][primary_rule]
-                            self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with key {search_key}")
-                            break
-                    
-                    # If still not found, try a broader search
-                    if primary_base_fare is None:
+                    if exact_search_key in primary_rules_processed and primary_rule in primary_rules_processed[exact_search_key]:
+                        primary_base_fare = primary_rules_processed[exact_search_key][primary_rule]
+                        self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with exact match: {exact_search_key}")
+                    else:
+                        # If exact match not found, try with flexible ow_rt, ndo, pos but STRICT footnote matching
                         for key, rule_fares in primary_rules_processed.items():
                             key_sector, key_rbd, key_ow_rt, key_footnote, key_ndo, key_pos = key
-                            if key_sector == sector and key_rbd == rbd and primary_rule in rule_fares:
+                            
+                            # STRICT footnote matching - footnotes must be exactly the same
+                            footnote_match = (
+                                (companion_footnote == '' and (key_footnote == '' or pd.isna(key_footnote))) or
+                                (companion_footnote == key_footnote)
+                            )
+                            
+                            if (key_sector == sector and 
+                                key_rbd == rbd and 
+                                footnote_match and 
+                                primary_rule in rule_fares):
                                 primary_base_fare = rule_fares[primary_rule]
-                                self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with broad search, key {key}")
+                                self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with footnote match: companion='{companion_footnote}', primary='{key_footnote}', key={key}")
                                 break
                     
                     if primary_base_fare is None:
-                        self.logger.info(f"No primary rule {primary_rule} fare found for companion {companion_rule} at {sector}-{rbd}")
+                        # CRITICAL: Track missing primary rule for failure reporting
+                        missing_info = {
+                            'companion_rule': companion_rule,
+                            'primary_rule': primary_rule,
+                            'sector': sector,
+                            'rbd': rbd,
+                            'footnote': companion_footnote,
+                            'ow_rt': companion_ow_rt,
+                            'ndo': companion_ndo,
+                            'pos': companion_pos
+                        }
+                        missing_primary_rules.append(missing_info)
+                        
+                        self.logger.error(f"MISSING PRIMARY RULE: Companion rule {companion_rule} requires primary rule {primary_rule} "
+                                        f"for {sector}-{rbd} with footnote '{companion_footnote}', ow_rt '{companion_ow_rt}', "
+                                        f"ndo '{companion_ndo}', pos '{companion_pos}' but it was not found")
                         continue
                     
                     origin = sector[:3]
@@ -829,6 +857,10 @@ class FareFiling:
                     companion_rows.append(output_row)
                     self.logger.debug(f"Generated {companion_rule} from {primary_rule}: {primary_base_fare} -> {final_base_fare} (footnote: '{companion_footnote}')")
             
+            # Check if any primary rules were missing and fail the run if so
+            if missing_primary_rules:
+                self._handle_missing_primary_rules_failure(missing_primary_rules)
+            
             self.logger.info(f"Generated {len(companion_rows)} companion rule records")
             return companion_rows
             
@@ -836,6 +868,102 @@ class FareFiling:
             self.logger.error(f"Error generating companion rules: {str(e)}")
             self.logger.error(traceback.format_exc())
             return []
+    
+    def _handle_missing_primary_rules_failure(self, missing_primary_rules):
+        """Handle failure when companion rules cannot be generated due to missing primary rules."""
+        try:
+            # Group missing rules by companion rule for better reporting
+            missing_by_companion = {}
+            for missing in missing_primary_rules:
+                companion_rule = missing['companion_rule']
+                if companion_rule not in missing_by_companion:
+                    missing_by_companion[companion_rule] = []
+                missing_by_companion[companion_rule].append(missing)
+            
+            # Build detailed error message
+            error_lines = [
+                "COMPANION RULE GENERATION FAILED",
+                "=" * 50,
+                "The following companion rules are configured but their corresponding primary rules are missing:",
+                ""
+            ]
+            
+            for companion_rule, missing_list in missing_by_companion.items():
+                primary_rule = missing_list[0]['primary_rule']  # All will have same primary rule
+                error_lines.append(f"Companion Rule {companion_rule} (requires Primary Rule {primary_rule}):")
+                
+                # Group by footnote for cleaner reporting
+                by_footnote = {}
+                for missing in missing_list:
+                    footnote_key = missing['footnote'] if missing['footnote'] else 'EMPTY'
+                    if footnote_key not in by_footnote:
+                        by_footnote[footnote_key] = []
+                    by_footnote[footnote_key].append(missing)
+                
+                for footnote_key, footnote_missing in by_footnote.items():
+                    error_lines.append(f"  Footnote '{footnote_key}':")
+                    
+                    # Group by sector for even cleaner reporting
+                    by_sector = {}
+                    for missing in footnote_missing:
+                        sector = missing['sector']
+                        if sector not in by_sector:
+                            by_sector[sector] = []
+                        by_sector[sector].append(missing['rbd'])
+                    
+                    for sector, rbds in by_sector.items():
+                        rbd_count = len(rbds)
+                        rbd_sample = rbds[:3]  # Show first 3 RBDs
+                        rbd_display = ', '.join(rbd_sample)
+                        if rbd_count > 3:
+                            rbd_display += f" ... (+{rbd_count - 3} more)"
+                        
+                        error_lines.append(f"    Sector {sector}: {rbd_count} RBDs ({rbd_display})")
+                
+                error_lines.append("")
+            
+            error_lines.extend([
+                "RESOLUTION:",
+                "1. Add the missing primary rules to your input data with matching footnotes, OR",
+                "2. Remove the companion rule configurations that cannot be generated",
+                "",
+                "MISSING PRIMARY RULE DETAILS:",
+                "The following primary rule combinations need to be added to your input:"
+            ])
+            
+            # Add specific missing combinations for easier resolution
+            for companion_rule, missing_list in missing_by_companion.items():
+                primary_rule = missing_list[0]['primary_rule']
+                error_lines.append(f"  For {companion_rule} generation, add {primary_rule} with:")
+                
+                by_footnote = {}
+                for missing in missing_list:
+                    footnote_key = missing['footnote'] if missing['footnote'] else 'EMPTY'
+                    if footnote_key not in by_footnote:
+                        by_footnote[footnote_key] = set()
+                    by_footnote[footnote_key].add(missing['sector'])
+                
+                for footnote_key, sectors in by_footnote.items():
+                    footnote_display = f"footnote='{footnote_key}'" if footnote_key != 'EMPTY' else "footnote='' (empty)"
+                    sectors_display = ', '.join(sorted(sectors))
+                    error_lines.append(f"    - {footnote_display} for sectors: {sectors_display}")
+                
+                error_lines.append("")
+            
+            error_lines.append(f"Total missing primary rule instances: {len(missing_primary_rules)}")
+            
+            error_message = "\n".join(error_lines)
+            self.logger.error(error_message)
+            
+            # Raise exception to fail the run
+            raise ValueError(f"Companion rule generation failed: {len(missing_primary_rules)} missing primary rule instances. "
+                           f"See logs for detailed breakdown.")
+            
+        except Exception as e:
+            # Fallback error handling
+            self.logger.error(f"Error in failure handling: {str(e)}")
+            raise ValueError(f"Companion rule generation failed due to missing primary rules. "
+                           f"Count: {len(missing_primary_rules)}. Additional error in reporting: {str(e)}")
         
     def generate_saver_output(self):
         """Generate output rows for saver fares (rule 1001 and 2001)."""
@@ -1014,14 +1142,22 @@ class FareFiling:
             }
             
         except Exception as e:
-            self.logger.error(f"Error in run method: {str(e)}")
+            error_message = str(e)
+            self.logger.error(f"Error in run method: {error_message}")
             self.logger.error(traceback.format_exc())
-            # Update audit with FAILED status
-            self.pa_helper.save_run_audit(
-                self.currentVersion, route, self.analystName, 
-                self.start_time, self.run_id, None,
-                run_type=run_type if 'run_type' in locals() else "Unknown",
-                sectors_list=None,
-                status='FAILED', is_initial=False
-            )
+            
+            # Update audit with FAILED status and failure reason
+            try:
+                self.pa_helper.save_run_audit(
+                    self.currentVersion, route, self.analystName, 
+                    self.start_time, self.run_id, None,
+                    run_type=run_type if 'run_type' in locals() else "Unknown",
+                    sectors_list=None,
+                    status='FAILED', 
+                    is_initial=False,
+                    failure_reason=error_message
+                )
+            except Exception as audit_error:
+                self.logger.error(f"Failed to update audit record: {str(audit_error)}")
+            
             raise

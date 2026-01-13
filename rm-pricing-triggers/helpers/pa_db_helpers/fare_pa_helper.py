@@ -535,7 +535,7 @@ class FarePAHelper:
             self.logger.error(f"Unable to get current version: {str(e)}")
             raise
         
-    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, run_type=None, sectors_list=None, status='SUCCESS', is_initial=False):
+    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, run_type=None, sectors_list=None, status='SUCCESS', is_initial=False, failure_reason=None):
         """Save or update audit information for fare filing runs.
         
         Args:
@@ -549,6 +549,7 @@ class FarePAHelper:
             sectors_list: List of sectors processed
             status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
             is_initial: If True, performs INSERT for initial audit record
+            failure_reason: Detailed failure reason (only used when status='FAILED')
         """
         try:
             collection = self.db.fare_filing_run_audits
@@ -627,7 +628,8 @@ class FarePAHelper:
                         'total_fares_generated': total_fares,
                         'unique_sectors': unique_sectors,
                         'unique_rules': unique_rules,
-                        'status': status
+                        'status': status,
+                        'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
                 
