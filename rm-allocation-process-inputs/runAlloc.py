@@ -912,7 +912,7 @@ class DynAlloc:
 				self.outputSummaryRow_b2b.status = b2c_status_val # Mirror B2C status initially
 
 				# B2B Allocation
-				isUpsell_b2b = False; skip_b2b_factor = False
+				isUpsell_b2b = False; skip_b2b_factor = False; close_b2b = False
 				current_brd_counter = brd_counter_after_b2c
 
 				# B2B Z0 fare check vs backstop
@@ -922,14 +922,17 @@ class DynAlloc:
 				if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
 					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 				
-				param_b2b_factor = getattr(self.currParams, 'b2b_factor', 0) # Default if not present
-				if pd.notna(param_b2b_factor) and float(param_b2b_factor) == -1:
-					skip_b2b_factor = True
+				param_b2b_factor = getattr(self.currParams, 'b2b_factor', -1) # Default if not present
+				if pd.notna(param_b2b_factor):
+					if float(param_b2b_factor) == -1:
+						skip_b2b_factor = True
+					elif float(param_b2b_factor) == 0:
+						close_b2b = True
 
 				isUpsell_b2b, current_brd_counter = self.allocations.b2BAllocation(
 					float(initial_currBookedLoad), openDataB2B_details, currRec_fullalloc, final_totalCapacity, variance_full, b2cAllocUnits_val,
 					skip_b2b_factor, self.b2boverbookingflag, current_brd_counter, openDataB2C_details,
-					self.currParams, overBookingCount,self.B2B_thresholdflag
+					self.currParams, overBookingCount,self.B2B_thresholdflag, close_b2b
 				)
 
 				if isUpsell_b2b: openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B skipped - Flight in Upsell'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
