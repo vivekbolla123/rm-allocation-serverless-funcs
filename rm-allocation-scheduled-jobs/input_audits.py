@@ -3,348 +3,339 @@ import pandas as pd
 from io import StringIO, BytesIO
 from datetime import datetime, timedelta
 import pytz
-import os
 import logging
-import sys
+import re
 from typing import List, Tuple, Dict, Any
 import traceback
 import configsettings
-import json
-import re
-
-# Add pyarrow for parquet support
-try:
-    import pyarrow.parquet as pq
-except ImportError:
-    # Fallback if pyarrow is not available
-    pq = None
+from mysql.connector import Error
 
 class S3AuditProcessor:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
-        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
-        self.db = self.mongo_conn['qp_dw_rmalloc']
-
-        # S3 Configuration from overrides or defaults
-        self.bucket_name = configsettings.S3_BUCKET_NAME
-        self.ml_audits_prefix = configsettings.S3_FILE_PATH + "rm-admin/ml-audits/"
-        self.wb_audits_prefix = configsettings.S3_FILE_PATH + "rm-admin/audits/"
+        self.dw_conn = params['dwconn']
+        self.schema = "RM_DW_DATA"
         
-        # Rolling window configuration
+        # S3 Configuration
+        self.bucket = configsettings.S3_BUCKET_NAME
+        self.ml_prefix = configsettings.S3_FILE_PATH + "rm-admin/ml-audits/"
+        self.wb_prefix = configsettings.S3_FILE_PATH + "rm-admin/audits/"
+        self.s3_client = boto3.client('s3')
+        
+        # Rolling window settings
         self.rolling_days = 3
         self.min_days_required = 2
         
-        # Calculate date ranges
+        # Date calculations
         today = datetime.now().date()
-        yesterday = today - timedelta(days=1)
-        self.target_date = yesterday  # Process yesterday's data
-        self.window_start_date = today - timedelta(days=self.rolling_days)
-        self.window_end_date = yesterday
+        self.target_date = today - timedelta(days=1)  # Yesterday
+        self.window_start = today - timedelta(days=self.rolling_days)
+        self.window_end = self.target_date
         
-        # Database collection names
-        self.audit_reports_collection = "audit_reports"
-        self.metadata_collection = "audit_metadata"
+        # Table names
+        self.audit_table = "audit_reports"
+        self.metadata_table = "audit_metadata"
         
-        # Initialize S3 client
-        self.s3_client = boto3.client('s3')
-        
-        # Store processed data
-        self.processed_data = []
+        self.create_tables()
 
-    def get_last_processed_info(self) -> Dict[str, Any]:
-        """Get information about the last processing run"""
+    def create_tables(self):
+        """Create MySQL tables if not exist"""
+        cursor = None
         try:
-            collection = self.db[self.metadata_collection]
-            last_run = collection.find_one({"type": "last_run"}, sort=[("timestamp", -1)])
+            cursor = self.dw_conn.cursor()
             
-            if last_run:
-                return {
-                    "last_processed_date": last_run.get("last_processed_date"),
-                    "last_run_timestamp": last_run.get("timestamp"),
-                    "files_processed_count": last_run.get("files_processed_count", 0)
-                }
-            return {"last_processed_date": None, "last_run_timestamp": None, "files_processed_count": 0}
+            audit_table_sql = f"""
+            CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                sector VARCHAR(10) NOT NULL,
+                flightNo INT NOT NULL,
+                departureDate INT NOT NULL,
+                source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
+                changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDDHHMM',
+                analystName VARCHAR(100),
+                `key` VARCHAR(100),
+                value TEXT,
+                INDEX idx_sector_flight (sector, flightNo, departureDate),
+                INDEX idx_changed (changedAtDateTime),
+                INDEX idx_source (source)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
             
-        except Exception as e:
-            self.logger.error(f"Failed to get last processed info: {str(e)}")
-            return {"last_processed_date": None, "last_run_timestamp": None, "files_processed_count": 0}
+            metadata_table_sql = f"""
+            CREATE TABLE IF NOT EXISTS {self.schema}.{self.metadata_table} (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                type VARCHAR(50),
+                timestamp DATETIME,
+                last_processed_date INT,
+                files_processed_count INT,
+                INDEX idx_type_time (type, timestamp)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            """
+            
+            cursor.execute(audit_table_sql)
+            cursor.execute(metadata_table_sql)
+            self.dw_conn.commit()
+            self.logger.info("Tables created successfully")
+            
+        except Error as e:
+            self.logger.error(f"Failed to create tables: {e}")
+            raise
+        finally:
+            if cursor:
+                cursor.close()
 
-    def save_processing_metadata(self, processed_files_count: int, processed_date: str) -> None:
-        """Save metadata about the current processing run"""
+    # ==================== DATE/TIME CONVERTERS ====================
+    
+    def to_date_int(self, date_str: str) -> int:
+        """Convert YYYY-MM-DD to YYYYMMDD"""
         try:
-            collection = self.db[self.metadata_collection]
-            
-            metadata = {
-                "type": "last_run",
-                "timestamp": datetime.now(),
-                "last_processed_date": processed_date,
-                "files_processed_count": processed_files_count
-            }
-            
-            collection.insert_one(metadata)
-            self.logger.info(f"Saved processing metadata for {processed_date}: {processed_files_count} files")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to save processing metadata: {str(e)}")
+            return int(datetime.strptime(date_str, '%Y-%m-%d').strftime('%Y%m%d'))
+        except:
+            return 0
 
+    def to_datetime_int(self, iso_datetime: str) -> int:
+        """Convert ISO datetime to YYYYMMDDHHMM"""
+        try:
+            if not iso_datetime or 'T' not in iso_datetime:
+                return 0
+            
+            date_part, time_part = iso_datetime.split('T')
+            year, month, day = date_part.split('-')
+            hour, minute = time_part.split(':')[:2]
+            
+            return int(f"{year}{month}{day}{hour}{minute}")
+        except:
+            return 0
+
+    def normalize_date(self, date_str: str) -> str:
+        """Normalize various date formats to YYYY-MM-DD"""
+        if not date_str or not isinstance(date_str, str):
+            return ""
+        
+        try:
+            parts = date_str.split('-')
+            if len(parts) != 3:
+                return ""
+            
+            # dd-mm-yyyy or d-mm-yyyy
+            if len(parts[0]) <= 2:
+                day, month, year = parts
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            
+            # mm-dd-yyyy or m-dd-yyyy  
+            if len(parts[1]) <= 2 and len(parts[2]) == 4:
+                month, day, year = parts
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            
+            return date_str
+        except:
+            return ""
+
+    # ==================== METADATA & HELPERS ====================
+    
     def is_first_run(self) -> bool:
-        """Check if this is the first run by looking at existing data"""
+        """Check if database is empty"""
+        cursor = None
         try:
-            collection = self.db[self.audit_reports_collection]
-            count = collection.count_documents({})
+            cursor = self.dw_conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}")
+            count = cursor.fetchone()[0]
             return count == 0
-        except Exception as e:
-            self.logger.error(f"Failed to check if first run: {str(e)}")
+        except:
             return True
+        finally:
+            if cursor:
+                cursor.close()
 
-    def cleanup_old_data(self, cutoff_date: str) -> None:
-        """Remove data older than the cutoff date to maintain rolling window"""
+    def save_metadata(self, file_count: int):
+        """Save processing run metadata"""
+        cursor = None
         try:
-            collection = self.db[self.audit_reports_collection]
-            
-            # Convert cutoff_date string to datetime object for comparison
-            cutoff_datetime = datetime.strptime(cutoff_date, '%Y-%m-%d')
-            
-            # Delete records older than cutoff_date
-            delete_result = collection.delete_many({
-                "changeAtdate": {"$lt": cutoff_datetime}
-            })
-            
-            self.logger.info(f"Cleaned up {delete_result.deleted_count} old records before {cutoff_date}")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to cleanup old data: {str(e)}")
+            cursor = self.dw_conn.cursor()
+            query = f"""
+                INSERT INTO {self.schema}.{self.metadata_table}
+                (type, timestamp, last_processed_date, files_processed_count)
+                VALUES ('last_run', %s, %s, %s)
+            """
+            target_int = int(self.target_date.strftime('%Y%m%d'))
+            cursor.execute(query, (datetime.now(), target_int, file_count))
+            self.dw_conn.commit()
+            self.logger.info(f"Saved metadata: {file_count} files processed")
+        except Error as e:
+            self.logger.error(f"Failed to save metadata: {e}")
+        finally:
+            if cursor:
+                cursor.close()
 
-    def get_existing_data_date_range(self) -> Tuple[datetime, datetime]:
-        """Get the date range of existing data in the database"""
+    def get_date_range(self) -> Tuple[int, int]:
+        """Get min/max dates from existing data"""
+        cursor = None
         try:
-            collection = self.db[self.audit_reports_collection]
-            
-            # Get min and max dates
-            pipeline = [
-                {
-                    "$group": {
-                        "_id": None,
-                        "min_date": {"$min": "$changeAtdate"},
-                        "max_date": {"$max": "$changeAtdate"}
-                    }
-                }
-            ]
-            
-            result = list(collection.aggregate(pipeline))
-            if result and result[0]["min_date"] and result[0]["max_date"]:
-                return result[0]["min_date"], result[0]["max_date"]
-            
+            cursor = self.dw_conn.cursor()
+            query = f"""
+                SELECT 
+                    FLOOR(MIN(changedAtDateTime) / 10000),
+                    FLOOR(MAX(changedAtDateTime) / 10000)
+                FROM {self.schema}.{self.audit_table}
+            """
+            cursor.execute(query)
+            result = cursor.fetchone()
+            if result and result[0] and result[1]:
+                return int(result[0]), int(result[1])
             return None, None
-            
-        except Exception as e:
-            self.logger.error(f"Failed to get existing data date range: {str(e)}")
+        except:
             return None, None
+        finally:
+            if cursor:
+                cursor.close()
 
-    def normalize_prefix(self, prefix: str) -> str:
-        return prefix.rstrip('/') + '/'
-
-    def make_timezone_aware(self, date_obj: datetime) -> datetime:
-        if date_obj.tzinfo is None:
-            return pytz.utc.localize(date_obj)
-        return date_obj
-
-    def get_ml_audit_files(self, is_first_run: bool = False) -> List[str]:
-        """Get ML audit parquet files based on run type"""
-        ml_files = []
-        
-        # Determine date filter based on run type
-        if is_first_run:
-            # First run: get last 30 days
-            min_date = self.make_timezone_aware(datetime.combine(self.window_start_date, datetime.min.time()))
-            print(f"First run: Looking for ML files from {self.window_start_date}")
-        else:
-            # Rolling run: get files modified since yesterday
-            min_date = self.make_timezone_aware(datetime.combine(self.target_date, datetime.min.time()))
-            print(f"Rolling run: Looking for ML files modified since {self.target_date}")
-        
-        # Check both direct and connections folders
-        for audit_type in ['direct', 'connections']:
-            prefix = f"{self.ml_audits_prefix}{audit_type}/"
-            
-            paginator = self.s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket=self.bucket_name, Prefix=prefix)
-            
-            for page in pages:
-                for obj in page.get('Contents', []):
-                    if obj['Key'].endswith('.parquet'):
-                        last_modified = obj['LastModified']
-                        
-                        # For first run, check if file contains data within our window
-                        # For rolling run, check if file was modified recently
-                        if is_first_run:
-                            # Extract date from path and check if it's in our window
-                            if self.is_file_in_date_range(obj['Key'], self.window_start_date, self.window_end_date):
-                                ml_files.append(obj['Key'])
-                        else:
-                            # Check if file was modified since target date
-                            if last_modified >= min_date:
-                                ml_files.append(obj['Key'])
-        
-        print(f"Found {len(ml_files)} ML audit parquet files")
-        return ml_files
-
-    def get_wb_audit_files(self, is_first_run: bool = False) -> List[str]:
-        """Get Workbench audit CSV files based on run type"""
-        wb_files = []
-        
-        # Determine date filter based on run type
-        if is_first_run:
-            min_date = self.make_timezone_aware(datetime.combine(self.window_start_date, datetime.min.time()))
-            print(f"First run: Looking for WB files from {self.window_start_date}")
-        else:
-            min_date = self.make_timezone_aware(datetime.combine(self.target_date, datetime.min.time()))
-            print(f"Rolling run: Looking for WB files modified since {self.target_date}")
-        
-        paginator = self.s3_client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=self.bucket_name, Prefix=self.wb_audits_prefix)
-        
-        for page in pages:
-            for obj in page.get('Contents', []):
-                if obj['Key'].endswith('.csv'):
-                    last_modified = obj['LastModified']
-                    
-                    if is_first_run:
-                        # Extract date from path and check if it's in our window
-                        if self.is_file_in_date_range(obj['Key'], self.window_start_date, self.window_end_date):
-                            wb_files.append(obj['Key'])
-                    else:
-                        # Check if file was modified since target date
-                        if last_modified >= min_date:
-                            wb_files.append(obj['Key'])
-        
-        print(f"Found {len(wb_files)} Workbench audit CSV files")
-        return wb_files
-
-    def is_file_in_date_range(self, file_key: str, start_date: datetime.date, end_date: datetime.date) -> bool:
-        """Check if a file contains data within the specified date range"""
+    def cleanup_old_data(self, cutoff_date_int: int):
+        """Delete records older than cutoff date"""
+        cursor = None
         try:
-            # For ML files: extract from changedAtDate=YYYY-MM-DD
+            cursor = self.dw_conn.cursor()
+            cutoff_datetime = cutoff_date_int * 10000  # YYYYMMDD to YYYYMMDD0000
+            query = f"DELETE FROM {self.schema}.{self.audit_table} WHERE changedAtDateTime < %s"
+            cursor.execute(query, (cutoff_datetime,))
+            self.dw_conn.commit()
+            self.logger.info(f"Deleted {cursor.rowcount} old records")
+        except Error as e:
+            self.logger.error(f"Failed cleanup: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+
+    # ==================== S3 FILE DISCOVERY ====================
+    
+    def make_timezone_aware(self, dt: datetime) -> datetime:
+        """Ensure datetime is timezone-aware"""
+        return pytz.utc.localize(dt) if dt.tzinfo is None else dt
+
+    def file_in_range(self, file_key: str, start: datetime.date, end: datetime.date) -> bool:
+        """Check if file's date is within range"""
+        try:
+            # ML files: changedAtDate=YYYY-MM-DD
             if 'changedAtDate=' in file_key:
-                date_match = re.search(r'changedAtDate=(\d{4}-\d{2}-\d{2})', file_key)
-                if date_match:
-                    file_date = datetime.strptime(date_match.group(1), '%Y-%m-%d').date()
-                    return start_date <= file_date <= end_date
+                match = re.search(r'changedAtDate=(\d{4}-\d{2}-\d{2})', file_key)
+                if match:
+                    file_date = datetime.strptime(match.group(1), '%Y-%m-%d').date()
+                    return start <= file_date <= end
             
-            # For WB files: extract from date=MM-DD-YYYY and filename YYYY-MM-DD.csv
+            # WB files: date=MM-DD-YYYY and filename YYYY-MM-DD.csv
             elif '/date=' in file_key:
-                # Extract departure date from path
-                date_match = re.search(r'/date=(\d{2}-\d{2}-\d{4})/', file_key)
-                if date_match:
-                    dept_date_str = date_match.group(1)
-                    month, day, year = dept_date_str.split('-')
-                    dept_date = datetime(int(year), int(month), int(day)).date()
+                match = re.search(r'/date=(\d{2}-\d{2}-\d{4})/', file_key)
+                if match:
+                    m, d, y = match.group(1).split('-')
+                    dept_date = datetime(int(y), int(m), int(d)).date()
                     
-                    # Also check filename for changed date
                     filename = file_key.split('/')[-1].replace('.csv', '')
                     try:
                         changed_date = datetime.strptime(filename, '%Y-%m-%d').date()
-                        # File is relevant if either departure date or change date is in range
-                        return (start_date <= dept_date <= end_date) or (start_date <= changed_date <= end_date)
+                        return (start <= dept_date <= end) or (start <= changed_date <= end)
                     except:
-                        # If filename parsing fails, just use departure date
-                        return start_date <= dept_date <= end_date
+                        return start <= dept_date <= end
             
             return False
-            
-        except Exception as e:
-            self.logger.warning(f"Could not parse date from file {file_key}: {str(e)}")
+        except:
             return False
 
-    def process_ml_audit_file(self, file_key: str) -> List[Dict[str, Any]]:
-        """Process a single ML audit parquet file"""
+    def get_ml_files(self, first_run: bool) -> List[str]:
+        """Get ML audit parquet files"""
+        files = []
+        min_date = self.make_timezone_aware(
+            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
+        )
+        
+        for audit_type in ['direct', 'connections']:
+            prefix = f"{self.ml_prefix}{audit_type}/"
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for obj in page.get('Contents', []):
+                    if obj['Key'].endswith('.parquet'):
+                        if first_run:
+                            if self.file_in_range(obj['Key'], self.window_start, self.window_end):
+                                files.append(obj['Key'])
+                        else:
+                            if obj['LastModified'] >= min_date:
+                                files.append(obj['Key'])
+        
+        print(f"Found {len(files)} ML files")
+        return files
+
+    def get_wb_files(self, first_run: bool) -> List[str]:
+        """Get Workbench audit CSV files"""
+        files = []
+        min_date = self.make_timezone_aware(
+            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
+        )
+        
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.wb_prefix):
+            for obj in page.get('Contents', []):
+                if obj['Key'].endswith('.csv'):
+                    if first_run:
+                        if self.file_in_range(obj['Key'], self.window_start, self.window_end):
+                            files.append(obj['Key'])
+                    else:
+                        if obj['LastModified'] >= min_date:
+                            files.append(obj['Key'])
+        
+        print(f"Found {len(files)} WB files")
+        return files
+
+    # ==================== FILE PROCESSING ====================
+    
+    def process_ml_file(self, file_key: str) -> List[Dict]:
+        """Process single ML parquet file"""
         try:
-            # Extract metadata from file path
-            # Format: rm-admin/ml-audits/direct/changedAtDate=2026-01-06/part-xxx.parquet
-            path_parts = file_key.split('/')
-            audit_type = path_parts[2]  # 'direct' or 'connections'
+            # Read parquet from S3
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_parquet(BytesIO(response['Body'].read()))
             
-            # Extract changedAtDate from path
-            changed_at_date_part = [part for part in path_parts if part.startswith('changedAtDate=')]
-            if not changed_at_date_part:
-                self.logger.warning(f"Could not extract changedAtDate from {file_key}")
-                return []
-            
-            changed_at_date = changed_at_date_part[0].split('=')[1]
-            
-            # Read parquet file from S3
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_key)
-            parquet_content = response['Body'].read()
-            
-            # Read parquet data
-            df = pd.read_parquet(BytesIO(parquet_content))
-            
-            processed_rows = []
-            
+            records = []
             for _, row in df.iterrows():
-                # Extract basic info
                 sector = row.get('sector', '')
-                flight_no = row.get('flightNo', '')
-                dept_date = row.get('date', '')
+                flight_no = int(row.get('flightNo', 0)) if row.get('flightNo') else 0
+                dept_date = self.normalize_date(row.get('date', ''))
                 changed_at = row.get('changedAt', '')
-                analyst = row.get('userName', '')
+                analyst = row.get('userName', '') or row.get('analystName', '')
                 
-                # Convert dept_date from dd-mm-yyyy to yyyy-mm-dd if needed
-                if dept_date and isinstance(dept_date, str):
-                    try:
-                        if '-' in dept_date and len(dept_date.split('-')[0]) == 2:
-                            # Format is dd-mm-yyyy, convert to yyyy-mm-dd
-                            day, month, year = dept_date.split('-')
-                            dept_date = f"{year}-{month}-{day}"
-                    except:
-                        pass
+                dept_date_int = self.to_date_int(dept_date)
+                changed_datetime_int = self.to_datetime_int(changed_at)
                 
-                # Extract changed_at_date from timestamp
-                if changed_at:
-                    try:
-                        changed_at_dt = pd.to_datetime(changed_at)
-                        change_at_date = changed_at_dt.strftime('%Y-%m-%d')
-                    except:
-                        change_at_date = changed_at_date
-                else:
-                    change_at_date = changed_at_date
-                
-                # Process each column as a potential change
-                for col_name, col_value in row.items():
-                    # Skip metadata columns and null values
-                    if col_name in ['sector', 'flightNo', 'date', 'changedAt', 'userName'] or pd.isna(col_value):
+                # Each non-metadata column becomes a record
+                for col, val in row.items():
+                    if col in ['sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName']:
+                        continue
+                    if pd.isna(val):
                         continue
                     
-                    processed_rows.append({
-                        'source': 'ML',
+                    records.append({
                         'sector': sector,
-                        'fltno': flight_no,
-                        'deptdate': dept_date,
-                        'changeAtdate': datetime.strptime(change_at_date, '%Y-%m-%d') if change_at_date else None,
-                        'analyst': analyst,
-                        'key': col_name,
-                        'value': str(col_value) if col_value is not None else ''
+                        'flightNo': flight_no,
+                        'departureDate': dept_date_int,
+                        'source': 0,  # ML
+                        'changedAtDateTime': changed_datetime_int,
+                        'analystName': analyst,
+                        'key': col,
+                        'value': str(val) if val is not None else ''
                     })
             
-            self.logger.info(f"Processed ML audit file {file_key}: {len(processed_rows)} records")
-            return processed_rows
+            self.logger.info(f"Processed ML file {file_key}: {len(records)} records")
+            return records
             
         except Exception as e:
-            self.logger.error(f"Failed to process ML audit file {file_key}: {str(e)}")
+            self.logger.error(f"Failed ML file {file_key}: {e}")
             return []
 
-    def process_wb_audit_file(self, file_key: str) -> List[Dict[str, Any]]:
-        """Process a single Workbench audit CSV file"""
+    def process_wb_file(self, file_key: str) -> List[Dict]:
+        """Process single WB CSV file"""
         try:
-            # Extract metadata from file path
-            # Format: rm-admin/audits/sector=AMDBLR/flightNo=1332/date=01-01-2026/2025-10-29.csv
+            # Extract metadata from path
             path_parts = file_key.split('/')
-            
-            # Extract sector, flightNo, and date from path
-            sector = ''
-            flight_no = ''
-            dept_date = ''
+            sector = flight_no = dept_date = ''
             
             for part in path_parts:
                 if part.startswith('sector='):
@@ -354,340 +345,208 @@ class S3AuditProcessor:
                 elif part.startswith('date='):
                     dept_date = part.split('=')[1]
             
-            # Convert dept_date from mm-dd-yyyy to yyyy-mm-dd
-            if dept_date and '-' in dept_date:
+            # Normalize dept_date from mm-dd-yyyy
+            if dept_date:
                 try:
-                    month, day, year = dept_date.split('-')
-                    dept_date = f"{year}-{month}-{day}"
+                    m, d, y = dept_date.split('-')
+                    dept_date = f"{y}-{m}-{d}"
                 except:
                     pass
             
-            # Extract changed_at_date from filename (without .csv extension)
-            filename = path_parts[-1].replace('.csv', '')
-            change_at_date = filename  # Format: 2025-10-29
+            # Read CSV from S3
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_csv(StringIO(response['Body'].read().decode('utf-8')))
             
-            # Read CSV file from S3
-            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_key)
-            csv_content = response['Body'].read().decode('utf-8')
-            df = pd.read_csv(StringIO(csv_content))
-            
-            processed_rows = []
-            
+            records = []
             for _, row in df.iterrows():
-                # Use values from CSV if available, otherwise use path values
                 csv_sector = row.get('sector', sector)
-                csv_flight_no = row.get('flightNo', flight_no)
-                csv_dept_date = row.get('date', dept_date)
+                csv_flight = row.get('flightNo', flight_no)
+                csv_date = self.normalize_date(row.get('date', dept_date))
                 analyst = row.get('userName', '')
+                changed_at = row.get('changedAt', '')
                 
-                # Convert CSV dept_date if needed
-                if csv_dept_date and isinstance(csv_dept_date, str):
-                    try:
-                        if '-' in csv_dept_date and len(csv_dept_date.split('-')[0]) == 2:
-                            # Format is dd-mm-yyyy, convert to yyyy-mm-dd
-                            day, month, year = csv_dept_date.split('-')
-                            csv_dept_date = f"{year}-{month}-{day}"
-                        elif '-' in csv_dept_date and len(csv_dept_date.split('-')[0]) == 1:
-                            # Format is m-dd-yyyy, convert to yyyy-mm-dd
-                            month, day, year = csv_dept_date.split('-')
-                            csv_dept_date = f"{year}-{month.zfill(2)}-{day}"
-                    except:
-                        pass
+                flight_no_int = int(csv_flight) if csv_flight else 0
+                dept_date_int = self.to_date_int(csv_date)
+                changed_datetime_int = self.to_datetime_int(changed_at)
                 
-                # Process each column as a potential change
-                for col_name, col_value in row.items():
-                    # Skip metadata columns and null values
-                    if col_name in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName'] or pd.isna(col_value):
+                # Each non-metadata column becomes a record
+                for col, val in row.items():
+                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
+                        continue
+                    if pd.isna(val):
                         continue
                     
-                    processed_rows.append({
-                        'source': 'WB',
+                    records.append({
                         'sector': csv_sector,
-                        'fltno': csv_flight_no,
-                        'deptdate': csv_dept_date,
-                        'changeAtdate': datetime.strptime(change_at_date, '%Y-%m-%d') if change_at_date else None,
-                        'analyst': analyst,
-                        'key': col_name,
-                        'value': str(col_value) if col_value is not None else ''
+                        'flightNo': flight_no_int,
+                        'departureDate': dept_date_int,
+                        'source': 1,  # WB
+                        'changedAtDateTime': changed_datetime_int,
+                        'analystName': analyst,
+                        'key': col,
+                        'value': str(val) if val is not None else ''
                     })
             
-            self.logger.info(f"Processed WB audit file {file_key}: {len(processed_rows)} records")
-            return processed_rows
+            self.logger.info(f"Processed WB file {file_key}: {len(records)} records")
+            return records
             
         except Exception as e:
-            self.logger.error(f"Failed to process WB audit file {file_key}: {str(e)}")
+            self.logger.error(f"Failed WB file {file_key}: {e}")
             return []
 
-    def save_audit_reports_to_mongodb(self, records: List[Dict[str, Any]], replace: bool = False) -> None:
-        """
-        Save audit reports to MongoDB collection.
+    def process_all_files(self, first_run: bool) -> Tuple[List[Dict], int]:
+        """Process all ML and WB files"""
+        all_records = []
+        file_count = 0
         
-        Args:
-            records: List of audit report records
-            replace: If True, replace all documents. If False, append (default for rolling updates).
-        """
+        # Process ML files
+        for file_key in self.get_ml_files(first_run):
+            records = self.process_ml_file(file_key)
+            all_records.extend(records)
+            file_count += 1
+        
+        # Process WB files
+        for file_key in self.get_wb_files(first_run):
+            records = self.process_wb_file(file_key)
+            all_records.extend(records)
+            file_count += 1
+        
+        print(f"Total: {len(all_records)} records from {file_count} files")
+        return all_records, file_count
+
+    # ==================== DATABASE OPERATIONS ====================
+    
+    def save_records(self, records: List[Dict], replace: bool = False):
+        """Save records to MySQL"""
+        cursor = None
         try:
-            collection = self.db[self.audit_reports_collection]
+            cursor = self.dw_conn.cursor()
             
-            # Replace mode: delete all existing documents (only for first run)
+            # Replace mode: truncate table
             if replace:
-                delete_result = collection.delete_many({})
-                print(f"Deleted {delete_result.deleted_count} existing documents from {self.audit_reports_collection}")
+                cursor.execute(f"DELETE FROM {self.schema}.{self.audit_table}")
+                print(f"Cleared {self.audit_table}")
             
             # Bulk insert
             if records:
-                result = collection.insert_many(records)
-                print(f"Saved {len(result.inserted_ids)} audit report records to MongoDB")
-            else:
-                print("No audit report records to save")
+                query = f"""
+                    INSERT INTO {self.schema}.{self.audit_table}
+                    (sector, flightNo, departureDate, source, changedAtDateTime, 
+                     analystName, `key`, value)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """
                 
-        except Exception as e:
-            self.logger.error("Failed to save audit reports to MongoDB: %s", str(e))
+                values = [
+                    (r['sector'], r['flightNo'], r['departureDate'], r['source'],
+                     r['changedAtDateTime'], r['analystName'], r['key'], r['value'])
+                    for r in records
+                ]
+                
+                cursor.executemany(query, values)
+                self.dw_conn.commit()
+                print(f"Saved {len(records)} records to MySQL")
+            
+        except Error as e:
+            self.logger.error(f"Failed to save records: {e}")
+            self.dw_conn.rollback()
             raise
+        finally:
+            if cursor:
+                cursor.close()
 
-    def process_all_audit_files(self, is_first_run: bool = False) -> List[Dict[str, Any]]:
-        """Process both ML and WB audit files based on run type"""
-        all_records = []
-        processed_files = []
-        
-        # Process ML audit files
-        ml_files = self.get_ml_audit_files(is_first_run)
-        for file_key in ml_files:
-            records = self.process_ml_audit_file(file_key)
-            all_records.extend(records)
-            processed_files.append(file_key)
-        
-        # Process WB audit files
-        wb_files = self.get_wb_audit_files(is_first_run)
-        for file_key in wb_files:
-            records = self.process_wb_audit_file(file_key)
-            all_records.extend(records)
-            processed_files.append(file_key)
-        
-        print(f"Total processed records: {len(all_records)} from {len(processed_files)} files")
-        return all_records, processed_files
-
-    def run(self):
+    def get_summary(self) -> Dict:
+        """Get processing summary"""
+        cursor = None
         try:
-            print("Starting S3 audit processor")
+            cursor = self.dw_conn.cursor()
             
-            # Determine if this is the first run
-            is_first_run = self.is_first_run()
+            min_date, max_date = self.get_date_range()
             
-            if is_first_run:
-                print(f"First run detected - Processing last {self.rolling_days} days of data")
-                print(f"Date range: {self.window_start_date} to {self.window_end_date}")
+            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}")
+            total = cursor.fetchone()[0]
+            
+            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 0")
+            ml_count = cursor.fetchone()[0]
+            
+            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1")
+            wb_count = cursor.fetchone()[0]
+            
+            return {
+                'total_records': total,
+                'ml_records': ml_count,
+                'wb_records': wb_count,
+                'date_range': f"{min_date} to {max_date}" if min_date else "No data",
+                'target_date': int(self.target_date.strftime('%Y%m%d'))
+            }
+        except:
+            return {}
+        finally:
+            if cursor:
+                cursor.close()
+
+    # ==================== MAIN RUN ====================
+    
+    def run(self):
+        """Main execution flow"""
+        try:
+            print("=" * 60)
+            print("S3 AUDIT PROCESSOR")
+            print("=" * 60)
+            
+            first_run = self.is_first_run()
+            
+            if first_run:
+                print(f"\n>>> FIRST RUN - Loading {self.rolling_days} days")
+                print(f"Date range: {self.window_start} to {self.window_end}\n")
                 
-                # Process all audit files for the initial window
-                all_records, processed_files = self.process_all_audit_files(is_first_run=True)
+                records, file_count = self.process_all_files(first_run=True)
                 
-                if not all_records:
-                    self.logger.warning("No audit records found for initial load")
+                if not records:
+                    print("No records found for initial load")
                     return False
                 
-                # Save to MongoDB (replace mode for first run)
-                self.save_audit_reports_to_mongodb(all_records, replace=True)
-                
-                # Save metadata
-                self.save_processing_metadata(len(processed_files), self.target_date.strftime('%Y-%m-%d'))
+                self.save_records(records, replace=True)
+                self.save_metadata(file_count)
                 
             else:
-                print(f"Rolling run - Processing data for {self.target_date}")
+                print(f"\n>>> ROLLING RUN - Processing {self.target_date}\n")
                 
-                # Get existing data range to ensure we maintain minimum days
-                min_existing_date, max_existing_date = self.get_existing_data_date_range()
-                
-                if min_existing_date and max_existing_date:
-                    self.logger.info(f"Existing data range: {min_existing_date} to {max_existing_date}")
+                # Check existing data
+                min_date, max_date = self.get_date_range()
+                if min_date and max_date:
+                    min_obj = datetime.strptime(str(min_date), '%Y%m%d').date()
+                    max_obj = datetime.strptime(str(max_date), '%Y%m%d').date()
+                    days_span = (max_obj - min_obj).days + 1
                     
-                    # Calculate how many days of data we currently have
-                    # Convert datetime objects to date objects for calculation
-                    if isinstance(min_existing_date, datetime):
-                        min_date_obj = min_existing_date.date()
+                    print(f"Existing: {min_date} to {max_date} ({days_span} days)")
+                    
+                    # Cleanup if we have enough data
+                    if days_span >= self.min_days_required:
+                        cutoff = int(self.window_start.strftime('%Y%m%d'))
+                        self.cleanup_old_data(cutoff)
                     else:
-                        min_date_obj = min_existing_date
-                        
-                    if isinstance(max_existing_date, datetime):
-                        max_date_obj = max_existing_date.date()
-                    else:
-                        max_date_obj = max_existing_date
-                    
-                    current_days = (max_date_obj - min_date_obj).days + 1
-                    self.logger.info(f"Current data spans {current_days} days")
-                    
-                    # Only cleanup if we have enough data
-                    if current_days >= self.min_days_required:
-                        cutoff_date = self.window_start_date.strftime('%Y-%m-%d')
-                        self.cleanup_old_data(cutoff_date)
-                    else:
-                        self.logger.info(f"Keeping all existing data (only {current_days} days, need {self.min_days_required})")
+                        print(f"Keeping all data ({days_span} < {self.min_days_required} days)")
                 
-                # Process new files (incremental)
-                all_records, processed_files = self.process_all_audit_files(is_first_run=False)
+                # Process new files
+                records, file_count = self.process_all_files(first_run=False)
                 
-                if all_records:
-                    # Save to MongoDB (append mode for rolling updates)
-                    self.save_audit_reports_to_mongodb(all_records, replace=False)
-                    
-                    # Save metadata
-                    self.save_processing_metadata(len(processed_files), self.target_date.strftime('%Y-%m-%d'))
+                if records:
+                    self.save_records(records, replace=False)
+                    self.save_metadata(file_count)
                 else:
-                    self.logger.info("No new audit records found for rolling update")
+                    print("No new records found")
             
-            # Final verification and summary
-            final_min_date, final_max_date = self.get_existing_data_date_range()
-            if final_min_date and final_max_date:
-                if isinstance(final_min_date, datetime):
-                    final_min_obj = final_min_date.date()
-                else:
-                    final_min_obj = final_min_date
-                    
-                if isinstance(final_max_date, datetime):
-                    final_max_obj = final_max_date.date()
-                else:
-                    final_max_obj = final_max_date
-                
-                final_days = (final_max_obj - final_min_obj).days + 1
-                self.logger.info(f"Final data range: {final_min_date} to {final_max_date} ({final_days} days)")
+            # Final summary
+            print("\n" + "=" * 60)
+            summary = self.get_summary()
+            print("SUMMARY:")
+            for key, val in summary.items():
+                print(f"  {key}: {val}")
+            print("=" * 60)
             
-            # Validate data completeness
-            is_complete = self.validate_data_completeness()
-            
-            # Get processing summary
-            summary = self.get_processing_summary()
-            self.logger.info(f"Processing summary: {summary}")
-            
-            self.logger.info("Process completed successfully")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error in S3 audit processor: {str(e)}")
+            self.logger.error(f"Process failed: {e}")
             traceback.print_exc()
             return False
-    def validate_data_completeness(self) -> bool:
-        """Validate that we have sufficient data coverage"""
-        try:
-            min_date, max_date = self.get_existing_data_date_range()
-            
-            if not min_date or not max_date:
-                self.logger.warning("No existing data found")
-                return False
-            
-            # Convert datetime objects to date objects for calculation
-            if isinstance(min_date, datetime):
-                min_date_obj = min_date.date()
-            else:
-                min_date_obj = min_date
-                
-            if isinstance(max_date, datetime):
-                max_date_obj = max_date.date()
-            else:
-                max_date_obj = max_date
-            
-            # Calculate coverage
-            days_covered = (max_date_obj - min_date_obj).days + 1
-            
-            # Check if we have minimum required coverage
-            if days_covered >= self.min_days_required:
-                print(f"Data completeness validated: {days_covered} days of data")
-                return True
-            else:
-                self.logger.warning(f"Insufficient data coverage: {days_covered} days (need {self.min_days_required})")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Failed to validate data completeness: {str(e)}")
-            return False
-
-    def get_processing_summary(self) -> Dict[str, Any]:
-        """Get a summary of the current processing state"""
-        try:
-            min_date, max_date = self.get_existing_data_date_range()
-            
-            collection = self.db[self.audit_reports_collection]
-            total_records = collection.count_documents({})
-            
-            # Get record counts by source
-            ml_count = collection.count_documents({"source": "ML"})
-            wb_count = collection.count_documents({"source": "WB"})
-            
-            return {
-                "total_records": total_records,
-                "ml_records": ml_count,
-                "wb_records": wb_count,
-                "date_range_start": min_date,
-                "date_range_end": max_date,
-                "target_date": self.target_date.strftime('%Y-%m-%d'),
-                "window_start": self.window_start_date.strftime('%Y-%m-%d'),
-                "window_end": self.window_end_date.strftime('%Y-%m-%d')
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Failed to get processing summary: {str(e)}")
-            return {}
-        """Validate that we have sufficient data coverage"""
-        try:
-            min_date, max_date = self.get_existing_data_date_range()
-            
-            if not min_date or not max_date:
-                self.logger.warning("No existing data found")
-                return False
-            
-            # Convert to date objects if they're strings
-            if isinstance(min_date, str):
-                min_date_obj = datetime.strptime(min_date, '%Y-%m-%d').date()
-            else:
-                min_date_obj = min_date
-                
-            if isinstance(max_date, str):
-                max_date_obj = datetime.strptime(max_date, '%Y-%m-%d').date()
-            else:
-                max_date_obj = max_date
-            
-            # Calculate coverage
-            days_covered = (max_date_obj - min_date_obj).days + 1
-            
-            # Check if we have minimum required coverage
-            if days_covered >= self.min_days_required:
-                print(f"Data completeness validated: {days_covered} days of data")
-                return True
-            else:
-                self.logger.warning(f"Insufficient data coverage: {days_covered} days (need {self.min_days_required})")
-                return False
-                
-        except Exception as e:
-            self.logger.error(f"Failed to validate data completeness: {str(e)}")
-            return False
-
-    def get_processing_summary(self) -> Dict[str, Any]:
-        """Get a summary of the current processing state"""
-        try:
-            min_date, max_date = self.get_existing_data_date_range()
-            
-            collection = self.db[self.audit_reports_collection]
-            total_records = collection.count_documents({})
-            
-            # Get record counts by source
-            ml_count = collection.count_documents({"source": "ML"})
-            wb_count = collection.count_documents({"source": "WB"})
-            
-            return {
-                "total_records": total_records,
-                "ml_records": ml_count,
-                "wb_records": wb_count,
-                "date_range_start": min_date,
-                "date_range_end": max_date,
-                "date_range_start": min_date.strftime('%Y-%m-%d') if min_date else None,
-                "date_range_end": max_date.strftime('%Y-%m-%d') if max_date else None,
-                "target_date": self.target_date.strftime('%Y-%m-%d'),
-                "window_start": self.window_start_date.strftime('%Y-%m-%d'),
-                "window_end": self.window_end_date.strftime('%Y-%m-%d')
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Failed to get processing summary: {str(e)}")
-            return {}
-
-
-# Backward compatibility alias
-S3CsvCombiner = S3AuditProcessor
