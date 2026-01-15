@@ -9,6 +9,8 @@ from common.utils.common_helper import calculate_duration
 from common.utils.s3_helper import S3Helper
 from common.utils.db_helper import DbHelper
 from common.processors.sale_discount_processor import pivot_sale_fares
+from common.processors.saver_processor import format_saver_file
+from common.processors.product_upsell_processor import validate_product_upsell
 
 
 class FileUploadWorker:
@@ -91,6 +93,30 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Sale_fare_discount to DB")
                     raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
+            elif table == SAVER_TABLE:
+                try:
+                    saver_df = format_saver_file(csv_df)
+                    # Use upsert for both tables
+                    self.insert_file_data(saver_df, SAVER_TABLE, user_name, use_upsert=True)
+
+                    self.s3_helper.store_file(file_content, SAVER_TABLE, self.obj_id)
+                except Exception as e:
+                    self.list_of_errors.append("Error Uploading Saver to DB")
+                    raise RuntimeError(f"Error processing Saver content: {str(e)}")
+            elif table == PRODUCT_UPSELL_TABLE:
+                try:
+                    product_upsell_df = validate_product_upsell(csv_df)
+                    # Use upsert for product upsell table
+                    self.insert_file_data(product_upsell_df, PRODUCT_UPSELL_TABLE, user_name, use_upsert=True)
+
+                    self.s3_helper.store_file(file_content, PRODUCT_UPSELL_TABLE, self.obj_id)
+                except ValueError as ve:
+                    # Specific handling for validation errors (like duplicates)
+                    self.list_of_errors.append(f"Product Upsell Validation Failed: {str(ve)}")
+                    raise RuntimeError(f"Product Upsell validation error: {str(ve)}")
+                except Exception as e:
+                    self.list_of_errors.append("Error Uploading Product Upsell to DB")
+                    raise RuntimeError(f"Error processing Product Upsell content: {str(e)}")
             else:
                 try:
                     # Determine if we should use upsert or replace
@@ -136,13 +162,17 @@ class FileUploadWorker:
             self.error_occurred = 1
             if not self.list_of_errors:
                 self.list_of_errors.append("Validation has failed while inserting data in table")
-                self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
+            # Always add errors to database when an exception occurs
+            self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
             logger.error(f"[{self.obj_id}] Error: {e}")
 
         if self.error_occurred == 0:
             status = UPLOAD_QUEUE_STATUS_DONE
         else:
             status = UPLOAD_QUEUE_STATUS_FAILED
+            # Ensure errors are added to database for failed uploads
+            if self.list_of_errors:
+                self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
 
         end_time = datetime.now()
         duration = calculate_duration(start_time, end_time)
@@ -151,6 +181,10 @@ class FileUploadWorker:
         self.list_of_errors = self.db_helper.update_final_upload_info(
             status, end_time, self.num_of_rows, duration, self.obj_id, self.list_of_errors
         )
+        
+        # Ensure errors are added to database for any final errors that occurred
+        if self.list_of_errors and status == UPLOAD_QUEUE_STATUS_FAILED:
+            self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
 
         local_test_dir = "locals"
         s3_path_len = len(S3_FILE_PATH_NAME)
