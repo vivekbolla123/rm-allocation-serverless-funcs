@@ -95,14 +95,12 @@ class FareFiling:
                 # This ensures we only process upsells for sectors that exist in saver table
                 if not self.product_upsell_data.empty:
                     original_count = len(self.product_upsell_data)
-                    self.logger.info(f"Before filtering - Rules in product_upsell_data: {self.product_upsell_data['rule_nbr'].unique().tolist()}")
                     
                     self.product_upsell_data = self.product_upsell_data[
                         self.product_upsell_data['sector'].isin(saver_sectors)
                     ]
                     filtered_count = len(self.product_upsell_data)
                     
-                    self.logger.info(f"After filtering - Rules in product_upsell_data: {self.product_upsell_data['rule_nbr'].unique().tolist()}")
                     
                     if original_count > filtered_count:
                         removed_sectors = original_count - filtered_count
@@ -140,9 +138,6 @@ class FareFiling:
                     # Include default NDO as well
                     base_ndos.extend(['X', '', None])
                 
-                print(f"Base footnotes for QP query: {base_footnotes}")
-                print(f"Base NDOs for QP query: {base_ndos}")
-                
                 # Fetch from QP fares for rules 1001 and 2001 with footnote/NDO filtering
                 self.qp_fares_data = self.pa_helper.collect_qp_fares(
                     unique_sectors,
@@ -170,8 +165,6 @@ class FareFiling:
                     )
                     self.logger.error(error_msg)
                     raise ValueError(error_msg)
-                
-                self.logger.info(f"✓ Validation passed: All {len(unique_sectors)} sectors found in qp_fares")
 
             # Collect product rules data
             self.product_rules_data = self.pa_helper.collect_product_rules_data()
@@ -460,9 +453,6 @@ class FareFiling:
                 ['sector', 'rule_nbr', 'rbd_start', 'rbd_end']
             ).first().reset_index()
             
-            self.logger.info(f"Starting to process {len(unique_combos)} unique combinations")
-            self.logger.info(f"Rules in combinations: {unique_combos['rule_nbr'].unique().tolist()}")
-            
             for _, combo_row in unique_combos.iterrows():
                 sector = combo_row['sector']
                 rule_nbr = combo_row['rule_nbr']
@@ -472,8 +462,6 @@ class FareFiling:
                 # Skip companion rules in main loop - process them separately later
                 if rule_nbr in ['5002', '5006', '2001']:
                     continue
-                
-                self.logger.info(f"Processing rule {rule_nbr} for sector {sector}")
                 
                 # Get all upsell rows for this combination
                 upsell_rows = self.product_upsell_data[
@@ -582,7 +570,6 @@ class FareFiling:
                             if key not in primary_rules_processed:
                                 primary_rules_processed[key] = {}
                             primary_rules_processed[key][rule_nbr] = final_base_fare
-                            self.logger.info(f"Stored primary rule {rule_nbr} fare {final_base_fare} for key {key}")
                         
                         # Sort price logic
                         sort_price = upsell_row.get('sort_price')
@@ -644,13 +631,10 @@ class FareFiling:
                         all_output_rows.append(output_row)
             
             # Now process companion rules (5002 from 1002, 5006 from 1006, 2001 from 1007)
-            self.logger.info(f"Processing companion rules using {len(primary_rules_processed)} primary rule fares")
             
             # Log all primary rule keys for debugging
             for key, rules in primary_rules_processed.items():
                 sector, rbd, ow_rt, footnote, ndo, pos = key
-                self.logger.info(f"Primary key: sector={sector}, rbd={rbd}, ow_rt={ow_rt}, footnote='{footnote}', ndo={ndo}, pos={pos}, rules={list(rules.keys())}")
-            
             companion_rows = self._generate_companion_rules_simple(primary_rules_processed, existing_sort_prices)
             all_output_rows.extend(companion_rows)
             
@@ -696,14 +680,11 @@ class FareFiling:
                 self.product_upsell_data['rule_nbr'].isin(['5002', '5006', '2001'])
             ].copy()
             
-            self.logger.info(f"Found {len(companion_configs)} companion configurations in product_upsell_data")
-            
             # If not found in main data, check master
             if companion_configs.empty and self.product_upsell_master_data is not None:
                 companion_configs = self.product_upsell_master_data[
                     self.product_upsell_master_data['rule_nbr'].isin(['5002', '5006', '2001'])
                 ].copy()
-                self.logger.info(f"Found {len(companion_configs)} companion configurations in product_upsell_master_data")
             
             if companion_configs.empty:
                 self.logger.info("No companion rule configurations found!")
@@ -729,12 +710,6 @@ class FareFiling:
                 if pd.isna(base_ndo_for_search) or base_ndo_for_search == '':
                     base_ndo_for_search = 'X'
                 # =============================================================
-                
-                self.logger.info(f"Processing companion rule {companion_rule} for sector {sector}")
-                self.logger.info(f"  Companion's own footnote (for output): '{companion_footnote}'")
-                self.logger.info(f"  Base footnote (to find primary): '{base_footnote_for_search}'")
-                self.logger.info(f"  Base ndo (to find primary): '{base_ndo_for_search}'")
-                
                 # Find the corresponding primary rule
                 primary_rule = None
                 for primary, companion in companion_mapping.items():
@@ -743,10 +718,7 @@ class FareFiling:
                         break
                 
                 if not primary_rule:
-                    self.logger.info(f"No primary rule mapping found for companion {companion_rule}")
                     continue
-                
-                self.logger.info(f"Found primary rule {primary_rule} for companion {companion_rule}")
                 
                 # Get RBD range for this companion rule
                 rbd_start = config_row['rbd_start']
@@ -760,10 +732,8 @@ class FareFiling:
                     b2b_rbds = self.get_rbd_range('ZJ', 'Y0')  # 84 RBDs for B2B
                     if len(b2b_rbds) == 84:  # Verify we have the right range
                         rbd_range = b2b_rbds
-                        self.logger.info(f"Using B2B RBD range for rule 2001: {len(rbd_range)} RBDs")
                 
                 if not rbd_range:
-                    self.logger.warning(f"Invalid RBD range for {sector}-{companion_rule}: {rbd_start} to {rbd_end}")
                     continue
                 
                 # Get companion rule parameters
@@ -790,7 +760,6 @@ class FareFiling:
                     
                     if exact_search_key in primary_rules_processed and primary_rule in primary_rules_processed[exact_search_key]:
                         primary_base_fare = primary_rules_processed[exact_search_key][primary_rule]
-                        self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with exact match using base_footnote '{base_footnote_for_search}': {exact_search_key}")
                     else:
                         # If exact match not found, try with flexible ow_rt, ndo, pos but STRICT base_footnote matching
                         for key, rule_fares in primary_rules_processed.items():
@@ -807,7 +776,6 @@ class FareFiling:
                                 footnote_match and 
                                 primary_rule in rule_fares):
                                 primary_base_fare = rule_fares[primary_rule]
-                                self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with base_footnote match: search='{base_footnote_for_search}', primary='{key_footnote}', key={key}")
                                 break
                     # ====================================================================================
                     
@@ -919,7 +887,6 @@ class FareFiling:
             if missing_primary_rules:
                 self._handle_missing_primary_rules_failure(missing_primary_rules)
             
-            self.logger.info(f"Generated {len(companion_rows)} companion rule records")
             return companion_rows
             
         except Exception as e:
@@ -1110,7 +1077,6 @@ class FareFiling:
                     
                     saver_rows.append(output_row)
             
-            self.logger.info(f"Generated {len(saver_rows)} saver fare records")
             return saver_rows
             
         except Exception as e:

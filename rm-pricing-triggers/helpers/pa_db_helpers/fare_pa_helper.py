@@ -191,12 +191,6 @@ class FarePAHelper:
             
             self.logger.info(f"Collected {len(qp_fares_data)} QP fares records (rules 1001/2001) for {len(sectors)} sectors")
             if not qp_fares_data.empty:
-                rule_counts = qp_fares_data['rule_number'].value_counts().to_dict()
-                self.logger.info(f"Rule breakdown: {rule_counts}")
-                # Log fare direction breakdown
-                direction_counts = qp_fares_data['fare_direction'].value_counts().to_dict()
-                self.logger.info(f"Fare direction breakdown: {direction_counts}")
-                # Log which sectors were found
                 found_sectors = sorted(qp_fares_data['SECTOR'].unique().tolist())
                 self.logger.info(f"Found sectors: {found_sectors}")
             
@@ -242,14 +236,6 @@ class FarePAHelper:
             # Extract unique sectors
             self.existing_qp_sectors = {item['_id'] for item in qp_fares_check}
             
-            # Log which sectors are new vs existing
-            new_sectors = [s for s in sectors_to_check if s not in self.existing_qp_sectors]
-            existing_sectors = [s for s in sectors_to_check if s in self.existing_qp_sectors]
-            
-            if new_sectors:
-                self.logger.info(f"New sectors (will use 'W' in farebasis): {new_sectors}")
-            if existing_sectors:
-                self.logger.info(f"Existing sectors (will use 'B' in farebasis): {existing_sectors}")
             return self.existing_qp_sectors
             
         except Exception as e:
