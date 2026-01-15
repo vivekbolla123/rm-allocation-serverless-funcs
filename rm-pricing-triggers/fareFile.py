@@ -213,7 +213,14 @@ class FareFiling:
             return 'B'
 
     def get_saver_fares(self, sector, rbd, base_footnote=None, base_ndo=None):
-        """Get base saver fare for a given sector and RBD with footnote/NDO matching."""
+        """Get base saver fare for a given sector and RBD with footnote/NDO matching.
+        
+        Args:
+            sector: Sector code (e.g., 'BOMDEL')
+            rbd: RBD code (e.g., 'V9', 'Y0')
+            base_footnote: Footnote to match (None = match any, '' = match empty)
+            base_ndo: NDO to match (None = match any, '' or 'X' = match default/empty)
+        """
         try:
             if self.isSaver:
                 # Get from saver table - this is ALL-IN FARE
@@ -222,10 +229,12 @@ class FareFiling:
                     (self.saver_data['rbd'] == rbd)
                 )
                 
-                # Add footnote matching if specified
+                # ===== FIX: Handle None (match any) vs '' (match empty) =====
+                # If base_footnote is None, don't filter by footnote at all (match any)
+                # If base_footnote is '', match only empty footnotes
                 if base_footnote is not None:
-                    if base_footnote == '' or base_footnote is None:
-                        # Match empty footnotes
+                    if base_footnote == '':
+                        # Match empty footnotes only
                         fare_conditions = fare_conditions & (
                             (self.saver_data['footnote'].isna()) |
                             (self.saver_data['footnote'] == '') |
@@ -234,11 +243,13 @@ class FareFiling:
                     else:
                         # Match specific footnote
                         fare_conditions = fare_conditions & (self.saver_data['footnote'] == base_footnote)
+                # else: base_footnote is None, don't filter by footnote (match any)
                 
-                # Add NDO matching if specified
+                # If base_ndo is None, don't filter by NDO at all (match any)
+                # If base_ndo is '' or 'X', match only default/empty NDOs
                 if base_ndo is not None:
-                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
-                        # Match default NDO
+                    if base_ndo == '' or base_ndo == 'X':
+                        # Match default/empty NDO only
                         fare_conditions = fare_conditions & (
                             (self.saver_data['ndo'].isna()) |
                             (self.saver_data['ndo'] == '') |
@@ -248,6 +259,8 @@ class FareFiling:
                     else:
                         # Match specific NDO
                         fare_conditions = fare_conditions & (self.saver_data['ndo'] == base_ndo)
+                # else: base_ndo is None, don't filter by NDO (match any)
+                # ==============================================================
                 
                 fare_row = self.saver_data[fare_conditions]
                 if not fare_row.empty:
@@ -259,10 +272,12 @@ class FareFiling:
                     (self.qp_fares_data['RBD'] == rbd)
                 )
                 
-                # Add footnote matching if specified
+                # ===== FIX: Handle None (match any) vs '' (match empty) =====
+                # If base_footnote is None, don't filter by footnote at all (match any)
+                # If base_footnote is '', match only empty footnotes
                 if base_footnote is not None:
-                    if base_footnote == '' or base_footnote is None:
-                        # Match empty footnotes
+                    if base_footnote == '':
+                        # Match empty footnotes only
                         fare_conditions = fare_conditions & (
                             (self.qp_fares_data['footnote'].isna()) |
                             (self.qp_fares_data['footnote'] == '') |
@@ -271,11 +286,13 @@ class FareFiling:
                     else:
                         # Match specific footnote
                         fare_conditions = fare_conditions & (self.qp_fares_data['footnote'] == base_footnote)
+                # else: base_footnote is None, don't filter by footnote (match any)
                 
-                # Add NDO matching if specified
+                # If base_ndo is None, don't filter by NDO at all (match any)
+                # If base_ndo is '' or 'X', match only default/empty NDOs
                 if base_ndo is not None:
-                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
-                        # Match default NDO
+                    if base_ndo == '' or base_ndo == 'X':
+                        # Match default/empty NDO only
                         fare_conditions = fare_conditions & (
                             (self.qp_fares_data['NDO'].isna()) |
                             (self.qp_fares_data['NDO'] == '') |
@@ -285,6 +302,8 @@ class FareFiling:
                     else:
                         # Match specific NDO
                         fare_conditions = fare_conditions & (self.qp_fares_data['NDO'] == base_ndo)
+                # else: base_ndo is None, don't filter by NDO (match any)
+                # ==============================================================
                 
                 fare_row = self.qp_fares_data[fare_conditions]
                 if not fare_row.empty:
@@ -293,7 +312,7 @@ class FareFiling:
             return None
             
         except Exception as e:
-            self.logger.warning(f"Error getting saver fare for {sector}-{rbd} (footnote: {base_footnote}, NDO: {base_ndo}): {str(e)}")
+            self.logger.warning(f"Error getting saver fare for {sector}-{rbd} (base_footnote: {base_footnote}, base_ndo: {base_ndo}): {str(e)}")
             return None
         
     def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
