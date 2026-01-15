@@ -110,7 +110,7 @@ class FarePAHelper:
                 ]
             }
             
-            # Simplified aggregation pipeline - only get what we need
+            # ===== FIX: Simplified aggregation - don't filter by calculated SECTOR =====
             pipeline = [
                 {'$match': base_match},
                 {
@@ -125,7 +125,23 @@ class FarePAHelper:
                         'Routing': 1,
                         'Rule_Nbr': 1,
                         'Footnote': 1,
-                        # Calculate sector and RBD in projection for efficiency
+                        # Calculate RBD and NDO
+                        'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
+                        'NDO': {'$substr': ['$Fare_Basis_Code', 7, 1]}
+                    }
+                },
+                {
+                    '$project': {
+                        'Origin': 1,
+                        'Destination': 1,
+                        'Fare_Direction': 1,
+                        'Fare_Basis_Code': 1,
+                        'RBD': 1,
+                        'NDO': 1,
+                        'Routing': 1,
+                        'Rule_Nbr': 1,
+                        'Footnote': 1,
+                        # Calculate SECTOR based on Fare_Direction
                         'SECTOR': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
@@ -133,19 +149,6 @@ class FarePAHelper:
                                 'else': {'$concat': ['$Destination', '$Origin']}
                             }
                         },
-                        'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
-                        'NDO': {'$substr': ['$Fare_Basis_Code', 7, 1]}
-                    }
-                },
-                # Add final sector filter to ensure we only get requested sectors
-                {
-                    '$match': {
-                        'SECTOR': {'$in': sectors}
-                    }
-                },
-                {
-                    '$project': {
-                        'SECTOR': 1,
                         'Org': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
@@ -161,9 +164,6 @@ class FarePAHelper:
                             }
                         },
                         'route': '$Routing',
-                        'RBD': 1,
-                        'NDO': 1,
-                        'Fare_Basis_Code': 1,
                         'TOTAL': '$Fare_Amount',
                         'currency': '$Currency',
                         'fare_direction': '$Fare_Direction',
@@ -179,10 +179,16 @@ class FarePAHelper:
                     }
                 }
             ]
+            # ============================================================================
             
             # Execute optimized aggregation
             all_qp_fares = list(self.db.qp_fares.aggregate(pipeline))
             qp_fares_data = pd.DataFrame(all_qp_fares)
+            
+            # ===== FIX: Filter by requested sectors in Python after aggregation =====
+            if not qp_fares_data.empty and sectors:
+                qp_fares_data = qp_fares_data[qp_fares_data['SECTOR'].isin(sectors)]
+            # ========================================================================
             
             self.logger.info(f"Collected {len(qp_fares_data)} QP fares records (rules 1001/2001) for {len(sectors)} sectors")
             if not qp_fares_data.empty:

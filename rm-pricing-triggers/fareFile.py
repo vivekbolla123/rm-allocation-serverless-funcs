@@ -145,14 +145,34 @@ class FareFiling:
                 
                 # Fetch from QP fares for rules 1001 and 2001 with footnote/NDO filtering
                 self.qp_fares_data = self.pa_helper.collect_qp_fares(
-                    unique_sectors, 
+                    unique_sectors,
                     base_footnotes=base_footnotes if base_footnotes else None,
                     base_ndos=base_ndos if base_ndos else None
                 )
                 
+                # ===== NEW: VALIDATE ALL SECTORS EXIST IN QP FARES =====
                 if self.qp_fares_data.empty:
-                    raise ValueError(f"No QP fares found for sectors: {unique_sectors}")
-            
+                    error_msg = f"No QP fares found for any of the sectors: {unique_sectors}"
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Check which sectors are present in fetched data
+                fetched_sectors = self.qp_fares_data['SECTOR'].unique().tolist() if not self.qp_fares_data.empty else []
+                missing_sectors = [s for s in unique_sectors if s not in fetched_sectors]
+                
+                if missing_sectors:
+                    error_msg = (
+                        f"VALIDATION FAILED: {len(missing_sectors)} sector(s) from product_upsell "
+                        f"not found in qp_fares (rules 1001/2001).\n"
+                        f"Missing sectors: {missing_sectors}\n"
+                        f"Found sectors: {fetched_sectors}\n"
+                        f"Expected sectors: {unique_sectors}"
+                    )
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                self.logger.info(f"✓ Validation passed: All {len(unique_sectors)} sectors found in qp_fares")
+
             # Collect product rules data
             self.product_rules_data = self.pa_helper.collect_product_rules_data()
             # Convert to dict for easier lookup
@@ -684,11 +704,17 @@ class FareFiling:
                 base_footnote_for_search = config_row.get('base_footnote', '')
                 if pd.isna(base_footnote_for_search):
                     base_footnote_for_search = ''
+                
+                # ===== FIX: Get base_ndo to search for primary rule =====
+                base_ndo_for_search = config_row.get('base_ndo', 'X')
+                if pd.isna(base_ndo_for_search) or base_ndo_for_search == '':
+                    base_ndo_for_search = 'X'
                 # =============================================================
                 
                 self.logger.info(f"Processing companion rule {companion_rule} for sector {sector}")
                 self.logger.info(f"  Companion's own footnote (for output): '{companion_footnote}'")
                 self.logger.info(f"  Base footnote (to find primary): '{base_footnote_for_search}'")
+                self.logger.info(f"  Base ndo (to find primary): '{base_ndo_for_search}'")
                 
                 # Find the corresponding primary rule
                 primary_rule = None
@@ -734,10 +760,6 @@ class FareFiling:
                 if pd.isna(companion_pos) or companion_pos == '':
                     companion_pos = 'B'
                 
-                # ===== FIX: Get base_ndo to search for primary rule =====
-                base_ndo_for_search = config_row.get('base_ndo', 'X')
-                if pd.isna(base_ndo_for_search) or base_ndo_for_search == '':
-                    base_ndo_for_search = 'X'
                 # ========================================================
                 
                 # Process each RBD in the range
