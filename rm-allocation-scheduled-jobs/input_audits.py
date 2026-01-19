@@ -8,13 +8,13 @@ import re
 from typing import List, Tuple, Dict, Any
 import traceback
 import configsettings
-from mysql.connector import Error
+from sqlalchemy import text
 
 class S3AuditProcessor:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
-        self.dw_conn = params['dwconn']
+        self.dw_conn = params['dwconn']  # SQLAlchemy engine
         self.schema = "RM_DW_DATA"
         
         # S3 Configuration
@@ -41,49 +41,43 @@ class S3AuditProcessor:
 
     def create_tables(self):
         """Create MySQL tables if not exist"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            
-            audit_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
-                id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                sector VARCHAR(10) NOT NULL,
-                flightNo INT NOT NULL,
-                departureDate INT NOT NULL,
-                source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
-                changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDDHHMM',
-                analystName VARCHAR(100),
-                `key` VARCHAR(100),
-                value TEXT,
-                INDEX idx_sector_flight (sector, flightNo, departureDate),
-                INDEX idx_changed (changedAtDateTime),
-                INDEX idx_source (source)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-            
-            metadata_table_sql = f"""
-            CREATE TABLE IF NOT EXISTS {self.schema}.{self.metadata_table} (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                type VARCHAR(50),
-                timestamp DATETIME,
-                last_processed_date INT,
-                files_processed_count INT,
-                INDEX idx_type_time (type, timestamp)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-            """
-            
-            cursor.execute(audit_table_sql)
-            cursor.execute(metadata_table_sql)
-            self.dw_conn.commit()
-            self.logger.info("Tables created successfully")
-            
-        except Error as e:
+            with self.dw_conn.connect() as conn:
+                audit_table_sql = text(f"""
+                CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    sector VARCHAR(10) NOT NULL,
+                    flightNo INT NOT NULL,
+                    departureDate INT NOT NULL,
+                    source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
+                    changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDDHHMM',
+                    analystName VARCHAR(100),
+                    `key` VARCHAR(100),
+                    value TEXT,
+                    INDEX idx_sector_flight (sector, flightNo, departureDate),
+                    INDEX idx_changed (changedAtDateTime),
+                    INDEX idx_source (source)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                
+                metadata_table_sql = text(f"""
+                CREATE TABLE IF NOT EXISTS {self.schema}.{self.metadata_table} (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    type VARCHAR(50),
+                    timestamp DATETIME,
+                    last_processed_date INT,
+                    files_processed_count INT,
+                    INDEX idx_type_time (type, timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                
+                conn.execute(audit_table_sql)
+                conn.execute(metadata_table_sql)
+                self.logger.info("Tables created successfully")
+                
+        except Exception as e:
             self.logger.error(f"Failed to create tables: {e}")
             raise
-        finally:
-            if cursor:
-                cursor.close()
 
     # ==================== DATE/TIME CONVERTERS ====================
     
@@ -109,102 +103,94 @@ class S3AuditProcessor:
             return 0
 
     def normalize_date(self, date_str: str) -> str:
-        """Normalize various date formats to YYYY-MM-DD"""
+        """Normalize mm-dd-yyyy format to YYYY-MM-DD"""
         if not date_str or not isinstance(date_str, str):
             return ""
         
         try:
+            date_str = date_str.strip()
             parts = date_str.split('-')
+            
             if len(parts) != 3:
                 return ""
             
-            # dd-mm-yyyy or d-mm-yyyy
-            if len(parts[0]) <= 2:
-                day, month, year = parts
-                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            # yyyy-mm-dd (already correct)
+            if len(parts[0]) == 4:
+                return date_str
             
-            # mm-dd-yyyy or m-dd-yyyy  
-            if len(parts[1]) <= 2 and len(parts[2]) == 4:
+            # mm-dd-yyyy format (both WB path and CSV)
+            if len(parts[2]) == 4:
                 month, day, year = parts
                 return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
             
-            return date_str
-        except:
+            return ""
+        except Exception as e:
+            self.logger.warning(f"Failed to normalize date '{date_str}': {e}")
             return ""
 
     # ==================== METADATA & HELPERS ====================
     
     def is_first_run(self) -> bool:
         """Check if database is empty"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}")
-            count = cursor.fetchone()[0]
-            return count == 0
+            with self.dw_conn.connect() as conn:
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}"))
+                count = result.fetchone()[0]
+                return count == 0
         except:
             return True
-        finally:
-            if cursor:
-                cursor.close()
 
     def save_metadata(self, file_count: int):
         """Save processing run metadata"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            query = f"""
-                INSERT INTO {self.schema}.{self.metadata_table}
-                (type, timestamp, last_processed_date, files_processed_count)
-                VALUES ('last_run', %s, %s, %s)
-            """
-            target_int = int(self.target_date.strftime('%Y%m%d'))
-            cursor.execute(query, (datetime.now(), target_int, file_count))
-            self.dw_conn.commit()
-            self.logger.info(f"Saved metadata: {file_count} files processed")
-        except Error as e:
+            with self.dw_conn.connect() as conn:
+                query = text(f"""
+                    INSERT INTO {self.schema}.{self.metadata_table}
+                    (type, timestamp, last_processed_date, files_processed_count)
+                    VALUES ('last_run', :timestamp, :target_date, :file_count)
+                """)
+                
+                target_int = int(self.target_date.strftime('%Y%m%d'))
+                conn.execute(query, {
+                    'timestamp': datetime.now(),
+                    'target_date': target_int,
+                    'file_count': file_count
+                })
+                self.logger.info(f"Saved metadata: {file_count} files processed")
+        except Exception as e:
             self.logger.error(f"Failed to save metadata: {e}")
-        finally:
-            if cursor:
-                cursor.close()
 
     def get_date_range(self) -> Tuple[int, int]:
         """Get min/max dates from existing data"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            query = f"""
-                SELECT 
-                    FLOOR(MIN(changedAtDateTime) / 10000),
-                    FLOOR(MAX(changedAtDateTime) / 10000)
-                FROM {self.schema}.{self.audit_table}
-            """
-            cursor.execute(query)
-            result = cursor.fetchone()
-            if result and result[0] and result[1]:
-                return int(result[0]), int(result[1])
-            return None, None
+            with self.dw_conn.connect() as conn:
+                query = text(f"""
+                    SELECT 
+                        FLOOR(MIN(changedAtDateTime) / 10000),
+                        FLOOR(MAX(changedAtDateTime) / 10000)
+                    FROM {self.schema}.{self.audit_table}
+                """)
+                result = conn.execute(query)
+                row = result.fetchone()
+                if row and row[0] and row[1]:
+                    return int(row[0]), int(row[1])
+                return None, None
         except:
             return None, None
-        finally:
-            if cursor:
-                cursor.close()
 
     def cleanup_old_data(self, cutoff_date_int: int):
         """Delete records older than cutoff date"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            cutoff_datetime = cutoff_date_int * 10000  # YYYYMMDD to YYYYMMDD0000
-            query = f"DELETE FROM {self.schema}.{self.audit_table} WHERE changedAtDateTime < %s"
-            cursor.execute(query, (cutoff_datetime,))
-            self.dw_conn.commit()
-            self.logger.info(f"Deleted {cursor.rowcount} old records")
-        except Error as e:
+            with self.dw_conn.connect() as conn:
+                cutoff_datetime = cutoff_date_int * 10000  # YYYYMMDD to YYYYMMDD0000
+                query = text(f"""
+                    DELETE FROM {self.schema}.{self.audit_table} 
+                    WHERE changedAtDateTime < :cutoff
+                """)
+                result = conn.execute(query, {'cutoff': cutoff_datetime})
+                self.logger.info(f"Deleted {result.rowcount} old records")
+        except Exception as e:
             self.logger.error(f"Failed cleanup: {e}")
-        finally:
-            if cursor:
-                cursor.close()
 
     # ==================== S3 FILE DISCOVERY ====================
     
@@ -287,49 +273,6 @@ class S3AuditProcessor:
 
     # ==================== FILE PROCESSING ====================
     
-    def process_ml_file(self, file_key: str) -> List[Dict]:
-        """Process single ML parquet file"""
-        try:
-            # Read parquet from S3
-            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
-            df = pd.read_parquet(BytesIO(response['Body'].read()))
-            
-            records = []
-            for _, row in df.iterrows():
-                sector = row.get('sector', '')
-                flight_no = int(row.get('flightNo', 0)) if row.get('flightNo') else 0
-                dept_date = self.normalize_date(row.get('date', ''))
-                changed_at = row.get('changedAt', '')
-                analyst = row.get('userName', '') or row.get('analystName', '')
-                
-                dept_date_int = self.to_date_int(dept_date)
-                changed_datetime_int = self.to_datetime_int(changed_at)
-                
-                # Each non-metadata column becomes a record
-                for col, val in row.items():
-                    if col in ['sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName']:
-                        continue
-                    if pd.isna(val):
-                        continue
-                    
-                    records.append({
-                        'sector': sector,
-                        'flightNo': flight_no,
-                        'departureDate': dept_date_int,
-                        'source': 0,  # ML
-                        'changedAtDateTime': changed_datetime_int,
-                        'analystName': analyst,
-                        'key': col,
-                        'value': str(val) if val is not None else ''
-                    })
-            
-            self.logger.info(f"Processed ML file {file_key}: {len(records)} records")
-            return records
-            
-        except Exception as e:
-            self.logger.error(f"Failed ML file {file_key}: {e}")
-            return []
-
     def process_wb_file(self, file_key: str) -> List[Dict]:
         """Process single WB CSV file"""
         try:
@@ -343,15 +286,7 @@ class S3AuditProcessor:
                 elif part.startswith('flightNo='):
                     flight_no = part.split('=')[1]
                 elif part.startswith('date='):
-                    dept_date = part.split('=')[1]
-            
-            # Normalize dept_date from mm-dd-yyyy
-            if dept_date:
-                try:
-                    m, d, y = dept_date.split('-')
-                    dept_date = f"{y}-{m}-{d}"
-                except:
-                    pass
+                    dept_date = part.split('=')[1]  # mm-dd-yyyy format
             
             # Read CSV from S3
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
@@ -361,12 +296,23 @@ class S3AuditProcessor:
             for _, row in df.iterrows():
                 csv_sector = row.get('sector', sector)
                 csv_flight = row.get('flightNo', flight_no)
-                csv_date = self.normalize_date(row.get('date', dept_date))
+                csv_date = str(row.get('date', dept_date))  # mm-dd-yyyy format
                 analyst = row.get('userName', '')
                 changed_at = row.get('changedAt', '')
                 
-                flight_no_int = int(csv_flight) if csv_flight else 0
-                dept_date_int = self.to_date_int(csv_date)
+                # Normalize date from mm-dd-yyyy to yyyy-mm-dd
+                normalized_date = self.normalize_date(csv_date)
+                
+                # Convert flight_no to int
+                try:
+                    flight_no_int = int(csv_flight) if csv_flight else 0
+                except:
+                    flight_no_int = 0
+                
+                # Convert dept_date to int (YYYYMMDD)
+                dept_date_int = self.to_date_int(normalized_date)
+                
+                # Convert changedAt to combined datetime integer (YYYYMMDDHHMM)
                 changed_datetime_int = self.to_datetime_int(changed_at)
                 
                 # Each non-metadata column becomes a record
@@ -394,6 +340,53 @@ class S3AuditProcessor:
             self.logger.error(f"Failed WB file {file_key}: {e}")
             return []
 
+
+    def process_ml_file(self, file_key: str) -> List[Dict]:
+        """Process single ML parquet file"""
+        try:
+            # Read parquet from S3
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_parquet(BytesIO(response['Body'].read()))
+            
+            records = []
+            for _, row in df.iterrows():
+                sector = row.get('sector', '')
+                flight_no = int(row.get('flightNo', 0)) if row.get('flightNo') else 0
+                dept_date = str(row.get('date', ''))  # Could be dd-mm-yyyy or mm-dd-yyyy
+                changed_at = row.get('changedAt', '')
+                analyst = row.get('userName', '') or row.get('analystName', '')
+                
+                # Normalize date - handle both dd-mm-yyyy and mm-dd-yyyy
+                normalized_date = self.normalize_date(dept_date)
+                
+                dept_date_int = self.to_date_int(normalized_date)
+                changed_datetime_int = self.to_datetime_int(changed_at)
+                
+                # Each non-metadata column becomes a record
+                for col, val in row.items():
+                    if col in ['sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName']:
+                        continue
+                    if pd.isna(val):
+                        continue
+                    
+                    records.append({
+                        'sector': sector,
+                        'flightNo': flight_no,
+                        'departureDate': dept_date_int,
+                        'source': 0,  # ML
+                        'changedAtDateTime': changed_datetime_int,
+                        'analystName': analyst,
+                        'key': col,
+                        'value': str(val) if val is not None else ''
+                    })
+            
+            self.logger.info(f"Processed ML file {file_key}: {len(records)} records")
+            return records
+            
+        except Exception as e:
+            self.logger.error(f"Failed ML file {file_key}: {e}")
+            return []
+
     def process_all_files(self, first_run: bool) -> Tuple[List[Dict], int]:
         """Process all ML and WB files"""
         all_records = []
@@ -418,71 +411,54 @@ class S3AuditProcessor:
     
     def save_records(self, records: List[Dict], replace: bool = False):
         """Save records to MySQL"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            
-            # Replace mode: truncate table
-            if replace:
-                cursor.execute(f"DELETE FROM {self.schema}.{self.audit_table}")
-                print(f"Cleared {self.audit_table}")
-            
-            # Bulk insert
-            if records:
-                query = f"""
-                    INSERT INTO {self.schema}.{self.audit_table}
-                    (sector, flightNo, departureDate, source, changedAtDateTime, 
-                     analystName, `key`, value)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """
+            with self.dw_conn.connect() as conn:
+                # Replace mode: truncate table
+                if replace:
+                    conn.execute(text(f"DELETE FROM {self.schema}.{self.audit_table}"))
+                    print(f"Cleared {self.audit_table}")
                 
-                values = [
-                    (r['sector'], r['flightNo'], r['departureDate'], r['source'],
-                     r['changedAtDateTime'], r['analystName'], r['key'], r['value'])
-                    for r in records
-                ]
+                # Bulk insert
+                if records:
+                    query = text(f"""
+                        INSERT INTO {self.schema}.{self.audit_table}
+                        (sector, flightNo, departureDate, source, changedAtDateTime, 
+                         analystName, `key`, value)
+                        VALUES (:sector, :flightNo, :departureDate, :source, 
+                                :changedAtDateTime, :analystName, :key, :value)
+                    """)
+                    
+                    conn.execute(query, records)
+                    print(f"Saved {len(records)} records to MySQL")
                 
-                cursor.executemany(query, values)
-                self.dw_conn.commit()
-                print(f"Saved {len(records)} records to MySQL")
-            
-        except Error as e:
+        except Exception as e:
             self.logger.error(f"Failed to save records: {e}")
-            self.dw_conn.rollback()
             raise
-        finally:
-            if cursor:
-                cursor.close()
 
     def get_summary(self) -> Dict:
         """Get processing summary"""
-        cursor = None
         try:
-            cursor = self.dw_conn.cursor()
-            
-            min_date, max_date = self.get_date_range()
-            
-            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}")
-            total = cursor.fetchone()[0]
-            
-            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 0")
-            ml_count = cursor.fetchone()[0]
-            
-            cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1")
-            wb_count = cursor.fetchone()[0]
-            
-            return {
-                'total_records': total,
-                'ml_records': ml_count,
-                'wb_records': wb_count,
-                'date_range': f"{min_date} to {max_date}" if min_date else "No data",
-                'target_date': int(self.target_date.strftime('%Y%m%d'))
-            }
+            with self.dw_conn.connect() as conn:
+                min_date, max_date = self.get_date_range()
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}"))
+                total = result.fetchone()[0]
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 0"))
+                ml_count = result.fetchone()[0]
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1"))
+                wb_count = result.fetchone()[0]
+                
+                return {
+                    'total_records': total,
+                    'ml_records': ml_count,
+                    'wb_records': wb_count,
+                    'date_range': f"{min_date} to {max_date}" if min_date else "No data",
+                    'target_date': int(self.target_date.strftime('%Y%m%d'))
+                }
         except:
             return {}
-        finally:
-            if cursor:
-                cursor.close()
 
     # ==================== MAIN RUN ====================
     
