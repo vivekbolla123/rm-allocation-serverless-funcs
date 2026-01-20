@@ -245,15 +245,22 @@ class DbHelper:
         
     def update_final_upload_info(self, status, end_time, num_of_rows, formatted_duration, obj_id, list_of_errors):
         try:
+            update_data = {
+                "status": status,
+                "done_timestamp": end_time,
+                "total_rows": num_of_rows,
+                "total_time_taken": formatted_duration
+            }
+            
+            # If status is FAILED and there are errors, add them to the update
+            if status == "FAILED" and list_of_errors:
+                errors_string = ", ".join(list_of_errors)
+                update_data["errors"] = errors_string
+            
             with get_mongo_db() as db:
                 db.inputs_file_upload.update_one(
                     {"obj_id": obj_id},
-                    {"$set": {
-                        "status": status,
-                        "done_timestamp": end_time,
-                        "total_rows": num_of_rows,
-                        "total_time_taken": formatted_duration
-                    }}
+                    {"$set": update_data}
                 )
             
         except Exception as e:
