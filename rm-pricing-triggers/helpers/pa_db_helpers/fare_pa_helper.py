@@ -34,25 +34,22 @@ class FarePAHelper:
             if not sectors:
                 return pd.DataFrame()
             
-            # Build sector match conditions for better performance
+            # ===== FIX: Build sector match conditions WITHOUT Fare_Direction filter =====
             sector_conditions = []
             for sector in sectors:
                 origin = sector[:3]
                 destination = sector[3:]
-                sector_conditions.extend([
-                    # Forward direction: Origin-Destination with Fare_Direction F
-                    {
-                        'Origin': origin,
-                        'Destination': destination,
-                        'Fare_Direction': 'F'
-                    },
-                    # Reverse direction: Destination-Origin with Fare_Direction F  
-                    {
-                        'Origin': destination,
-                        'Destination': origin,
-                        'Fare_Direction': 'F'
-                    }
-                ])
+                # Match Origin-Destination (will handle both F and T)
+                sector_conditions.append({
+                    'Origin': origin,
+                    'Destination': destination
+                })
+                # Match Destination-Origin (will handle both F and T)
+                sector_conditions.append({
+                    'Origin': destination,
+                    'Destination': origin
+                })
+            # ===========================================================================
             
             # Build footnote conditions
             footnote_conditions = []
@@ -101,8 +98,9 @@ class FarePAHelper:
             # Both rules are needed since they can have different footnotes/NDOs
             base_match = {
                 'Carrier_Code': 'QP',
-                'Rule_Nbr': {'$in': ['1001', '2001']},  # Fetch both rules
+                'Rule_Nbr': {'$in': ['1001', '2001']},
                 'OW_RT': {'$in': ['O', 'C']},
+                'Fare_Direction': {'$in': ['F', 'T']},  # ← FIX: Include both F and T
                 '$and': [
                     {'$or': sector_conditions},
                     {'$or': footnote_conditions},
@@ -110,7 +108,7 @@ class FarePAHelper:
                 ]
             }
             
-            # Simplified aggregation pipeline - only get what we need
+            # Simplified aggregation pipeline
             pipeline = [
                 {'$match': base_match},
                 {
@@ -125,45 +123,45 @@ class FarePAHelper:
                         'Routing': 1,
                         'Rule_Nbr': 1,
                         'Footnote': 1,
-                        # Calculate sector and RBD in projection for efficiency
-                        'SECTOR': {
-                            '$cond': {
-                                'if': {'$eq': ['$Fare_Direction', 'F']},
-                                'then': {'$concat': ['$Origin', '$Destination']},
-                                'else': {'$concat': ['$Destination', '$Origin']}
-                            }
-                        },
+                        # Calculate RBD and NDO
                         'RBD': {'$substr': ['$Fare_Basis_Code', 0, 2]},
                         'NDO': {'$substr': ['$Fare_Basis_Code', 7, 1]}
                     }
                 },
-                # Add final sector filter to ensure we only get requested sectors
-                {
-                    '$match': {
-                        'SECTOR': {'$in': sectors}
-                    }
-                },
                 {
                     '$project': {
-                        'SECTOR': 1,
+                        'Origin': 1,
+                        'Destination': 1,
+                        'Fare_Direction': 1,
+                        'Fare_Basis_Code': 1,
+                        'RBD': 1,
+                        'NDO': 1,
+                        'Routing': 1,
+                        'Rule_Nbr': 1,
+                        'Footnote': 1,
+                        # Calculate SECTOR - reverse for T direction
+                        'SECTOR': {
+                            '$cond': {
+                                'if': {'$eq': ['$Fare_Direction', 'F']},
+                                'then': {'$concat': ['$Origin', '$Destination']},
+                                'else': {'$concat': ['$Destination', '$Origin']}  # T: reverse it
+                            }
+                        },
                         'Org': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
                                 'then': '$Origin',
-                                'else': '$Destination'
+                                'else': '$Destination'  # T: use Destination as logical origin
                             }
                         },
                         'Dst': {
                             '$cond': {
                                 'if': {'$eq': ['$Fare_Direction', 'F']},
                                 'then': '$Destination',
-                                'else': '$Origin'
+                                'else': '$Origin'  # T: use Origin as logical destination
                             }
                         },
                         'route': '$Routing',
-                        'RBD': 1,
-                        'NDO': 1,
-                        'Fare_Basis_Code': 1,
                         'TOTAL': '$Fare_Amount',
                         'currency': '$Currency',
                         'fare_direction': '$Fare_Direction',
@@ -180,14 +178,21 @@ class FarePAHelper:
                 }
             ]
             
-            # Execute optimized aggregation
+            # Execute aggregation
             all_qp_fares = list(self.db.qp_fares.aggregate(pipeline))
             qp_fares_data = pd.DataFrame(all_qp_fares)
             
+            # Filter by requested sectors after calculation
+            if not qp_fares_data.empty and sectors:
+                original_count = len(qp_fares_data)
+                qp_fares_data = qp_fares_data[qp_fares_data['SECTOR'].isin(sectors)]
+                filtered_count = len(qp_fares_data)
+                self.logger.info(f"Filtered QP fares: {original_count} → {filtered_count} records for requested sectors")
+            
             self.logger.info(f"Collected {len(qp_fares_data)} QP fares records (rules 1001/2001) for {len(sectors)} sectors")
             if not qp_fares_data.empty:
-                rule_counts = qp_fares_data['rule_number'].value_counts().to_dict()
-                self.logger.info(f"Rule breakdown: {rule_counts}")
+                found_sectors = sorted(qp_fares_data['SECTOR'].unique().tolist())
+                self.logger.info(f"Found sectors: {found_sectors}")
             
             return qp_fares_data
             
@@ -231,14 +236,6 @@ class FarePAHelper:
             # Extract unique sectors
             self.existing_qp_sectors = {item['_id'] for item in qp_fares_check}
             
-            # Log which sectors are new vs existing
-            new_sectors = [s for s in sectors_to_check if s not in self.existing_qp_sectors]
-            existing_sectors = [s for s in sectors_to_check if s in self.existing_qp_sectors]
-            
-            if new_sectors:
-                self.logger.info(f"New sectors (will use 'W' in farebasis): {new_sectors}")
-            if existing_sectors:
-                self.logger.info(f"Existing sectors (will use 'B' in farebasis): {existing_sectors}")
             return self.existing_qp_sectors
             
         except Exception as e:
@@ -535,7 +532,7 @@ class FarePAHelper:
             self.logger.error(f"Unable to get current version: {str(e)}")
             raise
         
-    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, run_type=None, sectors_list=None, status='SUCCESS', is_initial=False):
+    def save_run_audit(self, currVersion, route, analystName, start_time, run_id, ladder_df, run_type=None, sectors_list=None, status='SUCCESS', is_initial=False, failure_reason=None):
         """Save or update audit information for fare filing runs.
         
         Args:
@@ -549,6 +546,7 @@ class FarePAHelper:
             sectors_list: List of sectors processed
             status: 'IN_PROGRESS', 'SUCCESS', or 'FAILED'
             is_initial: If True, performs INSERT for initial audit record
+            failure_reason: Detailed failure reason (only used when status='FAILED')
         """
         try:
             collection = self.db.fare_filing_run_audits
@@ -627,7 +625,8 @@ class FarePAHelper:
                         'total_fares_generated': total_fares,
                         'unique_sectors': unique_sectors,
                         'unique_rules': unique_rules,
-                        'status': status
+                        'status': status,
+                        'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
                 

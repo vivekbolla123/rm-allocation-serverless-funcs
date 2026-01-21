@@ -3,7 +3,6 @@ import boto3
 import pandas as pd
 import logging
 import os
-from sqlalchemy import create_engine, text
 import configsettings
 from constants_utils import ConstantsUtils
 from datetime import datetime, timedelta, date
@@ -96,14 +95,12 @@ class FareFiling:
                 # This ensures we only process upsells for sectors that exist in saver table
                 if not self.product_upsell_data.empty:
                     original_count = len(self.product_upsell_data)
-                    self.logger.info(f"Before filtering - Rules in product_upsell_data: {self.product_upsell_data['rule_nbr'].unique().tolist()}")
                     
                     self.product_upsell_data = self.product_upsell_data[
                         self.product_upsell_data['sector'].isin(saver_sectors)
                     ]
                     filtered_count = len(self.product_upsell_data)
                     
-                    self.logger.info(f"After filtering - Rules in product_upsell_data: {self.product_upsell_data['rule_nbr'].unique().tolist()}")
                     
                     if original_count > filtered_count:
                         removed_sectors = original_count - filtered_count
@@ -141,19 +138,34 @@ class FareFiling:
                     # Include default NDO as well
                     base_ndos.extend(['X', '', None])
                 
-                print(f"Base footnotes for QP query: {base_footnotes}")
-                print(f"Base NDOs for QP query: {base_ndos}")
-                
                 # Fetch from QP fares for rules 1001 and 2001 with footnote/NDO filtering
                 self.qp_fares_data = self.pa_helper.collect_qp_fares(
-                    unique_sectors, 
+                    unique_sectors,
                     base_footnotes=base_footnotes if base_footnotes else None,
                     base_ndos=base_ndos if base_ndos else None
                 )
                 
+                # ===== NEW: VALIDATE ALL SECTORS EXIST IN QP FARES =====
                 if self.qp_fares_data.empty:
-                    raise ValueError(f"No QP fares found for sectors: {unique_sectors}")
-            
+                    error_msg = f"No QP fares found for any of the sectors: {unique_sectors}"
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
+                
+                # Check which sectors are present in fetched data
+                fetched_sectors = self.qp_fares_data['SECTOR'].unique().tolist() if not self.qp_fares_data.empty else []
+                missing_sectors = [s for s in unique_sectors if s not in fetched_sectors]
+                
+                if missing_sectors:
+                    error_msg = (
+                        f"VALIDATION FAILED: {len(missing_sectors)} sector(s) from product_upsell "
+                        f"not found in qp_fares (rules 1001/2001).\n"
+                        f"Missing sectors: {missing_sectors}\n"
+                        f"Found sectors: {fetched_sectors}\n"
+                        f"Expected sectors: {unique_sectors}"
+                    )
+                    self.logger.error(error_msg)
+                    raise ValueError(error_msg)
+
             # Collect product rules data
             self.product_rules_data = self.pa_helper.collect_product_rules_data()
             # Convert to dict for easier lookup
@@ -194,7 +206,14 @@ class FareFiling:
             return 'B'
 
     def get_saver_fares(self, sector, rbd, base_footnote=None, base_ndo=None):
-        """Get base saver fare for a given sector and RBD with footnote/NDO matching."""
+        """Get base saver fare for a given sector and RBD with footnote/NDO matching.
+        
+        Args:
+            sector: Sector code (e.g., 'BOMDEL')
+            rbd: RBD code (e.g., 'V9', 'Y0')
+            base_footnote: Footnote to match (None = match any, '' = match empty)
+            base_ndo: NDO to match (None = match any, '' or 'X' = match default/empty)
+        """
         try:
             if self.isSaver:
                 # Get from saver table - this is ALL-IN FARE
@@ -203,10 +222,12 @@ class FareFiling:
                     (self.saver_data['rbd'] == rbd)
                 )
                 
-                # Add footnote matching if specified
+                # ===== FIX: Handle None (match any) vs '' (match empty) =====
+                # If base_footnote is None, don't filter by footnote at all (match any)
+                # If base_footnote is '', match only empty footnotes
                 if base_footnote is not None:
-                    if base_footnote == '' or base_footnote is None:
-                        # Match empty footnotes
+                    if base_footnote == '':
+                        # Match empty footnotes only
                         fare_conditions = fare_conditions & (
                             (self.saver_data['footnote'].isna()) |
                             (self.saver_data['footnote'] == '') |
@@ -215,11 +236,13 @@ class FareFiling:
                     else:
                         # Match specific footnote
                         fare_conditions = fare_conditions & (self.saver_data['footnote'] == base_footnote)
+                # else: base_footnote is None, don't filter by footnote (match any)
                 
-                # Add NDO matching if specified
+                # If base_ndo is None, don't filter by NDO at all (match any)
+                # If base_ndo is '' or 'X', match only default/empty NDOs
                 if base_ndo is not None:
-                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
-                        # Match default NDO
+                    if base_ndo == '' or base_ndo == 'X':
+                        # Match default/empty NDO only
                         fare_conditions = fare_conditions & (
                             (self.saver_data['ndo'].isna()) |
                             (self.saver_data['ndo'] == '') |
@@ -229,6 +252,8 @@ class FareFiling:
                     else:
                         # Match specific NDO
                         fare_conditions = fare_conditions & (self.saver_data['ndo'] == base_ndo)
+                # else: base_ndo is None, don't filter by NDO (match any)
+                # ==============================================================
                 
                 fare_row = self.saver_data[fare_conditions]
                 if not fare_row.empty:
@@ -240,10 +265,12 @@ class FareFiling:
                     (self.qp_fares_data['RBD'] == rbd)
                 )
                 
-                # Add footnote matching if specified
+                # ===== FIX: Handle None (match any) vs '' (match empty) =====
+                # If base_footnote is None, don't filter by footnote at all (match any)
+                # If base_footnote is '', match only empty footnotes
                 if base_footnote is not None:
-                    if base_footnote == '' or base_footnote is None:
-                        # Match empty footnotes
+                    if base_footnote == '':
+                        # Match empty footnotes only
                         fare_conditions = fare_conditions & (
                             (self.qp_fares_data['footnote'].isna()) |
                             (self.qp_fares_data['footnote'] == '') |
@@ -252,11 +279,13 @@ class FareFiling:
                     else:
                         # Match specific footnote
                         fare_conditions = fare_conditions & (self.qp_fares_data['footnote'] == base_footnote)
+                # else: base_footnote is None, don't filter by footnote (match any)
                 
-                # Add NDO matching if specified
+                # If base_ndo is None, don't filter by NDO at all (match any)
+                # If base_ndo is '' or 'X', match only default/empty NDOs
                 if base_ndo is not None:
-                    if base_ndo == '' or base_ndo is None or base_ndo == 'X':
-                        # Match default NDO
+                    if base_ndo == '' or base_ndo == 'X':
+                        # Match default/empty NDO only
                         fare_conditions = fare_conditions & (
                             (self.qp_fares_data['NDO'].isna()) |
                             (self.qp_fares_data['NDO'] == '') |
@@ -266,6 +295,8 @@ class FareFiling:
                     else:
                         # Match specific NDO
                         fare_conditions = fare_conditions & (self.qp_fares_data['NDO'] == base_ndo)
+                # else: base_ndo is None, don't filter by NDO (match any)
+                # ==============================================================
                 
                 fare_row = self.qp_fares_data[fare_conditions]
                 if not fare_row.empty:
@@ -274,7 +305,7 @@ class FareFiling:
             return None
             
         except Exception as e:
-            self.logger.warning(f"Error getting saver fare for {sector}-{rbd} (footnote: {base_footnote}, NDO: {base_ndo}): {str(e)}")
+            self.logger.warning(f"Error getting saver fare for {sector}-{rbd} (base_footnote: {base_footnote}, base_ndo: {base_ndo}): {str(e)}")
             return None
         
     def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
@@ -422,9 +453,6 @@ class FareFiling:
                 ['sector', 'rule_nbr', 'rbd_start', 'rbd_end']
             ).first().reset_index()
             
-            self.logger.info(f"Starting to process {len(unique_combos)} unique combinations")
-            self.logger.info(f"Rules in combinations: {unique_combos['rule_nbr'].unique().tolist()}")
-            
             for _, combo_row in unique_combos.iterrows():
                 sector = combo_row['sector']
                 rule_nbr = combo_row['rule_nbr']
@@ -434,8 +462,6 @@ class FareFiling:
                 # Skip companion rules in main loop - process them separately later
                 if rule_nbr in ['5002', '5006', '2001']:
                     continue
-                
-                self.logger.info(f"Processing rule {rule_nbr} for sector {sector}")
                 
                 # Get all upsell rows for this combination
                 upsell_rows = self.product_upsell_data[
@@ -458,29 +484,10 @@ class FareFiling:
                 
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Get base footnote and NDO from upsell configuration
-                    base_footnote = combo_row.get('base_footnote', None)
-                    if pd.isna(base_footnote):
-                        base_footnote = None
-                    
-                    base_ndo = combo_row.get('base_ndo', None)
-                    if pd.isna(base_ndo):
-                        base_ndo = None
-                    
-                    # Get saver fare for this RBD with footnote/NDO matching
-                    saver_allin_fare = self.get_saver_fares(sector, rbd, base_footnote, base_ndo)
-                    
-                    if saver_allin_fare is None:
-                        self.logger.warning(f"No saver fare found for {sector}-{rbd} (base_footnote: {base_footnote}, base_ndo: {base_ndo})")
-                        continue
-                    
-                    # Get POS from saver table
+                    # Get POS from saver table (if Saver mode)
                     pos_value = None
                     if self.isSaver:
                         pos_value = self.get_pos_from_saver(sector, rbd)
-                    
-                    # Extract base fare from saver all-in fare
-                    saver_base_fare = self.calculate_all_in_fare(saver_allin_fare, origin, destination, ftype="allin")
                     
                     # Process each upsell row (different footnotes/OW_RT combinations)
                     for _, upsell_row in upsell_rows.iterrows():
@@ -489,6 +496,26 @@ class FareFiling:
                             pos_value = upsell_row.get('pos', 'B')
                             if pd.isna(pos_value) or pos_value == '':
                                 pos_value = 'B'
+                        
+                        # ===== FIX: Get base_footnote and base_ndo from THIS upsell row =====
+                        base_footnote = upsell_row.get('base_footnote', None)
+                        if pd.isna(base_footnote):
+                            base_footnote = None
+                        
+                        base_ndo = upsell_row.get('base_ndo', None)
+                        if pd.isna(base_ndo):
+                            base_ndo = None
+                        
+                        # Get saver fare for this RBD with THIS row's base_footnote/base_ndo
+                        saver_allin_fare = self.get_saver_fares(sector, rbd, base_footnote, base_ndo)
+                        # ====================================================================
+                        
+                        if saver_allin_fare is None:
+                            self.logger.warning(f"No saver fare found for {sector}-{rbd} (base_footnote: {base_footnote}, base_ndo: {base_ndo})")
+                            continue
+                        
+                        # Extract base fare from saver all-in fare
+                        saver_base_fare = self.calculate_all_in_fare(saver_allin_fare, origin, destination, ftype="allin")
                         
                         # Determine if we need base or all-in fare for upsell calculation
                         base_all_in = upsell_row.get('base_all_in', 'All-in')
@@ -523,7 +550,7 @@ class FareFiling:
                             # Upsold fare is all-in fare, extract base fare
                             final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
                         
-                        # Get other parameters
+                        # Get other parameters - use upsell row's OWN footnote for output
                         ow_rt = upsell_row.get('ow_rt', 'O')
                         if pd.isna(ow_rt) or ow_rt == '':
                             ow_rt = 'O'
@@ -537,12 +564,12 @@ class FareFiling:
                             footnote = ''
                         
                         # Store fare for companion rule generation (1002 -> 5002, 1006 -> 5006, 1007 -> 2001)
+                        # Key uses the OUTPUT footnote (not base_footnote)
                         if rule_nbr in ['1002', '1006', '1007']:
                             key = (sector, rbd, ow_rt, footnote, ndo, pos_value)
                             if key not in primary_rules_processed:
                                 primary_rules_processed[key] = {}
                             primary_rules_processed[key][rule_nbr] = final_base_fare
-                            self.logger.info(f"Stored primary rule {rule_nbr} fare {final_base_fare} for key {key}")
                         
                         # Sort price logic
                         sort_price = upsell_row.get('sort_price')
@@ -604,8 +631,10 @@ class FareFiling:
                         all_output_rows.append(output_row)
             
             # Now process companion rules (5002 from 1002, 5006 from 1006, 2001 from 1007)
-            self.logger.info(f"Processing companion rules using {len(primary_rules_processed)} primary rule fares")
-            self.logger.info(f"Primary rules keys: {list(primary_rules_processed.keys())[:5]}...")  # Show first 5 keys
+            
+            # Log all primary rule keys for debugging
+            for key, rules in primary_rules_processed.items():
+                sector, rbd, ow_rt, footnote, ndo, pos = key
             companion_rows = self._generate_companion_rules_simple(primary_rules_processed, existing_sort_prices)
             all_output_rows.extend(companion_rows)
             
@@ -628,9 +657,16 @@ class FareFiling:
         - 1002 -> 5002
         - 1006 -> 5006  
         - 1007 -> 2001 (B2B RBD range: ZJ to Y0, 84 RBDs)
+        
+        CRITICAL: Companion rules search for primary rules using base_footnote.
+        The companion rule's own footnote is used for output only.
+        
+        FAILURE CONDITION: If a companion rule configuration exists but no matching primary rule
+        is found, the run will fail with detailed error information.
         """
         try:
             companion_rows = []
+            missing_primary_rules = []  # Track missing primary rules for failure reporting
             
             # Mapping of primary to companion rules
             companion_mapping = {
@@ -644,14 +680,11 @@ class FareFiling:
                 self.product_upsell_data['rule_nbr'].isin(['5002', '5006', '2001'])
             ].copy()
             
-            self.logger.info(f"Found {len(companion_configs)} companion configurations in product_upsell_data")
-            
             # If not found in main data, check master
             if companion_configs.empty and self.product_upsell_master_data is not None:
                 companion_configs = self.product_upsell_master_data[
                     self.product_upsell_master_data['rule_nbr'].isin(['5002', '5006', '2001'])
                 ].copy()
-                self.logger.info(f"Found {len(companion_configs)} companion configurations in product_upsell_master_data")
             
             if companion_configs.empty:
                 self.logger.info("No companion rule configurations found!")
@@ -662,8 +695,21 @@ class FareFiling:
                 companion_rule = config_row['rule_nbr']
                 sector = config_row['sector']
                 
-                self.logger.info(f"Processing companion rule {companion_rule} for sector {sector}")
+                # Get companion rule's OWN footnote (for output)
+                companion_footnote = config_row.get('footnote', '')
+                if pd.isna(companion_footnote):
+                    companion_footnote = ''
                 
+                # ===== FIX: Get base_footnote to search for primary rule =====
+                base_footnote_for_search = config_row.get('base_footnote', '')
+                if pd.isna(base_footnote_for_search):
+                    base_footnote_for_search = ''
+                
+                # ===== FIX: Get base_ndo to search for primary rule =====
+                base_ndo_for_search = config_row.get('base_ndo', 'X')
+                if pd.isna(base_ndo_for_search) or base_ndo_for_search == '':
+                    base_ndo_for_search = 'X'
+                # =============================================================
                 # Find the corresponding primary rule
                 primary_rule = None
                 for primary, companion in companion_mapping.items():
@@ -672,10 +718,7 @@ class FareFiling:
                         break
                 
                 if not primary_rule:
-                    self.logger.info(f"No primary rule mapping found for companion {companion_rule}")
                     continue
-                
-                self.logger.info(f"Found primary rule {primary_rule} for companion {companion_rule}")
                 
                 # Get RBD range for this companion rule
                 rbd_start = config_row['rbd_start']
@@ -689,17 +732,11 @@ class FareFiling:
                     b2b_rbds = self.get_rbd_range('ZJ', 'Y0')  # 84 RBDs for B2B
                     if len(b2b_rbds) == 84:  # Verify we have the right range
                         rbd_range = b2b_rbds
-                        self.logger.info(f"Using B2B RBD range for rule 2001: {len(rbd_range)} RBDs")
                 
                 if not rbd_range:
-                    self.logger.warning(f"Invalid RBD range for {sector}-{companion_rule}: {rbd_start} to {rbd_end}")
                     continue
                 
                 # Get companion rule parameters
-                companion_footnote = config_row.get('footnote', '')
-                if pd.isna(companion_footnote):
-                    companion_footnote = ''
-                
                 companion_ow_rt = config_row.get('ow_rt', 'O')
                 if pd.isna(companion_ow_rt) or companion_ow_rt == '':
                     companion_ow_rt = 'O'
@@ -712,38 +749,54 @@ class FareFiling:
                 if pd.isna(companion_pos) or companion_pos == '':
                     companion_pos = 'B'
                 
+                # ========================================================
+                
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Look for corresponding primary rule fare with flexible matching
                     primary_base_fare = None
                     
-                    # Try multiple key combinations to find the primary rule
-                    search_keys = [
-                        (sector, rbd, companion_ow_rt, companion_footnote, companion_ndo, companion_pos),
-                        (sector, rbd, companion_ow_rt, '', companion_ndo, companion_pos),  # Empty footnote
-                        (sector, rbd, 'O', companion_footnote, companion_ndo, companion_pos),  # Default OW_RT
-                        (sector, rbd, 'O', '', companion_ndo, companion_pos),  # Default OW_RT + empty footnote
-                        (sector, rbd, companion_ow_rt, companion_footnote, 'X', companion_pos),  # Default NDO
-                        (sector, rbd, 'O', '', 'X', companion_pos),  # All defaults
-                    ]
+                    # ===== FIX: Search for primary rule using BASE_FOOTNOTE, not companion's footnote =====
+                    exact_search_key = (sector, rbd, companion_ow_rt, base_footnote_for_search, base_ndo_for_search, companion_pos)
                     
-                    for search_key in search_keys:
-                        if search_key in primary_rules_processed and primary_rule in primary_rules_processed[search_key]:
-                            primary_base_fare = primary_rules_processed[search_key][primary_rule]
-                            self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with key {search_key}")
-                            break
-                    
-                    # If still not found, try a broader search
-                    if primary_base_fare is None:
+                    if exact_search_key in primary_rules_processed and primary_rule in primary_rules_processed[exact_search_key]:
+                        primary_base_fare = primary_rules_processed[exact_search_key][primary_rule]
+                    else:
+                        # If exact match not found, try with flexible ow_rt, ndo, pos but STRICT base_footnote matching
                         for key, rule_fares in primary_rules_processed.items():
                             key_sector, key_rbd, key_ow_rt, key_footnote, key_ndo, key_pos = key
-                            if key_sector == sector and key_rbd == rbd and primary_rule in rule_fares:
+                            
+                            # STRICT footnote matching - use base_footnote_for_search, not companion_footnote
+                            footnote_match = (
+                                (base_footnote_for_search == '' and (key_footnote == '' or pd.isna(key_footnote))) or
+                                (base_footnote_for_search == key_footnote)
+                            )
+                            
+                            if (key_sector == sector and 
+                                key_rbd == rbd and 
+                                footnote_match and 
+                                primary_rule in rule_fares):
                                 primary_base_fare = rule_fares[primary_rule]
-                                self.logger.info(f"Found primary rule {primary_rule} fare {primary_base_fare} with broad search, key {key}")
                                 break
+                    # ====================================================================================
                     
                     if primary_base_fare is None:
-                        self.logger.info(f"No primary rule {primary_rule} fare found for companion {companion_rule} at {sector}-{rbd}")
+                        # CRITICAL: Track missing primary rule for failure reporting
+                        missing_info = {
+                            'companion_rule': companion_rule,
+                            'primary_rule': primary_rule,
+                            'sector': sector,
+                            'rbd': rbd,
+                            'companion_footnote': companion_footnote,
+                            'base_footnote': base_footnote_for_search,
+                            'ow_rt': companion_ow_rt,
+                            'ndo': companion_ndo,
+                            'pos': companion_pos
+                        }
+                        missing_primary_rules.append(missing_info)
+                        
+                        self.logger.error(f"MISSING PRIMARY RULE: Companion rule {companion_rule} (footnote='{companion_footnote}') requires primary rule {primary_rule} "
+                                        f"for {sector}-{rbd} with base_footnote '{base_footnote_for_search}', ow_rt '{companion_ow_rt}', "
+                                        f"ndo '{companion_ndo}', pos '{companion_pos}' but it was not found")
                         continue
                     
                     origin = sector[:3]
@@ -790,13 +843,14 @@ class FareFiling:
                         else:
                             sort_price = final_base_fare
                     
-                    # Generate farebasis with companion rule's footnote
+                    # ===== FIX: Generate farebasis with companion rule's OWN footnote (not base_footnote) =====
                     farebasis = self.generate_farebasis(rbd, companion_rule, companion_ow_rt, companion_ndo, sector, pos=companion_pos, route_type='D', footnote=companion_footnote)
+                    # ========================================================================================
                     
                     # Determine fare direction
                     actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
                     
-                    # Create output row
+                    # Create output row with companion's OWN footnote
                     output_row = {
                         'Carrier_Code': 'QP',
                         'Action_Code': 'I',
@@ -805,7 +859,7 @@ class FareFiling:
                         'Fare_Basis_Code': farebasis,
                         'OW_RT': companion_ow_rt,
                         'Routing': '',
-                        'Footnote': companion_footnote,
+                        'Footnote': companion_footnote,  # Use companion's own footnote
                         'Currency': 'INR',
                         'Fare_Amount': final_base_fare,
                         'Point_Price': 0,
@@ -827,15 +881,114 @@ class FareFiling:
                     }
                     
                     companion_rows.append(output_row)
-                    self.logger.debug(f"Generated {companion_rule} from {primary_rule}: {primary_base_fare} -> {final_base_fare} (footnote: '{companion_footnote}')")
+                    self.logger.debug(f"Generated {companion_rule} (footnote='{companion_footnote}') from {primary_rule} (base_footnote='{base_footnote_for_search}'): {primary_base_fare} -> {final_base_fare}")
             
-            self.logger.info(f"Generated {len(companion_rows)} companion rule records")
+            # Check if any primary rules were missing and fail the run if so
+            if missing_primary_rules:
+                self._handle_missing_primary_rules_failure(missing_primary_rules)
+            
             return companion_rows
             
         except Exception as e:
             self.logger.error(f"Error generating companion rules: {str(e)}")
             self.logger.error(traceback.format_exc())
             return []
+    
+    def _handle_missing_primary_rules_failure(self, missing_primary_rules):
+        """Handle failure when companion rules cannot be generated due to missing primary rules."""
+        try:
+            # Group missing rules by companion rule for better reporting
+            missing_by_companion = {}
+            for missing in missing_primary_rules:
+                companion_rule = missing['companion_rule']
+                if companion_rule not in missing_by_companion:
+                    missing_by_companion[companion_rule] = []
+                missing_by_companion[companion_rule].append(missing)
+            
+            # Build detailed error message
+            error_lines = [
+                "COMPANION RULE GENERATION FAILED",
+                "=" * 50,
+                "The following companion rules are configured but their corresponding primary rules are missing:",
+                ""
+            ]
+            
+            for companion_rule, missing_list in missing_by_companion.items():
+                primary_rule = missing_list[0]['primary_rule']  # All will have same primary rule
+                error_lines.append(f"Companion Rule {companion_rule} (requires Primary Rule {primary_rule}):")
+                
+                # Group by footnote for cleaner reporting
+                by_footnote = {}
+                for missing in missing_list:
+                    footnote_key = missing['footnote'] if missing['footnote'] else 'EMPTY'
+                    if footnote_key not in by_footnote:
+                        by_footnote[footnote_key] = []
+                    by_footnote[footnote_key].append(missing)
+                
+                for footnote_key, footnote_missing in by_footnote.items():
+                    error_lines.append(f"  Footnote '{footnote_key}':")
+                    
+                    # Group by sector for even cleaner reporting
+                    by_sector = {}
+                    for missing in footnote_missing:
+                        sector = missing['sector']
+                        if sector not in by_sector:
+                            by_sector[sector] = []
+                        by_sector[sector].append(missing['rbd'])
+                    
+                    for sector, rbds in by_sector.items():
+                        rbd_count = len(rbds)
+                        rbd_sample = rbds[:3]  # Show first 3 RBDs
+                        rbd_display = ', '.join(rbd_sample)
+                        if rbd_count > 3:
+                            rbd_display += f" ... (+{rbd_count - 3} more)"
+                        
+                        error_lines.append(f"    Sector {sector}: {rbd_count} RBDs ({rbd_display})")
+                
+                error_lines.append("")
+            
+            error_lines.extend([
+                "RESOLUTION:",
+                "1. Add the missing primary rules to your input data with matching footnotes, OR",
+                "2. Remove the companion rule configurations that cannot be generated",
+                "",
+                "MISSING PRIMARY RULE DETAILS:",
+                "The following primary rule combinations need to be added to your input:"
+            ])
+            
+            # Add specific missing combinations for easier resolution
+            for companion_rule, missing_list in missing_by_companion.items():
+                primary_rule = missing_list[0]['primary_rule']
+                error_lines.append(f"  For {companion_rule} generation, add {primary_rule} with:")
+                
+                by_footnote = {}
+                for missing in missing_list:
+                    footnote_key = missing['footnote'] if missing['footnote'] else 'EMPTY'
+                    if footnote_key not in by_footnote:
+                        by_footnote[footnote_key] = set()
+                    by_footnote[footnote_key].add(missing['sector'])
+                
+                for footnote_key, sectors in by_footnote.items():
+                    footnote_display = f"footnote='{footnote_key}'" if footnote_key != 'EMPTY' else "footnote='' (empty)"
+                    sectors_display = ', '.join(sorted(sectors))
+                    error_lines.append(f"    - {footnote_display} for sectors: {sectors_display}")
+                
+                error_lines.append("")
+            
+            error_lines.append(f"Total missing primary rule instances: {len(missing_primary_rules)}")
+            
+            error_message = "\n".join(error_lines)
+            self.logger.error(error_message)
+            
+            # Raise exception to fail the run
+            raise ValueError(f"Companion rule generation failed: {len(missing_primary_rules)} missing primary rule instances. "
+                           f"See logs for detailed breakdown.")
+            
+        except Exception as e:
+            # Fallback error handling
+            self.logger.error(f"Error in failure handling: {str(e)}")
+            raise ValueError(f"Companion rule generation failed due to missing primary rules. "
+                           f"Count: {len(missing_primary_rules)}. Additional error in reporting: {str(e)}")
         
     def generate_saver_output(self):
         """Generate output rows for saver fares (rule 1001 and 2001)."""
@@ -924,7 +1077,6 @@ class FareFiling:
                     
                     saver_rows.append(output_row)
             
-            self.logger.info(f"Generated {len(saver_rows)} saver fare records")
             return saver_rows
             
         except Exception as e:
@@ -1014,14 +1166,22 @@ class FareFiling:
             }
             
         except Exception as e:
-            self.logger.error(f"Error in run method: {str(e)}")
+            error_message = str(e)
+            self.logger.error(f"Error in run method: {error_message}")
             self.logger.error(traceback.format_exc())
-            # Update audit with FAILED status
-            self.pa_helper.save_run_audit(
-                self.currentVersion, route, self.analystName, 
-                self.start_time, self.run_id, None,
-                run_type=run_type if 'run_type' in locals() else "Unknown",
-                sectors_list=None,
-                status='FAILED', is_initial=False
-            )
+            
+            # Update audit with FAILED status and failure reason
+            try:
+                self.pa_helper.save_run_audit(
+                    self.currentVersion, route, self.analystName, 
+                    self.start_time, self.run_id, None,
+                    run_type=run_type if 'run_type' in locals() else "Unknown",
+                    sectors_list=None,
+                    status='FAILED', 
+                    is_initial=False,
+                    failure_reason=error_message
+                )
+            except Exception as audit_error:
+                self.logger.error(f"Failed to update audit record: {str(audit_error)}")
+            
             raise

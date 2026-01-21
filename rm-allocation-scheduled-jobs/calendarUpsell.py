@@ -232,14 +232,16 @@ class CalUpsell:
         SELECT 
             CONCAT(PX.Origin, PX.Destination) AS Sector,
             PX.DepartureDate,
-            SUM(PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) AS TotalFare,
-            COUNT(CASE WHEN SUBSTRING(PX.FareBasis, 1, 1) != 'S' 
+            SUM(PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS TotalFare,
+            COUNT(CASE WHEN SUBSTRING(PX.FareBasis, 1, 1) != 'S' AND SUBSTRING(PX.FareBasis, 5, 1) not in ('T','G') AND SUBSTRING(PX.FareBasis, 3, 1) not in ('C')
                 THEN PX.PassengerID END) AS PassengerCount
         FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
         WHERE PX.DepartureDate >= %s
         AND PX.DepartureDate < %s
         AND PX.BookingID IS NOT NULL
-        AND SUBSTRING(PX.FareBasis, 5, 1) != 'T'
+        AND SUBSTRING(PX.FareBasis, 5, 1) not in ('T','G')
+        AND SUBSTRING(PX.FareBasis, 3, 1) not in ('C')
+        AND SUBSTRING(PX.FareBasis, 1, 1) != 'S'
         AND PX.FlightNumber < 6000
         GROUP BY PX.Origin, PX.Destination, PX.DepartureDate
         HAVING PassengerCount > 0
