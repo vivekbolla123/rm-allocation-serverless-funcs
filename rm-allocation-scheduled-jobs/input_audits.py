@@ -57,7 +57,7 @@ class S3AuditProcessor:
                     source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
                     changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDD1HHMM (13 digits)',
                     analystName VARCHAR(100),
-                    `key` VARCHAR(100),
+                    colName VARCHAR(100),
                     value TEXT,
                     INDEX idx_sector_flight (sector, flightNo, departureDate),
                     INDEX idx_changed (changedAtDateTime),
@@ -346,7 +346,7 @@ class S3AuditProcessor:
                         'source': 0,
                         'changedAtDateTime': changed_datetime_int,
                         'analystName': analyst,
-                        'key': col,
+                        'colName': col,
                         'value': str(val) if val is not None else ''
                     })
             
@@ -400,7 +400,7 @@ class S3AuditProcessor:
                         'source': 1,
                         'changedAtDateTime': changed_datetime_int,
                         'analystName': analyst,
-                        'key': col,
+                        'colName': col,
                         'value': str(val) if val is not None else ''
                     })
             
@@ -468,9 +468,9 @@ class S3AuditProcessor:
                     query = text(f"""
                         INSERT INTO {self.schema}.{self.audit_table}
                         (sector, flightNo, departureDate, source, changedAtDateTime, 
-                         analystName, `key`, value)
+                        analystName, colName, value)
                         VALUES (:sector, :flightNo, :departureDate, :source, 
-                                :changedAtDateTime, :analystName, :key, :value)
+                                :changedAtDateTime, :analystName, :colName, :value)
                     """)
                     
                     # Batch insert for better performance
