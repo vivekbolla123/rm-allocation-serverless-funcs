@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime, timedelta
 from constants_utils import ConstantsUtils
+import pandas as pd
+import configsettings
 
 class ActiveSectors:
     def __init__(self, logger, params, overrides, context):
@@ -9,60 +11,22 @@ class ActiveSectors:
         # Get MongoDB client and access the database
         self.mongo_client = params['mongoconn']
         self.mongo_db = self.mongo_client['qp_dw_rmalloc']
+        self.nav_db_name = configsettings.NAV_DB_NAME
+        self.nav_conn = params['navconn']
         self.constants = ConstantsUtils(self.mongo_db)
 
     def fetch_existing_sectors(self):
-        """Fetch all distinct sectors from the market_list and market_list_international collections."""
-        self.logger.info("Fetching distinct sectors from market_list and market_list_international")
+        """Collect active sectors from Navitaire."""
         try:
-            sectors = set()
-            
-            # Fetch sectors from market_list collection
-            market_list_pipeline = [
-                {
-                    "$project": {
-                        "sector": {"$concat": ["$Origin", "$Destin"]},
-                        "_id": 0
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": "$sector"
-                    }
-                }
-            ]
-            
-            market_list_sectors = self.mongo_db.market_list.aggregate(market_list_pipeline)
-            for doc in market_list_sectors:
-                if doc['_id']:  # Ensure sector is not null/empty
-                    sectors.add(doc['_id'])
-            
-            # Fetch sectors from market_list_international collection
-            market_list_intl_pipeline = [
-                {
-                    "$project": {
-                        "sector": {"$concat": ["$Origin", "$Destin"]},
-                        "_id": 0
-                    }
-                },
-                {
-                    "$group": {
-                        "_id": "$sector"
-                    }
-                }
-            ]
-            
-            market_list_intl_sectors = self.mongo_db.market_list_international.aggregate(market_list_intl_pipeline)
-            for doc in market_list_intl_sectors:
-                if doc['_id']:  # Ensure sector is not null/empty
-                    sectors.add(doc['_id'])
-            
-            sectors_list = list(sectors)
-            self.logger.info(f"Found {len(sectors_list)} distinct sectors")
-            return sectors_list
-            
+            query = f"""
+            SELECT DISTINCT DepartureStation, ArrivalStation
+            FROM {self.nav_db_name}rez.InventoryLeg
+            WHERE DepartureDate >= '{datetime.now().date()}'
+            AND CarrierCode='QP' AND FlightNumber < 7000
+            """
+            return pd.read_sql(query, self.nav_conn)
         except Exception as e:
-            self.logger.error(f"Error fetching sectors: {str(e)}")
+            self.logger.error(f"Error collecting active sectors data: {e}")
             raise
 
     def clear_active_sectors_collection(self):
@@ -77,21 +41,19 @@ class ActiveSectors:
 
     def insert_active_sectors(self, sectors):
         """Insert sectors into the active_sectors collection."""
-        if not sectors:
+        if sectors.empty:
             self.logger.warning("No sectors to insert")
             return 0
             
         try:
             # Create records with timestamp
             current_time = datetime.now()
-            records = [
-                {
-                    'sector': sector,
-                    'created_at': current_time,
-                    'updated_at': current_time
-                }
-                for sector in sectors
-            ]
+            
+            # Convert DataFrame to dict records and add timestamps
+            records = sectors.to_dict('records')
+            for record in records:
+                record['created_at'] = current_time
+                record['updated_at'] = current_time
             
             result = self.mongo_db.active_sectors.insert_many(records)
             inserted_count = len(result.inserted_ids)
