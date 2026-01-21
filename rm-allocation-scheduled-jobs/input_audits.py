@@ -55,7 +55,7 @@ class S3AuditProcessor:
                     flightNo VARCHAR(50) NOT NULL,
                     departureDate INT NOT NULL,
                     source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
-                    changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDDHHMM',
+                    changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDD1HHMM (13 digits)',
                     analystName VARCHAR(100),
                     `key` VARCHAR(100),
                     value TEXT,
@@ -94,7 +94,13 @@ class S3AuditProcessor:
             return 0
 
     def to_datetime_int(self, iso_datetime: str) -> int:
-        """Convert ISO datetime to YYYYMMDDHHMM"""
+        """
+        Convert ISO datetime to YYYYMMDD1HHMM (13 digits with leading 1)
+        Examples:
+            2026-01-06T04:32:53 → 202601061432
+            2026-01-06T14:26:53 → 202601061426
+            2025-10-29T10:42:53 → 202510291042
+        """
         try:
             if not iso_datetime or 'T' not in iso_datetime:
                 return 0
@@ -103,8 +109,14 @@ class S3AuditProcessor:
             year, month, day = date_part.split('-')
             hour, minute = time_part.split(':')[:2]
             
-            return int(f"{year}{month}{day}{hour}{minute}")
-        except:
+            # Format: YYYYMMDD + "1" + HHMM (13 digits total)
+            # The leading "1" is added to time to make it 5 digits: 1HHMM
+            datetime_int = int(f"{year}{month}{day}1{hour.zfill(2)}{minute.zfill(2)}")
+            
+            return datetime_int
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to convert datetime '{iso_datetime}': {e}")
             return 0
 
     def normalize_date(self, date_str: str) -> str:
@@ -180,10 +192,11 @@ class S3AuditProcessor:
         """Get min/max dates from existing data"""
         try:
             with self.dw_conn.connect() as conn:
+                # Extract date portion from YYYYMMDD1HHMM (divide by 1000000 to get YYYYMMDD)
                 query = text(f"""
                     SELECT 
-                        FLOOR(MIN(changedAtDateTime) / 10000),
-                        FLOOR(MAX(changedAtDateTime) / 10000)
+                        FLOOR(MIN(changedAtDateTime) / 1000000),
+                        FLOOR(MAX(changedAtDateTime) / 1000000)
                     FROM {self.schema}.{self.audit_table}
                 """)
                 result = conn.execute(query)
@@ -198,13 +211,16 @@ class S3AuditProcessor:
         """Delete records older than cutoff date"""
         try:
             with self.dw_conn.connect() as conn:
-                cutoff_datetime = cutoff_date_int * 10000
+                # Convert YYYYMMDD to YYYYMMDD100000 (start of day)
+                # Example: 20260106 → 20260106100000
+                cutoff_datetime = cutoff_date_int * 1000000 + 100000
+                
                 query = text(f"""
                     DELETE FROM {self.schema}.{self.audit_table} 
                     WHERE changedAtDateTime < :cutoff
                 """)
                 result = conn.execute(query, {'cutoff': cutoff_datetime})
-                self.logger.info(f"Deleted {result.rowcount} old records")
+                self.logger.info(f"Deleted {result.rowcount} old records before {cutoff_date_int}")
         except Exception as e:
             self.logger.error(f"Failed cleanup: {e}")
 
@@ -299,8 +315,8 @@ class S3AuditProcessor:
             records = []
             for _, row in df.iterrows():
                 # Get sector and flight info (could be connections like "619-1528")
-                sector = str(row.get('sector', ''))[:50]  # Truncate to 50 chars
-                flight_no = str(row.get('flightNo', ''))[:50]  # Keep as string for connections
+                sector = str(row.get('sector', ''))[:50]
+                flight_no = str(row.get('flightNo', ''))[:50]
                 dept_date = str(row.get('date', ''))
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
@@ -313,7 +329,7 @@ class S3AuditProcessor:
                 # Skip connection-specific metadata fields
                 skip_columns = [
                     'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
-                    'sector1', 'sector2', 'flight1', 'flight2'  # Connection metadata
+                    'sector1', 'sector2', 'flight1', 'flight2'
                 ]
                 
                 # Process each column as a potential change
