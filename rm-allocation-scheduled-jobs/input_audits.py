@@ -25,8 +25,8 @@ class S3AuditProcessor:
         self.s3_client = boto3.client('s3')
         
         # Performance settings
-        self.max_workers = 20  # Parallel S3 downloads
-        self.batch_size = 1000  # Batch inserts
+        self.max_workers = 20
+        self.batch_size = 1000
         
         # Rolling window settings
         self.rolling_days = 90
@@ -51,8 +51,8 @@ class S3AuditProcessor:
                 audit_table_sql = text(f"""
                 CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    sector VARCHAR(30) NOT NULL,
-                    flightNo INT NOT NULL,
+                    sector VARCHAR(50) NOT NULL,
+                    flightNo VARCHAR(50) NOT NULL,
                     departureDate INT NOT NULL,
                     source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
                     changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDDHHMM',
@@ -108,7 +108,7 @@ class S3AuditProcessor:
             return 0
 
     def normalize_date(self, date_str: str) -> str:
-        """Normalize mm-dd-yyyy format to YYYY-MM-DD"""
+        """Normalize various date formats to YYYY-MM-DD"""
         if not date_str or not isinstance(date_str, str):
             return ""
         
@@ -123,13 +123,25 @@ class S3AuditProcessor:
             if len(parts[0]) == 4:
                 return date_str
             
-            # mm-dd-yyyy format
+            # dd-mm-yyyy or mm-dd-yyyy format
             if len(parts[2]) == 4:
-                month, day, year = parts
+                first, second, year = parts
+                
+                # If first part > 12, it must be day (dd-mm-yyyy)
+                if int(first) > 12:
+                    day, month = first, second
+                # If second part > 12, it must be day (mm-dd-yyyy)
+                elif int(second) > 12:
+                    month, day = first, second
+                # Ambiguous - default to dd-mm-yyyy
+                else:
+                    day, month = first, second
+                
                 return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
             
             return ""
-        except:
+        except Exception as e:
+            self.logger.warning(f"Failed to normalize date '{date_str}': {e}")
             return ""
 
     # ==================== METADATA & HELPERS ====================
@@ -231,13 +243,14 @@ class S3AuditProcessor:
             return False
 
     def get_ml_files(self, first_run: bool) -> List[str]:
-        """Get ML audit parquet files"""
+        """Get ML audit parquet files - INCLUDING CONNECTIONS"""
         files = []
         min_date = self.make_timezone_aware(
             datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
         )
         
-        for audit_type in ['direct']:  # Removed connections
+        # Include both direct AND connections
+        for audit_type in ['direct', 'connections']:
             prefix = f"{self.ml_prefix}{audit_type}/"
             paginator = self.s3_client.get_paginator('list_objects_v2')
             
@@ -251,7 +264,7 @@ class S3AuditProcessor:
                             if obj['LastModified'] >= min_date:
                                 files.append(obj['Key'])
         
-        print(f"Found {len(files)} ML files")
+        print(f"Found {len(files)} ML files (direct + connections)")
         return files
 
     def get_wb_files(self, first_run: bool) -> List[str]:
@@ -275,97 +288,37 @@ class S3AuditProcessor:
         print(f"Found {len(files)} WB files")
         return files
 
-    # ==================== PARALLEL FILE PROCESSING ====================
+    # ==================== FILE PROCESSING ====================
     
-    def process_wb_file(self, file_key: str) -> List[Dict]:
-        """Process single WB CSV file - OPTIMIZED"""
-        try:
-            # Extract metadata from path
-            path_parts = file_key.split('/')
-            sector = flight_no = dept_date = ''
-            
-            for part in path_parts:
-                if part.startswith('sector='):
-                    sector = part.split('=')[1]
-                elif part.startswith('flightNo='):
-                    flight_no = part.split('=')[1]
-                elif part.startswith('date='):
-                    dept_date = part.split('=')[1]
-            
-            # Read CSV from S3
-            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
-            df = pd.read_csv(StringIO(response['Body'].read().decode('utf-8')))
-            
-            records = []
-            for _, row in df.iterrows():
-                csv_sector = str(row.get('sector', sector))[:20]  # Truncate to 20 chars
-                csv_flight = row.get('flightNo', flight_no)
-                csv_date = str(row.get('date', dept_date))
-                analyst = str(row.get('userName', ''))[:100]  # Truncate analyst name too
-                changed_at = row.get('changedAt', '')
-                
-                # Log if sector is unusually long
-                if len(str(row.get('sector', sector))) > 10:
-                    self.logger.warning(f"Long sector found: '{row.get('sector', sector)}' in file {file_key}")
-                
-                normalized_date = self.normalize_date(csv_date)
-                
-                try:
-                    flight_no_int = int(csv_flight) if csv_flight else 0
-                except:
-                    flight_no_int = 0
-                
-                dept_date_int = self.to_date_int(normalized_date)
-                changed_datetime_int = self.to_datetime_int(changed_at)
-                
-                for col, val in row.items():
-                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
-                        continue
-                    if pd.isna(val):
-                        continue
-                    
-                    records.append({
-                        'sector': csv_sector,
-                        'flightNo': flight_no_int,
-                        'departureDate': dept_date_int,
-                        'source': 1,
-                        'changedAtDateTime': changed_datetime_int,
-                        'analystName': analyst,
-                        'key': col,
-                        'value': str(val) if val is not None else ''
-                    })
-            
-            return records
-            
-        except Exception as e:
-            self.logger.error(f"Failed WB file {file_key}: {e}")
-            return []
-
-
     def process_ml_file(self, file_key: str) -> List[Dict]:
-        """Process single ML parquet file"""
+        """Process single ML parquet file - HANDLES CONNECTIONS"""
         try:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
             df = pd.read_parquet(BytesIO(response['Body'].read()))
             
             records = []
             for _, row in df.iterrows():
-                sector = str(row.get('sector', ''))[:20]  # Truncate to 20 chars
-                flight_no = int(row.get('flightNo', 0)) if row.get('flightNo') else 0
+                # Get sector and flight info (could be connections like "619-1528")
+                sector = str(row.get('sector', ''))[:50]  # Truncate to 50 chars
+                flight_no = str(row.get('flightNo', ''))[:50]  # Keep as string for connections
                 dept_date = str(row.get('date', ''))
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
                 
-                # Log if sector is unusually long
-                if len(str(row.get('sector', ''))) > 10:
-                    self.logger.warning(f"Long sector found: '{row.get('sector', '')}' in file {file_key}")
-                
+                # Normalize date
                 normalized_date = self.normalize_date(dept_date)
                 dept_date_int = self.to_date_int(normalized_date)
                 changed_datetime_int = self.to_datetime_int(changed_at)
                 
+                # Skip connection-specific metadata fields
+                skip_columns = [
+                    'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
+                    'sector1', 'sector2', 'flight1', 'flight2'  # Connection metadata
+                ]
+                
+                # Process each column as a potential change
                 for col, val in row.items():
-                    if col in ['sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName']:
+                    if col in skip_columns:
                         continue
                     if pd.isna(val):
                         continue
@@ -387,8 +340,62 @@ class S3AuditProcessor:
             self.logger.error(f"Failed ML file {file_key}: {e}")
             return []
 
+    def process_wb_file(self, file_key: str) -> List[Dict]:
+        """Process single WB CSV file"""
+        try:
+            # Extract metadata from path
+            path_parts = file_key.split('/')
+            sector = flight_no = dept_date = ''
+            
+            for part in path_parts:
+                if part.startswith('sector='):
+                    sector = part.split('=')[1]
+                elif part.startswith('flightNo='):
+                    flight_no = part.split('=')[1]
+                elif part.startswith('date='):
+                    dept_date = part.split('=')[1]
+            
+            # Read CSV from S3
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_csv(StringIO(response['Body'].read().decode('utf-8')))
+            
+            records = []
+            for _, row in df.iterrows():
+                csv_sector = str(row.get('sector', sector))[:50]
+                csv_flight = str(row.get('flightNo', flight_no))[:50]
+                csv_date = str(row.get('date', dept_date))
+                analyst = str(row.get('userName', ''))[:100]
+                changed_at = row.get('changedAt', '')
+                
+                normalized_date = self.normalize_date(csv_date)
+                dept_date_int = self.to_date_int(normalized_date)
+                changed_datetime_int = self.to_datetime_int(changed_at)
+                
+                for col, val in row.items():
+                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
+                        continue
+                    if pd.isna(val):
+                        continue
+                    
+                    records.append({
+                        'sector': csv_sector,
+                        'flightNo': csv_flight,
+                        'departureDate': dept_date_int,
+                        'source': 1,
+                        'changedAtDateTime': changed_datetime_int,
+                        'analystName': analyst,
+                        'key': col,
+                        'value': str(val) if val is not None else ''
+                    })
+            
+            return records
+            
+        except Exception as e:
+            self.logger.error(f"Failed WB file {file_key}: {e}")
+            return []
+
     def process_all_files(self, first_run: bool) -> Tuple[List[Dict], int]:
-        """Process all files in parallel - OPTIMIZED"""
+        """Process all files in parallel"""
         all_records = []
         
         # Get file lists
@@ -401,10 +408,14 @@ class S3AuditProcessor:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             ml_futures = {executor.submit(self.process_ml_file, f): f for f in ml_files}
             
+            completed = 0
             for future in as_completed(ml_futures):
                 try:
                     records = future.result()
                     all_records.extend(records)
+                    completed += 1
+                    if completed % 50 == 0:
+                        print(f"  Processed {completed}/{len(ml_files)} ML files...")
                 except Exception as e:
                     self.logger.error(f"ML file processing failed: {e}")
         
@@ -430,7 +441,7 @@ class S3AuditProcessor:
     # ==================== DATABASE OPERATIONS ====================
     
     def save_records(self, records: List[Dict], replace: bool = False):
-        """Save records to MySQL with batching - OPTIMIZED"""
+        """Save records to MySQL with batching"""
         try:
             with self.dw_conn.connect() as conn:
                 if replace:
@@ -476,9 +487,24 @@ class S3AuditProcessor:
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1"))
                 wb_count = result.fetchone()[0]
                 
+                # Count connections vs direct
+                result = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
+                    WHERE source = 0 AND flightNo LIKE '%-%'
+                """))
+                connection_count = result.fetchone()[0]
+                
+                result = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
+                    WHERE source = 0 AND flightNo NOT LIKE '%-%'
+                """))
+                direct_count = result.fetchone()[0]
+                
                 return {
                     'total_records': total,
                     'ml_records': ml_count,
+                    'ml_direct': direct_count,
+                    'ml_connections': connection_count,
                     'wb_records': wb_count,
                     'date_range': f"{min_date} to {max_date}" if min_date else "No data",
                     'target_date': int(self.target_date.strftime('%Y%m%d'))
@@ -493,7 +519,7 @@ class S3AuditProcessor:
         try:
             start_time = datetime.now()
             print("=" * 60)
-            print("S3 AUDIT PROCESSOR")
+            print("S3 AUDIT PROCESSOR (Direct + Connections)")
             print("=" * 60)
             
             first_run = self.is_first_run()
