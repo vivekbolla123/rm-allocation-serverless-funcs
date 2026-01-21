@@ -9,12 +9,13 @@ from typing import List, Tuple, Dict, Any
 import traceback
 import configsettings
 from sqlalchemy import text
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class S3AuditProcessor:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
-        self.dw_conn = params['dwconn']  # SQLAlchemy engine
+        self.dw_conn = params['dwconn']
         self.schema = "RM_DW_DATA"
         
         # S3 Configuration
@@ -23,13 +24,17 @@ class S3AuditProcessor:
         self.wb_prefix = configsettings.S3_FILE_PATH + "rm-admin/audits/"
         self.s3_client = boto3.client('s3')
         
+        # Performance settings
+        self.max_workers = 20  # Parallel S3 downloads
+        self.batch_size = 1000  # Batch inserts
+        
         # Rolling window settings
-        self.rolling_days = 3
-        self.min_days_required = 2
+        self.rolling_days = 90
+        self.min_days_required = 85
         
         # Date calculations
         today = datetime.now().date()
-        self.target_date = today - timedelta(days=1)  # Yesterday
+        self.target_date = today - timedelta(days=1)
         self.window_start = today - timedelta(days=self.rolling_days)
         self.window_end = self.target_date
         
@@ -46,7 +51,7 @@ class S3AuditProcessor:
                 audit_table_sql = text(f"""
                 CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
                     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-                    sector VARCHAR(10) NOT NULL,
+                    sector VARCHAR(30) NOT NULL,
                     flightNo INT NOT NULL,
                     departureDate INT NOT NULL,
                     source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
@@ -118,14 +123,13 @@ class S3AuditProcessor:
             if len(parts[0]) == 4:
                 return date_str
             
-            # mm-dd-yyyy format (both WB path and CSV)
+            # mm-dd-yyyy format
             if len(parts[2]) == 4:
                 month, day, year = parts
                 return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
             
             return ""
-        except Exception as e:
-            self.logger.warning(f"Failed to normalize date '{date_str}': {e}")
+        except:
             return ""
 
     # ==================== METADATA & HELPERS ====================
@@ -182,7 +186,7 @@ class S3AuditProcessor:
         """Delete records older than cutoff date"""
         try:
             with self.dw_conn.connect() as conn:
-                cutoff_datetime = cutoff_date_int * 10000  # YYYYMMDD to YYYYMMDD0000
+                cutoff_datetime = cutoff_date_int * 10000
                 query = text(f"""
                     DELETE FROM {self.schema}.{self.audit_table} 
                     WHERE changedAtDateTime < :cutoff
@@ -233,7 +237,7 @@ class S3AuditProcessor:
             datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
         )
         
-        for audit_type in ['direct', 'connections']:
+        for audit_type in ['direct']:  # Removed connections
             prefix = f"{self.ml_prefix}{audit_type}/"
             paginator = self.s3_client.get_paginator('list_objects_v2')
             
@@ -271,10 +275,10 @@ class S3AuditProcessor:
         print(f"Found {len(files)} WB files")
         return files
 
-    # ==================== FILE PROCESSING ====================
+    # ==================== PARALLEL FILE PROCESSING ====================
     
     def process_wb_file(self, file_key: str) -> List[Dict]:
-        """Process single WB CSV file"""
+        """Process single WB CSV file - OPTIMIZED"""
         try:
             # Extract metadata from path
             path_parts = file_key.split('/')
@@ -286,7 +290,7 @@ class S3AuditProcessor:
                 elif part.startswith('flightNo='):
                     flight_no = part.split('=')[1]
                 elif part.startswith('date='):
-                    dept_date = part.split('=')[1]  # mm-dd-yyyy format
+                    dept_date = part.split('=')[1]
             
             # Read CSV from S3
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
@@ -294,28 +298,26 @@ class S3AuditProcessor:
             
             records = []
             for _, row in df.iterrows():
-                csv_sector = row.get('sector', sector)
+                csv_sector = str(row.get('sector', sector))[:20]  # Truncate to 20 chars
                 csv_flight = row.get('flightNo', flight_no)
-                csv_date = str(row.get('date', dept_date))  # mm-dd-yyyy format
-                analyst = row.get('userName', '')
+                csv_date = str(row.get('date', dept_date))
+                analyst = str(row.get('userName', ''))[:100]  # Truncate analyst name too
                 changed_at = row.get('changedAt', '')
                 
-                # Normalize date from mm-dd-yyyy to yyyy-mm-dd
+                # Log if sector is unusually long
+                if len(str(row.get('sector', sector))) > 10:
+                    self.logger.warning(f"Long sector found: '{row.get('sector', sector)}' in file {file_key}")
+                
                 normalized_date = self.normalize_date(csv_date)
                 
-                # Convert flight_no to int
                 try:
                     flight_no_int = int(csv_flight) if csv_flight else 0
                 except:
                     flight_no_int = 0
                 
-                # Convert dept_date to int (YYYYMMDD)
                 dept_date_int = self.to_date_int(normalized_date)
-                
-                # Convert changedAt to combined datetime integer (YYYYMMDDHHMM)
                 changed_datetime_int = self.to_datetime_int(changed_at)
                 
-                # Each non-metadata column becomes a record
                 for col, val in row.items():
                     if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
                         continue
@@ -326,14 +328,13 @@ class S3AuditProcessor:
                         'sector': csv_sector,
                         'flightNo': flight_no_int,
                         'departureDate': dept_date_int,
-                        'source': 1,  # WB
+                        'source': 1,
                         'changedAtDateTime': changed_datetime_int,
                         'analystName': analyst,
                         'key': col,
                         'value': str(val) if val is not None else ''
                     })
             
-            self.logger.info(f"Processed WB file {file_key}: {len(records)} records")
             return records
             
         except Exception as e:
@@ -344,25 +345,25 @@ class S3AuditProcessor:
     def process_ml_file(self, file_key: str) -> List[Dict]:
         """Process single ML parquet file"""
         try:
-            # Read parquet from S3
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
             df = pd.read_parquet(BytesIO(response['Body'].read()))
             
             records = []
             for _, row in df.iterrows():
-                sector = row.get('sector', '')
+                sector = str(row.get('sector', ''))[:20]  # Truncate to 20 chars
                 flight_no = int(row.get('flightNo', 0)) if row.get('flightNo') else 0
-                dept_date = str(row.get('date', ''))  # Could be dd-mm-yyyy or mm-dd-yyyy
+                dept_date = str(row.get('date', ''))
                 changed_at = row.get('changedAt', '')
-                analyst = row.get('userName', '') or row.get('analystName', '')
+                analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
                 
-                # Normalize date - handle both dd-mm-yyyy and mm-dd-yyyy
+                # Log if sector is unusually long
+                if len(str(row.get('sector', ''))) > 10:
+                    self.logger.warning(f"Long sector found: '{row.get('sector', '')}' in file {file_key}")
+                
                 normalized_date = self.normalize_date(dept_date)
-                
                 dept_date_int = self.to_date_int(normalized_date)
                 changed_datetime_int = self.to_datetime_int(changed_at)
                 
-                # Each non-metadata column becomes a record
                 for col, val in row.items():
                     if col in ['sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName']:
                         continue
@@ -373,14 +374,13 @@ class S3AuditProcessor:
                         'sector': sector,
                         'flightNo': flight_no,
                         'departureDate': dept_date_int,
-                        'source': 0,  # ML
+                        'source': 0,
                         'changedAtDateTime': changed_datetime_int,
                         'analystName': analyst,
                         'key': col,
                         'value': str(val) if val is not None else ''
                     })
             
-            self.logger.info(f"Processed ML file {file_key}: {len(records)} records")
             return records
             
         except Exception as e:
@@ -388,37 +388,55 @@ class S3AuditProcessor:
             return []
 
     def process_all_files(self, first_run: bool) -> Tuple[List[Dict], int]:
-        """Process all ML and WB files"""
+        """Process all files in parallel - OPTIMIZED"""
         all_records = []
-        file_count = 0
         
-        # Process ML files
-        for file_key in self.get_ml_files(first_run):
-            records = self.process_ml_file(file_key)
-            all_records.extend(records)
-            file_count += 1
+        # Get file lists
+        ml_files = self.get_ml_files(first_run)
+        wb_files = self.get_wb_files(first_run)
         
-        # Process WB files
-        for file_key in self.get_wb_files(first_run):
-            records = self.process_wb_file(file_key)
-            all_records.extend(records)
-            file_count += 1
+        print(f"Processing {len(ml_files)} ML + {len(wb_files)} WB files in parallel...")
         
+        # Process ML files in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            ml_futures = {executor.submit(self.process_ml_file, f): f for f in ml_files}
+            
+            for future in as_completed(ml_futures):
+                try:
+                    records = future.result()
+                    all_records.extend(records)
+                except Exception as e:
+                    self.logger.error(f"ML file processing failed: {e}")
+        
+        # Process WB files in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            wb_futures = {executor.submit(self.process_wb_file, f): f for f in wb_files}
+            
+            completed = 0
+            for future in as_completed(wb_futures):
+                try:
+                    records = future.result()
+                    all_records.extend(records)
+                    completed += 1
+                    if completed % 100 == 0:
+                        print(f"  Processed {completed}/{len(wb_files)} WB files...")
+                except Exception as e:
+                    self.logger.error(f"WB file processing failed: {e}")
+        
+        file_count = len(ml_files) + len(wb_files)
         print(f"Total: {len(all_records)} records from {file_count} files")
         return all_records, file_count
 
     # ==================== DATABASE OPERATIONS ====================
     
     def save_records(self, records: List[Dict], replace: bool = False):
-        """Save records to MySQL"""
+        """Save records to MySQL with batching - OPTIMIZED"""
         try:
             with self.dw_conn.connect() as conn:
-                # Replace mode: truncate table
                 if replace:
                     conn.execute(text(f"DELETE FROM {self.schema}.{self.audit_table}"))
                     print(f"Cleared {self.audit_table}")
                 
-                # Bulk insert
                 if records:
                     query = text(f"""
                         INSERT INTO {self.schema}.{self.audit_table}
@@ -428,7 +446,15 @@ class S3AuditProcessor:
                                 :changedAtDateTime, :analystName, :key, :value)
                     """)
                     
-                    conn.execute(query, records)
+                    # Batch insert for better performance
+                    total_inserted = 0
+                    for i in range(0, len(records), self.batch_size):
+                        batch = records[i:i + self.batch_size]
+                        conn.execute(query, batch)
+                        total_inserted += len(batch)
+                        if total_inserted % (self.batch_size * 5) == 0:
+                            print(f"  Inserted {total_inserted}/{len(records)} records...")
+                    
                     print(f"Saved {len(records)} records to MySQL")
                 
         except Exception as e:
@@ -465,6 +491,7 @@ class S3AuditProcessor:
     def run(self):
         """Main execution flow"""
         try:
+            start_time = datetime.now()
             print("=" * 60)
             print("S3 AUDIT PROCESSOR")
             print("=" * 60)
@@ -487,7 +514,6 @@ class S3AuditProcessor:
             else:
                 print(f"\n>>> ROLLING RUN - Processing {self.target_date}\n")
                 
-                # Check existing data
                 min_date, max_date = self.get_date_range()
                 if min_date and max_date:
                     min_obj = datetime.strptime(str(min_date), '%Y%m%d').date()
@@ -496,14 +522,12 @@ class S3AuditProcessor:
                     
                     print(f"Existing: {min_date} to {max_date} ({days_span} days)")
                     
-                    # Cleanup if we have enough data
                     if days_span >= self.min_days_required:
                         cutoff = int(self.window_start.strftime('%Y%m%d'))
                         self.cleanup_old_data(cutoff)
                     else:
                         print(f"Keeping all data ({days_span} < {self.min_days_required} days)")
                 
-                # Process new files
                 records, file_count = self.process_all_files(first_run=False)
                 
                 if records:
@@ -512,12 +536,14 @@ class S3AuditProcessor:
                 else:
                     print("No new records found")
             
-            # Final summary
             print("\n" + "=" * 60)
             summary = self.get_summary()
             print("SUMMARY:")
             for key, val in summary.items():
                 print(f"  {key}: {val}")
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            print(f"  processing_time: {elapsed:.2f} seconds")
             print("=" * 60)
             
             return True
