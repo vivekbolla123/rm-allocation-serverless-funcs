@@ -192,19 +192,33 @@ class S3AuditProcessor:
         """Get min/max dates from existing data"""
         try:
             with self.dw_conn.connect() as conn:
-                # Extract date portion from YYYYMMDD1HHMM (divide by 1000000 to get YYYYMMDD)
+                # Extract date portion from YYYYMMDD1HHMM
+                # Only consider valid datetime values (>= 13 digits)
                 query = text(f"""
                     SELECT 
-                        FLOOR(MIN(changedAtDateTime) / 1000000),
-                        FLOOR(MAX(changedAtDateTime) / 1000000)
+                        FLOOR(MIN(changedAtDateTime) / 1000000) as min_date,
+                        FLOOR(MAX(changedAtDateTime) / 1000000) as max_date
                     FROM {self.schema}.{self.audit_table}
+                    WHERE changedAtDateTime >= 10000000000000
                 """)
                 result = conn.execute(query)
                 row = result.fetchone()
+                
                 if row and row[0] and row[1]:
-                    return int(row[0]), int(row[1])
+                    min_date = int(row[0])
+                    max_date = int(row[1])
+                    
+                    # Additional validation: ensure 8-digit dates
+                    if len(str(min_date)) == 8 and len(str(max_date)) == 8:
+                        return min_date, max_date
+                    else:
+                        self.logger.warning(f"Invalid date format: min={min_date}, max={max_date}")
+                        return None, None
+                        
                 return None, None
-        except:
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get date range: {e}")
             return None, None
 
     def cleanup_old_data(self, cutoff_date_int: int):
