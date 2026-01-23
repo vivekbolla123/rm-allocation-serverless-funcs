@@ -487,10 +487,9 @@ class FareFiling:
                     # Process each upsell row (different footnotes/OW_RT combinations)
                     for _, upsell_row in upsell_rows.iterrows():
                         # Get POS from upsell if not from saver
-                        if pos_value is None:
-                            pos_value = upsell_row.get('pos', 'B')
-                            if pd.isna(pos_value) or pos_value == '':
-                                pos_value = 'B'
+                        pos_value = upsell_row.get('pos', 'B')
+                        if pd.isna(pos_value) or pos_value == '':
+                            pos_value = 'B'
                         
                         # ===== FIX: Get base_footnote and base_ndo from THIS upsell row =====
                         base_footnote = upsell_row.get('base_footnote', None)
