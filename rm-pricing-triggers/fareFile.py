@@ -484,11 +484,6 @@ class FareFiling:
                 
                 # Process each RBD in the range
                 for rbd in rbd_range:
-                    # Get POS from saver table (if Saver mode)
-                    pos_value = None
-                    if self.isSaver:
-                        pos_value = self.get_pos_from_saver(sector, rbd)
-                    
                     # Process each upsell row (different footnotes/OW_RT combinations)
                     for _, upsell_row in upsell_rows.iterrows():
                         # Get POS from upsell if not from saver
