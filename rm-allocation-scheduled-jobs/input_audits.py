@@ -96,11 +96,12 @@ class S3AuditProcessor:
 
     def to_time_int(self, iso_datetime: str) -> int:
         """
-        Extract time from ISO datetime and convert to HHMM (4 digits)
+        Extract time from ISO datetime and convert to 1HHMM (5 digits with leading 1)
         Examples:
-            2026-01-06T04:32:53 → 432
-            2026-01-06T14:26:53 → 1426
-            2025-10-29T10:42:53 → 1042
+            2026-01-06T04:32:53 → 10432
+            2026-01-06T14:26:53 → 11426
+            2025-10-29T10:42:53 → 11042
+            2026-01-08T00:00:00 → 10000
         """
         try:
             if not iso_datetime or 'T' not in iso_datetime:
@@ -109,8 +110,8 @@ class S3AuditProcessor:
             time_part = iso_datetime.split('T')[1]
             hour, minute = time_part.split(':')[:2]
             
-            # Format: HHMM (4 digits, no leading 1)
-            return int(f"{hour.zfill(2)}{minute.zfill(2)}")
+            # Format: 1HHMM (5 digits with leading 1)
+            return int(f"1{hour.zfill(2)}{minute.zfill(2)}")
             
         except Exception as e:
             self.logger.warning(f"Failed to convert time from '{iso_datetime}': {e}")
