@@ -20,9 +20,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.BeanUtils;
 import software.amazon.awssdk.regions.Region;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
-import javax.persistence.Column;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import jakarta.persistence.Column;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
