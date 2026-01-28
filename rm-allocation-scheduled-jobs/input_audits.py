@@ -55,12 +55,13 @@ class S3AuditProcessor:
                     flightNo VARCHAR(50) NOT NULL,
                     departureDate INT NOT NULL,
                     source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
-                    changedAtDateTime BIGINT NOT NULL COMMENT 'YYYYMMDD1HHMM (13 digits)',
+                    changedAtDate INT NOT NULL COMMENT 'YYYYMMDD',
+                    changedAtTime INT NOT NULL COMMENT 'HHMM',
                     analystName VARCHAR(100),
                     colName VARCHAR(100),
                     value TEXT,
                     INDEX idx_sector_flight (sector, flightNo, departureDate),
-                    INDEX idx_changed (changedAtDateTime),
+                    INDEX idx_changed_date (changedAtDate),
                     INDEX idx_source (source)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
@@ -93,34 +94,37 @@ class S3AuditProcessor:
         except:
             return 0
 
-    def to_datetime_int(self, iso_datetime: str) -> int:
+    def to_time_int(self, iso_datetime: str) -> int:
         """
-        Convert ISO datetime to YYYYMMDD1HHMM (13 digits with leading 1)
+        Extract time from ISO datetime and convert to 1HHMM (5 digits with leading 1)
         Examples:
-            2026-01-06T04:32:53 → 202601061432
-            2026-01-06T14:26:53 → 202601061426
-            2025-10-29T10:42:53 → 202510291042
+            2026-01-06T04:32:53 → 10432
+            2026-01-06T14:26:53 → 11426
+            2025-10-29T10:42:53 → 11042
+            2026-01-08T00:00:00 → 10000
         """
         try:
             if not iso_datetime or 'T' not in iso_datetime:
                 return 0
             
-            date_part, time_part = iso_datetime.split('T')
-            year, month, day = date_part.split('-')
+            time_part = iso_datetime.split('T')[1]
             hour, minute = time_part.split(':')[:2]
             
-            # Format: YYYYMMDD + "1" + HHMM (13 digits total)
-            # The leading "1" is added to time to make it 5 digits: 1HHMM
-            datetime_int = int(f"{year}{month}{day}1{hour.zfill(2)}{minute.zfill(2)}")
-            
-            return datetime_int
+            # Format: 1HHMM (5 digits with leading 1)
+            return int(f"1{hour.zfill(2)}{minute.zfill(2)}")
             
         except Exception as e:
-            self.logger.warning(f"Failed to convert datetime '{iso_datetime}': {e}")
+            self.logger.warning(f"Failed to convert time from '{iso_datetime}': {e}")
             return 0
 
     def normalize_date(self, date_str: str) -> str:
-        """Normalize various date formats to YYYY-MM-DD"""
+        """
+        Normalize MM-DD-YYYY format to YYYY-MM-DD
+        Both WB and ML use MM-DD-YYYY format
+        Examples:
+            01-24-2026 → 2026-01-24
+            10-27-2026 → 2026-10-27
+        """
         if not date_str or not isinstance(date_str, str):
             return ""
         
@@ -135,20 +139,9 @@ class S3AuditProcessor:
             if len(parts[0]) == 4:
                 return date_str
             
-            # dd-mm-yyyy or mm-dd-yyyy format
+            # mm-dd-yyyy format (standard for both WB and ML)
             if len(parts[2]) == 4:
-                first, second, year = parts
-                
-                # If first part > 12, it must be day (dd-mm-yyyy)
-                if int(first) > 12:
-                    day, month = first, second
-                # If second part > 12, it must be day (mm-dd-yyyy)
-                elif int(second) > 12:
-                    month, day = first, second
-                # Ambiguous - default to dd-mm-yyyy
-                else:
-                    day, month = first, second
-                
+                month, day, year = parts
                 return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
             
             return ""
@@ -192,14 +185,12 @@ class S3AuditProcessor:
         """Get min/max dates from existing data"""
         try:
             with self.dw_conn.connect() as conn:
-                # Extract date portion from YYYYMMDD1HHMM
-                # Only consider valid datetime values (>= 13 digits)
                 query = text(f"""
                     SELECT 
-                        FLOOR(MIN(changedAtDateTime) / 1000000) as min_date,
-                        FLOOR(MAX(changedAtDateTime) / 1000000) as max_date
+                        MIN(changedAtDate) as min_date,
+                        MAX(changedAtDate) as max_date
                     FROM {self.schema}.{self.audit_table}
-                    WHERE changedAtDateTime >= 10000000000000
+                    WHERE changedAtDate >= 19000101
                 """)
                 result = conn.execute(query)
                 row = result.fetchone()
@@ -208,7 +199,7 @@ class S3AuditProcessor:
                     min_date = int(row[0])
                     max_date = int(row[1])
                     
-                    # Additional validation: ensure 8-digit dates
+                    # Validation: ensure 8-digit dates
                     if len(str(min_date)) == 8 and len(str(max_date)) == 8:
                         return min_date, max_date
                     else:
@@ -225,15 +216,11 @@ class S3AuditProcessor:
         """Delete records older than cutoff date"""
         try:
             with self.dw_conn.connect() as conn:
-                # Convert YYYYMMDD to YYYYMMDD100000 (start of day)
-                # Example: 20260106 → 20260106100000
-                cutoff_datetime = cutoff_date_int * 1000000 + 100000
-                
                 query = text(f"""
                     DELETE FROM {self.schema}.{self.audit_table} 
-                    WHERE changedAtDateTime < :cutoff
+                    WHERE changedAtDate < :cutoff
                 """)
-                result = conn.execute(query, {'cutoff': cutoff_datetime})
+                result = conn.execute(query, {'cutoff': cutoff_date_int})
                 self.logger.info(f"Deleted {result.rowcount} old records before {cutoff_date_int}")
         except Exception as e:
             self.logger.error(f"Failed cleanup: {e}")
@@ -331,14 +318,17 @@ class S3AuditProcessor:
                 # Get sector and flight info (could be connections like "619-1528")
                 sector = str(row.get('sector', ''))[:50]
                 flight_no = str(row.get('flightNo', ''))[:50]
-                dept_date = str(row.get('date', ''))
+                dept_date = str(row.get('date', ''))  # MM-DD-YYYY format
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
                 
-                # Normalize date
+                # Normalize date from MM-DD-YYYY to YYYY-MM-DD
                 normalized_date = self.normalize_date(dept_date)
                 dept_date_int = self.to_date_int(normalized_date)
-                changed_datetime_int = self.to_datetime_int(changed_at)
+                
+                # Extract date and time separately
+                changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
+                changed_at_time_int = self.to_time_int(changed_at)
                 
                 # Skip connection-specific metadata fields
                 skip_columns = [
@@ -358,7 +348,8 @@ class S3AuditProcessor:
                         'flightNo': flight_no,
                         'departureDate': dept_date_int,
                         'source': 0,
-                        'changedAtDateTime': changed_datetime_int,
+                        'changedAtDate': changed_at_date_int,
+                        'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
                         'colName': col,
                         'value': str(val) if val is not None else ''
@@ -383,7 +374,7 @@ class S3AuditProcessor:
                 elif part.startswith('flightNo='):
                     flight_no = part.split('=')[1]
                 elif part.startswith('date='):
-                    dept_date = part.split('=')[1]
+                    dept_date = part.split('=')[1]  # MM-DD-YYYY format
             
             # Read CSV from S3
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
@@ -393,13 +384,17 @@ class S3AuditProcessor:
             for _, row in df.iterrows():
                 csv_sector = str(row.get('sector', sector))[:50]
                 csv_flight = str(row.get('flightNo', flight_no))[:50]
-                csv_date = str(row.get('date', dept_date))
+                csv_date = str(row.get('date', dept_date))  # MM-DD-YYYY format
                 analyst = str(row.get('userName', ''))[:100]
                 changed_at = row.get('changedAt', '')
                 
+                # Normalize date from MM-DD-YYYY to YYYY-MM-DD
                 normalized_date = self.normalize_date(csv_date)
                 dept_date_int = self.to_date_int(normalized_date)
-                changed_datetime_int = self.to_datetime_int(changed_at)
+                
+                # Extract date and time separately
+                changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
+                changed_at_time_int = self.to_time_int(changed_at)
                 
                 for col, val in row.items():
                     if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
@@ -412,7 +407,8 @@ class S3AuditProcessor:
                         'flightNo': csv_flight,
                         'departureDate': dept_date_int,
                         'source': 1,
-                        'changedAtDateTime': changed_datetime_int,
+                        'changedAtDate': changed_at_date_int,
+                        'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
                         'colName': col,
                         'value': str(val) if val is not None else ''
@@ -481,10 +477,10 @@ class S3AuditProcessor:
                 if records:
                     query = text(f"""
                         INSERT INTO {self.schema}.{self.audit_table}
-                        (sector, flightNo, departureDate, source, changedAtDateTime, 
+                        (sector, flightNo, departureDate, source, changedAtDate, changedAtTime,
                         analystName, colName, value)
                         VALUES (:sector, :flightNo, :departureDate, :source, 
-                                :changedAtDateTime, :analystName, :colName, :value)
+                                :changedAtDate, :changedAtTime, :analystName, :colName, :value)
                     """)
                     
                     # Batch insert for better performance
@@ -572,6 +568,12 @@ class S3AuditProcessor:
                 
                 min_date, max_date = self.get_date_range()
                 if min_date and max_date:
+                    # Validate date format before parsing
+                    if len(str(min_date)) != 8 or len(str(max_date)) != 8:
+                        self.logger.error(f"Invalid date format: min={min_date}, max={max_date}")
+                        print(f"ERROR: Invalid data in database. Please run cleanup.")
+                        return False
+                    
                     min_obj = datetime.strptime(str(min_date), '%Y%m%d').date()
                     max_obj = datetime.strptime(str(max_date), '%Y%m%d').date()
                     days_span = (max_obj - min_obj).days + 1
@@ -608,3 +610,7 @@ class S3AuditProcessor:
             self.logger.error(f"Process failed: {e}")
             traceback.print_exc()
             return False
+
+
+# Backward compatibility
+S3CsvCombiner = S3AuditProcessor
