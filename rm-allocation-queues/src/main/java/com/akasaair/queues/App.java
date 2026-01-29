@@ -63,6 +63,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.text.SimpleDateFormat;
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
+import static com.akasaair.queues.common.Validations.CommonValidator.*;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.*;
 import static com.akasaair.queues.common.constants.Constants.*;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.*;
@@ -862,11 +863,51 @@ public class App implements CommandLineRunner {
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadMarketFareAdjustments(reader, finalTableName, userName, role_obj, obj_id);
                         } catch (Exception e) {
-                            listOfErrors.get().add("Error processing market_list_salesinv file content");
-                            throw new RuntimeException("Error processing market_list_salesinv file content: " + e.getMessage(), e);
+                            listOfErrors.get().add("Error processing market_fare_adjustments file content");
+                            throw new RuntimeException("Error processing market_fare_adjustments file content: " + e.getMessage(), e);
                         }
                     } catch (Exception ex) {
-                        listOfErrors.get().add("Error processing market_list_salesinv file content");
+                        listOfErrors.get().add("Error processing market_fare_adjustments file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case FORECAST_DATE_CONFIG_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadForecastDateConfig(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing forecast_date_config file content");
+                            throw new RuntimeException("Error processing forecast_date_config file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing forecast_date_config file content");
                         log.info("Error during file processing: " + ex.getMessage());
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
@@ -4493,6 +4534,143 @@ public class App implements CommandLineRunner {
         }
     }
 
+    public void uploadForecastDateConfig(Reader file, String tableName, String userName, Object role,
+                                             String obj_id) throws DataMismatchedException {
+        List<MarketListSalesInvEntity> entityList = new ArrayList<>();
+        try {
+//            createTable(tableName, MARKET_LIST_SALESINV_TABLE_NAME);
+
+            String uuid = obj_id;
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String departureDate = row.get(1).trim();
+                    String lastMStartDate = row.get(3).trim();
+                    String lastMEndDate = row.get(4).trim();
+                    String isLastMRolling = row.get(5).trim();
+                    String lastYStartDate = row.get(6).trim();
+                    String lastYEndDate = row.get(7).trim();
+                    String isLastYRolling = row.get(8).trim();
+                    String isManual = row.get(9).trim();
+                    String resetDate = row.get(10).trim();
+
+                    // Validate empty fields
+                    if (sector.isEmpty() || !isLengthEqualTo(sector, 6)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid sector");
+                        continue;
+                    }
+
+                    if (departureDate.isEmpty() || !isValidIsoDate(departureDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Departure Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastMStartDate.isEmpty() || !isValidIsoDate(lastMStartDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month Start Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastMEndDate.isEmpty() || !isValidIsoDate(lastMEndDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month End Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastYStartDate.isEmpty() || !isValidIsoDate(lastYStartDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year Start Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastYEndDate.isEmpty() || !isValidIsoDate(lastYEndDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year End Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (!resetDate.isEmpty() && !isValidIsoDate(resetDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Reset Date, either empty or in format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (!(isLastMRolling.equals("N") || isLastMRolling.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month Rolling Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+                    if (!(isLastYRolling.equals("N") || isLastYRolling.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year Rolling Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+                    if (!(isManual.equals("N") || isManual.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Manual Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+
+                    // Composite key filter
+                    Document filter = new Document()
+                            .append("Sector", sector)
+                            .append("DepartureDate", departureDate);
+
+                    // Build update payload (NO _id, NO CreatedAt)
+                    Document updateFields = new Document()
+                            .append("LastMStartDate", lastMStartDate)
+                            .append("LastMEndDate", lastMEndDate)
+                            .append("LastMRolling", isLastMRolling)
+                            .append("LastYStartDate", lastYStartDate)
+                            .append("LastYEndDate", lastYEndDate)
+                            .append("LastYRolling", isLastYRolling)
+                            .append("ManualFlag", isManual)
+                            .append("ResetDate", resetDate.isEmpty() ? null : resetDate)
+                            .append("UpdatedAt", new Date());
+
+                    // Build update document
+                    Document update = new Document("$set", updateFields);
+
+                    // Optional: upsert support
+                    UpdateOptions options = new UpdateOptions().upsert(true);
+
+                    // Add bulk update
+                    bulkUpdates.add(new UpdateOneModel<>(filter, update, options));
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (NumberFormatException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Invalid number format for adjustment value");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
     private void deleteExistingRecords(List<Document> deleteQueries, String collectionName) {
         if (deleteQueries.isEmpty()) {
             System.out.println("No records to delete");
@@ -4545,4 +4723,13 @@ public class App implements CommandLineRunner {
             throw new RuntimeException("Failed to insert documents into " + collectionName, e);
         }
     }
+
+    private void updateRecords(List<WriteModel<Document>> updates, String collectionName) {
+        if (updates == null || updates.isEmpty()) {
+            return;
+        }
+        MongoCollection<Document> collection = database.getCollection(collectionName);
+        collection.bulkWrite(updates);
+    }
+
 }

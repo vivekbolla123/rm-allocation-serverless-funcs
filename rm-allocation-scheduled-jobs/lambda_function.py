@@ -35,6 +35,7 @@ from cugReport import CugReport
 from scheduled_run_fail_alert import ScheduledRunFailureAlert
 from heuristicCalc import FareStatisticalAnalysis
 from run_paused_scheduled_runs import Run_Paused_Runs
+from forecast_date_config import ForecastDateConfig
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -103,7 +104,8 @@ module_map = {
     "cug_report": CugReport,
     "schd_run_fail_alert": ScheduledRunFailureAlert,
     "calc": FareStatisticalAnalysis,
-    "run_paused_runs": Run_Paused_Runs
+    "run_paused_runs": Run_Paused_Runs,
+    "forecast_date_config": ForecastDateConfig
 }
 
 
@@ -194,7 +196,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"run_paused_runs\": 1}}"
+#   "body": "{\"modules\":{\"forecast_date_config\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
