@@ -984,7 +984,7 @@ class RMDatabaseHelper:
                 carr_exclusion = currParams.carr_exclusion_b2c
                 flightExclusion = currParams.flightExclusionB2C
  
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
  
             origin = currParams.origin
             destination = currParams.destin
@@ -1215,7 +1215,7 @@ class RMDatabaseHelper:
             else:
                 carr_exclusion = currParams.carrierExclusionB2C
     
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
             # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.

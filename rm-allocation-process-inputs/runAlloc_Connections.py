@@ -317,8 +317,15 @@ class DynAllocConnections:
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
         flight2 = self.currParams.flight2
-        forecasted_plf_sector1 = self.currParams.forecastPLF1
-        forecasted_plf_sector2 = self.currParams.forecastPLF2
+        try:
+            forecasted_plf_sector1 = float(self.currParams.forecastPLF1)
+        except (ValueError, TypeError):
+            forecasted_plf_sector1 = 0.0
+
+        try:
+            forecasted_plf_sector2 = float(self.currParams.forecastPLF2)
+        except (ValueError, TypeError):
+            forecasted_plf_sector2 = 0.0
         forecasted_varience_sector1 = self.currParams.forecast_variance1
         forecasted_varience_sector2 = self.currParams.forecast_variance2
         is_sector1_domestic, is_sector2_domestic = self.rmdatabasehelper.check_sector_types(sector1, sector2)
