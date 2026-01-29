@@ -609,6 +609,16 @@ class RMDatabaseHelper:
                         # Second Flight Departure Date
                         "SecondFlightDepartureDate": "$connections_details.Departuredate2",
                         
+                        # Direct Flight Data for Scenario 4 (Connection OD)
+                        "DirectFlightNumber": "$connections_details.DirectFlightNumber",
+                        "DirectFlightBookedPax": "$connections_details.DirectFlightBookedPax",
+                        "DirectFlightLid": "$connections_details.DirectFlightLid",
+                        "DirectFlightForecast": "$connections_details.DirectFlightForecast",
+                        "DirectFlightPLF": "$connections_details.DirectFlightPLF",
+                        "DirectFlightDepTime": "$connections_details.DirectFlightDepTime",
+                        "DirectFlightOpeningRBDB2B": "$connections_details.DirectFlightOpeningRBDB2B",
+                        "DirectFlightOpeningRBDB2C": "$connections_details.DirectFlightOpeningRBDB2C",
+                        
                         # Map SOSFlag to sosFlag
                         "sosFlag": "$SOSFlag"
                     }
@@ -2506,3 +2516,49 @@ class RMDatabaseHelper:
             print(f"Error checking sector types for {sector1}, {sector2}: {e}")
             # Default to domestic if there's an error
             return True, True
+
+    def get_stage_length(self, departure_station, arrival_station):
+        """
+        Get the ActualDistance (stage length) from MySQL CityPair table or MongoDB city_pair collection.
+        
+        Args:
+            departure_station: 3-letter departure station code (e.g., 'DEL')
+            arrival_station: 3-letter arrival station code (e.g., 'BOM')
+            
+        Returns:
+            float: ActualDistance in km, or 0 if not found
+        """
+        try:
+            if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+                # Fetch from MySQL
+                query = f"""
+                    SELECT ActualDistance 
+                    FROM QP_DWH_MASTER.CityPair 
+                    WHERE DepartureStation = '{departure_station}' 
+                    AND ArrivalStation = '{arrival_station}'
+                    AND InActive = 0
+                    LIMIT 1
+                """
+                result = pd.read_sql(query, self.dwconn)
+                
+                if not result.empty and result['ActualDistance'].iloc[0] is not None:
+                    return float(result['ActualDistance'].iloc[0])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+            else:
+                # Fetch from MongoDB city_pair collection
+                result = self.db.city_pair.find_one({
+                    "DepartureStation": departure_station,
+                    "ArrivalStation": arrival_station,
+                    "InActive": 0
+                })
+                
+                if result and result.get('ActualDistance') is not None:
+                    return float(result['ActualDistance'])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching stage length for {departure_station}-{arrival_station}: {e}")
+            return 0

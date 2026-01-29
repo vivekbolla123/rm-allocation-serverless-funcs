@@ -365,22 +365,22 @@ class DynAllocConnections:
         use_sector2_fare = False
 
 
-        if is_sector1_domestic and not is_sector2_domestic:
-            # Sector1 is domestic, Sector2 is international
-            if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
-                should_allocate_to_y = True
-            elif forecasted_plf_sector1 >= domestic_plf_threshold:
-                # Only domestic leg meets PLF threshold - use domestic fare logic
-                apply_domestic_fare_logic = True
-                use_sector1_fare = True
-        elif not is_sector1_domestic and is_sector2_domestic:
-            # Sector1 is international, Sector2 is domestic  
-            if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
-                should_allocate_to_y = True
-            elif forecasted_plf_sector2 >= domestic_plf_threshold:
-                # Only domestic leg meets PLF threshold - use domestic fare logic
-                apply_domestic_fare_logic = True
-                use_sector2_fare = True
+        # if is_sector1_domestic and not is_sector2_domestic:
+        #     # Sector1 is domestic, Sector2 is international
+        #     if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
+        #         should_allocate_to_y = True
+        #     elif forecasted_plf_sector1 >= domestic_plf_threshold:
+        #         # Only domestic leg meets PLF threshold - use domestic fare logic
+        #         apply_domestic_fare_logic = True
+        #         use_sector1_fare = True
+        # elif not is_sector1_domestic and is_sector2_domestic:
+        #     # Sector1 is international, Sector2 is domestic  
+        #     if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
+        #         should_allocate_to_y = True
+        #     elif forecasted_plf_sector2 >= domestic_plf_threshold:
+        #         # Only domestic leg meets PLF threshold - use domestic fare logic
+        #         apply_domestic_fare_logic = True
+        #         use_sector2_fare = True
                 
         if int(self.currParams.sosFlag) == 1:
             should_allocate_to_y = True
@@ -518,7 +518,7 @@ class DynAllocConnections:
                 if str(self.currParams.discountflag) == "1":
                     self.fareStatus = " - DiscountedFare"
                     b2cTotal=b2cdiscountedFare
-                elif isMarketFareAvailable:
+                else :
                     self.fareStatus = " - MarketFare"
                     
                     # --- Phase 2: Fare Anchor Logic ---
@@ -582,7 +582,7 @@ class DynAllocConnections:
                         # If not available, maybe use a proxy or 0 for now?
                         # Using 0 for now as Stage Length is not obviously available in currParams.
                         # TODO: Verify where to get Stage Length.
-                        l2_stage_length = 0 
+                        l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
                         # Check if stage length is in currParams or can be calculated
                         # For now, using 0 to avoid crash, but this is a gap.
                         
@@ -639,7 +639,60 @@ class DynAllocConnections:
                              # I'll use max(market_fare, strategyFare) if both domestic.
                              calculated_anchor = max(market_fare, float(strategyFare))
                     
+                    # --- Scenario 4: Direct Flight on Same OD ---
+                    # Use prefetched direct flight data from fetch-inputs
+                    # Check if a direct flight exists on the connection OD and if it didn't meet threshold
+                    
+                    direct_flight_forecast = self.currParams.DirectFlightForecast
+                    direct_flight_plf = self.currParams.DirectFlightPLF
+                    direct_flight_opening_rbd = self.currParams.DirectFlightOpeningRBDB2C
+                    
+                    # Check if direct flight data is available (not NA and valid)
+                    has_direct_flight = (
+                        direct_flight_forecast != CONST_NA and 
+                        not pd.isna(direct_flight_forecast) and
+                        direct_flight_opening_rbd != CONST_NA and
+                        not pd.isna(direct_flight_opening_rbd)
+                    )
+                    
+                    if has_direct_flight:
+                        try:
+                            direct_flight_forecast = float(direct_flight_forecast) if direct_flight_forecast else 0
+                            direct_flight_plf = float(direct_flight_plf) if direct_flight_plf else 0
+                            
+                            # Get opening fare for direct flight from qp_fares
+                            direct_flight_fare, direct_currency = self.rmdatabasehelper.getSellingPrice(
+                                direct_flight_opening_rbd, f"{sector1[:3]}{sector2[3:]}", "B2C", "L"
+                            )
+                            if direct_currency != 'INR':
+                                direct_flight_fare = self.convert_currency(direct_currency, 'INR', direct_flight_fare)
+                            
+                            if direct_flight_fare > 0:
+                                # Check if direct flight is domestic or international
+                                is_direct_domestic = is_sector1_domestic  # Same origin, so same domestic/intl status
+                                
+                                # Check if direct flight didn't meet threshold
+                                direct_flight_meets_threshold = False
+                                if is_direct_domestic:
+                                    if direct_flight_forecast >= dom_forecast_threshold:
+                                        direct_flight_meets_threshold = True
+                                else:
+                                    if direct_flight_plf >= int_plf_threshold:
+                                        direct_flight_meets_threshold = True
+                                
+                                if not direct_flight_meets_threshold:
+                                    # Apply upsell: max of 2.5% upsell or +200 INR
+                                    direct_fare_with_upsell = direct_flight_fare * 1.025
+                                    calculated_anchor = max(calculated_anchor, direct_fare_with_upsell)
+                                    print(f"Scenario 4 (B2C): Direct flight {sector1[:3]}-{sector2[3:]} fare {direct_flight_fare} with upsell = {direct_fare_with_upsell}")
+                        except Exception as e:
+                            print(f"Error processing Scenario 4 B2C: {e}")
+                    
                     b2cTotal = calculated_anchor
+                    
+                    # Convert b2cTotal back to original currency from INR
+                    if self.currParams.currency != "INR":
+                        b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
                     
                     # --- End Phase 2 Logic ---
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
@@ -788,7 +841,7 @@ class DynAllocConnections:
                                 
                             # Scenario 2: One Leg Meets Threshold
                             elif leg1_meets_threshold and not leg2_meets_threshold:
-                                l2_stage_length = 0 # TODO: Fetch Stage Length
+                                l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
                                 calculated_anchor = max(SellingFare1 + (yield_factor * l2_stage_length), market_fare)
                                 
                             elif not leg1_meets_threshold and leg2_meets_threshold:
@@ -799,6 +852,55 @@ class DynAllocConnections:
                                 calculated_anchor = market_fare
                                 if is_sector1_domestic and is_sector2_domestic:
                                      calculated_anchor = max(market_fare, float(strategyFare))
+                            
+                            # --- Scenario 4: Direct Flight on Same OD (B2B) ---
+                            # Use prefetched direct flight data from fetch-inputs
+                            # Check if a direct flight exists on the connection OD and if it didn't meet threshold
+                            
+                            direct_flight_forecast_b2b = self.currParams.DirectFlightForecast
+                            direct_flight_plf_b2b = self.currParams.DirectFlightPLF
+                            direct_flight_opening_rbd_b2b = self.currParams.DirectFlightOpeningRBDB2B
+                            
+                            # Check if direct flight data is available (not NA and valid)
+                            has_direct_flight_b2b = (
+                                direct_flight_forecast_b2b != CONST_NA and 
+                                not pd.isna(direct_flight_forecast_b2b) and
+                                direct_flight_opening_rbd_b2b != CONST_NA and
+                                not pd.isna(direct_flight_opening_rbd_b2b)
+                            )
+                            
+                            if has_direct_flight_b2b:
+                                try:
+                                    direct_flight_forecast_b2b = float(direct_flight_forecast_b2b) if direct_flight_forecast_b2b else 0
+                                    direct_flight_plf_b2b = float(direct_flight_plf_b2b) if direct_flight_plf_b2b else 0
+                                    
+                                    # Get opening fare for direct flight from qp_fares
+                                    direct_flight_fare_b2b, direct_currency_b2b = self.rmdatabasehelper.getSellingPrice(
+                                        direct_flight_opening_rbd_b2b, f"{sector1[:3]}{sector2[3:]}", "B2B", "L"
+                                    )
+                                    if direct_currency_b2b != 'INR':
+                                        direct_flight_fare_b2b = self.convert_currency(direct_currency_b2b, 'INR', direct_flight_fare_b2b)
+                                    
+                                    if direct_flight_fare_b2b > 0:
+                                        # Check if direct flight is domestic or international
+                                        is_direct_domestic_b2b = is_sector1_domestic  # Same origin, so same domestic/intl status
+                                        
+                                        # Check if direct flight didn't meet threshold
+                                        direct_flight_meets_threshold_b2b = False
+                                        if is_direct_domestic_b2b:
+                                            if direct_flight_forecast_b2b >= dom_forecast_threshold:
+                                                direct_flight_meets_threshold_b2b = True
+                                        else:
+                                            if direct_flight_plf_b2b >= int_plf_threshold:
+                                                direct_flight_meets_threshold_b2b = True
+                                        
+                                        if not direct_flight_meets_threshold_b2b:
+                                            # Apply upsell: max of 2.5% upsell or +200 INR
+                                            direct_fare_with_upsell_b2b = max(direct_flight_fare_b2b * 1.025, direct_flight_fare_b2b + 200)
+                                            calculated_anchor = max(calculated_anchor, direct_fare_with_upsell_b2b)
+                                            print(f"Scenario 4 (B2B): Direct flight {sector1[:3]}-{sector2[3:]} fare {direct_flight_fare_b2b} with upsell = {direct_fare_with_upsell_b2b}")
+                                except Exception as e:
+                                    print(f"Error processing Scenario 4 B2B: {e}")
                             
                             b2bTotal = calculated_anchor
                             

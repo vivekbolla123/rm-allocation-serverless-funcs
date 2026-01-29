@@ -1336,6 +1336,92 @@ def lambda_handler(event, context):
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
+        # --- Scenario 4: Direct Flight on Connection OD ---
+        # For each connection, find direct flights on the same OD (Sector1Origin to Sector2Dest)
+        # and attach the best direct flight's forecast/PLF/fare data
+        
+        # Create connection OD columns
+        mkt_list['ConnectionOrigin'] = mkt_list['Sector1Origin']
+        mkt_list['ConnectionDest'] = mkt_list['Sector2Dest']
+        
+        # Filter booked_loads and forecast for direct flights on connection OD
+        # We'll merge to get direct flight data for each connection
+        
+        # Get direct flight bookloads for connection OD
+        direct_flight_bookloads = booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax', 'capacity', 'DepartureTime']].copy()
+        direct_flight_bookloads = direct_flight_bookloads.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'bookedPax': 'DirectFlightBookedPax',
+            'capacity': 'DirectFlightLid',
+            'DepartureTime': 'DirectFlightDepTime'
+        })
+        
+        # Get direct flight forecasts for connection OD
+        direct_flight_forecasts = forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']].copy()
+        direct_flight_forecasts = direct_flight_forecasts.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'forecastPLF': 'DirectFlightForecast'
+        })
+        
+        # Get direct flight opening RBDs for connection OD
+        direct_flight_openings = opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']].copy()
+        direct_flight_openings = direct_flight_openings.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'OpeningRBDB2B': 'DirectFlightOpeningRBDB2B',
+            'OpeningRBDB2C': 'DirectFlightOpeningRBDB2C'
+        })
+        
+        # Merge bookloads with forecasts
+        direct_flights_data = direct_flight_bookloads.merge(
+            direct_flight_forecasts,
+            on=['DepartureDate', 'DirectFlightNumber', 'Origin', 'Destination'],
+            how='left'
+        )
+        
+        # Merge with opening RBDs
+        direct_flights_data = direct_flights_data.merge(
+            direct_flight_openings,
+            on=['DepartureDate', 'DirectFlightNumber', 'Origin', 'Destination'],
+            how='left'
+        )
+        
+        # Calculate PLF for direct flights
+        direct_flights_data['DirectFlightPLF'] = (
+            direct_flights_data['DirectFlightBookedPax'] / direct_flights_data['DirectFlightLid'] * 100
+        ).fillna(0)
+        
+        # For each connection OD and date, get the direct flight with highest forecast
+        # Group by OD and DepartureDate, keep the row with max forecast
+        direct_flights_data['DirectFlightForecast'] = direct_flights_data['DirectFlightForecast'].fillna(0)
+        
+        # Sort by forecast descending and drop duplicates to keep the flight with highest forecast
+        best_direct_flights = direct_flights_data.sort_values(
+            by=['DepartureDate', 'Origin', 'Destination', 'DirectFlightForecast'],
+            ascending=[True, True, True, False]
+        ).drop_duplicates(
+            subset=['DepartureDate', 'Origin', 'Destination'],
+            keep='first'
+        )
+        
+        # Merge direct flight data to connection market list
+        mkt_list = mkt_list.merge(
+            best_direct_flights[[
+                'DepartureDate', 'Origin', 'Destination', 
+                'DirectFlightNumber', 'DirectFlightBookedPax', 'DirectFlightLid',
+                'DirectFlightForecast', 'DirectFlightPLF', 'DirectFlightDepTime',
+                'DirectFlightOpeningRBDB2B', 'DirectFlightOpeningRBDB2C'
+            ]],
+            how='left',
+            left_on=['DepartureDate', 'ConnectionOrigin', 'ConnectionDest'],
+            right_on=['DepartureDate', 'Origin', 'Destination'],
+            suffixes=('', '_direct')
+        ).drop(columns=['Origin', 'Destination'], errors='ignore')
+        
+        # Drop helper columns
+        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest'], errors='ignore')
+        
+        logger.info(f"Added direct flight data for {mkt_list['DirectFlightNumber'].notna().sum()} connections")
+        
         markets_count = mkt_list.shape[0]
         mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)
         mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
