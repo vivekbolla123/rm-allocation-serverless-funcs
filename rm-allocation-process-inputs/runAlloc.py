@@ -802,9 +802,11 @@ class DynAlloc:
 							offset_flag=False
 							b2b_anchor_candidates.append(self.outputSummaryRow_b2b.MktFare_Min)
 
+					# Removed last_seven_avg_val from B2B Strategy Fare Calculation
+					
 					# Add last_seven_avg if available
-					if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
-						b2b_anchor_candidates.append(last_seven_avg_val)
+					# if pd.notna(last_seven_avg_val) and last_seven_avg_val != CONST_NA:
+					# 	b2b_anchor_candidates.append(last_seven_avg_val)
 					
 					# Add B2C opening price with discount if available
 					if B2C_opening_price_val and current_discount_amount:
@@ -826,29 +828,32 @@ class DynAlloc:
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
 							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
 						)
-				elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA and not (self.B2B_thresholdflag):
-					# b2b_discount_fare_active = True 
-					# discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
-					# discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
 					
-					# if '%' in discount_str_val: 
-					# 	current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
-					# else: 
-					# 	current_discount_amount = float(discount_str_val)
-					
-					derived_b2b_anchor_fare = last_seven_avg_val
-					self.outputSummaryRow_b2b.anchorFare = derived_b2b_anchor_fare
-					self.outputSummaryRow_b2b.fareOffset = 0 
+				# Removed last_seven_avg_val from B2B Strategy Fare Calculation
 
-					openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
-					self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag= \
-						self.determinerbd.determineRBDToOpen(
-							derived_b2b_anchor_fare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, 
-							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
-							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance,final_plf,
-							overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
-						) 
+				# elif last_seven_avg_val is not None and last_seven_avg_val != CONST_NA and not (self.B2B_thresholdflag):
+				# 	# b2b_discount_fare_active = True 
+				# 	# discount_map_config = ast.literal_eval(self.constantsUtils.B2B_DISCOUNT_MAP)  # B2B_DISCOUNT_MAP from ConstantsUtils
+				# 	# discount_str_val = discount_map_config.get(str(dplfBand_full), "0") 
+					
+				# 	# if '%' in discount_str_val: 
+				# 	# 	current_discount_amount = B2C_opening_price_val * (float(discount_str_val.strip('%')) / 100.0)
+				# 	# else: 
+				# 	# 	current_discount_amount = float(discount_str_val)
+					
+				# 	derived_b2b_anchor_fare = last_seven_avg_val
+				# 	self.outputSummaryRow_b2b.anchorFare = derived_b2b_anchor_fare
+				# 	self.outputSummaryRow_b2b.fareOffset = 0 
+
+				# 	openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
+				# 	self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare,self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag= \
+				# 		self.determinerbd.determineRBDToOpen(
+				# 			derived_b2b_anchor_fare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, 
+				# 			dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
+				# 			b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance,final_plf,
+				# 			overBookingCount, hardfareb2b,hardoffsetB2B,sod_BookingsInHour,lastSoldFareb2b_val, last_seven_avg_val,
+				# 			False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
+				# 		) 
 				else: 
 					openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B Mkt Data NA & Not Derivable or b2b threshold hit'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
 			else: 
