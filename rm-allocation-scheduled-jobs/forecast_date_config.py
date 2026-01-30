@@ -217,14 +217,31 @@ class ForecastDateConfig:
                     lasty_start = datetime.strptime(existing_record['LastYStartDate'], '%Y-%m-%d')
                     lasty_end = datetime.strptime(existing_record['LastYEndDate'], '%Y-%m-%d')
                     
+                    # Calculate days since last update for catch-up rolling
+                    days_to_roll = 1  # Default: roll by 1 day
+                    if updated_at:
+                        try:
+                            if isinstance(updated_at, datetime):
+                                last_update_date = updated_at.date()
+                            else:
+                                last_update_date = datetime.fromisoformat(str(updated_at)).date()
+                            
+                            # Calculate days difference (excluding today, since we're updating today)
+                            days_diff = (self.today.date() - last_update_date).days
+                            if days_diff > 1:
+                                # Script missed some days, roll by the number of days missed
+                                days_to_roll = days_diff
+                        except Exception:
+                            days_to_roll = 1  # Fallback to 1 day on error
+                    
                     if lastm_rolling == 'Y':
-                        lastm_start = lastm_start + timedelta(days=1)
-                        lastm_end = lastm_end + timedelta(days=1)
+                        lastm_start = lastm_start + timedelta(days=days_to_roll)
+                        lastm_end = lastm_end + timedelta(days=days_to_roll)
                         stats['to_roll'] += 1
                     
                     if lasty_rolling == 'Y':
-                        lasty_start = lasty_start + timedelta(days=1)
-                        lasty_end = lasty_end + timedelta(days=1)
+                        lasty_start = lasty_start + timedelta(days=days_to_roll)
+                        lasty_end = lasty_end + timedelta(days=days_to_roll)
                         if lastm_rolling == 'N':  # Only count once if both rolling
                             stats['to_roll'] += 1
                 else:
