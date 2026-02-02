@@ -505,8 +505,12 @@ class DynAllocConnections:
                     B2BBackstop = self.convert_currency('INR',self.qpcurrency,B2BBackstop)
                 if self.qpcurrency!='INR':
                     strfare=self.convert_currency('INR',self.qpcurrency,float(strfare))
-                rbddata=self.getStrategyFare(
-                    strfare, origin, destin, "B2C", B2CBackstop,offset)
+                # Skip strategy fare calculation when market fare is not found (strfare=0)
+                if strfare == 0 or strfare == 'NA':
+                    rbddata = 'NA'
+                else:
+                    rbddata=self.getStrategyFare(
+                        strfare, origin, destin, "B2C", B2CBackstop,offset)
                 if rbddata!='NA':
                     self.outputSummaryRow_b2c.conversionRate=0
                     if self.qpcurrency!='INR':
@@ -517,184 +521,20 @@ class DynAllocConnections:
                     strategyFare= float(self.outputSummaryRow_b2c.strategyfare)
                 if str(self.currParams.discountflag) == "1":
                     self.fareStatus = " - DiscountedFare"
-                    b2cTotal=b2cdiscountedFare
-                else :
+                    b2cTotal = b2cdiscountedFare
+                else:
                     self.fareStatus = " - MarketFare"
-                    
-                    # --- Phase 2: Fare Anchor Logic ---
-                    
-                    # 1. Gather Thresholds and Values
-                    dom_forecast_threshold = 95 # Configurable input as per requirements
-                    int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
-                    yield_factor = self.constantsUtils.YIELD_FACTOR
-                    
-                    # Calculate PLF for International Legs
-                    # Ensure Lid is not 0 to avoid division by zero
-                    plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
-                    plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
-                    
-                    # Determine if legs meet threshold
-                    leg1_meets_threshold = False
-                    if is_sector1_domestic:
-                        if forecasted_plf_sector1 >= dom_forecast_threshold:
-                            leg1_meets_threshold = True
-                    else: # International
-                        if plf1 >= int_plf_threshold:
-                            leg1_meets_threshold = True
-                            
-                    leg2_meets_threshold = False
-                    if is_sector2_domestic:
-                        if forecasted_plf_sector2 >= dom_forecast_threshold:
-                            leg2_meets_threshold = True
-                    else: # International
-                        if plf2 >= int_plf_threshold:
-                            leg2_meets_threshold = True
-
-                    # Calculate Components
-                    # L1 and L2 opening fares (SellingFare1, SellingFare2)
-                    # Market Fare (fare1 is b2cdiscountedFare which seems to be derived from Market Fare? No, wait.)
-                    # fare1 is b2cdiscountedFare. 
-                    # In original code: b2cTotal = max(fare1, float(strategyFare)) where fare1 = b2cdiscountedFare
-                    # b2cdiscountedFare comes from getTotalPriceForConnections(priceStrategy, discountValue, b2cSectorTotal)
-                    # b2cSectorTotal = SellingFare1 + SellingFare2
-                    # So L1+L2 is roughly b2cSectorTotal (or b2cdiscountedFare if strategy applied).
-                    # The requirement says "Max(L1 opening fares + L2 opening fares , Market Fare)"
-                    # "Market Fare" usually refers to the competitor fare (lowFare/hiFare).
-                    # In the code, `fare2` seems to be the Market Fare (hiFare or lowFare based on criteria).
-                    # But `fare1` is `b2cdiscountedFare`.
-                    # Let's assume:
-                    # L1 + L2 = SellingFare1 + SellingFare2 (which is b2cSectorTotal)
-                    # Market Fare = fare2 (which is derived from marketfaresservice)
-                    
-                    sum_l1_l2 = SellingFare1 + SellingFare2
-                    market_fare = fare2
-                    
-                    calculated_anchor = market_fare # Default
-                    
-                    # Scenario 1: Both Legs Meet Threshold
-                    if leg1_meets_threshold and leg2_meets_threshold:
-                        calculated_anchor = max(sum_l1_l2, market_fare)
-                        
-                    # Scenario 2: One Leg Meets Threshold
-                    elif leg1_meets_threshold and not leg2_meets_threshold:
-                        # Max{L1 + Yield factor × (L2 Stage Length), Market Fare}
-                        # Need L2 Stage Length. Assuming it's available or need to fetch. 
-                        # If not available, maybe use a proxy or 0 for now?
-                        # Using 0 for now as Stage Length is not obviously available in currParams.
-                        # TODO: Verify where to get Stage Length.
-                        l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
-                        # Check if stage length is in currParams or can be calculated
-                        # For now, using 0 to avoid crash, but this is a gap.
-                        
-                        calculated_anchor = max(SellingFare1 + (yield_factor * l2_stage_length), market_fare)
-                        
-                    elif not leg1_meets_threshold and leg2_meets_threshold:
-                         # Requirement says: "If Leg1 International PLF >= threshold and Leg2 Domestic Forecast < 95%..."
-                         # Wait, the requirement lists specific cases for "One Leg Meets Threshold".
-                         # Let's map them generally:
-                         # If Leg1 meets and Leg2 doesn't: Max{L1 + Yield factor * L2 Stage Length, Market Fare}
-                         # Wait, is it always L1 + ...?
-                         # "If Leg1 Forecast >= 95% and Leg2 Forecast < 95%, Fare Anchor = Max{L1 + Yield factor × (L2 Stage Length), Market Fare}"
-                         # "If Leg1 PLF >= threshold and Leg2 PLF < threshold, Fare Anchor = Max{L1 + Yield factor × (L2 Stage Length), Market Fare}"
-                         # It seems when Leg 1 meets and Leg 2 doesn't, we use L1 + factor * L2_Stage.
-                         
-                         # What if Leg 2 meets and Leg 1 doesn't?
-                         # The requirements don't explicitly list "Leg 2 meets, Leg 1 doesn't" under Scenario 2.
-                         # Wait, let's re-read carefully.
-                         # "One Leg Meets Threshold"
-                         # - Both Domestic: L1 >= 95, L2 < 95 -> Formula
-                         # - Dom & Int: L1 >= 95, L2 < thresh -> Formula
-                         # - Both Int: L1 >= thresh, L2 < thresh -> Formula
-                         # - Int & Dom: L1 >= thresh, L2 < 95 -> Formula
-                         # ALL these examples are "Leg 1 meets, Leg 2 doesn't".
-                         # Does that mean if Leg 2 meets and Leg 1 doesn't, it falls to Scenario 3?
-                         # Or is it symmetric? "Yield factor will be configurable input".
-                         # Usually it's symmetric. "L2 + Yield factor * L1 Stage Length".
-                         # But strictly following the text, it only covers Leg 1 meeting.
-                         # I will assume for now it falls to Scenario 3 (Market Fare) if Leg 1 doesn't meet, 
-                         # UNLESS I see "Leg 2 meets" cases.
-                         # Actually, Scenario 3 says "Both Legs Didn't Meet Threshold".
-                         # So "Leg 2 meets, Leg 1 doesn't" is a gap in the requirements text provided.
-                         # I will assume it behaves like Scenario 3 for now (Market Fare), or maybe I should assume symmetry?
-                         # Given "Yield factor * (L2 Stage Length)", it implies we are keeping L1 (the strong leg) and discounting L2.
-                         # If L2 is the strong leg, we should probably keep L2 and discount L1.
-                         # But without explicit instruction, I'll stick to Market Fare for the unhandled case, or maybe just Market Fare.
-                         # Let's stick to Market Fare for "Leg 2 meets, Leg 1 doesn't" to be safe, as it's not "Both didn't meet" but also not in "One Leg Meets" list.
-                         # Actually, "Both Legs Didn't Meet" covers "Forecast < 95%" (implying both?).
-                         # "If Forecast < 95%" for Both Domestic. This is ambiguous.
-                         # I will implement the explicit cases.
-                         
-                         calculated_anchor = market_fare
-
-                    # Scenario 3: Both Legs Didn't Meet Threshold
-                    else: # Neither met
-                        calculated_anchor = market_fare
-                        # "For Both Domestic: If Forecast < 95%, Fare Anchor = Market Fare/ Strategy fare"
-                        # "Strategy fare" is mentioned.
-                        if is_sector1_domestic and is_sector2_domestic:
-                             # Use Strategy Fare if available?
-                             # The code previously used `strategyFare`.
-                             # "Market Fare/ Strategy fare" -> Maybe Max(Market, Strategy)?
-                             # Previous logic: max(SellingFare, strategyFare) etc.
-                             # I'll use max(market_fare, strategyFare) if both domestic.
-                             calculated_anchor = max(market_fare, float(strategyFare))
-                    
-                    # --- Scenario 4: Direct Flight on Same OD ---
-                    # Use prefetched direct flight data from fetch-inputs
-                    # Check if a direct flight exists on the connection OD and if it didn't meet threshold
-                    
-                    direct_flight_forecast = self.currParams.DirectFlightForecast
-                    direct_flight_plf = self.currParams.DirectFlightPLF
-                    direct_flight_opening_rbd = self.currParams.DirectFlightOpeningRBDB2C
-                    
-                    # Check if direct flight data is available (not NA and valid)
-                    has_direct_flight = (
-                        direct_flight_forecast != CONST_NA and 
-                        not pd.isna(direct_flight_forecast) and
-                        direct_flight_opening_rbd != CONST_NA and
-                        not pd.isna(direct_flight_opening_rbd)
+                    # Phase 2: Calculate anchor fare using helper
+                    b2cTotal = self._calculate_phase2_anchor_fare(
+                        channel="B2C", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
+                        market_fare=fare2, strategy_fare=strategyFare, sector1=sector1,
+                        sector2=sector2, is_sector1_domestic=is_sector1_domestic,
+                        is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
+                        forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                        bookload2=bookload2, ndocounter=ndocounter
                     )
-                    
-                    if has_direct_flight:
-                        try:
-                            direct_flight_forecast = float(direct_flight_forecast) if direct_flight_forecast else 0
-                            direct_flight_plf = float(direct_flight_plf) if direct_flight_plf else 0
-                            
-                            # Get opening fare for direct flight from qp_fares
-                            direct_flight_fare, direct_currency = self.rmdatabasehelper.getSellingPrice(
-                                direct_flight_opening_rbd, f"{sector1[:3]}{sector2[3:]}", "B2C", "L"
-                            )
-                            if direct_currency != 'INR':
-                                direct_flight_fare = self.convert_currency(direct_currency, 'INR', direct_flight_fare)
-                            
-                            if direct_flight_fare > 0:
-                                # Check if direct flight is domestic or international
-                                is_direct_domestic = is_sector1_domestic  # Same origin, so same domestic/intl status
-                                
-                                # Check if direct flight didn't meet threshold
-                                direct_flight_meets_threshold = False
-                                if is_direct_domestic:
-                                    if direct_flight_forecast >= dom_forecast_threshold:
-                                        direct_flight_meets_threshold = True
-                                else:
-                                    if direct_flight_plf >= int_plf_threshold:
-                                        direct_flight_meets_threshold = True
-                                
-                                if not direct_flight_meets_threshold:
-                                    # Apply upsell: max of 2.5% upsell or +200 INR
-                                    direct_fare_with_upsell = direct_flight_fare * 1.025
-                                    calculated_anchor = max(calculated_anchor, direct_fare_with_upsell)
-                                    print(f"Scenario 4 (B2C): Direct flight {sector1[:3]}-{sector2[3:]} fare {direct_flight_fare} with upsell = {direct_fare_with_upsell}")
-                        except Exception as e:
-                            print(f"Error processing Scenario 4 B2C: {e}")
-                    
-                    b2cTotal = calculated_anchor
-                    
-                    # Convert b2cTotal back to original currency from INR
                     if self.currParams.currency != "INR":
                         b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
-                    
-                    # --- End Phase 2 Logic ---
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
@@ -785,8 +625,12 @@ class DynAllocConnections:
                         columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                         if self.qpcurrency!='INR':
                             strfare=self.convert_currency('INR',self.qpcurrency,strfare)
-                        rbddata=self.getStrategyFare(
-                            strfare, origin, destin, "B2B", B2BBackstop,offset)
+                        # Skip strategy fare calculation when market fare is not found (strfare=0)
+                        if strfare == 0 or strfare == 'NA':
+                            rbddata = 'NA'
+                        else:
+                            rbddata=self.getStrategyFare(
+                                strfare, origin, destin, "B2B", B2BBackstop,offset)
                         if rbddata!="NA":
                             self.outputSummaryRow_b2b.conversionRate=0
                             if self.qpcurrency!='INR':
@@ -797,114 +641,18 @@ class DynAllocConnections:
                             strategyFare= float(self.outputSummaryRow_b2b.strategyfare)
                         if str(self.currParams.discountflag) == "1":
                             self.fareStatus = " - DiscountedFare"
-                            b2bTotal=b2bdiscountedFare
+                            b2bTotal = b2bdiscountedFare
                         else:
                             self.fareStatus = " - MarketFare"
-                            
-                            # --- Phase 2: Fare Anchor Logic (B2B) ---
-                            
-                            # 1. Gather Thresholds and Values
-                            dom_forecast_threshold = 95 # Configurable input
-                            int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
-                            yield_factor = self.constantsUtils.YIELD_FACTOR
-                            
-                            # Calculate PLF for International Legs
-                            plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
-                            plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
-                            
-                            # Determine if legs meet threshold
-                            leg1_meets_threshold = False
-                            if is_sector1_domestic:
-                                if forecasted_plf_sector1 >= dom_forecast_threshold:
-                                    leg1_meets_threshold = True
-                            else: # International
-                                if plf1 >= int_plf_threshold:
-                                    leg1_meets_threshold = True
-                                    
-                            leg2_meets_threshold = False
-                            if is_sector2_domestic:
-                                if forecasted_plf_sector2 >= dom_forecast_threshold:
-                                    leg2_meets_threshold = True
-                            else: # International
-                                if plf2 >= int_plf_threshold:
-                                    leg2_meets_threshold = True
-
-                            # Calculate Components
-                            sum_l1_l2 = SellingFare1 + SellingFare2
-                            market_fare = fare2
-                            
-                            calculated_anchor = market_fare # Default
-                            
-                            # Scenario 1: Both Legs Meet Threshold
-                            if leg1_meets_threshold and leg2_meets_threshold:
-                                calculated_anchor = max(sum_l1_l2, market_fare)
-                                
-                            # Scenario 2: One Leg Meets Threshold
-                            elif leg1_meets_threshold and not leg2_meets_threshold:
-                                l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
-                                calculated_anchor = max(SellingFare1 + (yield_factor * l2_stage_length), market_fare)
-                                
-                            elif not leg1_meets_threshold and leg2_meets_threshold:
-                                 calculated_anchor = market_fare
-
-                            # Scenario 3: Both Legs Didn't Meet Threshold
-                            else: # Neither met
-                                calculated_anchor = market_fare
-                                if is_sector1_domestic and is_sector2_domestic:
-                                     calculated_anchor = max(market_fare, float(strategyFare))
-                            
-                            # --- Scenario 4: Direct Flight on Same OD (B2B) ---
-                            # Use prefetched direct flight data from fetch-inputs
-                            # Check if a direct flight exists on the connection OD and if it didn't meet threshold
-                            
-                            direct_flight_forecast_b2b = self.currParams.DirectFlightForecast
-                            direct_flight_plf_b2b = self.currParams.DirectFlightPLF
-                            direct_flight_opening_rbd_b2b = self.currParams.DirectFlightOpeningRBDB2B
-                            
-                            # Check if direct flight data is available (not NA and valid)
-                            has_direct_flight_b2b = (
-                                direct_flight_forecast_b2b != CONST_NA and 
-                                not pd.isna(direct_flight_forecast_b2b) and
-                                direct_flight_opening_rbd_b2b != CONST_NA and
-                                not pd.isna(direct_flight_opening_rbd_b2b)
+                            # Phase 2: Calculate anchor fare using helper
+                            b2bTotal = self._calculate_phase2_anchor_fare(
+                                channel="B2B", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
+                                market_fare=fare2, strategy_fare=strategyFare, sector1=sector1,
+                                sector2=sector2, is_sector1_domestic=is_sector1_domestic,
+                                is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
+                                forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                                bookload2=bookload2, ndocounter=ndocounter
                             )
-                            
-                            if has_direct_flight_b2b:
-                                try:
-                                    direct_flight_forecast_b2b = float(direct_flight_forecast_b2b) if direct_flight_forecast_b2b else 0
-                                    direct_flight_plf_b2b = float(direct_flight_plf_b2b) if direct_flight_plf_b2b else 0
-                                    
-                                    # Get opening fare for direct flight from qp_fares
-                                    direct_flight_fare_b2b, direct_currency_b2b = self.rmdatabasehelper.getSellingPrice(
-                                        direct_flight_opening_rbd_b2b, f"{sector1[:3]}{sector2[3:]}", "B2B", "L"
-                                    )
-                                    if direct_currency_b2b != 'INR':
-                                        direct_flight_fare_b2b = self.convert_currency(direct_currency_b2b, 'INR', direct_flight_fare_b2b)
-                                    
-                                    if direct_flight_fare_b2b > 0:
-                                        # Check if direct flight is domestic or international
-                                        is_direct_domestic_b2b = is_sector1_domestic  # Same origin, so same domestic/intl status
-                                        
-                                        # Check if direct flight didn't meet threshold
-                                        direct_flight_meets_threshold_b2b = False
-                                        if is_direct_domestic_b2b:
-                                            if direct_flight_forecast_b2b >= dom_forecast_threshold:
-                                                direct_flight_meets_threshold_b2b = True
-                                        else:
-                                            if direct_flight_plf_b2b >= int_plf_threshold:
-                                                direct_flight_meets_threshold_b2b = True
-                                        
-                                        if not direct_flight_meets_threshold_b2b:
-                                            # Apply upsell: max of 2.5% upsell or +200 INR
-                                            direct_fare_with_upsell_b2b = max(direct_flight_fare_b2b * 1.025, direct_flight_fare_b2b + 200)
-                                            calculated_anchor = max(calculated_anchor, direct_fare_with_upsell_b2b)
-                                            print(f"Scenario 4 (B2B): Direct flight {sector1[:3]}-{sector2[3:]} fare {direct_flight_fare_b2b} with upsell = {direct_fare_with_upsell_b2b}")
-                                except Exception as e:
-                                    print(f"Error processing Scenario 4 B2B: {e}")
-                            
-                            b2bTotal = calculated_anchor
-                            
-                            # --- End Phase 2 Logic (B2B) ---
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
@@ -1225,3 +973,100 @@ class DynAllocConnections:
             return CONST_NA
         except (ValueError, TypeError):
             return CONST_NA
+
+    def _calculate_phase2_anchor_fare(self, channel, selling_fare1, selling_fare2, market_fare, 
+                                       strategy_fare, sector1, sector2, is_sector1_domestic, 
+                                       is_sector2_domestic, forecasted_plf1, forecasted_plf2,
+                                       bookload1, bookload2, ndocounter):
+        """
+        Calculate anchor fare using Phase 2 logic.
+        
+        Fare Components:
+        - SellingFare: QP fare for opening RBD (L1/L2 from qp_fares)
+        - AnchorFare: Final calculated fare for RBD determination
+        - StrategyFare: Used when both legs are domestic and didn't meet threshold
+        - MarketFare: Competitor fare (lowFare/hiFare)
+        
+        Scenarios:
+        1. Both legs meet threshold -> Max(L1+L2, MarketFare)
+        2. One leg meets threshold -> Max(StrongLeg + YieldFactor*WeakLegStageLength, MarketFare)
+        3. Neither meets threshold -> MarketFare (or Max(MarketFare, StrategyFare) for domestic)
+        4. Direct flight exists -> Apply upsell if direct didn't meet threshold
+        """
+        DOM_FORECAST_THRESHOLD = 95
+        int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
+        yield_factor = self.constantsUtils.YIELD_FACTOR
+        
+        plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
+        plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
+        
+        leg1_meets = (forecasted_plf1 >= DOM_FORECAST_THRESHOLD if is_sector1_domestic 
+                      else plf1 >= int_plf_threshold)
+        leg2_meets = (forecasted_plf2 >= DOM_FORECAST_THRESHOLD if is_sector2_domestic 
+                      else plf2 >= int_plf_threshold)
+        
+        sum_l1_l2 = selling_fare1 + selling_fare2
+        
+        if leg1_meets and leg2_meets:
+            anchor_fare = max(sum_l1_l2, market_fare) if market_fare > 0 else sum_l1_l2
+        elif leg1_meets and not leg2_meets:
+            l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
+            calculated_fare = selling_fare1 + (yield_factor * l2_stage_length)
+            anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
+        elif leg2_meets and not leg1_meets:
+            anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
+        else:
+            # Neither leg meets threshold
+            if is_sector1_domestic and is_sector2_domestic:
+                strategy_fare_val = float(strategy_fare) if strategy_fare != "NA" else 0
+                if market_fare > 0:
+                    anchor_fare = max(market_fare, strategy_fare_val)
+                elif strategy_fare_val > 0:
+                    anchor_fare = strategy_fare_val
+                else:
+                    anchor_fare = sum_l1_l2
+            else:
+                anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
+        
+        anchor_fare = self._apply_direct_flight_upsell(
+            channel, anchor_fare, sector1, sector2, is_sector1_domestic,
+            DOM_FORECAST_THRESHOLD, int_plf_threshold
+        )
+        return anchor_fare
+
+    def _apply_direct_flight_upsell(self, channel, anchor_fare, sector1, sector2, 
+                                     is_direct_domestic, dom_threshold, int_threshold):
+        """Apply direct flight upsell if applicable (Scenario 4)."""
+        rbd_attr = 'DirectFlightOpeningRBDB2C' if channel == 'B2C' else 'DirectFlightOpeningRBDB2B'
+        direct_rbd = getattr(self.currParams, rbd_attr, CONST_NA)
+        direct_forecast = self.currParams.DirectFlightForecast
+        direct_plf = self.currParams.DirectFlightPLF
+        
+        if direct_rbd == CONST_NA or pd.isna(direct_rbd) or direct_forecast == CONST_NA or pd.isna(direct_forecast):
+            return anchor_fare
+            
+        try:
+            direct_forecast = float(direct_forecast) if direct_forecast else 0
+            direct_plf = float(direct_plf) if direct_plf else 0
+            
+            direct_fare, currency = self.rmdatabasehelper.getSellingPrice(
+                direct_rbd, f"{sector1[:3]}{sector2[3:]}", channel, "L"
+            )
+            if currency != 'INR':
+                direct_fare = self.convert_currency(currency, 'INR', direct_fare)
+            
+            if direct_fare <= 0:
+                return anchor_fare
+                
+            meets_threshold = (direct_forecast >= dom_threshold if is_direct_domestic 
+                               else direct_plf >= int_threshold)
+            
+            if not meets_threshold:
+                upsell_fare = max(direct_fare * 1.025, direct_fare + 200) if channel == 'B2B' else direct_fare * 1.025
+                anchor_fare = max(anchor_fare, upsell_fare)
+                print(f"Scenario 4 ({channel}): Direct flight fare {direct_fare} with upsell = {upsell_fare}")
+                
+        except Exception as e:
+            print(f"Error processing Scenario 4 {channel}: {e}")
+            
+        return anchor_fare
