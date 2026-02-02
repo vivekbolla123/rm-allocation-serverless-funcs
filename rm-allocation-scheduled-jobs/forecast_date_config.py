@@ -20,6 +20,7 @@ class ForecastDateConfig:
         self.logger = logger
         self.mongo_client = params['mongoconn']
         self.db = self.mongo_client['qp_dw_rmalloc']
+        self.rm_rd_esb_conn = params.get('rdEsbConn')  # MySQL ESB connection
         
         # Calculate dynamic dates
         self.today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -64,72 +65,36 @@ class ForecastDateConfig:
         
         return lastm_start, lastm_end, lasty_start, lasty_end
     
-    def _fetch_sectors_from_marketlist(self) -> pd.DataFrame:
+    def _fetch_sectors(self) -> pd.DataFrame:
         """
-        Fetch unique sectors from market_list and market_list_international collections
+        Fetch unique sectors from MySQL ESB QP_DL_NAVDATA.QP_DL_BOOKEDDATAPAX table
         for next 90 days.
         
         Returns DataFrame with Sector, Region columns.
         """
         try:
-            start_date_str = self.today.strftime('%m/%d/%Y')
-            end_date_str = self.forecast_end.strftime('%m/%d/%Y')
+            start_date_str = self.today.strftime('%Y-%m-%d')
+            end_date_str = self.forecast_end.strftime('%Y-%m-%d')
             
-            # Helper function to fetch from a collection
-            def fetch_from_collection(collection_name: str, region: str) -> pd.DataFrame:
-                collection = self.db[collection_name]
-                
-                # Fetch all records (we'll filter by date in pandas)
-                cursor = collection.find(
-                    {},
-                    {
-                        '_id': 0,
-                        'Origin': 1,
-                        'Destin': 1,
-                        'PerStart': 1,
-                        'PerEnd': 1
-                    }
-                )
-                
-                df = pd.DataFrame(list(cursor))
-                
-                if df.empty:
-                    return pd.DataFrame(columns=['Sector', 'Region'])
-                
-                # Convert date strings to datetime
-                df['PerStart_dt'] = df['PerStart'].apply(
-                    lambda x: pd.to_datetime(x, format='%m/%d/%Y', errors='coerce')
-                    if isinstance(x, str) else pd.to_datetime(x, errors='coerce')
-                )
-                df['PerEnd_dt'] = df['PerEnd'].apply(
-                    lambda x: pd.to_datetime(x, format='%m/%d/%Y', errors='coerce')
-                    if isinstance(x, str) else pd.to_datetime(x, errors='coerce')
-                )
-                
-                # Filter by date range - keep records that overlap with our forecast window
-                df = df[
-                    (df['PerStart_dt'] <= self.forecast_end) &
-                    (df['PerEnd_dt'] >= self.today)
-                ]
-                
-                # Create sector column
-                df['Sector'] = df['Origin'] + df['Destin']
-                df['Region'] = region
-                
-                return df[['Sector', 'Region']].drop_duplicates()
+            query = f"""
+            SELECT DISTINCT
+                CONCAT(Origin, Destination) AS Sector,
+                CASE 
+                    WHEN DomesticFlag = 1 THEN 'D'
+                    ELSE 'I'
+                END AS Region
+            FROM QP_DL_NAVDATA.QP_DL_BOOKEDDATAPAX
+            WHERE DepartureDate >= '{start_date_str}'
+              AND DepartureDate <= '{end_date_str}'
+            ORDER BY Sector
+            """
             
-            # Fetch from both collections
-            domestic_sectors = fetch_from_collection('market_list', 'Domestic')
-            international_sectors = fetch_from_collection('market_list_international', 'International')
+            df = pd.read_sql(query, self.rm_rd_esb_conn)
             
-            # Combine and deduplicate
-            all_sectors = pd.concat([domestic_sectors, international_sectors], ignore_index=True)
-            all_sectors = all_sectors.drop_duplicates(subset=['Sector'])
-            
-            return all_sectors
+            return df
             
         except Exception as e:
-            self.logger.error(f"Error fetching sectors from market_list: {e}")
+            self.logger.error(f"Error fetching sectors from ESB: {e}")
             return pd.DataFrame(columns=['Sector', 'Region'])
     
     def _prepare_batch_updates(self, sector_date_list: List[Tuple[datetime, str, str]]) -> Tuple[List, List]:
@@ -373,7 +338,7 @@ class ForecastDateConfig:
             results['deleted_records'] = deleted_count
             
             # Step 2: Fetch sectors
-            sectors_df = self._fetch_sectors_from_marketlist()
+            sectors_df = self._fetch_sectors()
             
             if sectors_df.empty:
                 self.logger.warning("No sectors found to process")
