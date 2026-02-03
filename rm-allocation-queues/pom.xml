@@ -48,7 +48,6 @@
         <!-- Security version overrides -->
         <json-smart.version>2.5.2</json-smart.version>
         <woodstox-core.version>6.7.0</woodstox-core.version>
-        <aircompressor.version>0.27</aircompressor.version>
         <guava.version>32.1.0-jre</guava.version>
         <commons-configuration2.version>2.10.1</commons-configuration2.version>
         <okio.version>3.4.0</okio.version>
@@ -152,10 +151,16 @@
                 <artifactId>commons-net</artifactId>
                 <version>${commons-net.version}</version>
             </dependency>
+            <!-- Security: Force transitive old aircompressor to fixed version 0.27 -->
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
-                <version>${aircompressor.version}</version>
+                <version>0.27</version>
+            </dependency>
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>aircompressor-v3</artifactId>
+                <version>3.2</version>
             </dependency>
             <!-- lz4-java - upgraded to secure fork (fixes CVE-2025-12183, CVE-2025-66566) -->
             <dependency>
@@ -530,8 +535,8 @@
         <!-- Air Compressor - Updated for security (CVE-2024-36114) -->
         <dependency>
             <groupId>io.airlift</groupId>
-            <artifactId>aircompressor</artifactId>
-            <version>${aircompressor.version}</version>
+            <artifactId>aircompressor-v3</artifactId>
+            <version>3.2</version>
         </dependency>
 
         <!-- Commons IO - Updated -->
