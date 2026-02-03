@@ -170,7 +170,7 @@ class ForecastDateConfig:
                     # Reset to defaults
                     lastm_start, lastm_end, lasty_start, lasty_end = self._get_default_date_ranges(departure_date)
                     manual_flag = 'N'
-                    lastm_rolling = 'N'
+                    lastm_rolling = 'Y'
                     lasty_rolling = 'N'
                     reset_date_str = None
                     stats['to_reset'] += 1
@@ -257,7 +257,7 @@ class ForecastDateConfig:
                                 'LastMEndDate': lastm_end.strftime('%Y-%m-%d'),
                                 'LastYStartDate': lasty_start.strftime('%Y-%m-%d'),
                                 'LastYEndDate': lasty_end.strftime('%Y-%m-%d'),
-                                'LastMRolling': 'N',
+                                'LastMRolling': 'Y',
                                 'LastYRolling': 'N',
                                 'ResetDate': None,
                                 'ManualFlag': 'N',
