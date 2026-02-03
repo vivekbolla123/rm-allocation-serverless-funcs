@@ -55,6 +55,10 @@
         <!-- dnsjava kept at transitive version - 3.x causes SPI conflicts with InetAddressResolver -->
         <commons-net.version>3.9.0</commons-net.version>
         <reload4j.version>1.2.26</reload4j.version>
+        <!-- Security: commons-compress 1.26.0 fixes DoS CVEs -->
+        <commons-compress.version>1.26.0</commons-compress.version>
+        <!-- Security: log4j 2.25.3 fixes TLS hostname verification CVE-2025-68161 -->
+        <log4j2.version>2.25.3</log4j2.version>
     </properties>
 
     <dependencyManagement>
@@ -176,6 +180,28 @@
                 <groupId>org.codehaus.janino</groupId>
                 <artifactId>commons-compiler</artifactId>
                 <version>3.1.9</version>
+            </dependency>
+            <!-- Security: commons-compress 1.26.0 fixes DoS CVEs -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
+            </dependency>
+            <!-- Security: log4j 2.25.3 fixes TLS hostname verification -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-slf4j2-impl</artifactId>
+                <version>${log4j2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -413,6 +439,11 @@
                 <exclusion>
                     <groupId>org.slf4j</groupId>
                     <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable dnsjava 2.1.7 (DNSSEC bypass) -->
+                <exclusion>
+                    <groupId>dnsjava</groupId>
+                    <artifactId>dnsjava</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
