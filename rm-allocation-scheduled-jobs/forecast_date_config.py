@@ -38,7 +38,7 @@ class ForecastDateConfig:
         Logic: Simple 21-day lookback from current date
         Example: If today is 2026-01-20:
                  - LastMStartDate = 2025-12-30 (today - 21 days)
-                 - LastMEndDate = 2026-01-20 (today)
+                 - LastMEndDate = 2026-01-19 (yesterday)
         Rationale: Captures recent trends from the past 3 weeks
         
         LastY (Year-over-Year Comparison):
@@ -56,7 +56,7 @@ class ForecastDateConfig:
         """
         # LastM: Simple 3-week (21 days) lookback from today
         lastm_start = self.today - timedelta(days=21)
-        lastm_end = self.today
+        lastm_end = self.today - timedelta(days=1)
         
         # LastY: ±2 weeks around same departure date last year
         anchor_date = departure_date - timedelta(weeks=52)
