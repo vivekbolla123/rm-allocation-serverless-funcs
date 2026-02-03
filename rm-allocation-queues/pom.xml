@@ -157,11 +157,7 @@
                 <artifactId>aircompressor</artifactId>
                 <version>0.27</version>
             </dependency>
-            <dependency>
-                <groupId>io.airlift</groupId>
-                <artifactId>aircompressor-v3</artifactId>
-                <version>3.2</version>
-            </dependency>
+
             <!-- lz4-java - upgraded to secure fork (fixes CVE-2025-12183, CVE-2025-66566) -->
             <dependency>
                 <groupId>at.yawk.lz4</groupId>
@@ -532,12 +528,7 @@
             <version>${snappy.version}</version>
         </dependency>
 
-        <!-- Air Compressor - Updated for security (CVE-2024-36114) -->
-        <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>aircompressor-v3</artifactId>
-            <version>3.2</version>
-        </dependency>
+
 
         <!-- Commons IO - Updated -->
         <dependency>
