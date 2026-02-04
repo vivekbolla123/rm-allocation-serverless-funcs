@@ -381,6 +381,12 @@ class RBDAllocations:
         df_unique = df_filtered.sort_values(['price', 'price_diff']).drop_duplicates('RBD')
         df_unique = df_unique.drop(columns='price_diff')
 
+        # Hardcode RBD "Y" to totalCapacity after all allocation is done
+        for i in range(B2CRBDs.shape[0]):
+            if B2CRBDs['RBD'][i] == 'Y':
+                currRec.set_class_attribute(i + 1, 'class_au', int(totalCapacity))
+                break
+
         return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice, first_rbd_alloc, other_rbd_alloc
 
     def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast,strategyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
