@@ -1298,10 +1298,11 @@ class DynAlloc:
 				totalCapacity = totalCapacity+overBookingCount
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
 					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
-					if not totalCapacity == lid:
-						self.navapihelper.update_leg(leg_key, lid=totalCapacity)
-					if not totalCapacity == nest_lid:
-						self.navapihelper.update_leg_nest(leg_key, nest_key, totalCapacity)
+					if adjustedCapacity == lid:
+						if not totalCapacity == lid:
+							self.navapihelper.update_leg(leg_key, lid=totalCapacity)
+						if not totalCapacity == nest_lid:
+							self.navapihelper.update_leg_nest(leg_key, nest_key, totalCapacity)
 				self.b2boverbookingflag = True
 		else:
 			self.logger.info("Entered manual overbooking loop runalloc")
