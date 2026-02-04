@@ -553,7 +553,7 @@ def execute_dw_query_with_retry(query, engine):
 
 def get_forecast(min_date, max_date):
     query = f"""
-    SELECT ROUND(forecastPLF, 1) AS forecastPLF, Variance as forecast_variance, ROUND(adjustedPLF, 1) AS adjustedPLF, Origin, Destination, FlightNumber, DepartureDate 
+    SELECT ROUND(forecastPLF, 1) AS forecastPLF, Variance as forecast_variance, ROUND(AdjustedForecastPLF, 1) AS adjustedPLF, Origin, Destination, FlightNumber, DepartureDate 
     FROM RM_DW_DATA.forecast_results
     WHERE DepartureDate BETWEEN '{min_date}' AND '{max_date}'
     """
