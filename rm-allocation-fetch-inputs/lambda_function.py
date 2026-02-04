@@ -616,6 +616,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
 
 def left_join_with_destination_mapping(left_df, right_df):
     right_df_copy = right_df.copy()
+    left_df['DepartureDate'] = pd.to_datetime(left_df['DepartureDate']).dt.normalize()
+    right_df_copy['DepartureDate'] = pd.to_datetime(right_df_copy['DepartureDate']).dt.normalize()
     right_df_copy['FlightNumber'] = right_df_copy['FlightNumber'].astype('int64')
     return left_df.merge(
         right_df_copy,
