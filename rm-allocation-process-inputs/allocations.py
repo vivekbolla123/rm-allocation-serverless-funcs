@@ -643,7 +643,7 @@ class RBDAllocations:
 
         return openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD
 
-    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag):
+    def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag, close_b2b):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
         openingB2CRBD = openDataB2C['RBD'][0]
@@ -669,6 +669,8 @@ class RBDAllocations:
             else:
                 if b2bSkipFlag:
                     currRec.set_class_attribute(brd_counter, 'class_au', -1)
+                elif close_b2b:
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 else:
                     if RBDLabel == openingRBD:
                         openbuketFlag = True
