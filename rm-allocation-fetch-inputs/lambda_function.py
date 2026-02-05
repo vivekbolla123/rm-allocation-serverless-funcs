@@ -553,7 +553,7 @@ def execute_dw_query_with_retry(query, engine):
 
 def get_forecast(min_date, max_date):
     query = f"""
-    SELECT ROUND(forecastPLF, 1) AS forecastPLF,Variance as forecast_variance,Origin,Destination,FlightNumber, DepartureDate 
+    SELECT ROUND(forecastPLF, 1) AS forecastPLF, Variance as forecast_variance, ROUND(AdjustedForecastPLF, 1) AS adjustedPLF, Origin, Destination, FlightNumber, DepartureDate 
     FROM RM_DW_DATA.forecast_results
     WHERE DepartureDate BETWEEN '{min_date}' AND '{max_date}'
     """
@@ -616,6 +616,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
 
 def left_join_with_destination_mapping(left_df, right_df):
     right_df_copy = right_df.copy()
+    left_df['DepartureDate'] = pd.to_datetime(left_df['DepartureDate']).dt.normalize()
+    right_df_copy['DepartureDate'] = pd.to_datetime(right_df_copy['DepartureDate']).dt.normalize()
     right_df_copy['FlightNumber'] = right_df_copy['FlightNumber'].astype('int64')
     return left_df.merge(
         right_df_copy,
@@ -763,7 +765,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
             'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
             'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag'
+            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast'
         ]
         sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
         connection_cols = [
