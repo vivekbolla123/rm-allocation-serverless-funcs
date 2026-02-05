@@ -63,6 +63,23 @@ class FareStatisticalAnalysis:
         self.holiday_mappings_cache = None
         self.profile_fares_cache = None
         self.domestic_sectors_cache = None
+        
+        # Ensure unique index on upsell collection to prevent duplicates
+        self._ensure_upsell_index()
+
+    def _ensure_upsell_index(self):
+        """Create unique compound index on (sector, date) to prevent duplicates."""
+        try:
+            collection = self.db['config_profile_fare_station_upsell']
+            collection.create_index(
+                [('sector', 1), ('date', 1)],
+                unique=True,
+                name='unique_sector_date'
+            )
+            self.logger.info("Ensured unique index on config_profile_fare_station_upsell (sector, date)")
+        except Exception as e:
+            # Index might already exist, which is fine
+            self.logger.debug(f"Index creation note: {str(e)}")
 
     # ============================================================================
     # DATA FETCHING
@@ -788,25 +805,24 @@ class FareStatisticalAnalysis:
                         continue
                     
                     # Add update operation to bulk
+                    # Filter ONLY on composite key (sector + date) to avoid duplicates
                     bulk_operations.append(
                         UpdateOne(
                             {
                                 'sector': sector,
-                                'date': date_str,
-                                '$or': [
-                                    {'mode': 'S'},
-                                    {'mode': {'$exists': False}},
-                                    {'mode': 'M', 'value': ''}
-                                ]
+                                'date': date_str
                             },
                             {
                                 '$set': {
                                     'value': clean_value,
-                                    'mode': 'S'
+                                    'mode': 'S',
+                                    'updatedAt': datetime.now(),
+                                    'updatedBy': 'SYSTEM'
                                 },
                                 '$setOnInsert': {
                                     'sector': sector,
-                                    'date': date_str
+                                    'date': date_str,
+                                    'createdAt': datetime.now()
                                 }
                             },
                             upsert=True
