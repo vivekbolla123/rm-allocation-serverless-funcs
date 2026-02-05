@@ -36,6 +36,7 @@ from scheduled_run_fail_alert import ScheduledRunFailureAlert
 from heuristicCalc import FareStatisticalAnalysis
 from run_paused_scheduled_runs import Run_Paused_Runs
 from active_sectors import ActiveSectors
+from forecast_date_config import ForecastDateConfig
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -105,7 +106,8 @@ module_map = {
     "schd_run_fail_alert": ScheduledRunFailureAlert,
     "calc": FareStatisticalAnalysis,
     "run_paused_runs": Run_Paused_Runs,
-    "active_sectors": ActiveSectors
+    "active_sectors": ActiveSectors,
+    "forecast_date_config": ForecastDateConfig
 }
 
 
