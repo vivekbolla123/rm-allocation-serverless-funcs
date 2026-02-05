@@ -50,6 +50,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_MKTFARE_UPSELL = 45;
     int CSV_HEADER_FORECAST_ALLOC_FLAG = 46;
     int CSV_HEADER_SPOILAGE_FLAG = 47;
+    int CSV_HEADER_CAN_ADJUSTED_FORECAST = 48;
 
 
 

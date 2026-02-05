@@ -1673,7 +1673,12 @@ class DynAlloc:
 		return last_seven_avg, lastsoldb2b, lastsoldb2c
 	
 	def getParsedForecast(self):
-		value = getattr(self.currParams, 'forecastPLF', CONST_NA)
+		# Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
+		can_adjusted = getattr(self.currParams, 'CanAdjustedForecast', 0)
+		if can_adjusted == 1 or can_adjusted == '1':
+			value = getattr(self.currParams, 'adjustedPLF', CONST_NA)
+		else:
+			value = getattr(self.currParams, 'forecastPLF', CONST_NA)
 		try:
 			value = float(value)
 			if not math.isnan(value):
@@ -1683,7 +1688,12 @@ class DynAlloc:
 			return CONST_NA
 
 	def getParsedImputedForecast(self,variance):
-		forecastPLF = getattr(self.currParams, 'forecastPLF', CONST_NA)
+		# Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
+		can_adjusted = getattr(self.currParams, 'CanAdjustedForecast', 0)
+		if can_adjusted == 1 or can_adjusted == '1':
+			forecastPLF = getattr(self.currParams, 'adjustedPLF', CONST_NA)
+		else:
+			forecastPLF = getattr(self.currParams, 'forecastPLF', CONST_NA)
 		forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
 		IMP_FORECAST_DEDUCTION = self.constantsUtils.IMP_FORECAST_DEDUCTION
 
