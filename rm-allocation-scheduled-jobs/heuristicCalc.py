@@ -64,22 +64,6 @@ class FareStatisticalAnalysis:
         self.profile_fares_cache = None
         self.domestic_sectors_cache = None
         
-        # Ensure unique index on upsell collection to prevent duplicates
-        self._ensure_upsell_index()
-
-    def _ensure_upsell_index(self):
-        """Create unique compound index on (sector, date) to prevent duplicates."""
-        try:
-            collection = self.db['config_profile_fare_station_upsell']
-            collection.create_index(
-                [('sector', 1), ('date', 1)],
-                unique=True,
-                name='unique_sector_date'
-            )
-            self.logger.info("Ensured unique index on config_profile_fare_station_upsell (sector, date)")
-        except Exception as e:
-            # Index might already exist, which is fine
-            self.logger.debug(f"Index creation note: {str(e)}")
 
     # ============================================================================
     # DATA FETCHING
