@@ -6,20 +6,6 @@ spring:
   jpa:
     open-in-view: false
 
-  # Spring Cloud AWS 3.x configuration
-  cloud:
-    aws:
-      region:
-        static: ap-south-1  # Change to your AWS region (e.g., us-east-1, ap-south-1, etc.)
-      credentials:
-        # Will use default AWS credentials chain:
-        # 1. Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-        # 2. System properties
-        # 3. ~/.aws/credentials file
-        # 4. IAM role (if running in AWS)
-        profile:
-          name: default  # Or specify your AWS CLI profile name
-
 logging:
   pattern:
     console: "[%thread] %-5level %logger{36} - %msg%n"
@@ -48,15 +34,8 @@ spring:
     activate:
       on-profile: uat
     import:
-      # Spring Cloud AWS 3.x syntax for Parameter Store
       - "aws-parameterstore:/rm/uat/rm-allocation/"
       - "aws-parameterstore:/copilot/qp/uat/secrets/"
-
-  cloud:
-    aws:
-      parameterstore:
-        enabled: true
-        # Region is inherited from spring.cloud.aws.region.static above
 
 rm:
   db:
@@ -80,11 +59,6 @@ spring:
       - "aws-parameterstore:/rm/prod/rm-allocation/"
       - "aws-parameterstore:/copilot/qp/prod/secrets/"
 
-  cloud:
-    aws:
-      parameterstore:
-        enabled: true
-
 rm:
   db:
     host: "10.16.6.179"
@@ -107,10 +81,6 @@ spring:
       - "aws-parameterstore:/rm/prod/rm-allocation/"
       - "aws-parameterstore:/copilot/qp/prod/secrets/"
 
-  cloud:
-    aws:
-      parameterstore:
-        enabled: true
 
 rm:
   db:
