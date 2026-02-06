@@ -768,12 +768,38 @@ class FareStatisticalAnalysis:
 
     def _process_single_upsell_batch(self, batch: List[Dict]) -> Tuple[int, int, int]:
         """
-        Process using MongoDB bulk write operations for better performance.
+        Process using MongoDB bulk write operations.
+        
+        Business Rule: System can only update:
+        - Records with mode='S'
+        - Records with mode='M' AND empty value
+        - Records where mode field doesn't exist
+        
+        System should NOT overwrite Manual entries with non-empty values.
         """
         updated_count = inserted_count = failed_count = 0
+        skipped_manual_count = 0
         
         try:
             collection = self.db['config_profile_fare_station_upsell']
+            
+            # Step 1: Fetch existing records for this batch to check business rules
+            sectors_dates = [(r['sector'], r['date']) for r in batch]
+            
+            existing_docs = {}
+            if sectors_dates:
+                # Build query to fetch all relevant existing documents
+                or_conditions = [
+                    {'sector': sector, 'date': date_str} 
+                    for sector, date_str in sectors_dates
+                ]
+                
+                cursor = collection.find({'$or': or_conditions})
+                for doc in cursor:
+                    key = (doc['sector'], doc['date'])
+                    existing_docs[key] = doc
+            
+            # Step 2: Build bulk operations respecting business rules
             bulk_operations = []
             
             for record in batch:
@@ -788,8 +814,33 @@ class FareStatisticalAnalysis:
                         failed_count += 1
                         continue
                     
-                    # Add update operation to bulk
-                    # Filter ONLY on composite key (sector + date) to avoid duplicates
+                    # Check if document exists and apply business rules
+                    key = (sector, date_str)
+                    existing_doc = existing_docs.get(key)
+                    
+                    if existing_doc:
+                        # Document exists - check if we can update it
+                        existing_mode = existing_doc.get('mode')
+                        existing_value = existing_doc.get('value', '')
+                        
+                        # Business Rule Check:
+                        # Can update if: mode='S' OR mode doesn't exist OR (mode='M' AND value is empty)
+                        can_update = (
+                            existing_mode == 'S' or
+                            existing_mode is None or
+                            (existing_mode == 'M' and not existing_value) or
+                            (existing_mode == 'M' and existing_value == "")
+                        )
+                        
+                        if not can_update:
+                            # Skip: Manual entry with non-empty value
+                            skipped_manual_count += 1
+                            self.logger.debug(
+                                f"Skipped {sector} {date_str}: Manual entry with value '{existing_value}'"
+                            )
+                            continue
+                    
+                    # Add update operation (will update existing or insert new)
                     bulk_operations.append(
                         UpdateOne(
                             {
@@ -817,7 +868,7 @@ class FareStatisticalAnalysis:
                     failed_count += 1
                     self.logger.error(f"Failed to prepare record {sector} {date_str}: {str(e)}")
             
-            # Execute bulk write
+            # Step 3: Execute bulk write
             if bulk_operations:
                 result = collection.bulk_write(bulk_operations, ordered=False)
                 updated_count = result.modified_count
@@ -825,7 +876,13 @@ class FareStatisticalAnalysis:
                 
                 self.logger.info(
                     f"Bulk write completed: {updated_count} updated, "
-                    f"{inserted_count} inserted, {failed_count} failed"
+                    f"{inserted_count} inserted, {skipped_manual_count} skipped (manual), "
+                    f"{failed_count} failed"
+                )
+            elif skipped_manual_count > 0:
+                self.logger.info(
+                    f"Batch completed: {skipped_manual_count} skipped (manual entries), "
+                    f"{failed_count} failed"
                 )
                         
         except Exception as e:
