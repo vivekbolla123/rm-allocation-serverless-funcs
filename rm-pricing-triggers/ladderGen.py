@@ -41,7 +41,7 @@ class LadderGen:
         # Configuration parameters for ladder generation
         self.min_fare_threshold_domestic = lambda fare: max(0.02 * fare, 50)
         self.min_fare_threshold_international = lambda fare: 0.02 * fare
-        self.min_distinct_fares_required = 150
+        self.min_distinct_fares_required = self.constants.B2C_DISTINCT_FARES_COUNT
         self.ladder_bins_b2c = 58
         self.ladder_bins_b2b = 16
         self.total_ladder_points = 64
