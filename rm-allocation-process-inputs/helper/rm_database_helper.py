@@ -937,8 +937,27 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(f"Error getting Market fare adjustments: {e}")
             return pd.DataFrame()
+    
+    def getMappedOriginStation(self, origin):
+        try:
+            doc = self.db.market_fare_origin_map.find_one(
+                {"$or": [{"sector1": origin}, {"sector2": origin}]}
+            )
 
-    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
+            if not doc:
+                return None
+
+            if origin == doc.get("sector1"):
+                return doc.get("sector2")
+            elif origin == doc.get("sector2"):
+                return doc.get("sector1")
+
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting mapped Market fare origin station: {e}")
+            return None
+
+    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs, origin, destination):
         
         try:
             currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
@@ -964,14 +983,6 @@ class RMDatabaseHelper:
                 flightExclusion = currParams.flightExclusionB2C
  
             carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
- 
-            origin = currParams.origin
-            destination = currParams.destin
-            routedSector = self.getroutedDestination(origin, destination)
- 
-            if len(routedSector) > 0:
-                origin = routedSector['routedSector'][0][:3]
-                destination = routedSector['routedSector'][0][3:]
  
             # Log the search parameters
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
