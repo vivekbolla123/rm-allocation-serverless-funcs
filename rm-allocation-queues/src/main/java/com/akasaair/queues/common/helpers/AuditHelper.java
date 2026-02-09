@@ -168,9 +168,6 @@ public class AuditHelper {
         List<String> fieldNames = new ArrayList<>(ML_AUDIT_GETTER_CACHE.keySet());
 
         for (MarketListEntity newRow : newRecords) {
-            MarketListAuditEntity newAudit = new MarketListAuditEntity();
-            BeanUtils.copyProperties(newRow, newAudit);
-
             String key = createCompositeKey(
                     newRow.getOrigin() + newRow.getDestination(),
                     newRow.getFlightNo(),
@@ -178,21 +175,17 @@ public class AuditHelper {
             );
             MarketListEntity oldRow = existingMap.get(key);
 
-            // Set audit fields
-            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
-            newAudit.setSector(newAudit.getOrigin() + newAudit.getDestination());
-            newAudit.setUserName(userName);
-            newAudit.setChangedAt(currentDateTimeStr);
+            // Prepare audit entity (same for both new and existing records)
+            MarketListAuditEntity newAudit = new MarketListAuditEntity();
+            prepareNewRecordAudit(newRow, newAudit, userName, currentDateTimeStr);
 
-            // Clear unwanted fields
-            newAudit.setUuid(null);
-            newAudit.setOrigin(null);
-            newAudit.setDestination(null);
-            newAudit.setPerType(null);
-            newAudit.setStartDate(null);
-            newAudit.setEndDate(null);
-            newAudit.setDayOfWeek(null);
+            // If it's a new record, add full audit and continue
+            if (oldRow == null) {
+                changeMap.add(newAudit);
+                continue;
+            }
 
+            // For existing records, check for changes
             boolean hasChanges = false;
 
             // Process fields with MethodHandles
@@ -227,7 +220,8 @@ public class AuditHelper {
                 }
             }
 
-            if (hasChanges && oldRow != null) {
+            // Add to changeMap only if there are changes
+            if (hasChanges) {
                 changeMap.add(newAudit);
             }
         }
@@ -273,9 +267,6 @@ public class AuditHelper {
         List<String> fieldNames = new ArrayList<>(CONN_AUDIT_GETTER_CACHE.keySet());
 
         for (MarketListConnectionsEntity newRow : newRecords) {
-            MarketListConnAuditEntity newAudit = new MarketListConnAuditEntity();
-            BeanUtils.copyProperties(newRow, newAudit);
-
             String key = createCompositeKey(
                     newRow.getSector1() + "-" + newRow.getSector2(),
                     newRow.getFlight1() + "-" + newRow.getFlight2(),
@@ -283,24 +274,17 @@ public class AuditHelper {
             );
             MarketListConnectionsEntity oldRow = existingMap.get(key);
 
-            // Set audit fields
-            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
-            newAudit.setSector(newAudit.getSector1() + "-" + newAudit.getSector2());
-            newAudit.setFlightNo(newAudit.getFlight1() + "-" + newAudit.getFlight2());
-            newAudit.setUserName(userName);
-            newAudit.setChangedAt(currentDateTimeStr);
+            // Prepare audit entity (same for both new and existing records)
+            MarketListConnAuditEntity newAudit = new MarketListConnAuditEntity();
+            prepareNewConnRecordAudit(newRow, newAudit, userName, currentDateTimeStr);
 
-            // Clear unwanted fields
-            newAudit.setUuid(null);
-            newAudit.setSector1(null);
-            newAudit.setSector2(null);
-            newAudit.setFlight1(null);
-            newAudit.setFlight2(null);
-            newAudit.setPerType(null);
-            newAudit.setStartDate(null);
-            newAudit.setEndDate(null);
-            newAudit.setDayOfWeek(null);
+            // If it's a new record, add full audit and continue
+            if (oldRow == null) {
+                changeMap.add(newAudit);
+                continue;
+            }
 
+            // For existing records, check for changes
             boolean hasChanges = false;
 
             // Process fields with MethodHandles
@@ -335,7 +319,8 @@ public class AuditHelper {
                 }
             }
 
-            if (hasChanges && oldRow != null) {
+            // Add to changeMap only if there are changes
+            if (hasChanges) {
                 changeMap.add(newAudit);
             }
         }
@@ -590,6 +575,57 @@ public class AuditHelper {
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    /**
+     * Prepares a MarketListAuditEntity for new record auditing by copying all fields
+     * and setting audit-specific fields while clearing ignored fields.
+     */
+    private void prepareNewRecordAudit(MarketListEntity newRow, MarketListAuditEntity newAudit, 
+                                       String userName, String currentDateTimeStr) {
+        BeanUtils.copyProperties(newRow, newAudit);
+        
+        // Re-set audit fields
+        newAudit.setDate(newRow.getStartDate().replace('/', '-'));
+        newAudit.setSector(newRow.getOrigin() + newRow.getDestination());
+        newAudit.setUserName(userName);
+        newAudit.setChangedAt(currentDateTimeStr);
+        
+        // Clear only the ignored fields
+        newAudit.setUuid(null);
+        newAudit.setOrigin(null);
+        newAudit.setDestination(null);
+        newAudit.setPerType(null);
+        newAudit.setStartDate(null);
+        newAudit.setEndDate(null);
+        newAudit.setDayOfWeek(null);
+    }
+
+    /**
+     * Prepares a MarketListConnAuditEntity for new record auditing by copying all fields
+     * and setting audit-specific fields while clearing ignored fields.
+     */
+    private void prepareNewConnRecordAudit(MarketListConnectionsEntity newRow, MarketListConnAuditEntity newAudit,
+                                           String userName, String currentDateTimeStr) {
+        BeanUtils.copyProperties(newRow, newAudit);
+        
+        // Re-set audit fields
+        newAudit.setDate(newRow.getStartDate().replace('/', '-'));
+        newAudit.setSector(newRow.getSector1() + "-" + newRow.getSector2());
+        newAudit.setFlightNo(newRow.getFlight1() + "-" + newRow.getFlight2());
+        newAudit.setUserName(userName);
+        newAudit.setChangedAt(currentDateTimeStr);
+        
+        // Clear only the ignored fields
+        newAudit.setUuid(null);
+        newAudit.setSector1(null);
+        newAudit.setSector2(null);
+        newAudit.setFlight1(null);
+        newAudit.setFlight2(null);
+        newAudit.setPerType(null);
+        newAudit.setStartDate(null);
+        newAudit.setEndDate(null);
+        newAudit.setDayOfWeek(null);
     }
 
     @PostConstruct
