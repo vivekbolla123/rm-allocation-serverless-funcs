@@ -1,370 +1,616 @@
 import boto3
 import pandas as pd
-from io import StringIO
+from io import StringIO, BytesIO
 from datetime import datetime, timedelta
 import pytz
-import os
 import logging
-import sys
-from typing import List, Tuple
+import re
+from typing import List, Tuple, Dict, Any
 import traceback
 import configsettings
+from sqlalchemy import text
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-class S3CsvCombiner:
+class S3AuditProcessor:
     
     def __init__(self, logger, params, overrides, context):
         self.logger = logger or logging.getLogger()
-        self.mongo_conn = params['mongoconn']  # Single MongoDB connection
-        self.db = self.mongo_conn['qp_dw_rmalloc']
-
-        # S3 Configuration from overrides or defaults
-        self.bucket_name = configsettings.S3_BUCKET_NAME
-        self.prefix_path = configsettings.S3_FILE_PATH + "rm-admin/audits/"
+        self.dw_conn = params['dwconn']
+        self.schema = "RM_DW_DATA"
         
-        self.min_date = datetime.now() - timedelta(days=30)
-        
-        # Database collection names
-        self.raw_collection_name = "audit_raw_data"
-        self.summary_collection_name = "audit_ml_summary"
-        
-        # Initialize S3 client
+        # S3 Configuration
+        self.bucket = configsettings.S3_BUCKET_NAME
+        self.ml_prefix = configsettings.S3_FILE_PATH + "rm-admin/ml-audits/"
+        self.wb_prefix = configsettings.S3_FILE_PATH + "rm-admin/audits/"
         self.s3_client = boto3.client('s3')
         
-        # Store combined DataFrame in memory instead of temp file
-        self.combined_df = None
-
-    def normalize_prefix(self, prefix: str) -> str:
-        return prefix.rstrip('/') + '/'
-
-    def make_timezone_aware(self, date_obj: datetime) -> datetime:
-        if date_obj.tzinfo is None:
-            return pytz.utc.localize(date_obj)
-        return date_obj
-
-    def get_matching_csv_files(self, bucket: str, prefix: str, min_date: datetime) -> List[str]:
-        paginator = self.s3_client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        # Performance settings
+        self.max_workers = 20
+        self.batch_size = 1000
         
-        csv_files = []
-        for page in pages:
-            for obj in page.get('Contents', []):
-                if obj['Key'].endswith('.csv'):
-                    last_modified = obj['LastModified']
-                    if last_modified > min_date:
-                        csv_files.append(obj['Key'])
+        # Rolling window settings
+        self.rolling_days = 90
+        self.min_days_required = 85
         
-        self.logger.info(f"Found {len(csv_files)} CSV files from last 30 days")
+        # Date calculations
+        today = datetime.now().date()
+        self.target_date = today - timedelta(days=1)
+        self.window_start = today - timedelta(days=self.rolling_days)
+        self.window_end = self.target_date
         
-        if not csv_files:
-            error_msg = f"No CSV files found with last modified date after {min_date}"
-            self.logger.error(error_msg)
-            raise ValueError(error_msg)
+        # Table names
+        self.audit_table = "audit_reports"
+        self.metadata_table = "audit_metadata"
         
-        return csv_files
+        self.create_tables()
 
-    def read_csv_files_from_s3(self, bucket: str, csv_files: List[str]) -> List[pd.DataFrame]:
-        dfs = []
-        for index, file_key in enumerate(csv_files, 1):
-            try:
-                response = self.s3_client.get_object(Bucket=bucket, Key=file_key)
-                csv_content = response['Body'].read().decode('utf-8')
-                df = pd.read_csv(StringIO(csv_content))
-                dfs.append(df)
-            except Exception as e:
-                self.logger.error("Failed to read file %s: %s", file_key, str(e))
-                raise
-        
-        return dfs
-
-    def combine_dataframes(self, dfs: List[pd.DataFrame]) -> pd.DataFrame:
-        result_df = pd.concat(dfs, ignore_index=True)
-        self.logger.info(f"Combined {len(dfs)} files into {len(result_df)} total rows")
-        return result_df
-
-    def save_dataframe_to_mongodb(self, df: pd.DataFrame, collection_name: str, replace: bool = True) -> None:
-        """
-        Save DataFrame to MongoDB collection.
-        
-        Args:
-            df: DataFrame to save
-            collection_name: Name of the collection
-            replace: If True, replace all documents (like SQL 'replace'). If False, append.
-        """
+    def create_tables(self):
+        """Create MySQL tables if not exist"""
         try:
-            collection = self.db[collection_name]
-            
-            # Replace mode: delete all existing documents
-            if replace:
-                delete_result = collection.delete_many({})
-                self.logger.info(f"Deleted {delete_result.deleted_count} existing documents from {collection_name}")
-            
-            # Convert DataFrame to records
-            records = df.to_dict('records')
-            
-            # Convert date columns to datetime objects for MongoDB
-            # for record in records:
-            #     for key, value in record.items():
-            #         # Handle pandas Timestamp objects
-            #         if isinstance(value, pd.Timestamp):
-            #             record[key] = value.to_pydatetime()
-            #         # Handle date objects
-            #         elif hasattr(value, 'date') and callable(getattr(value, 'date')):
-            #             try:
-            #                 record[key] = datetime.combine(value, datetime.min.time())
-            #             except:
-            #                 pass
-            #         # Handle NaN and None values
-            #         elif pd.isna(value):
-            #             record[key] = None
-            
-            # Bulk insert
-            if records:
-                result = collection.insert_many(records)
-                self.logger.info(f"Saved {len(result.inserted_ids)} rows to collection {collection_name}")
-            else:
-                self.logger.info(f"No records to save to collection {collection_name}")
+            with self.dw_conn.connect() as conn:
+                audit_table_sql = text(f"""
+                CREATE TABLE IF NOT EXISTS {self.schema}.{self.audit_table} (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    sector VARCHAR(50) NOT NULL,
+                    flightNo VARCHAR(50) NOT NULL,
+                    departureDate INT NOT NULL,
+                    source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
+                    changedAtDate INT NOT NULL COMMENT 'YYYYMMDD',
+                    changedAtTime INT NOT NULL COMMENT 'HHMM',
+                    analystName VARCHAR(100),
+                    colName VARCHAR(100),
+                    value TEXT,
+                    INDEX idx_sector_flight (sector, flightNo, departureDate),
+                    INDEX idx_changed_date (changedAtDate),
+                    INDEX idx_source (source)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                
+                metadata_table_sql = text(f"""
+                CREATE TABLE IF NOT EXISTS {self.schema}.{self.metadata_table} (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    type VARCHAR(50),
+                    timestamp DATETIME,
+                    last_processed_date INT,
+                    files_processed_count INT,
+                    INDEX idx_type_time (type, timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
+                
+                conn.execute(audit_table_sql)
+                conn.execute(metadata_table_sql)
+                self.logger.info("Tables created successfully")
                 
         except Exception as e:
-            self.logger.error("Failed to save to MongoDB collection %s: %s", collection_name, str(e))
+            self.logger.error(f"Failed to create tables: {e}")
             raise
 
-    def combine_s3_csv_files(self) -> pd.DataFrame:
-        # Normalize prefix and make date timezone-aware
-        normalized_prefix = self.normalize_prefix(self.prefix_path)
-        tz_aware_min_date = self.make_timezone_aware(self.min_date)
-        
-        # Get matching CSV files
-        csv_files = self.get_matching_csv_files(self.bucket_name, normalized_prefix, tz_aware_min_date)
-        
-        # Read CSV files from S3
-        dataframes = self.read_csv_files_from_s3(self.bucket_name, csv_files)
-        
-        # Combine all DataFrames
-        combined_df = self.combine_dataframes(dataframes)
-        
-        # Store in memory for later processing
-        self.combined_df = combined_df
-        
-        # Save combined DataFrame to MongoDB
-        self.save_dataframe_to_mongodb(combined_df, self.raw_collection_name, replace=True)
-        
-        return combined_df
+    # ==================== DATE/TIME CONVERTERS ====================
+    
+    def to_date_int(self, date_str: str) -> int:
+        """Convert YYYY-MM-DD to YYYYMMDD"""
+        try:
+            return int(datetime.strptime(date_str, '%Y-%m-%d').strftime('%Y%m%d'))
+        except:
+            return 0
 
-    def process_audit_data(self, df: pd.DataFrame) -> pd.DataFrame:
-        df['changedAt'] = pd.to_datetime(df['changedAt'])
-        df['changedAtDate'] = df['changedAt'].dt.date
-
-        # Group by date and userName for audit counts
-        grouped_df = df.groupby(['changedAtDate', 'userName']).agg({
-            'date': 'size'  # This counts the number of records
-        }).reset_index()
-        
-        # Rename columns for clarity
-        grouped_df.rename(columns={
-            'changedAtDate': 'date',
-            'userName': 'username',  # Standardize column name
-            'date': 'AuditCounts'
-        }, inplace=True)
-        
-        self.logger.info(f"Processed audit data into {len(grouped_df)} grouped records")
-        return grouped_df
-
-    def get_date_range_from_audit_data(self, grouped_df: pd.DataFrame) -> Tuple[str, str]:
-        min_date = grouped_df['date'].min().strftime('%Y-%m-%d')
-        max_date = grouped_df['date'].max().strftime('%Y-%m-%d')
-        return min_date, max_date
-
-    def fetch_ml_upload_counts(self, start_date: str, end_date: str) -> pd.DataFrame:
+    def to_time_int(self, iso_datetime: str) -> int:
         """
-        Fetch ML upload counts from MongoDB inputs_file_upload collection.
+        Extract time from ISO datetime and convert to 1HHMM (5 digits with leading 1)
+        Examples:
+            2026-01-06T04:32:53 → 10432
+            2026-01-06T14:26:53 → 11426
+            2025-10-29T10:42:53 → 11042
+            2026-01-08T00:00:00 → 10000
         """
         try:
-            collection = self.db['inputs_file_upload']
+            if not iso_datetime or 'T' not in iso_datetime:
+                return 0
             
-            # Convert date strings to datetime objects for MongoDB query
-            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
-            end_datetime = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
+            time_part = iso_datetime.split('T')[1]
+            hour, minute = time_part.split(':')[:2]
             
-            start_datetime_str=start_datetime.strftime('%Y-%m-%d %H:%M:%S')# Include end date
-            end_datetime_str=end_datetime.strftime('%Y-%m-%d %H:%M:%S')
-            # MongoDB aggregation pipeline
-            pipeline = [
-    {
-        "$addFields": {
-            # Convert string to actual date object
-            "init_timestamp_dt": {
-                "$dateFromString": {
-                    "dateString": "$init_timestamp",
-                    "format": "%Y-%m-%dT%H:%M:%S"
+            # Format: 1HHMM (5 digits with leading 1)
+            return int(f"1{hour.zfill(2)}{minute.zfill(2)}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to convert time from '{iso_datetime}': {e}")
+            return 0
+
+    def normalize_date(self, date_str: str) -> str:
+        """
+        Normalize MM-DD-YYYY format to YYYY-MM-DD
+        Both WB and ML use MM-DD-YYYY format
+        Examples:
+            01-24-2026 → 2026-01-24
+            10-27-2026 → 2026-10-27
+        """
+        if not date_str or not isinstance(date_str, str):
+            return ""
+        
+        try:
+            date_str = date_str.strip()
+            parts = date_str.split('-')
+            
+            if len(parts) != 3:
+                return ""
+            
+            # yyyy-mm-dd (already correct)
+            if len(parts[0]) == 4:
+                return date_str
+            
+            # mm-dd-yyyy format (standard for both WB and ML)
+            if len(parts[2]) == 4:
+                month, day, year = parts
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            
+            return ""
+        except Exception as e:
+            self.logger.warning(f"Failed to normalize date '{date_str}': {e}")
+            return ""
+
+    # ==================== METADATA & HELPERS ====================
+    
+    def is_first_run(self) -> bool:
+        """Check if database is empty"""
+        try:
+            with self.dw_conn.connect() as conn:
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}"))
+                count = result.fetchone()[0]
+                return count == 0
+        except:
+            return True
+
+    def save_metadata(self, file_count: int):
+        """Save processing run metadata"""
+        try:
+            with self.dw_conn.connect() as conn:
+                query = text(f"""
+                    INSERT INTO {self.schema}.{self.metadata_table}
+                    (type, timestamp, last_processed_date, files_processed_count)
+                    VALUES ('last_run', :timestamp, :target_date, :file_count)
+                """)
+                
+                target_int = int(self.target_date.strftime('%Y%m%d'))
+                conn.execute(query, {
+                    'timestamp': datetime.now(),
+                    'target_date': target_int,
+                    'file_count': file_count
+                })
+                self.logger.info(f"Saved metadata: {file_count} files processed")
+        except Exception as e:
+            self.logger.error(f"Failed to save metadata: {e}")
+
+    def get_date_range(self) -> Tuple[int, int]:
+        """Get min/max dates from existing data"""
+        try:
+            with self.dw_conn.connect() as conn:
+                query = text(f"""
+                    SELECT 
+                        MIN(changedAtDate) as min_date,
+                        MAX(changedAtDate) as max_date
+                    FROM {self.schema}.{self.audit_table}
+                    WHERE changedAtDate >= 19000101
+                """)
+                result = conn.execute(query)
+                row = result.fetchone()
+                
+                if row and row[0] and row[1]:
+                    min_date = int(row[0])
+                    max_date = int(row[1])
+                    
+                    # Validation: ensure 8-digit dates
+                    if len(str(min_date)) == 8 and len(str(max_date)) == 8:
+                        return min_date, max_date
+                    else:
+                        self.logger.warning(f"Invalid date format: min={min_date}, max={max_date}")
+                        return None, None
+                        
+                return None, None
+                
+        except Exception as e:
+            self.logger.error(f"Failed to get date range: {e}")
+            return None, None
+
+    def cleanup_old_data(self, cutoff_date_int: int):
+        """Delete records older than cutoff date"""
+        try:
+            with self.dw_conn.connect() as conn:
+                query = text(f"""
+                    DELETE FROM {self.schema}.{self.audit_table} 
+                    WHERE changedAtDate < :cutoff
+                """)
+                result = conn.execute(query, {'cutoff': cutoff_date_int})
+                self.logger.info(f"Deleted {result.rowcount} old records before {cutoff_date_int}")
+        except Exception as e:
+            self.logger.error(f"Failed cleanup: {e}")
+
+    # ==================== S3 FILE DISCOVERY ====================
+    
+    def make_timezone_aware(self, dt: datetime) -> datetime:
+        """Ensure datetime is timezone-aware"""
+        return pytz.utc.localize(dt) if dt.tzinfo is None else dt
+
+    def file_in_range(self, file_key: str, start: datetime.date, end: datetime.date) -> bool:
+        """Check if file's date is within range"""
+        try:
+            # ML files: changedAtDate=YYYY-MM-DD
+            if 'changedAtDate=' in file_key:
+                match = re.search(r'changedAtDate=(\d{4}-\d{2}-\d{2})', file_key)
+                if match:
+                    file_date = datetime.strptime(match.group(1), '%Y-%m-%d').date()
+                    return start <= file_date <= end
+            
+            # WB files: date=MM-DD-YYYY and filename YYYY-MM-DD.csv
+            elif '/date=' in file_key:
+                match = re.search(r'/date=(\d{2}-\d{2}-\d{4})/', file_key)
+                if match:
+                    m, d, y = match.group(1).split('-')
+                    dept_date = datetime(int(y), int(m), int(d)).date()
+                    
+                    filename = file_key.split('/')[-1].replace('.csv', '')
+                    try:
+                        changed_date = datetime.strptime(filename, '%Y-%m-%d').date()
+                        return (start <= dept_date <= end) or (start <= changed_date <= end)
+                    except:
+                        return start <= dept_date <= end
+            
+            return False
+        except:
+            return False
+
+    def get_ml_files(self, first_run: bool) -> List[str]:
+        """Get ML audit parquet files - INCLUDING CONNECTIONS"""
+        files = []
+        min_date = self.make_timezone_aware(
+            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
+        )
+        
+        # Include both direct AND connections
+        for audit_type in ['direct', 'connections']:
+            prefix = f"{self.ml_prefix}{audit_type}/"
+            paginator = self.s3_client.get_paginator('list_objects_v2')
+            
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for obj in page.get('Contents', []):
+                    if obj['Key'].endswith('.parquet'):
+                        if first_run:
+                            if self.file_in_range(obj['Key'], self.window_start, self.window_end):
+                                files.append(obj['Key'])
+                        else:
+                            if obj['LastModified'] >= min_date:
+                                files.append(obj['Key'])
+        
+        print(f"Found {len(files)} ML files (direct + connections)")
+        return files
+
+    def get_wb_files(self, first_run: bool) -> List[str]:
+        """Get Workbench audit CSV files"""
+        files = []
+        min_date = self.make_timezone_aware(
+            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
+        )
+        
+        paginator = self.s3_client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.wb_prefix):
+            for obj in page.get('Contents', []):
+                if obj['Key'].endswith('.csv'):
+                    if first_run:
+                        if self.file_in_range(obj['Key'], self.window_start, self.window_end):
+                            files.append(obj['Key'])
+                    else:
+                        if obj['LastModified'] >= min_date:
+                            files.append(obj['Key'])
+        
+        print(f"Found {len(files)} WB files")
+        return files
+
+    # ==================== FILE PROCESSING ====================
+    
+    def process_ml_file(self, file_key: str) -> List[Dict]:
+        """Process single ML parquet file - HANDLES CONNECTIONS"""
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_parquet(BytesIO(response['Body'].read()))
+            
+            records = []
+            for _, row in df.iterrows():
+                # Get sector and flight info (could be connections like "619-1528")
+                sector = str(row.get('sector', ''))[:50]
+                flight_no = str(row.get('flightNo', ''))[:50]
+                dept_date = str(row.get('date', ''))  # MM-DD-YYYY format
+                changed_at = row.get('changedAt', '')
+                analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
+                
+                # Normalize date from MM-DD-YYYY to YYYY-MM-DD
+                normalized_date = self.normalize_date(dept_date)
+                dept_date_int = self.to_date_int(normalized_date)
+                
+                # Extract date and time separately
+                changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
+                changed_at_time_int = self.to_time_int(changed_at)
+                
+                # Skip connection-specific metadata fields
+                skip_columns = [
+                    'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
+                    'sector1', 'sector2', 'flight1', 'flight2'
+                ]
+                
+                # Process each column as a potential change
+                for col, val in row.items():
+                    if col in skip_columns:
+                        continue
+                    if pd.isna(val):
+                        continue
+                    
+                    records.append({
+                        'sector': sector,
+                        'flightNo': flight_no,
+                        'departureDate': dept_date_int,
+                        'source': 0,
+                        'changedAtDate': changed_at_date_int,
+                        'changedAtTime': changed_at_time_int,
+                        'analystName': analyst,
+                        'colName': col,
+                        'value': str(val) if val is not None else ''
+                    })
+            
+            return records
+            
+        except Exception as e:
+            self.logger.error(f"Failed ML file {file_key}: {e}")
+            return []
+
+    def process_wb_file(self, file_key: str) -> List[Dict]:
+        """Process single WB CSV file"""
+        try:
+            # Extract metadata from path
+            path_parts = file_key.split('/')
+            sector = flight_no = dept_date = ''
+            
+            for part in path_parts:
+                if part.startswith('sector='):
+                    sector = part.split('=')[1]
+                elif part.startswith('flightNo='):
+                    flight_no = part.split('=')[1]
+                elif part.startswith('date='):
+                    dept_date = part.split('=')[1]  # MM-DD-YYYY format
+            
+            # Read CSV from S3
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
+            df = pd.read_csv(StringIO(response['Body'].read().decode('utf-8')))
+            
+            records = []
+            for _, row in df.iterrows():
+                csv_sector = str(row.get('sector', sector))[:50]
+                csv_flight = str(row.get('flightNo', flight_no))[:50]
+                csv_date = str(row.get('date', dept_date))  # MM-DD-YYYY format
+                analyst = str(row.get('userName', ''))[:100]
+                changed_at = row.get('changedAt', '')
+                
+                # Normalize date from MM-DD-YYYY to YYYY-MM-DD
+                normalized_date = self.normalize_date(csv_date)
+                dept_date_int = self.to_date_int(normalized_date)
+                
+                # Extract date and time separately
+                changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
+                changed_at_time_int = self.to_time_int(changed_at)
+                
+                for col, val in row.items():
+                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
+                        continue
+                    if pd.isna(val):
+                        continue
+                    
+                    records.append({
+                        'sector': csv_sector,
+                        'flightNo': csv_flight,
+                        'departureDate': dept_date_int,
+                        'source': 1,
+                        'changedAtDate': changed_at_date_int,
+                        'changedAtTime': changed_at_time_int,
+                        'analystName': analyst,
+                        'colName': col,
+                        'value': str(val) if val is not None else ''
+                    })
+            
+            return records
+            
+        except Exception as e:
+            self.logger.error(f"Failed WB file {file_key}: {e}")
+            return []
+
+    def process_all_files(self, first_run: bool) -> Tuple[List[Dict], int]:
+        """Process all files in parallel"""
+        all_records = []
+        
+        # Get file lists
+        ml_files = self.get_ml_files(first_run)
+        wb_files = self.get_wb_files(first_run)
+        
+        print(f"Processing {len(ml_files)} ML + {len(wb_files)} WB files in parallel...")
+        
+        # Process ML files in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            ml_futures = {executor.submit(self.process_ml_file, f): f for f in ml_files}
+            
+            completed = 0
+            for future in as_completed(ml_futures):
+                try:
+                    records = future.result()
+                    all_records.extend(records)
+                    completed += 1
+                    if completed % 50 == 0:
+                        print(f"  Processed {completed}/{len(ml_files)} ML files...")
+                except Exception as e:
+                    self.logger.error(f"ML file processing failed: {e}")
+        
+        # Process WB files in parallel
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            wb_futures = {executor.submit(self.process_wb_file, f): f for f in wb_files}
+            
+            completed = 0
+            for future in as_completed(wb_futures):
+                try:
+                    records = future.result()
+                    all_records.extend(records)
+                    completed += 1
+                    if completed % 100 == 0:
+                        print(f"  Processed {completed}/{len(wb_files)} WB files...")
+                except Exception as e:
+                    self.logger.error(f"WB file processing failed: {e}")
+        
+        file_count = len(ml_files) + len(wb_files)
+        print(f"Total: {len(all_records)} records from {file_count} files")
+        return all_records, file_count
+
+    # ==================== DATABASE OPERATIONS ====================
+    
+    def save_records(self, records: List[Dict], replace: bool = False):
+        """Save records to MySQL with batching"""
+        try:
+            with self.dw_conn.connect() as conn:
+                if replace:
+                    conn.execute(text(f"DELETE FROM {self.schema}.{self.audit_table}"))
+                    print(f"Cleared {self.audit_table}")
+                
+                if records:
+                    query = text(f"""
+                        INSERT INTO {self.schema}.{self.audit_table}
+                        (sector, flightNo, departureDate, source, changedAtDate, changedAtTime,
+                        analystName, colName, value)
+                        VALUES (:sector, :flightNo, :departureDate, :source, 
+                                :changedAtDate, :changedAtTime, :analystName, :colName, :value)
+                    """)
+                    
+                    # Batch insert for better performance
+                    total_inserted = 0
+                    for i in range(0, len(records), self.batch_size):
+                        batch = records[i:i + self.batch_size]
+                        conn.execute(query, batch)
+                        total_inserted += len(batch)
+                        if total_inserted % (self.batch_size * 5) == 0:
+                            print(f"  Inserted {total_inserted}/{len(records)} records...")
+                    
+                    print(f"Saved {len(records)} records to MySQL")
+                
+        except Exception as e:
+            self.logger.error(f"Failed to save records: {e}")
+            raise
+
+    def get_summary(self) -> Dict:
+        """Get processing summary"""
+        try:
+            with self.dw_conn.connect() as conn:
+                min_date, max_date = self.get_date_range()
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table}"))
+                total = result.fetchone()[0]
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 0"))
+                ml_count = result.fetchone()[0]
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1"))
+                wb_count = result.fetchone()[0]
+                
+                # Count connections vs direct
+                result = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
+                    WHERE source = 0 AND flightNo LIKE '%-%'
+                """))
+                connection_count = result.fetchone()[0]
+                
+                result = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
+                    WHERE source = 0 AND flightNo NOT LIKE '%-%'
+                """))
+                direct_count = result.fetchone()[0]
+                
+                return {
+                    'total_records': total,
+                    'ml_records': ml_count,
+                    'ml_direct': direct_count,
+                    'ml_connections': connection_count,
+                    'wb_records': wb_count,
+                    'date_range': f"{min_date} to {max_date}" if min_date else "No data",
+                    'target_date': int(self.target_date.strftime('%Y%m%d'))
                 }
-            }
-        }
-    },
-    {
-        "$match": {
-            "init_timestamp_dt": {
-                "$gte": start_datetime,
-                "$lt": end_datetime
-            },
-            "tableName": {"$regex": "market_list", "$options": "i"}
-        }
-    },
-    {
-        "$project": {
-            "date": "$init_timestamp_dt",
-            "username": 1
-        }
-    },
-    {
-        "$group": {
-            "_id": {
-                "date": "$date",
-                "username": "$username"
-            },
-            "MLUploadCounts": {"$sum": 1}
-        }
-    },
-    {
-        "$project": {
-            "_id": 0,
-            "date": "$_id.date",
-            "username": "$_id.username",
-            "MLUploadCounts": 1
-        }
-    },
-    {
-        "$sort": {"date": 1}
-    }
-]
-            
-            # Execute aggregation
-            result = list(collection.aggregate(pipeline))
-            ml_df = pd.DataFrame(result)
-            
-            if not ml_df.empty:
-                # Convert date string back to date object
-                ml_df['date'] = pd.to_datetime(ml_df['date']).dt.date
-            
-            self.logger.info(f"Fetched {len(ml_df)} ML upload records")
-            return ml_df
-            
-        except Exception as e:
-            self.logger.error("Failed to fetch ML upload counts from MongoDB: %s", str(e))
-            # Fallback: try with string-based date matching if init_timestamp is stored as string
-            try:
-                self.logger.info("Attempting fallback query with string date matching")
-                return self._fetch_ml_upload_counts_fallback(start_date, end_date)
-            except:
-                raise
+        except:
+            return {}
 
-    def _fetch_ml_upload_counts_fallback(self, start_date: str, end_date: str) -> pd.DataFrame:
-        """
-        Fallback method if init_timestamp is stored as string in MongoDB.
-        """
-        try:
-            collection = self.db['inputs_file_upload']
-            
-            # Fetch all matching documents and process in pandas
-            cursor = collection.find({
-                'tableName': {'$regex': 'market_list', '$options': 'i'}
-            })
-            
-            df = pd.DataFrame(list(cursor))
-            
-            if df.empty:
-                return pd.DataFrame(columns=['date', 'username', 'MLUploadCounts'])
-            
-            # Remove MongoDB _id
-            if '_id' in df.columns:
-                df = df.drop('_id', axis=1)
-            
-            # Convert init_timestamp to datetime
-            df['init_timestamp'] = pd.to_datetime(df['init_timestamp'], errors='coerce')
-            df['date'] = df['init_timestamp'].dt.date
-            
-            # Filter by date range
-            start_dt = datetime.strptime(start_date, '%Y-%m-%d').date()
-            end_dt = datetime.strptime(end_date, '%Y-%m-%d').date()
-            df = df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
-            
-            # Group by date and username
-            ml_df = df.groupby(['date', 'username']).size().reset_index(name='MLUploadCounts')
-            
-            self.logger.info(f"Fetched {len(ml_df)} ML upload records (fallback method)")
-            return ml_df
-            
-        except Exception as e:
-            self.logger.error("Fallback method also failed: %s", str(e))
-            raise
-
-    def join_audit_and_ml_data(self, audit_df: pd.DataFrame, ml_df: pd.DataFrame) -> pd.DataFrame:
-        # Create a comprehensive date-username combination from both datasets
-        audit_combinations = audit_df[['date', 'username']].copy()
-        ml_combinations = ml_df[['date', 'username']].copy()
-        
-        # Combine all unique date-username combinations
-        all_combinations = pd.concat([audit_combinations, ml_combinations]).drop_duplicates().reset_index(drop=True)
-        
-        # Left join audit data to get audit counts
-        final_df = pd.merge(all_combinations, audit_df, on=['date', 'username'], how='left')
-        
-        # Left join ML data to get ML upload counts
-        final_df = pd.merge(final_df, ml_df, on=['date', 'username'], how='left')
-        
-        # Fill missing values with 0
-        final_df['AuditCounts'] = final_df['AuditCounts'].fillna(0).astype(int)
-        final_df['MLUploadCounts'] = final_df['MLUploadCounts'].fillna(0).astype(int)
-        
-        self.logger.info(f"Joined data: {len(final_df)} total records")
-        
-        return final_df
-
-    def add_default_ml_counts(self, audit_df: pd.DataFrame) -> pd.DataFrame:
-        final_df = audit_df.copy()
-        final_df['MLUploadCounts'] = 0
-        return final_df
-
-    def process_ml_data_integration(self, audit_df: pd.DataFrame) -> pd.DataFrame:
-        try:
-            min_date, max_date = self.get_date_range_from_audit_data(audit_df)
-            ml_df = self.fetch_ml_upload_counts(min_date, max_date)
-            return self.join_audit_and_ml_data(audit_df, ml_df)
-            
-        except Exception as e:
-            self.logger.error("Failed to fetch ML upload counts, proceeding without: %s", str(e))
-            return self.add_default_ml_counts(audit_df)
-
-    def generate_final_report(self) -> pd.DataFrame:
-        # Check if combined_df is available
-        if self.combined_df is None:
-            raise ValueError("No combined data available. Run combine_s3_csv_files() first.")
-        
-        # Process audit data to get grouped counts (using in-memory DataFrame)
-        audit_df = self.process_audit_data(self.combined_df)
-        
-        # Integrate ML data with the audit counts
-        final_df = self.process_ml_data_integration(audit_df)
-        final_df['date'] = pd.to_datetime(final_df['date'])
-        
-        # Save final report to MongoDB
-        self.save_dataframe_to_mongodb(final_df, self.summary_collection_name, replace=True)
-        
-        return final_df
-
+    # ==================== MAIN RUN ====================
+    
     def run(self):
+        """Main execution flow"""
         try:
-            self.logger.info("Starting S3 CSV combiner process")
+            start_time = datetime.now()
+            print("=" * 60)
+            print("S3 AUDIT PROCESSOR (Direct + Connections)")
+            print("=" * 60)
             
-            # Step 1: Combine S3 CSV files and save to MongoDB
-            combined_df = self.combine_s3_csv_files()
+            first_run = self.is_first_run()
             
-            # Step 2: Generate final report with ML data and save to MongoDB
-            final_df = self.generate_final_report()
+            if first_run:
+                print(f"\n>>> FIRST RUN - Loading {self.rolling_days} days")
+                print(f"Date range: {self.window_start} to {self.window_end}\n")
+                
+                records, file_count = self.process_all_files(first_run=True)
+                
+                if not records:
+                    print("No records found for initial load")
+                    return False
+                
+                self.save_records(records, replace=True)
+                self.save_metadata(file_count)
+                
+            else:
+                print(f"\n>>> ROLLING RUN - Processing {self.target_date}\n")
+                
+                min_date, max_date = self.get_date_range()
+                if min_date and max_date:
+                    # Validate date format before parsing
+                    if len(str(min_date)) != 8 or len(str(max_date)) != 8:
+                        self.logger.error(f"Invalid date format: min={min_date}, max={max_date}")
+                        print(f"ERROR: Invalid data in database. Please run cleanup.")
+                        return False
+                    
+                    min_obj = datetime.strptime(str(min_date), '%Y%m%d').date()
+                    max_obj = datetime.strptime(str(max_date), '%Y%m%d').date()
+                    days_span = (max_obj - min_obj).days + 1
+                    
+                    print(f"Existing: {min_date} to {max_date} ({days_span} days)")
+                    
+                    if days_span >= self.min_days_required:
+                        cutoff = int(self.window_start.strftime('%Y%m%d'))
+                        self.cleanup_old_data(cutoff)
+                    else:
+                        print(f"Keeping all data ({days_span} < {self.min_days_required} days)")
+                
+                records, file_count = self.process_all_files(first_run=False)
+                
+                if records:
+                    self.save_records(records, replace=False)
+                    self.save_metadata(file_count)
+                else:
+                    print("No new records found")
             
-            self.logger.info(f"Process completed successfully - Raw: {len(combined_df)} rows, Summary: {len(final_df)} rows")
+            print("\n" + "=" * 60)
+            summary = self.get_summary()
+            print("SUMMARY:")
+            for key, val in summary.items():
+                print(f"  {key}: {val}")
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            print(f"  processing_time: {elapsed:.2f} seconds")
+            print("=" * 60)
+            
             return True
             
         except Exception as e:
-            self.logger.error(f"Error in S3 CSV combiner process: {str(e)}")
+            self.logger.error(f"Process failed: {e}")
             traceback.print_exc()
             return False
+
+
+# Backward compatibility
+S3CsvCombiner = S3AuditProcessor

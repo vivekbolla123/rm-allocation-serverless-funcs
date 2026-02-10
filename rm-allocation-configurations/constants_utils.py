@@ -80,6 +80,7 @@ class ConstantsUtils:
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
         self.MARKET_FLAG = MARKET_FLAG
+        self.RBD_VALUES = RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
 
 
@@ -245,8 +246,10 @@ class ConstantsUtils:
                 self.UP_B2B = int(parameter_value)
             elif parameter_key == MARKET_FLAG_KEY:
                 self.MARKET_FLAG = parameter_value
+            elif parameter_key == RBD_VALUES_KEY:
+                self.RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
-                self.B2B_THRESHOLD = parameter_value
+                self.B2B_THRESHOLD = float(parameter_value)
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value

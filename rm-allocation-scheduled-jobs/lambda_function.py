@@ -26,7 +26,7 @@ from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
-from input_audits import S3CsvCombiner
+from input_audits import S3AuditProcessor
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
@@ -35,6 +35,8 @@ from cugReport import CugReport
 from scheduled_run_fail_alert import ScheduledRunFailureAlert
 from heuristicCalc import FareStatisticalAnalysis
 from run_paused_scheduled_runs import Run_Paused_Runs
+from active_sectors import ActiveSectors
+from forecast_date_config import ForecastDateConfig
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -95,7 +97,7 @@ module_map = {
     "update_calendar": CalendarUpdate,
     "expected_no_shows": ExpectedNoShows,
     "schedule_thirty": ScheduleThirty,
-    "input_audits": S3CsvCombiner,
+    "input_audits": S3AuditProcessor,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
     "default_ml": defaultMarketlist,
@@ -103,7 +105,9 @@ module_map = {
     "cug_report": CugReport,
     "schd_run_fail_alert": ScheduledRunFailureAlert,
     "calc": FareStatisticalAnalysis,
-    "run_paused_runs": Run_Paused_Runs
+    "run_paused_runs": Run_Paused_Runs,
+    "active_sectors": ActiveSectors,
+    "forecast_date_config": ForecastDateConfig
 }
 
 
@@ -194,7 +198,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"run_paused_runs\": 1}}"
+#   "body": "{\"modules\":{\"active_sectors\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

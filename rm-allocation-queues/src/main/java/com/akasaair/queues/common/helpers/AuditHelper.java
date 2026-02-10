@@ -1,606 +1,714 @@
-//package com.akasaair.queues.common.helpers;
-//
-//import com.akasaair.queues.common.entity.MarketListAuditEntity;
-//import com.akasaair.queues.common.entity.MarketListConnAuditEntity;
-//import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
-//import com.akasaair.queues.common.entity.MarketListEntity;
-//import com.mongodb.client.MongoCollection;
-//import com.mongodb.client.MongoDatabase;
-//import com.mongodb.client.model.Filters;
-//import lombok.extern.slf4j.Slf4j;
-//import org.apache.commons.lang3.reflect.FieldUtils;
-//import org.bson.Document;
-//import org.bson.conversions.Bson;
-//import org.springframework.beans.factory.annotation.Autowired;
-//import org.springframework.beans.factory.annotation.Value;
-//import org.springframework.core.task.TaskExecutor;
-//import org.springframework.stereotype.Component;
-//import org.springframework.beans.BeanUtils;
-//import software.amazon.awssdk.regions.Region;
-//
-//import javax.persistence.Column;
-//import java.lang.reflect.Field;
-//import java.lang.reflect.InvocationTargetException;
-//import java.sql.*;
-//import java.time.LocalDateTime;
-//import java.util.*;
-//import java.util.concurrent.CompletableFuture;
-//import java.util.stream.Collectors;
-//
-//import static com.akasaair.queues.common.constants.Constants.*;
-//
-//@Slf4j
-//@Component
-//public class AuditHelper {
-//
-//    @Value("${rm.file-path}")
-//    private String S3_FILE_PATH_NAME;
-//
-//    @Value("${rm.s3-bucket}")
-//    private String S3_BUCKET_NAME;
-//
-//    @Value("${RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD}")
-//    private String accessKey;
-//
-//    @Value("${RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD}")
-//    private String secretKey;
-//
-//    @Autowired
-//    private TaskExecutor taskExecutor;
-//
-//    private final MongoDatabase database;
-//
-//    public AuditHelper(MongoConnection mongoConnection) {
-//        this.database = mongoConnection.getDatabase();
-//    }
-//
-//    public void buildAuditLogs(List<MarketListEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-//        log.info("Processing the delta for audits");
-//
-//        Set<String> keys = newRecords.stream()
-//                .map(record -> createCompositeKey(record.getOrigin() + record.getDestination(), record.getFlightNo(), record.getStartDate()))
-//                .collect(Collectors.toSet());
-//
-//        Map<String, MarketListEntity> existingMap = fetchExistingRecords(keys, MarketListEntity.class, collectionName);
-//
-//        log.info("Existing records fetched. Building delta and uploading audits asynchronously");
-//
-//        // Process delta and upload asynchronously
-//        CompletableFuture.runAsync(() -> {
-//            try {
-//                List<MarketListAuditEntity> changeMap = buildDeltaRecords(newRecords, existingMap, userName, currentDateTime);
-//
-//                appendAuditsToS3(changeMap, currentDateTime, MarketListAuditEntity.class);
-//            } catch (Exception e) {
-//                // Log the exception appropriately
-//                log.error("Error processing audit delta: {}", e.getMessage());
-//            }
-//        }, taskExecutor);
-//
-//    }
-//
-//    private List<MarketListAuditEntity> buildDeltaRecords(List<MarketListEntity> newRecords,
-//                                                          Map<String, MarketListEntity> existingMap,
-//                                                          String userName,
-//                                                          LocalDateTime currentDateTime) throws IllegalAccessException, InvocationTargetException, NoSuchMethodException, InstantiationException {
-//        List<MarketListAuditEntity> changeMap = new ArrayList<>();
-//        Field[] fields = FieldUtils.getAllFields(MarketListAuditEntity.class);
-//
-//        for (MarketListEntity newRow : newRecords) {
-//            MarketListAuditEntity newAudit = new MarketListAuditEntity();
-//            BeanUtils.copyProperties(newRow, newAudit);
-//
-//            String key = createCompositeKey(newRow.getOrigin() + newRow.getDestination(), newRow.getFlightNo(), newRow.getStartDate());
-//            MarketListEntity oldRow = existingMap.get(key);
-//
-//            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
-//            newAudit.setSector(newAudit.getOrigin() + newAudit.getDestination());
-//            newAudit.setUserName(userName);
-//
-//            // Set unwanted fields as null
-//            newAudit.setUuid(null);
-//            newAudit.setOrigin(null);
-//            newAudit.setDestination(null);
-//            newAudit.setPerType(null);
-//            newAudit.setStartDate(null);
-//            newAudit.setEndDate(null);
-//            newAudit.setDayOfWeek(null);
-//
-//            newAudit.setChangedAt(currentDateTime.toString());
-//            boolean hasChanges = false;
-//
-//            for (Field field : fields) {
-//                field.setAccessible(true);
-//
-//                boolean isNotAuditField = !(field.getName().equals("userName") || field.getName().equals("sector") ||
-//                        field.getName().equals("date") || field.getName().equals("changedAt") ||
-//                        field.getName().equals("flightNo"));
-//
-//                Object oldVal = null;
-//                if (isNotAuditField && oldRow != null) {
-//                    oldVal = field.get(oldRow);
-//                }
-//                Object newVal = field.get(newAudit);
-//
-//                if (newVal == null || areValuesEqual(oldVal, newVal)) {
-//                    field.set(newAudit, null);
-//                } else {
-//                    if (isNotAuditField) {
-//                        hasChanges = true;
-//                    }
-//                    if (((String) newVal).trim().isEmpty()) {
-//                        field.set(newAudit, AUDIT_EMPTY_IDENTIFIER);
-//                    }
-//                }
-//            }
-//
-//            if (hasChanges && oldRow != null) {
-//                changeMap.add(newAudit);
-//            }
-//        }
-//
-//        return changeMap;
-//    }
-//
-//    public void buildConnAuditLogs(List<MarketListConnectionsEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-//        log.info("Processing the delta for connection audits");
-//
-//        Set<String> keys = newRecords.stream()
-//                .map(record -> createCompositeKey(record.getSector1() + "-" + record.getSector2(),
-//                        record.getFlight1() + "-" + record.getFlight2(), record.getStartDate()))
-//                .collect(Collectors.toSet());
-//
-//        Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(keys, MarketListConnectionsEntity.class, collectionName);
-//
-//        log.info("Existing connection records fetched. Building delta and uploading audits asynchronously");
-//
-//        // Process delta and upload asynchronously
-//        CompletableFuture.runAsync(() -> {
-//            try {
-//                List<MarketListConnAuditEntity> changeMap = buildConnDeltaRecords(newRecords, existingMap, userName, currentDateTime);
-//
-//                appendAuditsToS3(changeMap, currentDateTime, MarketListConnAuditEntity.class);
-//            } catch (Exception e) {
-//                // Log the exception appropriately
-//                log.error("Error processing connection audit delta: {}", e.getMessage());
-//            }
-//        }, taskExecutor);
-//
-//    }
-//
-//    private List<MarketListConnAuditEntity> buildConnDeltaRecords(List<MarketListConnectionsEntity> newRecords,
-//                                                                  Map<String, MarketListConnectionsEntity> existingMap,
-//                                                                  String userName,
-//                                                                  LocalDateTime currentDateTime) throws IllegalAccessException, InvocationTargetException, NoSuchMethodException, InstantiationException {
-//        List<MarketListConnAuditEntity> changeMap = new ArrayList<>();
-//        Field[] fields = FieldUtils.getAllFields(MarketListConnAuditEntity.class);
-//
-//        for (MarketListConnectionsEntity newRow : newRecords) {
-//            MarketListConnAuditEntity newAudit = new MarketListConnAuditEntity();
-//            BeanUtils.copyProperties(newRow, newAudit);
-//
-//            String key = createCompositeKey(newRow.getSector1() + "-" + newRow.getSector2(),
-//                    newRow.getFlight1() + "-" + newRow.getFlight2(), newRow.getStartDate());
-//            MarketListConnectionsEntity oldRow = existingMap.get(key);
-//
-//            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
-//            newAudit.setSector(newAudit.getSector1() + "-" + newAudit.getSector2());
-//            newAudit.setFlightNo(newAudit.getFlight1() + "-" + newAudit.getFlight2());
-//            newAudit.setUserName(userName);
-//
-//            // Set unwanted fields as null
-//            newAudit.setUuid(null);
-//            newAudit.setSector1(null);
-//            newAudit.setSector2(null);
-//            newAudit.setFlight1(null);
-//            newAudit.setFlight2(null);
-//            newAudit.setPerType(null);
-//            newAudit.setStartDate(null);
-//            newAudit.setEndDate(null);
-//            newAudit.setDayOfWeek(null);
-//
-//            newAudit.setChangedAt(currentDateTime.toString());
-//            boolean hasChanges = false;
-//
-//            for (Field field : fields) {
-//                field.setAccessible(true);
-//
-//                boolean isNotAuditField = !(field.getName().equals("userName") || field.getName().equals("sector") ||
-//                        field.getName().equals("date") || field.getName().equals("changedAt") ||
-//                        field.getName().equals("flightNo"));
-//
-//                Object oldVal = null;
-//                if (isNotAuditField && oldRow != null) {
-//                    oldVal = field.get(oldRow);
-//                }
-//                Object newVal = field.get(newAudit);
-//
-//                if (newVal == null || areValuesEqual(oldVal, newVal)) {
-//                    field.set(newAudit, null);
-//                } else {
-//                    if (isNotAuditField) {
-//                        hasChanges = true;
-//                    }
-//                    if (((String) newVal).trim().isEmpty()) {
-//                        field.set(newAudit, AUDIT_EMPTY_IDENTIFIER);
-//                    }
-//                }
-//            }
-//
-//            if (hasChanges && oldRow != null) {
-//                changeMap.add(newAudit);
-//            }
-//        }
-//
-//        return changeMap;
-//    }
-//
-//
-//    /**
-//     * MongoDB implementation - fetches existing records using direct query with $or
-//     * No temp collection needed - more efficient and MongoDB-native approach
-//     */
-//    public <T> Map<String, T> fetchExistingRecords(Set<String> keys, Class<T> entityClass, String collectionName)
-//            throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-//
-//        Map<String, T> resultMap = new HashMap<>();
-//
-//        if (keys == null || keys.isEmpty()) {
-//            return resultMap;
-//        }
-//
-//        // Build query filters directly from keys
-//        List<Bson> orFilters = new ArrayList<>();
-//
-//        for (String key : keys) {
-//            String[] keyParts = parseCompositeKey(key);
-//            orFilters.add(buildKeyFilter(entityClass, keyParts));
-//        }
-//
-//        // Single query with $or condition
-//        Bson filter = Filters.or(orFilters);
-//
-//        MongoCollection<Document> collection = database.getCollection(collectionName);
-//
-//        collection.find(filter).forEach(doc -> {
-//            try {
-//                T entity = mapDocumentToEntity(doc, entityClass);
-//                String compositeKey = extractCompositeKey(entity, entityClass);
-//                resultMap.put(compositeKey, entity);
-//            } catch (Exception e) {
-//                throw new RuntimeException("Error mapping document to entity", e);
-//            }
-//        });
-//
-//        return resultMap;
-//    }
-//
-//    /**
-//     * Builds MongoDB filter based on entity type
-//     * Replicates the SQL JOIN logic using $expr and $concat
-//     */
+package com.akasaair.queues.common.helpers;
+
+import com.akasaair.queues.common.entity.MarketListAuditEntity;
+import com.akasaair.queues.common.entity.MarketListConnAuditEntity;
+import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
+import com.akasaair.queues.common.entity.MarketListEntity;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.spark.SparkContext;
+import org.apache.spark.sql.*;
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.stereotype.Component;
+import org.springframework.beans.BeanUtils;
+import software.amazon.awssdk.regions.Region;
+
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
+import jakarta.persistence.Column;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.sql.*;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+import static com.akasaair.queues.common.constants.Constants.*;
+
+@Slf4j
+@Component
+public class AuditHelper {
+
+    @Value("${rm.file-path}")
+    private String S3_FILE_PATH_NAME;
+
+    @Value("${rm.s3-bucket}")
+    private String S3_BUCKET_NAME;
+
+    @Value("${RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD}")
+    private String accessKey;
+
+    @Value("${RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD}")
+    private String secretKey;
+
+    @Autowired
+    @Qualifier("applicationTaskExecutor")
+    private TaskExecutor taskExecutor;
+
+    private final MongoDatabase database;
+
+    private SparkSession spark;
+
+    public AuditHelper(MongoConnection mongoConnection) {
+        this.database = mongoConnection.getDatabase();
+        this.spark = null;
+    }
+
+    public void buildAuditLogs(List<MarketListEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+        log.info("Processing the delta for audits");
+
+        Set<String> keys = newRecords.stream()
+                .map(record -> createCompositeKey(record.getOrigin() + record.getDestination(), record.getFlightNo(), record.getStartDate()))
+                .collect(Collectors.toSet());
+
+        Map<String, MarketListEntity> existingMap = fetchExistingRecords(keys, MarketListEntity.class, collectionName);
+
+        log.info("Existing records fetched. Building delta and uploading audits asynchronously");
+
+        // Process delta and upload asynchronously
+        CompletableFuture.runAsync(() -> {
+            try {
+                List<MarketListAuditEntity> changeMap = buildDeltaRecords(newRecords, existingMap, userName, currentDateTime);
+
+                appendAuditsToS3(changeMap, currentDateTime, MarketListAuditEntity.class);
+            } catch (Throwable e) {
+                log.error("Error processing audit delta: {}", e.getMessage());
+            }
+        }, taskExecutor);
+
+    }
+
+
+    private static final Map<String, MethodHandle> ML_ENTITY_GETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> ML_ENTITY_SETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> ML_AUDIT_GETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> ML_AUDIT_SETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> ML_AUDIT_ONLY_FIELDS =
+            Set.of("userName", "sector", "date", "changedAt", "flightNo");
+
+    // MethodHandle caches for MarketListConnections
+    private static final Map<String, MethodHandle> CONN_ENTITY_GETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> CONN_ENTITY_SETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> CONN_AUDIT_GETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Map<String, MethodHandle> CONN_AUDIT_SETTER_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> CONN_AUDIT_ONLY_FIELDS =
+            Set.of("userName", "sector", "date", "changedAt", "flightNo");
+
+    // Initialize MethodHandles once at class loading
+    static {
+        try {
+            initializeMarketListMethodHandles();
+            initializeConnectionMethodHandles();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize MethodHandles", e);
+        }
+    }
+
+
+    private static void initializeMarketListMethodHandles() throws Exception {
+        MethodHandles.Lookup lookup = MethodHandles.lookup();
+
+        // MarketListEntity getters
+        for (Field field : FieldUtils.getAllFields(MarketListEntity.class)) {
+            field.setAccessible(true);
+            ML_ENTITY_GETTER_CACHE.put(field.getName(), lookup.unreflectGetter(field));
+            ML_ENTITY_SETTER_CACHE.put(field.getName(), lookup.unreflectSetter(field));
+        }
+
+        // MarketListAuditEntity getters and setters
+        for (Field field : FieldUtils.getAllFields(MarketListAuditEntity.class)) {
+            field.setAccessible(true);
+            String fieldName = field.getName();
+            ML_AUDIT_GETTER_CACHE.put(fieldName, lookup.unreflectGetter(field));
+            ML_AUDIT_SETTER_CACHE.put(fieldName, lookup.unreflectSetter(field));
+        }
+    }
+
+    private static void initializeConnectionMethodHandles() throws Exception {
+        MethodHandles.Lookup lookup = MethodHandles.lookup();
+
+        // MarketListConnectionsEntity getters
+        for (Field field : FieldUtils.getAllFields(MarketListConnectionsEntity.class)) {
+            field.setAccessible(true);
+            CONN_ENTITY_GETTER_CACHE.put(field.getName(), lookup.unreflectGetter(field));
+            CONN_ENTITY_SETTER_CACHE.put(field.getName(), lookup.unreflectSetter(field));
+        }
+
+        // MarketListConnAuditEntity getters and setters
+        for (Field field : FieldUtils.getAllFields(MarketListConnAuditEntity.class)) {
+            field.setAccessible(true);
+            String fieldName = field.getName();
+            CONN_AUDIT_GETTER_CACHE.put(fieldName, lookup.unreflectGetter(field));
+            CONN_AUDIT_SETTER_CACHE.put(fieldName, lookup.unreflectSetter(field));
+        }
+    }
+
+    private List<MarketListAuditEntity> buildDeltaRecords(
+            List<MarketListEntity> newRecords,
+            Map<String, MarketListEntity> existingMap,
+            String userName,
+            LocalDateTime currentDateTime) throws Throwable {
+
+        List<MarketListAuditEntity> changeMap = new ArrayList<>(newRecords.size() / 10);
+        String currentDateTimeStr = currentDateTime.toString();
+
+        // Get field names once
+        List<String> fieldNames = new ArrayList<>(ML_AUDIT_GETTER_CACHE.keySet());
+
+        for (MarketListEntity newRow : newRecords) {
+            MarketListAuditEntity newAudit = new MarketListAuditEntity();
+            BeanUtils.copyProperties(newRow, newAudit);
+
+            String key = createCompositeKey(
+                    newRow.getOrigin() + newRow.getDestination(),
+                    newRow.getFlightNo(),
+                    newRow.getStartDate()
+            );
+            MarketListEntity oldRow = existingMap.get(key);
+
+            // Set audit fields
+            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
+            newAudit.setSector(newAudit.getOrigin() + newAudit.getDestination());
+            newAudit.setUserName(userName);
+            newAudit.setChangedAt(currentDateTimeStr);
+
+            // Clear unwanted fields
+            newAudit.setUuid(null);
+            newAudit.setOrigin(null);
+            newAudit.setDestination(null);
+            newAudit.setPerType(null);
+            newAudit.setStartDate(null);
+            newAudit.setEndDate(null);
+            newAudit.setDayOfWeek(null);
+
+            boolean hasChanges = false;
+
+            // Process fields with MethodHandles
+            for (String fieldName : fieldNames) {
+                boolean isNotAuditField = !ML_AUDIT_ONLY_FIELDS.contains(fieldName);
+
+                MethodHandle auditGetter = ML_AUDIT_GETTER_CACHE.get(fieldName);
+                MethodHandle auditSetter = ML_AUDIT_SETTER_CACHE.get(fieldName);
+
+                // Get old value if exists
+                Object oldVal = null;
+                if (isNotAuditField && oldRow != null) {
+                    MethodHandle entityGetter = ML_ENTITY_GETTER_CACHE.get(fieldName);
+                    if (entityGetter != null) {
+                        oldVal = entityGetter.invoke(oldRow);
+                    }
+                }
+
+                // Get new value
+                Object newVal = auditGetter.invoke(newAudit);
+
+                // Compare and update
+                if (newVal == null || areValuesEqual(oldVal, newVal)) {
+                    auditSetter.invoke(newAudit, (Object) null);
+                } else {
+                    if (isNotAuditField) {
+                        hasChanges = true;
+                    }
+                    if (newVal instanceof String && ((String) newVal).trim().isEmpty()) {
+                        auditSetter.invoke(newAudit, AUDIT_EMPTY_IDENTIFIER);
+                    }
+                }
+            }
+
+            if (hasChanges && oldRow != null) {
+                changeMap.add(newAudit);
+            }
+        }
+
+        return changeMap;
+    }
+
+    public void buildConnAuditLogs(List<MarketListConnectionsEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+        log.info("Processing the delta for connection audits");
+
+        Set<String> keys = newRecords.stream()
+                .map(record -> createCompositeKey(record.getSector1() + "-" + record.getSector2(),
+                        record.getFlight1() + "-" + record.getFlight2(), record.getStartDate()))
+                .collect(Collectors.toSet());
+
+        Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(keys, MarketListConnectionsEntity.class, collectionName);
+
+        log.info("Existing connection records fetched. Building delta and uploading audits asynchronously");
+
+        // Process delta and upload asynchronously
+        CompletableFuture.runAsync(() -> {
+            try {
+                List<MarketListConnAuditEntity> changeMap = buildConnDeltaRecords(newRecords, existingMap, userName, currentDateTime);
+
+                appendAuditsToS3(changeMap, currentDateTime, MarketListConnAuditEntity.class);
+            } catch (Throwable e) {
+                log.error("Error processing connection audit delta: {}", e.getMessage());
+            }
+        }, taskExecutor);
+
+    }
+
+    private List<MarketListConnAuditEntity> buildConnDeltaRecords(
+            List<MarketListConnectionsEntity> newRecords,
+            Map<String, MarketListConnectionsEntity> existingMap,
+            String userName,
+            LocalDateTime currentDateTime) throws Throwable {
+
+        List<MarketListConnAuditEntity> changeMap = new ArrayList<>(newRecords.size() / 10);
+        String currentDateTimeStr = currentDateTime.toString();
+
+        // Get field names once
+        List<String> fieldNames = new ArrayList<>(CONN_AUDIT_GETTER_CACHE.keySet());
+
+        for (MarketListConnectionsEntity newRow : newRecords) {
+            MarketListConnAuditEntity newAudit = new MarketListConnAuditEntity();
+            BeanUtils.copyProperties(newRow, newAudit);
+
+            String key = createCompositeKey(
+                    newRow.getSector1() + "-" + newRow.getSector2(),
+                    newRow.getFlight1() + "-" + newRow.getFlight2(),
+                    newRow.getStartDate()
+            );
+            MarketListConnectionsEntity oldRow = existingMap.get(key);
+
+            // Set audit fields
+            newAudit.setDate(newAudit.getStartDate().replace('/', '-'));
+            newAudit.setSector(newAudit.getSector1() + "-" + newAudit.getSector2());
+            newAudit.setFlightNo(newAudit.getFlight1() + "-" + newAudit.getFlight2());
+            newAudit.setUserName(userName);
+            newAudit.setChangedAt(currentDateTimeStr);
+
+            // Clear unwanted fields
+            newAudit.setUuid(null);
+            newAudit.setSector1(null);
+            newAudit.setSector2(null);
+            newAudit.setFlight1(null);
+            newAudit.setFlight2(null);
+            newAudit.setPerType(null);
+            newAudit.setStartDate(null);
+            newAudit.setEndDate(null);
+            newAudit.setDayOfWeek(null);
+
+            boolean hasChanges = false;
+
+            // Process fields with MethodHandles
+            for (String fieldName : fieldNames) {
+                boolean isNotAuditField = !CONN_AUDIT_ONLY_FIELDS.contains(fieldName);
+
+                MethodHandle auditGetter = CONN_AUDIT_GETTER_CACHE.get(fieldName);
+                MethodHandle auditSetter = CONN_AUDIT_SETTER_CACHE.get(fieldName);
+
+                // Get old value if exists
+                Object oldVal = null;
+                if (isNotAuditField && oldRow != null) {
+                    MethodHandle entityGetter = CONN_ENTITY_GETTER_CACHE.get(fieldName);
+                    if (entityGetter != null) {
+                        oldVal = entityGetter.invoke(oldRow);
+                    }
+                }
+
+                // Get new value
+                Object newVal = auditGetter.invoke(newAudit);
+
+                // Compare and update
+                if (newVal == null || areValuesEqual(oldVal, newVal)) {
+                    auditSetter.invoke(newAudit, (Object) null);
+                } else {
+                    if (isNotAuditField) {
+                        hasChanges = true;
+                    }
+                    if (newVal instanceof String && ((String) newVal).trim().isEmpty()) {
+                        auditSetter.invoke(newAudit, AUDIT_EMPTY_IDENTIFIER);
+                    }
+                }
+            }
+
+            if (hasChanges && oldRow != null) {
+                changeMap.add(newAudit);
+            }
+        }
+
+        return changeMap;
+    }
+
+
+    public <T> Map<String, T> fetchExistingRecords(
+            Set<String> keys,
+            Class<T> entityClass,
+            String collectionName)
+            throws InvocationTargetException, NoSuchMethodException,
+            InstantiationException, IllegalAccessException {
+
+        Map<String, T> resultMap = new HashMap<>(keys.size());
+
+        if (keys == null || keys.isEmpty()) {
+            return resultMap;
+        }
+
+        // Group keys by Sector (Origin + Destin)
+        Map<String, List<String[]>> keysBySector = new HashMap<>();
+
+        for (String key : keys) {
+            String[] keyParts = parseCompositeKey(key);
+            String sector = keyParts[0]; // already Origin+Destin or Sector1-Sector2
+
+            keysBySector
+                    .computeIfAbsent(sector, k -> new ArrayList<>())
+                    .add(keyParts);
+        }
+
+        MongoCollection<Document> collection =
+                database.getCollection(collectionName);
+
+        for (Map.Entry<String, List<String[]>> entry : keysBySector.entrySet()) {
+
+            String sector = entry.getKey();
+            List<String[]> groupedKeys = entry.getValue();
+
+            List<Bson> orFilters =
+                    new ArrayList<>(groupedKeys.size());
+
+            for (String[] keyParts : groupedKeys) {
+
+                if (entityClass == MarketListEntity.class) {
+                    orFilters.add(buildSectorGroupedMarketFilter(keyParts));
+                } else if (entityClass == MarketListConnectionsEntity.class) {
+                    orFilters.add(buildSectorGroupedConnectionFilter(keyParts));
+                } else {
+                    throw new IllegalArgumentException(
+                            "Unsupported entity type");
+                }
+            }
+
+            // Sector condition pushed OUTSIDE the OR
+            Bson sectorFilter = buildSectorOnlyFilter(entityClass, sector);
+
+            Bson finalFilter = Filters.and(
+                    sectorFilter,
+                    Filters.or(orFilters)
+            );
+
+            collection.find(finalFilter).forEach(doc -> {
+                try {
+                    T entity = mapDocumentToEntity(doc, entityClass);
+                    String compositeKey =
+                            extractCompositeKey(entity, entityClass);
+                    resultMap.put(compositeKey, entity);
+                } catch (Throwable e) {
+                    throw new RuntimeException("Error mapping document to entity", e);
+                }
+            });
+        }
+
+        return resultMap;
+    }
+
+    private Bson buildSectorOnlyFilter(Class<?> entityClass, String sector) {
+
+        if (entityClass == MarketListEntity.class) {
+
+            String origin = sector.substring(0, 3);
+            String destin = sector.substring(3, 6);
+
+            return Filters.and(
+                    Filters.eq("Origin", origin),
+                    Filters.eq("Destin", destin)
+            );
+
+        } else if (entityClass == MarketListConnectionsEntity.class) {
+
+            String[] parts = sector.split("-");
+
+            return Filters.and(
+                    Filters.eq("Sector1", parts[0]),
+                    Filters.eq("Sector2", parts[1])
+            );
+        }
+
+        throw new IllegalArgumentException("Unsupported entity type");
+    }
+
+    private Bson buildSectorGroupedMarketFilter(String[] keyParts) {
+
+        return Filters.and(
+                Filters.eq("FlightNumber",
+                        Integer.parseInt(keyParts[1])),
+                Filters.eq("PerStart", keyParts[2])
+        );
+    }
+
+    private Bson buildSectorGroupedConnectionFilter(String[] keyParts) {
+
+        String[] flights = keyParts[1].split("-");
+
+        return Filters.and(
+                Filters.eq("Flight1",
+                        Integer.parseInt(flights[0])),
+                Filters.eq("Flight2",
+                        Integer.parseInt(flights[1])),
+                Filters.eq("PerStart", keyParts[2])
+        );
+    }
+
 //    private Bson buildKeyFilter(Class<?> entityClass, String[] keyParts) {
 //        if (entityClass == MarketListEntity.class) {
-//            // Match: CONCAT(Origin, Destin) = keyParts[0] AND FlightNumber = keyParts[1] AND PerStart = keyParts[2]
+//
+//            String origin = keyParts[0].substring(0, 3);
+//            String destin = keyParts[0].substring(3, 6);
+//
 //            return Filters.and(
-//                    Filters.expr(new Document("$eq", Arrays.asList(
-//                            new Document("$concat", Arrays.asList("$Origin", "$Destin")),
-//                            keyParts[0]
-//                    ))),
+//                    Filters.eq("Origin", origin),
+//                    Filters.eq("Destin", destin),
 //                    Filters.eq("FlightNumber", Integer.parseInt(keyParts[1])),
 //                    Filters.eq("PerStart", keyParts[2])
 //            );
+//
 //        } else if (entityClass == MarketListConnectionsEntity.class) {
-//            // Match: CONCAT(Sector1, '-', Sector2) = keyParts[0] AND CONCAT(Flight1, '-', Flight2) = keyParts[1] AND PerStart = keyParts[2]
+//
+//            String[] sector = keyParts[0].split("-");
+//            String[] flights = keyParts[1].split("-");
+//
 //            return Filters.and(
-//                    Filters.expr(new Document("$eq", Arrays.asList(
-//                            new Document("$concat", Arrays.asList("$Sector1", "-", "$Sector2")),
-//                            keyParts[0]
-//                    ))),
-//                    Filters.expr(new Document("$eq", Arrays.asList(
-//                            new Document("$concat", Arrays.asList(
-//                                    new Document("$toString", "$Flight1"), "-", new Document("$toString", "$Flight2")
-//                            )),
-//                            keyParts[1]
-//                    ))),
+//                    Filters.eq("Sector1", sector[0]),
+//                    Filters.eq("Sector2", sector[1]),
+//                    Filters.eq("Flight1", Integer.parseInt(flights[0])),
+//                    Filters.eq("Flight2", Integer.parseInt(flights[1])),
 //                    Filters.eq("PerStart", keyParts[2])
 //            );
+//
 //        } else {
-//            throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
+//            throw new IllegalArgumentException("Unsupported entity type");
 //        }
 //    }
+
+
+    private <T> T mapDocumentToEntity(Document doc, Class<T> entityClass) throws Throwable {
+        // Create new instance
+        T entity = entityClass.getDeclaredConstructor().newInstance();
+
+        // Determine which cache to use based on entity class
+        Map<String, MethodHandle> setterCache = getSetterCache(entityClass);
+
+        // Get all fields with @Column annotation
+        for (Field field : FieldUtils.getAllFields(entityClass)) {
+            Column column = field.getAnnotation(Column.class);
+            if (column == null) {
+                continue; // Skip fields without @Column annotation
+            }
+
+            String columnName = column.name();
+            Object value = doc.get(columnName);
+
+            // Get the setter MethodHandle from cache
+            MethodHandle setter = setterCache.get(field.getName());
+            if (setter == null) {
+                continue; // Skip if no setter in cache
+            }
+
+            try {
+                if (value != null) {
+                    Object convertedValue = value.toString();
+                    setter.invoke(entity, convertedValue);
+                } else {
+                    setter.invoke(entity, (Object) null);
+                }
+            } catch (Throwable e) {
+                throw new RuntimeException("Failed to set field: " + field.getName(), e);
+            }
+        }
+
+        return entity;
+    }
+
+    /**
+     * Get the appropriate setter cache based on entity class
+     */
+    private Map<String, MethodHandle> getSetterCache(Class<?> entityClass) {
+        String className = entityClass.getSimpleName();
+
+        if (className.equals("MarketListEntity")) {
+            return ML_ENTITY_SETTER_CACHE; // Note: For entities, we might need setters too
+        } else if (className.equals("MarketListAuditEntity")) {
+            return ML_AUDIT_SETTER_CACHE;
+        } else if (className.equals("MarketListConnectionsEntity")) {
+            return CONN_ENTITY_SETTER_CACHE;
+        } else if (className.equals("MarketListConnAuditEntity")) {
+            return CONN_AUDIT_SETTER_CACHE;
+        }
+
+        throw new IllegalArgumentException("Unsupported entity class: " + className);
+    }
+
+    private <T> String extractCompositeKey(T entity, Class<T> entityClass) {
+        if (entityClass == MarketListEntity.class) {
+            MarketListEntity e = (MarketListEntity) entity;
+            return createCompositeKey(
+                    e.getOrigin() + e.getDestination(),
+                    e.getFlightNo(),
+                    e.getStartDate()
+            );
+        } else if (entityClass == MarketListConnectionsEntity.class) {
+            MarketListConnectionsEntity e = (MarketListConnectionsEntity) entity;
+            return createCompositeKey(
+                    e.getSector1() + "-" + e.getSector2(),
+                    e.getFlight1() + "-" + e.getFlight2(),
+                    e.getStartDate()
+            );
+        } else {
+            throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
+        }
+    }
+
+    // Helper methods for composite key handling
+    private String createCompositeKey(String sector, String flightNo, String startDate) {
+        return String.join(AUDIT_KEY_DELIMITER, sector != null ? sector : "",
+                flightNo != null ? flightNo : "", startDate != null ? startDate : "");
+    }
+
+    private String[] parseCompositeKey(String compositeKey) {
+        return compositeKey.split("\\" + AUDIT_KEY_DELIMITER, -1); // -1 to preserve empty strings
+    }
+
+    private boolean areValuesEqual(Object val1, Object val2) {
+        if (Objects.equals(val1, val2)) return true;
+        if (val1 == null || val2 == null) return false;
+
+        try {
+            return Double.parseDouble(val1.toString()) == Double.parseDouble(val2.toString());
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    @PostConstruct
+    public void initSpark() {
+//        For local testing:
+//        System.setProperty("os.name", "Linux");
+//        System.setProperty("hadoop.home.dir", "/tmp/hadoop");
+//        System.setProperty("HADOOP_USER_NAME", "aarav");
 //
-//    /**
-//     * Maps MongoDB Document to entity using reflection
-//     */
-//    private <T> T mapDocumentToEntity(Document doc, Class<T> entityClass)
-//            throws NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
-//        T entity = entityClass.getDeclaredConstructor().newInstance();
+//        log.info("Forced OS Name: {}", System.getProperty("os.name"));
+//        log.info("Java Home: {}", System.getProperty("java.home"));
+//        log.info("Java Version: {}", System.getProperty("java.version"));
+
+        spark = SparkSession.builder()
+                .appName("AuditWriter")
+                .master("local[2]")
+
+                // Delta
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+
+                // Partitions
+                .config("spark.sql.shuffle.partitions", "4")
+
+                // S3
+                .config("spark.hadoop.fs.s3a.access.key", accessKey)
+                .config("spark.hadoop.fs.s3a.secret.key", secretKey)
+                .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
+                .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                .config("spark.hadoop.fs.s3a.path.style.access", "true")
+                .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true")
+
+                // Local dirs
+                .config("spark.local.dir", "/tmp/spark-temp")
+                .config("spark.sql.warehouse.dir", "file:///tmp/spark-warehouse")
+                .config("spark.hadoop.hadoop.tmp.dir", "/tmp/hadoop-temp")
+
+//                // Janino codegen
+//                .config("spark.sql.codegen.wholeStage", "false")
+//                .config("spark.sql.codegen.factoryMode", "NO_CODEGEN")
 //
-//        for (Field field : entityClass.getDeclaredFields()) {
-//            Column column = field.getAnnotation(Column.class);
-//            if (column == null) {
-//                continue; // skip if not annotated with @Column
-//            }
+//                // Disable native IO
+//                .config("spark.hadoop.io.nativeio.enabled", "false")
+//                .config("spark.driver.extraJavaOptions", "-Dio.nativeio.enabled=false")
+//                .config("spark.executor.extraJavaOptions", "-Dio.nativeio.enabled=false")
 //
-//            String columnName = column.name();
-//            Object value = doc.get(columnName);
-//
-//            field.setAccessible(true);
-//            try {
-//                // Convert to String if needed (adjust based on your entity field types)
-//                if (value != null) {
-//                    field.set(entity, value.toString());
-//                } else {
-//                    field.set(entity, null);
-//                }
-//            } catch (IllegalAccessException e) {
-//                throw new RuntimeException("Failed to set field: " + field.getName(), e);
-//            }
-//        }
-//
-//        return entity;
-//    }
-//
-//    private <T> String extractCompositeKey(T entity, Class<T> entityClass) {
-//        if (entityClass == MarketListEntity.class) {
-//            MarketListEntity e = (MarketListEntity) entity;
-//            return createCompositeKey(
-//                    e.getOrigin() + e.getDestination(),
-//                    e.getFlightNo(),
-//                    e.getStartDate()
-//            );
-//        } else if (entityClass == MarketListConnectionsEntity.class) {
-//            MarketListConnectionsEntity e = (MarketListConnectionsEntity) entity;
-//            return createCompositeKey(
-//                    e.getSector1() + "-" + e.getSector2(),
-//                    e.getFlight1() + "-" + e.getFlight2(),
-//                    e.getStartDate()
-//            );
-//        } else {
-//            throw new IllegalArgumentException("Unsupported entity type: " + entityClass.getName());
-//        }
-//    }
-//
-//    // Helper methods for composite key handling
-//    private String createCompositeKey(String sector, String flightNo, String startDate) {
-//        return String.join(AUDIT_KEY_DELIMITER, sector != null ? sector : "",
-//                flightNo != null ? flightNo : "", startDate != null ? startDate : "");
-//    }
-//
-//    private String[] parseCompositeKey(String compositeKey) {
-//        return compositeKey.split("\\" + AUDIT_KEY_DELIMITER, -1); // -1 to preserve empty strings
-//    }
-//
-//    private boolean areValuesEqual(Object val1, Object val2) {
-//        if (Objects.equals(val1, val2)) return true;
-//        if (val1 == null || val2 == null) return false;
-//
-//        try {
-//            return Double.parseDouble(val1.toString()) == Double.parseDouble(val2.toString());
-//        } catch (NumberFormatException e) {
-//            return false;
-//        }
-//    }
-//
-//    public <T> void appendAuditsToS3(List<T> changeMap, LocalDateTime currentDateTime, Class<T> entityClass) {
-//        if (changeMap == null || changeMap.isEmpty()) {
-//            log.info("No audits to upload");
-//            return;
-//        }
-//
-//        String basePath = "s3://" + S3_BUCKET_NAME + "/" + S3_FILE_PATH_NAME + "audits/";
-//        String changedAt = currentDateTime.toString().split("T")[0];
-//        String fileName = changedAt + ".csv";
-//
-//        try (Connection conn = getS3DuckDBConnection()) {
-//            // Process each partition
-//            for (T change : changeMap) {
-//                if (change == null) continue;
-//
-//                String sector = (String) entityClass.getMethod("getSector").invoke(change);
-//                String flightNo = (String) entityClass.getMethod("getFlightNo").invoke(change);
-//                String date = (String) entityClass.getMethod("getDate").invoke(change);
-//                String changedAtDateTime = (String) entityClass.getMethod("getChangedAt").invoke(change);
-//                String userName = (String) entityClass.getMethod("getUserName").invoke(change);
-//
-//                String partitionPath = String.format("sector=%s/flightNo=%s/date=%s/",
-//                        sector, flightNo, date);
-//                String specificFilePath = basePath + partitionPath + fileName;
-//                String tableName = "audit_" + sector.replace("-", "") + "_" +
-//                        flightNo.replace("-", "") + "_" +
-//                        date.replace('-', '_');
-//
-//                // Extract columns from new changes
-//                Set<String> newColumns = new HashSet<>();
-//                Field[] fields = FieldUtils.getAllFields(entityClass);
-//                for (Field field : fields) {
-//                    field.setAccessible(true);
-//                    try {
-//                        if (field.get(change) != null) {
-//                            newColumns.add(field.getName());
-//                        }
-//                    } catch (IllegalAccessException e) {
-//                        log.error("Error accessing field: " + field.getName());
-//                    }
-//                }
-//                newColumns.add("changeType");
-//
-//                // Get schema from existing file (if any)
-//                Set<String> existingColumns = new HashSet<>();
-//                try (Statement schemaStmt = conn.createStatement()) {
-//                    String describeQuery = String.format("DESCRIBE SELECT * FROM read_csv('%s')",
-//                            specificFilePath);
-//                    ResultSet rs = schemaStmt.executeQuery(describeQuery);
-//                    while (rs.next()) {
-//                        existingColumns.add(rs.getString("column_name"));
-//                    }
-//                } catch (SQLException e) {
-//                    // No existing file found
-//                }
-//
-//                // Combine schemas
-//                Set<String> allColumns = new HashSet<>(newColumns);
-//                allColumns.addAll(existingColumns);
-//                if (allColumns.isEmpty()) {
-//                    continue;
-//                }
-//
-//                // Create table for combined data
-//                StringBuilder createTableSQL = new StringBuilder("CREATE TEMPORARY TABLE " + tableName + " (");
-//                List<String> columnDefs = new ArrayList<>();
-//                for (String column : allColumns) {
-//                    columnDefs.add("\"" + column + "\" VARCHAR");
-//                }
-//                createTableSQL.append(String.join(", ", columnDefs)).append(")");
-//                SqlHelperFunctions.execute(conn, createTableSQL.toString(), null);
-//
-//                // Insert new changes
-//                List<String> columns = new ArrayList<>();
-//                List<Object> values = new ArrayList<>();
-//                for (Field field : fields) {
-//                    field.setAccessible(true);
-//                    String fieldName = field.getName();
-//                    try {
-//                        Object value = field.get(change);
-//                        if (value != null) {
-//                            columns.add(fieldName);
-//                            values.add(value.toString());
-//                        }
-//                    } catch (IllegalAccessException e) {
-//                        log.error("Error accessing field: " + fieldName);
-//                    }
-//                }
-//                columns.add("changeType");
-//                values.add(CHANGE_TYPE_MARKETLIST);
-//
-//                if (columns.size() > 1) {
-//                    StringBuilder insertSQL = new StringBuilder("INSERT INTO " + tableName + " (\"");
-//                    insertSQL.append(String.join("\", \"", columns));
-//                    insertSQL.append("\") VALUES (");
-//                    List<String> placeholders = new ArrayList<>();
-//                    for (int i = 0; i < values.size(); i++) {
-//                        placeholders.add("?");
-//                    }
-//
-//                    insertSQL.append(String.join(", ", placeholders));
-//                    insertSQL.append(")");
-//                    SqlHelperFunctions.execute(conn, insertSQL.toString(), values);
-//                }
-//
-//                // Insert existing data if available
-//                if (!existingColumns.isEmpty()) {
-//                    String readExistingSQL = String.format("INSERT INTO %s (\"%s\") SELECT \"%s\" FROM read_csv(?)",
-//                            tableName, String.join("\", \"", existingColumns),
-//                            String.join("\", \"", existingColumns));
-//
-//                    List<Object> readParams = List.of(specificFilePath);
-//                    SqlHelperFunctions.execute(conn, readExistingSQL, readParams);
-//                }
-//
-//                // Copy to S3
-//                String destination = basePath + partitionPath + changedAt + ".csv";
-//                String copySQL = String.format("COPY %s TO '%s' (FORMAT CSV, HEADER TRUE, OVERWRITE_OR_IGNORE)",
-//                        tableName, destination);
-//
-//                SqlHelperFunctions.execute(conn, copySQL, null);
-//
-//                String dropSQL = "DROP TABLE IF EXISTS " + tableName;
-//                SqlHelperFunctions.execute(conn, dropSQL, null);
-//            }
-//            log.info("Audits uploaded successfully");
-//
-//        } catch (Exception e) {
-//            log.error("Error uploading audits: " + e.getMessage());
-//        }
-//    }
-//
-//    private Connection getS3DuckDBConnection() throws SQLException {
-//        String region = Region.AP_SOUTH_1.toString();
-//        Properties connectionProps = new Properties();
-//        connectionProps.put("threads", "8");
-//
-//        Connection connection = DriverManager.getConnection("jdbc:duckdb:", connectionProps);
-//
-//        try (Statement stmt = connection.createStatement()) {
-//            // Load httpfs extension
-//            stmt.execute("INSTALL httpfs");
-//            stmt.execute("LOAD httpfs");
-//        } catch (SQLException e) {
-//            connection.close();
-//            throw e;
-//        }
-//
-//        connection.close();
-//
-//        Properties s3ConnectionProps = new Properties();
-//        s3ConnectionProps.put("threads", "8");
-//        s3ConnectionProps.put("s3_use_ssl", "true");
-//        s3ConnectionProps.put("s3_access_key_id", accessKey);
-//        s3ConnectionProps.put("s3_secret_access_key", secretKey);
-//        s3ConnectionProps.put("s3_session_token", "");
-//        s3ConnectionProps.put("s3_region", region);
-//        s3ConnectionProps.put("s3_endpoint", "s3." + region + ".amazonaws.com");
-//        s3ConnectionProps.put("s3_url_style", "path");
-//
-//        return DriverManager.getConnection("jdbc:duckdb:", s3ConnectionProps);
-//    }
-//}
-//
-//@Slf4j
-//class SqlHelperFunctions {
-//
-//    public static void execute(Connection connection, String query, List<Object> params) {
-//        PreparedStatement pstmt = null;
-//
-//        try {
-//            pstmt = connection.prepareStatement(query);
-//
-//            if (params != null && !params.isEmpty()) {
-//                for (int i = 0; i < params.size(); i++) {
-//                    setParameter(pstmt, i + 1, params.get(i));
-//                }
-//            }
-//
-//            pstmt.execute();
-//
-//        } catch (SQLException e) {
-//            log.error("Error executing update: {}", e.getMessage());
-//        } finally {
-//            try {
-//                if (pstmt != null) pstmt.close();
-//            } catch (SQLException ex) {
-//                log.error("Error closing statement: {}", ex.getMessage());
-//            }
-//        }
-//    }
-//
-//    private static void setParameter(PreparedStatement pstmt, int index, Object value) throws SQLException {
-//        if (value == null) {
-//            pstmt.setNull(index, Types.NULL);
-//        } else if (value instanceof String) {
-//            pstmt.setString(index, (String) value);
-//        } else if (value instanceof Integer) {
-//            pstmt.setInt(index, (Integer) value);
-//        } else if (value instanceof Long) {
-//            pstmt.setLong(index, (Long) value);
-//        } else if (value instanceof Double) {
-//            pstmt.setDouble(index, (Double) value);
-//        } else if (value instanceof Float) {
-//            pstmt.setFloat(index, (Float) value);
-//        } else if (value instanceof Boolean) {
-//            pstmt.setBoolean(index, (Boolean) value);
-//        } else if (value instanceof java.sql.Date) {
-//            pstmt.setDate(index, (java.sql.Date) value);
-//        } else if (value instanceof Timestamp) {
-//            pstmt.setTimestamp(index, (Timestamp) value);
-//        } else if (value instanceof Byte) {
-//            pstmt.setInt(index, ((Byte) value).intValue());
-//        } else if (value instanceof byte[]) {
-//            pstmt.setBytes(index, (byte[]) value);
-//        } else {
-//            // For other types
-//            pstmt.setObject(index, value);
-//        }
-//    }
-//}
+//                // Linux filesystem
+//                .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.LocalFileSystem")
+
+                // Force simple auth
+                .config("spark.hadoop.hadoop.security.authentication", "simple")
+                .config("spark.hadoop.hadoop.security.authorization", "false")
+
+                .config("spark.ui.enabled", "false")
+                .getOrCreate();
+
+//        spark.sparkContext().setLogLevel("ERROR");
+//        System.setProperty("HADOOP_USER_NAME", "aarav");
+
+        log.info("Spark session initialized");
+    }
+
+    @PreDestroy
+    public void stopSpark() {
+        if (spark != null) {
+            spark.stop();
+            log.info("Spark session stopped");
+        }
+    }
+
+    public <T> void appendAuditsToS3(List<T> changeMap, LocalDateTime currentDateTime, Class<T> entityClass) {
+        if (changeMap == null || changeMap.isEmpty()) {
+            log.info("No audits to upload");
+            return;
+        }
+
+        String BASE_PATH = "s3a://"+ S3_BUCKET_NAME + "/" + S3_FILE_PATH_NAME + "ml-audits/";
+        String S3_PATH = BASE_PATH + "direct/";
+        String className = entityClass.getSimpleName();
+        if (className.equals("MarketListConnAuditEntity")) {
+            S3_PATH = BASE_PATH +  "connections/";
+        }
+
+        try {
+            Encoder<T> encoder = Encoders.bean(entityClass);
+            Dataset<T> dataset = null;
+
+            try {
+                dataset = spark.createDataset(changeMap, encoder);
+                log.info("Dataset created for write with {} rows", dataset.count());
+
+                Dataset<Row> df = dataset.toDF();
+                df = df.withColumn("changedAtDate", functions.lit(currentDateTime.toLocalDate().toString()))
+                        .coalesce(1);
+
+                df.write()
+                        .format("delta")
+                        .mode("append")
+                        .option("mergeSchema", "true")
+                        .partitionBy("changedAtDate")
+                        .save(S3_PATH);
+            } catch (NoClassDefFoundError e) {
+                log.error("NoClassDefFoundError: {}", e.getMessage());
+                log.error("Missing class: {}", e.getClass().getName());
+                if (e.getCause() != null) {
+                    log.error("Caused by: {}", e.getCause().getMessage());
+                }
+
+                e.printStackTrace();
+                throw e;
+            } catch (Exception e) {
+                log.error("Unexpected error: {}", e.getMessage(), e);
+                throw e;
+            }
+
+            log.info("Write to Delta successful at {}", S3_PATH);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed writing audits to S3 Delta → " + e.getMessage(), e);
+        }
+    }
+}

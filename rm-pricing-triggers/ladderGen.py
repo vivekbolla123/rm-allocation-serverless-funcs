@@ -266,8 +266,8 @@ class LadderGen:
             self.failure_reason = f"Fare bin creation failed: {str(e)}"
             raise
 
-    def apply_minimum_threshold(self, fare_points):
-        """Apply minimum threshold logic to ensure fare differences."""
+    def apply_minimum_threshold(self, fare_points, channel):
+        """Apply minimum threshold logic to core fares, stopping before UP range to prevent inflation."""
         try:
             if not fare_points:
                 self.failure_reason = "No fare points provided for threshold application"
@@ -278,14 +278,40 @@ class LadderGen:
             
             adjusted_fares = fare_points.copy()
             
-            for i in range(len(adjusted_fares) - 1):
+            # Determine how many fares to adjust based on channel
+            # Stop before UP range to prevent artificial inflation of start fare
+            if channel == self.B2C_CHANNEL:
+                up_value = self.UP_B2C
+                total_core = 58
+            else:  # B2B
+                up_value = self.UP_B2B
+                total_core = 16
+            
+            # Calculate stopping point: total_fares - UP - 1
+            # This ensures the start fare for UP calculation is not artificially inflated
+            num_to_adjust = len(adjusted_fares) - up_value - 1
+            
+            # Ensure we don't go out of bounds
+            num_to_adjust = max(0, min(num_to_adjust, len(adjusted_fares) - 1))
+            
+            self.logger.info(f"Applying minimum threshold to {channel} core fares:")
+            self.logger.info(f"  Total core fares: {len(adjusted_fares)}")
+            self.logger.info(f"  UP value: {up_value}")
+            self.logger.info(f"  Will adjust first {num_to_adjust} fare pairs (stop before UP range)")
+            
+            adjustments_made = 0
+            
+            for i in range(num_to_adjust):
                 current_fare = adjusted_fares[i]
                 next_fare = adjusted_fares[i + 1]
                 min_threshold = threshold_func(current_fare)
                 
                 if next_fare - current_fare < min_threshold:
                     adjusted_fares[i + 1] = current_fare + min_threshold
-                    self.logger.debug(f"Adjusted fare {i+1}: {next_fare} -> {adjusted_fares[i + 1]}")
+                    adjustments_made += 1
+                    self.logger.debug(f"  Adjusted fare {i+1}: {next_fare:.2f} -> {adjusted_fares[i + 1]:.2f}")
+            
+            self.logger.info(f"  Core threshold adjustments made: {adjustments_made}")
             
             return adjusted_fares
             
@@ -512,7 +538,7 @@ class LadderGen:
             return None
 
     def calculate_buffer_fares_b2c(self, core_fares, booking_data):
-        """Calculate buffer fares f1-f3 and f62-f64."""
+        """Calculate buffer fares f1-f3 and f60-f64 to create exactly 64 fares."""
         try:
             if not core_fares or booking_data.empty:
                 self.failure_reason = "Missing core fares or booking data"
@@ -529,20 +555,31 @@ class LadderGen:
             # Filter for B2C data
             b2c_data = self.market_fares_data[self.market_fares_data['channel'] == 'B2C'].copy()
             
+            # Validate core fares count (should be exactly 58 fares: f4-f61)
+            if len(core_fares) != 58:
+                self.logger.warning(f"B2C core fares count mismatch: got {len(core_fares)}, expected 58")
+                if len(core_fares) > 58:
+                    core_fares = core_fares[:58]
+                else:
+                    while len(core_fares) < 58:
+                        core_fares.append(core_fares[-1] if core_fares else 0)
+            
             f4 = core_fares[0]
             f61 = core_fares[-1]
             
-            min_booking_fare = booking_data['Fare'].min()
-            max_booking_fare = booking_data['Fare'].max()
+            min_booking_fare = float(booking_data['Fare'].min())
+            max_booking_fare = float(booking_data['Fare'].max())
             
-            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
-            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
-            
-            # Find valid market fares (with yield check for domestic)
+            # Find valid market fares
             valid_min_market_fare = self._find_valid_market_fare(b2c_data, 'min', origin, destination)
             valid_max_market_fare = self._find_valid_market_fare(b2c_data, 'max', origin, destination)
             
-            # Calculate lower buffer fares (f1, f2, f3)
+            self.logger.info(f"B2C Buffer Fare Calculation Started")
+            self.logger.info(f"  Core fares: {len(core_fares)} (f4-f61)")
+            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f}")
+            self.logger.info(f"  Market fares: min={valid_min_market_fare}, max={valid_max_market_fare}")
+            
+            # ===== LOWER BUFFER FARES (f1, f2, f3) =====
             threshold_f4 = 0.96 * f4
             
             if valid_min_market_fare is not None and valid_min_market_fare < threshold_f4:
@@ -557,62 +594,151 @@ class LadderGen:
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
             
-            # Calculate f64 (highest fare)
-            if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
-                f64 = max(max_booking_fare, valid_max_market_fare)
-                self.logger.info(f"f64 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f64:.2f}")
-            else:
-                f64 = max_booking_fare
-                self.logger.info(f"f64 calculation: using max booking fare = {f64:.2f} (market flag={self.MARKET_FLAG})")
-
-            # Calculate higher buffer fares using UP_B2C
-            # For UP_B2C=5: Generate f60, f61, f62, f63, f64
-            # Start from f(64-UP_B2C) = f59
-            start_index = (64 - self.UP_B2C) - 4  # f59 is at index 55 in core_fares (f4-f61)
+            self.logger.info(f"  f1 = {f1:.2f}, f2 = {f2:.2f}, f3 = {f3:.2f}")
             
-            if start_index < 0 or start_index >= len(core_fares):
-                self.logger.error(f"Invalid start index {start_index} for UP_B2C={self.UP_B2C}")
-                self.failure_reason = f"Invalid UP_B2C parameter: {self.UP_B2C}"
+            # ===== HIGHER BUFFER FARES - Calculate f64 =====
+            if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
+                f64_new = max(max_booking_fare, valid_max_market_fare)
+                self.logger.info(f"f64 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f64_new:.2f}")
+            else:
+                f64_new = max_booking_fare
+                self.logger.info(f"f64 calculation: using max booking fare = {f64_new:.2f} (MARKET_FLAG={self.MARKET_FLAG})")
+            
+            # Build initial complete ladder (before UP recalculation)
+            initial_ladder = [f1, f2, f3] + core_fares
+            
+            # Identify starting fare for upsell calculation
+            # For UP=5: start from f59 (position 58, 0-indexed)
+            start_position = 64 - self.UP_B2C - 1
+            
+            if start_position < 0 or start_position >= len(initial_ladder):
+                self.logger.error(f"Invalid UP_B2C configuration: start_position={start_position}, ladder_length={len(initial_ladder)}")
+                self.failure_reason = f"Invalid UP_B2C configuration"
                 return []
             
-            start_fare = core_fares[start_index]  # f59
-            upsell_factor = (f64 / start_fare) ** (1 / self.UP_B2C) - 1
+            start_fare = initial_ladder[start_position]
+            start_fare_number = start_position + 1
             
-            self.logger.info(f"Higher buffer calculation: start_fare=f{64-self.UP_B2C}={start_fare:.2f}, "
-                f"f64={f64:.2f}, UP_B2C={self.UP_B2C}, upsell_factor={upsell_factor:.6f}")
+            self.logger.info(f"Higher buffer UP calculation:")
+            self.logger.info(f"  UP_B2C: {self.UP_B2C}")
+            self.logger.info(f"  Start fare: f{start_fare_number} = {start_fare:.2f}")
+            self.logger.info(f"  Target f64: {f64_new:.2f}")
             
-            # Generate f60, f61, f62, f63, f64 (5 fares total)
-            higher_ladder_fares = []
+            # Validate start_fare < f64_new to avoid negative upsell
+            if start_fare >= f64_new:
+                self.logger.error(f"Start fare f{start_fare_number} ({start_fare:.2f}) >= f64 ({f64_new:.2f})")
+                self.logger.error(f"This indicates core fares were pushed too high")
+                self.failure_reason = f"Invalid fare structure: f{start_fare_number} >= f64"
+                return []
+            
+            # Calculate upsell factor
+            upsell_factor = (f64_new / start_fare) ** (1 / self.UP_B2C) - 1
+            
+            self.logger.info(f"  Upsell factor: {upsell_factor:.6f} ({upsell_factor*100:.4f}%)")
+            
+            if upsell_factor < 0.001:
+                self.logger.warning(f"  Very small upsell factor - f{start_fare_number} is very close to f64")
+            
+            # Generate recalculated fares using upsell factor
+            recalculated_fares = []
             current_fare = start_fare
             
+            self.logger.info(f"  Generating {self.UP_B2C} UP fares:")
             for i in range(self.UP_B2C):
                 current_fare = current_fare * (1 + upsell_factor)
                 fare_number = (64 - self.UP_B2C) + i + 1
-                higher_ladder_fares.append(current_fare)
-                self.logger.info(f"f{fare_number} = {current_fare:.2f}")
+                recalculated_fares.append(current_fare)
+                self.logger.info(f"    f{fare_number} = {current_fare:.2f}")
             
-            overlap_count = 2  # f60 and f61
+            # Build complete ladder (before final threshold adjustment)
+            num_fares_to_keep = 64 - self.UP_B2C
+            complete_ladder = initial_ladder[:num_fares_to_keep] + recalculated_fares
             
-            # Remove the overlapping fares from core_fares
-            core_fares = core_fares[:-overlap_count]  # Remove last 2 fares (f60, f61)
+            self.logger.info(f"Complete ladder built: {len(complete_ladder)} fares")
+            self.logger.info(f"  f1-f3: Lower buffer (3 fares)")
+            self.logger.info(f"  f4-f{num_fares_to_keep}: Core ({num_fares_to_keep - 3} fares)")
+            self.logger.info(f"  f{num_fares_to_keep + 1}-f64: UP recalculated ({self.UP_B2C} fares)")
             
-            # Complete ladder: [f1, f2, f3] + core_fares[f4-f59] + higher_ladder_fares[f60-f64]
-            complete_ladder = [f1, f2, f3] + core_fares + higher_ladder_fares
+            # ===== APPLY MINIMUM THRESHOLD TO ALL 64 FARES =====
+            self.logger.info(f"Applying minimum threshold to all 64 fares...")
             
-            self.logger.info(f"Complete B2C ladder: {len(complete_ladder)} fares (f1-f64)")
-            self.logger.info(f"  Lower buffer: f1, f2, f3")
-            self.logger.info(f"  Core: f4-f59 ({len(core_fares)} fares)")
-            self.logger.info(f"  Higher buffer: f60-f64 ({len(higher_ladder_fares)} fares)")
+            threshold_func = (self.min_fare_threshold_domestic if self.route == 'D' 
+                            else self.min_fare_threshold_international)
+            
+            adjustments_made = 0
+            adjustments_detail = []
+            
+            for i in range(len(complete_ladder) - 1):
+                current_fare = complete_ladder[i]
+                next_fare = complete_ladder[i + 1]
+                min_threshold = threshold_func(current_fare)
+                
+                if next_fare - current_fare < min_threshold:
+                    old_value = next_fare
+                    complete_ladder[i + 1] = current_fare + min_threshold
+                    fare_num_current = i + 1
+                    fare_num_next = i + 2
+                    adjustments_made += 1
+                    
+                    adjustment_info = f"f{fare_num_current}→f{fare_num_next}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
+                    adjustments_detail.append(adjustment_info)
+                    
+                    # Log significant adjustments (in UP range or large changes)
+                    if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
+                        self.logger.info(f"  {adjustment_info}")
+            
+            self.logger.info(f"Threshold adjustments completed: {adjustments_made} adjustments made")
+            
+            # Log final ladder summary
+            self.logger.info(f"Final B2C ladder summary:")
+            self.logger.info(f"  Total fares: {len(complete_ladder)}")
+            self.logger.info(f"  Min fare (f1): {complete_ladder[0]:.2f}")
+            self.logger.info(f"  Max fare (f64): {complete_ladder[-1]:.2f}")
+            self.logger.info(f"  Last 5 fares:")
+            for i in range(len(complete_ladder) - 5, len(complete_ladder)):
+                fare_num = i + 1
+                self.logger.info(f"    f{fare_num} = {complete_ladder[i]:.2f}")
+            
+            # Validate exactly 64 fares
+            if len(complete_ladder) != 64:
+                self.logger.error(f"B2C ladder count error: got {len(complete_ladder)}, expected 64")
+                self.failure_reason = f"B2C ladder generation failed: got {len(complete_ladder)} fares, expected 64"
+                return []
+            
+            # Validate monotonically increasing
+            for i in range(len(complete_ladder) - 1):
+                if complete_ladder[i] >= complete_ladder[i + 1]:
+                    self.logger.error(f"Non-increasing fares: f{i+1} ({complete_ladder[i]:.2f}) >= f{i+2} ({complete_ladder[i+1]:.2f})")
+                    self.failure_reason = "Ladder has non-increasing fares"
+                    return []
+            
+            # Validate minimum threshold compliance
+            threshold_violations = 0
+            for i in range(len(complete_ladder) - 1):
+                current_fare = complete_ladder[i]
+                next_fare = complete_ladder[i + 1]
+                min_threshold = threshold_func(current_fare)
+                actual_diff = next_fare - current_fare
+                
+                if actual_diff < min_threshold - 0.01:  # Allow small rounding errors
+                    self.logger.error(f"Threshold violation: f{i+1}→f{i+2}: diff={actual_diff:.2f} < threshold={min_threshold:.2f}")
+                    threshold_violations += 1
+            
+            if threshold_violations > 0:
+                self.logger.error(f"Found {threshold_violations} threshold violations")
+                self.failure_reason = "Threshold violations detected in final ladder"
+                return []
             
             return complete_ladder
             
         except Exception as e:
-            self.logger.error(f"Error calculating buffer fares: {str(e)}")
-            self.failure_reason = f"Buffer fare calculation failed: {str(e)}"
+            self.logger.error(f"Error calculating B2C buffer fares: {str(e)}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            self.failure_reason = f"B2C buffer fare calculation failed: {str(e)}"
             raise
         
     def calculate_buffer_fares_b2b(self, core_fares, booking_data, b2c_min):
-        """Calculate buffer fares f1-f2 and f19-f20 for B2B ladder."""
+        """Calculate buffer fares f1-f2 and f16-f20 for B2B ladder to create exactly 20 fares."""
         try:
             if not core_fares or booking_data.empty:
                 self.failure_reason = "Missing core fares or booking data"
@@ -629,101 +755,235 @@ class LadderGen:
             # Filter for B2B data
             b2b_data = self.market_fares_data[self.market_fares_data['channel'] == 'B2B'].copy()
             
-            f3 = core_fares[0]  # Lowest bin fare
-            f18 = core_fares[-1]  # Highest bin fare
+            # Validate core fares count (should be exactly 16 fares: f3-f18)
+            if len(core_fares) != 16:
+                self.logger.warning(f"B2B core fares count mismatch: got {len(core_fares)}, expected 16")
+                if len(core_fares) > 16:
+                    core_fares = core_fares[:16]
+                else:
+                    while len(core_fares) < 16:
+                        core_fares.append(core_fares[-1] if core_fares else 0)
             
-            min_booking_fare = booking_data['Fare'].min()
-            max_booking_fare = booking_data['Fare'].max()
+            f3 = core_fares[0]
+            f18 = core_fares[-1]
             
-            min_booking_fare = float(min_booking_fare) if min_booking_fare else None
-            max_booking_fare = float(max_booking_fare) if max_booking_fare else None
+            min_booking_fare = float(booking_data['Fare'].min())
+            max_booking_fare = float(booking_data['Fare'].max())
             
             # Find valid B2B market fares
             valid_min_market_fare = self._find_valid_market_fare(b2b_data, 'min', origin, destination)
             valid_max_market_fare = self._find_valid_market_fare(b2b_data, 'max', origin, destination)
             
-            # Calculate lower buffer fares (f1, f2)
-            # Case 1: If XQP fare exists that is < f3 AND satisfies constraint (XQP > B2C_min + threshold)
-            if (valid_min_market_fare is not None and 
-                valid_min_market_fare < f3 and 
-                valid_min_market_fare > b2c_min + self.B2B_THRESHOLD):
-                f2 = valid_min_market_fare
-                f1 = f2 - (0.02 * f2)
-                self.logger.info(f"Lower buffer: Using B2B market fare f2={f2:.2f}, f1={f1:.2f}")
+            self.logger.info(f"B2B Buffer Fare Calculation Started")
+            self.logger.info(f"  Core fares: {len(core_fares)} (f3-f18)")
+            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f}")
+            self.logger.info(f"  Market fares: min={valid_min_market_fare}, max={valid_max_market_fare}")
+            self.logger.info(f"  B2C_min (for constraint): {b2c_min:.2f}")
             
-            # Case 2: If f3 < B2C(V9) - threshold
-            elif f3 < (b2c_min - self.B2B_THRESHOLD):
-                f2 = 0.98 * f3
-                f1 = 0.96 * f2
-                self.logger.info(f"Lower buffer: f3 < B2C-threshold, using multiplicative f2={f2:.2f}, f1={f1:.2f}")
+            # ===== LOWER BUFFER FARES (f1, f2) =====
+            b2c_threshold_limit = b2c_min - self.B2B_THRESHOLD
             
-            # Case 3: No XQP fare satisfying constraints
+            self.logger.info(f"B2B constraint analysis:")
+            self.logger.info(f"  B2C_min: {b2c_min:.2f}")
+            self.logger.info(f"  B2B_THRESHOLD: {self.B2B_THRESHOLD}")
+            self.logger.info(f"  Threshold limit (B2C - threshold): {b2c_threshold_limit:.2f}")
+            self.logger.info(f"  f3 (lowest bin): {f3:.2f}")
+            
+            # Case 1: XQP fare exists AND XQP < f3 AND XQP < B2C_min - threshold
+            case_1_satisfied = False
+            if valid_min_market_fare is not None:
+                case_1_constraint_1 = valid_min_market_fare < f3
+                case_1_constraint_2 = valid_min_market_fare < b2c_threshold_limit
+                
+                self.logger.info(f"Case 1 analysis - XQP fare: {valid_min_market_fare:.2f}")
+                self.logger.info(f"  XQP < f3: {case_1_constraint_1}")
+                self.logger.info(f"  XQP < B2C-threshold: {case_1_constraint_2}")
+                
+                if case_1_constraint_1 and case_1_constraint_2:
+                    f2 = valid_min_market_fare
+                    f1 = f2 - (0.02 * f2)
+                    case_1_satisfied = True
+                    self.logger.info(f"Case 1 SELECTED: Using B2B market fare")
+                    self.logger.info(f"  f1 = {f1:.2f}, f2 = {f2:.2f}")
             else:
-                f1 = b2c_min - self.B2B_THRESHOLD
-                f2 = (f1 + f3) / 2
-                self.logger.info(f"Lower buffer: No valid XQP fare, f1={f1:.2f}, f2={f2:.2f}")
+                self.logger.info(f"Case 1 analysis - No valid XQP fare found")
             
-            # Calculate f20 (highest buffer fare)
+            if not case_1_satisfied:
+                # Case 2: f3 < B2C_min - threshold
+                case_2_constraint = f3 < b2c_threshold_limit
+                self.logger.info(f"Case 2 analysis: f3 < B2C-threshold: {case_2_constraint}")
+                
+                if case_2_constraint:
+                    f2 = 0.98 * f3
+                    f1 = 0.96 * f2
+                    self.logger.info(f"Case 2 SELECTED: Multiplicative approach")
+                    self.logger.info(f"  f1 = {f1:.2f} (0.96*f2), f2 = {f2:.2f} (0.98*f3)")
+                else:
+                    # Case 3: No valid XQP AND f3 >= B2C_min - threshold
+                    f1 = b2c_threshold_limit
+                    f2 = (f1 + f3) / 2
+                    self.logger.info(f"Case 3 SELECTED: Constraint-based approach")
+                    self.logger.info(f"  f1 = {f1:.2f} (B2C-threshold), f2 = {f2:.2f} ((f1+f3)/2)")
+            
+            # ===== HIGHER BUFFER FARES - Calculate f20 =====
             if self.MARKET_FLAG == "True" and valid_max_market_fare is not None:
-                f20 = max(max_booking_fare, valid_max_market_fare)
-                self.logger.info(f"f20 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f20:.2f}")
+                f20_new = max(max_booking_fare, valid_max_market_fare)
+                self.logger.info(f"f20 calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {f20_new:.2f}")
             else:
-                f20 = max_booking_fare
-                self.logger.info(f"f20 calculation: using max booking fare = {f20:.2f} (market flag={self.MARKET_FLAG})")
+                f20_new = max_booking_fare
+                self.logger.info(f"f20 calculation: using max booking fare = {f20_new:.2f} (MARKET_FLAG={self.MARKET_FLAG})")
             
-            # Calculate higher buffer fares using UP_B2B
-            # For UP_B2B=5: Generate f16, f17, f18, f19, f20
-            # Start from f(20-UP_B2B) = f15
-            start_index = (20 - self.UP_B2B) - 3  # f15 is at index 12 in core_fares (f3-f18)
+            # Build initial complete ladder (before UP recalculation)
+            initial_ladder = [f1, f2] + core_fares
             
-            if start_index < 0 or start_index >= len(core_fares):
-                self.logger.error(f"Invalid start index {start_index} for UP_B2B={self.UP_B2B}")
-                self.failure_reason = f"Invalid UP_B2B parameter: {self.UP_B2B}"
+            # Identify starting fare for upsell calculation
+            # For UP=5: start from f15 (position 14, 0-indexed)
+            start_position = 20 - self.UP_B2B - 1
+            
+            if start_position < 0 or start_position >= len(initial_ladder):
+                self.logger.error(f"Invalid UP_B2B configuration: start_position={start_position}, ladder_length={len(initial_ladder)}")
+                self.failure_reason = f"Invalid UP_B2B configuration"
                 return []
             
-            start_fare = core_fares[start_index]  # f15
-            upsell_factor = (f20 / start_fare) ** (1 / self.UP_B2B) - 1
+            start_fare = initial_ladder[start_position]
+            start_fare_number = start_position + 1
             
-            self.logger.info(f"Higher buffer calculation: start_fare=f{20-self.UP_B2B}={start_fare:.2f}, "
-                f"f20={f20:.2f}, UP_B2B={self.UP_B2B}, upsell_factor={upsell_factor:.6f}")
+            self.logger.info(f"Higher buffer UP calculation:")
+            self.logger.info(f"  UP_B2B: {self.UP_B2B}")
+            self.logger.info(f"  Start fare: f{start_fare_number} = {start_fare:.2f}")
+            self.logger.info(f"  Target f20: {f20_new:.2f}")
             
-            # Generate f16, f17, f18, f19, f20 (5 fares total)
-            higher_ladder_fares = []
+            # Validate start_fare < f20_new
+            if start_fare >= f20_new:
+                self.logger.error(f"Start fare f{start_fare_number} ({start_fare:.2f}) >= f20 ({f20_new:.2f})")
+                self.failure_reason = f"Invalid fare structure: f{start_fare_number} >= f20"
+                return []
+            
+            # Calculate upsell factor
+            upsell_factor = (f20_new / start_fare) ** (1 / self.UP_B2B) - 1
+            
+            self.logger.info(f"  Upsell factor: {upsell_factor:.6f} ({upsell_factor*100:.4f}%)")
+            
+            if upsell_factor < 0.001:
+                self.logger.warning(f"  Very small upsell factor - f{start_fare_number} is very close to f20")
+            
+            # Generate recalculated fares using upsell factor
+            recalculated_fares = []
             current_fare = start_fare
             
+            self.logger.info(f"  Generating {self.UP_B2B} UP fares:")
             for i in range(self.UP_B2B):
                 current_fare = current_fare * (1 + upsell_factor)
                 fare_number = (20 - self.UP_B2B) + i + 1
-                higher_ladder_fares.append(current_fare)
-                self.logger.info(f"f{fare_number} = {current_fare:.2f}")
+                recalculated_fares.append(current_fare)
+                self.logger.info(f"    f{fare_number} = {current_fare:.2f}")
             
-            # The last fare in higher_ladder_fares IS f20, so don't append it again
-            # higher_ladder_fares = [f16, f17, f18, f19, f20]
+            # Build complete ladder (before final threshold adjustment)
+            num_fares_to_keep = 20 - self.UP_B2B
+            complete_ladder = initial_ladder[:num_fares_to_keep] + recalculated_fares
             
-            # Calculate how many fares overlap with core
-            # Core fares are f3-f18 (16 fares)
-            # We generate f16-f20 (5 fares)
-            # f16, f17, f18 overlap with core
-            overlap_count = 3  # f16, f17, f18
+            self.logger.info(f"Complete ladder built: {len(complete_ladder)} fares")
+            self.logger.info(f"  f1-f2: Lower buffer (2 fares)")
+            self.logger.info(f"  f3-f{num_fares_to_keep}: Core ({num_fares_to_keep - 2} fares)")
+            self.logger.info(f"  f{num_fares_to_keep + 1}-f20: UP recalculated ({self.UP_B2B} fares)")
             
-            # Remove the overlapping fares from core_fares
-            core_fares = core_fares[:-overlap_count]  # Remove last 3 fares (f16, f17, f18)
+            # ===== APPLY MINIMUM THRESHOLD TO ALL 20 FARES =====
+            self.logger.info(f"Applying minimum threshold to all 20 fares...")
             
-            # Complete B2B ladder: [f1, f2] + core_fares[f3-f15] + higher_ladder_fares[f16-f20]
-            complete_ladder = [f1, f2] + core_fares + higher_ladder_fares
+            threshold_func = (self.min_fare_threshold_domestic if self.route == 'D' 
+                            else self.min_fare_threshold_international)
             
-            self.logger.info(f"Complete B2B ladder: {len(complete_ladder)} fares (f1-f20)")
-            self.logger.info(f"  Lower buffer: f1, f2")
-            self.logger.info(f"  Core: f3-f15 ({len(core_fares)} fares)")
-            self.logger.info(f"  Higher buffer: f16-f20 ({len(higher_ladder_fares)} fares)")
-            self.logger.info(f"B2B-B2C constraint: f1={f1:.2f} > B2C_min={b2c_min:.2f} + {self.B2B_THRESHOLD} = {b2c_min + self.B2B_THRESHOLD:.2f}")
+            adjustments_made = 0
+            adjustments_detail = []
+            
+            for i in range(len(complete_ladder) - 1):
+                current_fare = complete_ladder[i]
+                next_fare = complete_ladder[i + 1]
+                min_threshold = threshold_func(current_fare)
+                
+                if next_fare - current_fare < min_threshold:
+                    old_value = next_fare
+                    complete_ladder[i + 1] = current_fare + min_threshold
+                    fare_num_current = i + 1
+                    fare_num_next = i + 2
+                    adjustments_made += 1
+                    
+                    adjustment_info = f"f{fare_num_current}→f{fare_num_next}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
+                    adjustments_detail.append(adjustment_info)
+                    
+                    # Log significant adjustments (in UP range or large changes)
+                    if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
+                        self.logger.info(f"  {adjustment_info}")
+            
+            self.logger.info(f"Threshold adjustments completed: {adjustments_made} adjustments made")
+            
+            # Log final ladder summary
+            self.logger.info(f"Final B2B ladder summary:")
+            self.logger.info(f"  Total fares: {len(complete_ladder)}")
+            self.logger.info(f"  Min fare (f1): {complete_ladder[0]:.2f}")
+            self.logger.info(f"  Max fare (f20): {complete_ladder[-1]:.2f}")
+            self.logger.info(f"  All fares:")
+            for i, fare in enumerate(complete_ladder):
+                fare_num = i + 1
+                self.logger.info(f"    f{fare_num} = {fare:.2f}")
+            
+            # Validate exactly 20 fares
+            if len(complete_ladder) != 20:
+                self.logger.error(f"B2B ladder count error: got {len(complete_ladder)}, expected 20")
+                self.failure_reason = f"B2B ladder generation failed: got {len(complete_ladder)} fares, expected 20"
+                return []
+            
+            # Validate monotonically increasing
+            for i in range(len(complete_ladder) - 1):
+                if complete_ladder[i] >= complete_ladder[i + 1]:
+                    self.logger.error(f"Non-increasing fares: f{i+1} ({complete_ladder[i]:.2f}) >= f{i+2} ({complete_ladder[i+1]:.2f})")
+                    self.failure_reason = "B2B ladder has non-increasing fares"
+                    return []
+            
+            # Validate minimum threshold compliance
+            threshold_violations = 0
+            for i in range(len(complete_ladder) - 1):
+                current_fare = complete_ladder[i]
+                next_fare = complete_ladder[i + 1]
+                min_threshold = threshold_func(current_fare)
+                actual_diff = next_fare - current_fare
+                
+                if actual_diff < min_threshold - 0.01:  # Allow small rounding errors
+                    self.logger.error(f"Threshold violation: f{i+1}→f{i+2}: diff={actual_diff:.2f} < threshold={min_threshold:.2f}")
+                    threshold_violations += 1
+            
+            if threshold_violations > 0:
+                self.logger.error(f"Found {threshold_violations} threshold violations")
+                self.failure_reason = "Threshold violations detected in final B2B ladder"
+                return []
+            
+            # Final B2B constraint validation
+            b2b_min = complete_ladder[0]  # f1
+            
+            self.logger.info(f"B2B Constraint Validation:")
+            self.logger.info(f"  B2B_min (f1): {b2b_min:.2f}")
+            self.logger.info(f"  B2C_min: {b2c_min:.2f}")
+            self.logger.info(f"  B2B_THRESHOLD: {self.B2B_THRESHOLD}")
+            self.logger.info(f"  Required: B2B_min <= {b2c_threshold_limit:.2f}")
+            self.logger.info(f"  Constraint satisfied: {b2b_min <= b2c_threshold_limit}")
+            
+            if b2b_min > b2c_threshold_limit:
+                margin_violation = b2b_min - b2c_threshold_limit
+                self.logger.error(f"B2B constraint violated by {margin_violation:.2f}")
+                self.failure_reason = f"B2B constraint violation: B2B_min={b2b_min:.2f} > threshold={b2c_threshold_limit:.2f}"
+                return []
+            else:
+                margin = b2c_threshold_limit - b2b_min
+                self.logger.info(f"B2B constraint satisfied with margin of {margin:.2f}")
             
             return complete_ladder
             
         except Exception as e:
             self.logger.error(f"Error calculating B2B buffer fares: {str(e)}")
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
             self.failure_reason = f"B2B buffer fare calculation failed: {str(e)}"
             raise
+    
     
     def generate_saver_ladder(self):
         """Main ladder generation method."""
@@ -742,20 +1002,45 @@ class LadderGen:
                     self.failure_reason = "Failed to create fare bins"
                 return None
             
-            adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c)
-            adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b)
+            adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c, self.B2C_CHANNEL)
+            adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b, self.B2B_CHANNEL)
             if not adjusted_fare_points_b2c or not adjusted_fare_points_b2b:
                 if not self.failure_reason:
                     self.failure_reason = "Failed to apply minimum threshold"
                 return None
                 
             complete_ladder_b2c = self.calculate_buffer_fares_b2c(adjusted_fare_points_b2c, booking_data_b2c)
-            complete_ladder_b2b = self.calculate_buffer_fares_b2b(adjusted_fare_points_b2b, booking_data_b2b, min(complete_ladder_b2c))
-            
-            if not complete_ladder_b2c or not complete_ladder_b2b:
+            if not complete_ladder_b2c:
                 if not self.failure_reason:
-                    self.failure_reason = "Failed to calculate buffer fares"
+                    self.failure_reason = "Failed to calculate B2C buffer fares"
                 return None
+            
+            complete_ladder_b2b = self.calculate_buffer_fares_b2b(adjusted_fare_points_b2b, booking_data_b2b, min(complete_ladder_b2c))
+            if not complete_ladder_b2b:
+                if not self.failure_reason:
+                    self.failure_reason = "Failed to calculate B2B buffer fares"
+                return None
+            
+            # Final B2B constraint validation
+            b2b_min = min(complete_ladder_b2b)
+            b2c_min = min(complete_ladder_b2c)
+            b2c_threshold_limit = b2c_min - self.B2B_THRESHOLD
+            
+            self.logger.info(f"B2B Constraint Validation:")
+            self.logger.info(f"  B2B_min: {b2b_min:.2f}")
+            self.logger.info(f"  B2C_min: {b2c_min:.2f}")
+            self.logger.info(f"  B2B_THRESHOLD: {self.B2B_THRESHOLD}")
+            self.logger.info(f"  Required: B2B_min < {b2c_threshold_limit:.2f}")
+            self.logger.info(f"  Constraint satisfied: {b2b_min <= b2c_threshold_limit}")
+            
+            if b2b_min > b2c_threshold_limit:
+                margin_violation = b2b_min - b2c_threshold_limit
+                self.logger.info(f"B2B constraint validation: B2B constraint violated by {margin_violation:.2f}")
+                self.failure_reason = f"B2B constraint violation: B2B_min={b2b_min:.2f} >= B2C_threshold_limit={b2c_threshold_limit:.2f}"
+                return None
+            else:
+                margin = b2c_threshold_limit - b2b_min
+                self.logger.info(f"B2B constraint validation: B2B constraint satisfied with margin of {margin:.2f}")
             
             return {
                 'sector': self.sector,

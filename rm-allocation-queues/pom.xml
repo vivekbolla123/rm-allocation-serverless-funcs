@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.10</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
 
     <groupId>com.akasaair.queues</groupId>
     <artifactId>rm-file-handler</artifactId>
@@ -11,20 +19,50 @@
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>16</java.version>
-        <aws.java.sdk.version>2.25.16</aws.java.sdk.version>
-        <aws.lambda.java.version>1.2.3</aws.lambda.java.version>
-        <junit5.version>5.10.1</junit5.version>
-    </properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
 
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.18</version>
-    </parent>
+        <!-- Updated dependency versions as per IT requirements -->
+        <aws.java.sdk.version>2.25.16</aws.java.sdk.version>
+        <spring-cloud-aws.version>3.1.1</spring-cloud-aws.version>
+        <junit5.version>5.10.1</junit5.version>
+        <!-- Updated for security - fixes DoS via deeply nested JSON (CVE-2025-53864) -->
+        <nimbus-jose-jwt.version>9.37.4</nimbus-jose-jwt.version>
+        <json.version>20251224</json.version>
+        <!-- Spring Boot 3.5.10 manages these versions automatically -->
+        <!-- snakeyaml: 2.2 (managed by Spring Boot 3.5.10) -->
+        <!-- jackson: 2.18.2 (managed by Spring Boot 3.5.10) -->
+        <!-- Updated for security - fixes MadeYouReset DDoS, CRLF injection, SSL verification CVEs -->
+        <netty.version>4.1.129.Final</netty.version>
+        <spark.version>3.4.4</spark.version>
+        <avro.version>1.11.4</avro.version>
+        <protobuf.version>3.25.5</protobuf.version>
+        <snappy.version>1.1.10.4</snappy.version>
+        <commons-io.version>2.14.0</commons-io.version>
+        <!-- Updated for security - fixes information disclosure (CVE-2024-23944) -->
+        <zookeeper.version>3.8.4</zookeeper.version>
+        <!-- Hadoop version - updated for security (CVE-2022-26612 path traversal) -->
+        <!-- Requires Spark 3.4.x for compatibility -->
+        <hadoop.version>3.3.6</hadoop.version>
+        <!-- Security version overrides -->
+        <json-smart.version>2.5.2</json-smart.version>
+        <woodstox-core.version>6.7.0</woodstox-core.version>
+        <guava.version>32.1.0-jre</guava.version>
+        <commons-configuration2.version>2.10.1</commons-configuration2.version>
+        <okio.version>3.4.0</okio.version>
+        <!-- dnsjava kept at transitive version - 3.x causes SPI conflicts with InetAddressResolver -->
+        <commons-net.version>3.9.0</commons-net.version>
+        <reload4j.version>1.2.26</reload4j.version>
+        <!-- Security: commons-compress 1.26.0 fixes DoS CVEs -->
+        <commons-compress.version>1.26.0</commons-compress.version>
+        <!-- Security: log4j 2.25.3 fixes TLS hostname verification CVE-2025-68161 -->
+        <log4j2.version>2.25.3</log4j2.version>
+    </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- AWS SDK BOM -->
             <dependency>
                 <groupId>software.amazon.awssdk</groupId>
                 <artifactId>bom</artifactId>
@@ -32,17 +70,181 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+
+            <!-- Spring Cloud AWS -->
             <dependency>
                 <groupId>io.awspring.cloud</groupId>
                 <artifactId>spring-cloud-aws-dependencies</artifactId>
-                <version>2.4.4</version>
+                <version>${spring-cloud-aws.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- Netty BOM for consistent versions -->
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Override vulnerable ion-java version globally -->
+            <dependency>
+                <groupId>com.amazon.ion</groupId>
+                <artifactId>ion-java</artifactId>
+                <version>1.11.11</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.amazonaws</groupId>
+                <artifactId>aws-lambda-java-core</artifactId>
+                <version>1.2.3</version>
+            </dependency>
+
+            <!-- Security: reload4j replaces vulnerable log4j 1.x -->
+            <dependency>
+                <groupId>ch.qos.reload4j</groupId>
+                <artifactId>reload4j</artifactId>
+                <version>${reload4j.version}</version>
+            </dependency>
+
+            <!-- Security: Override vulnerable transitive dependencies -->
+            <dependency>
+                <groupId>net.minidev</groupId>
+                <artifactId>json-smart</artifactId>
+                <version>${json-smart.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.woodstox</groupId>
+                <artifactId>woodstox-core</artifactId>
+                <version>${woodstox-core.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-configuration2</artifactId>
+                <version>${commons-configuration2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.squareup.okio</groupId>
+                <artifactId>okio</artifactId>
+                <version>${okio.version}</version>
+            </dependency>
+            <!-- Force Hadoop client components to 3.3.6 to match hadoop-aws -->
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-client-api</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-client-runtime</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-net</groupId>
+                <artifactId>commons-net</artifactId>
+                <version>${commons-net.version}</version>
+            </dependency>
+            <!-- Security: Force transitive old aircompressor to fixed version 0.27 -->
+            <dependency>
+                <groupId>io.airlift</groupId>
+                <artifactId>aircompressor</artifactId>
+                <version>0.27</version>
+            </dependency>
+
+            <!-- lz4-java - upgraded to secure fork (fixes CVE-2025-12183, CVE-2025-66566) -->
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>1.10.1</version>
+            </dependency>
+            <!-- Exclude old org.lz4 from transitive deps -->
+            <dependency>
+                <groupId>org.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>1.8.0</version>
+                <scope>provided</scope>
+            </dependency>
+            <!-- Janino - required for Spark 3.4.x code generation -->
+            <dependency>
+                <groupId>org.codehaus.janino</groupId>
+                <artifactId>janino</artifactId>
+                <version>3.1.9</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.janino</groupId>
+                <artifactId>commons-compiler</artifactId>
+                <version>3.1.9</version>
+            </dependency>
+            <!-- Security: commons-compress 1.26.0 fixes DoS CVEs -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-compress</artifactId>
+                <version>${commons-compress.version}</version>
+            </dependency>
+            <!-- Security: log4j 2.25.3 fixes TLS hostname verification -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-core</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-slf4j2-impl</artifactId>
+                <version>${log4j2.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- Spring Boot Starters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Log4j2 instead of Logback -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-log4j2</artifactId>
+        </dependency>
+
+        <!-- Spring Data JPA -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Spring Data MongoDB -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+
+        <!-- Spring JDBC -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+
+        <!-- AWS SDK v2 Dependencies -->
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
@@ -57,90 +259,344 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- Removed the duplicate commons-csv dependency -->
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>aws-crt-client</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>ssm</artifactId>
         </dependency>
+
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>netty-nio-client</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>apache-client</artifactId>
+        </dependency>
+
+        <!-- Spring Cloud AWS - Parameter Store Config -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-parameter-store</artifactId>
+        </dependency>
+
+        <!-- Spring Cloud AWS - Core (required for Spring Boot 3) -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter</artifactId>
+        </dependency>
+
+        <!-- OpenCSV - Upgraded to latest -->
+        <dependency>
+            <groupId>com.opencsv</groupId>
+            <artifactId>opencsv</artifactId>
+            <version>5.9</version>
+        </dependency>
+
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Nimbus JOSE JWT - Updated for security (CVE-2025-53864) -->
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>nimbus-jose-jwt</artifactId>
+            <version>${nimbus-jose-jwt.version}</version>
+        </dependency>
+
+        <!-- JSON Smart - Updated for security (CVE-2024-57699) -->
+        <dependency>
+            <groupId>net.minidev</groupId>
+            <artifactId>json-smart</artifactId>
+            <version>${json-smart.version}</version>
+        </dependency>
+
+        <!-- DuckDB -->
+        <dependency>
+            <groupId>org.duckdb</groupId>
+            <artifactId>duckdb_jdbc</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+
+        <!-- Javax Servlet API - Required for Spark compatibility with Spring Boot 3 -->
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+
+        <!-- Apache Spark - Updated as per IT requirement -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_2.12</artifactId>
+            <version>${spark.version}</version>
             <exclusions>
+                <exclusion>
+                    <groupId>org.apache.zookeeper</groupId>
+                    <artifactId>zookeeper</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.yaml</groupId>
+                    <artifactId>snakeyaml</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable log4j 1.x -->
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable org.lz4, use at.yawk.lz4 fork -->
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Secure lz4-java fork for Spark compression -->
+        <dependency>
+            <groupId>at.yawk.lz4</groupId>
+            <artifactId>lz4-java</artifactId>
+            <version>1.10.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.12</artifactId>
+            <version>${spark.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Delta Lake -->
+        <dependency>
+            <groupId>io.delta</groupId>
+            <artifactId>delta-core_2.12</artifactId>
+            <version>2.4.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Hadoop AWS - Updated for security (CVE-2022-26612) -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable log4j 1.x -->
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Hadoop Client - Updated for security (CVE-2022-26612) -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-client</artifactId>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable log4j 1.x -->
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable dnsjava 2.1.7 (DNSSEC bypass) -->
+                <exclusion>
+                    <groupId>dnsjava</groupId>
+                    <artifactId>dnsjava</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- AWS SDK v1 - Required by Hadoop for S3A filesystem -->
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-bundle</artifactId>
+            <version>1.12.494</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>software.amazon.ion</groupId>
+                    <artifactId>ion-java</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Explicit dependency versions as per IT requirements -->
+
+        <!-- Zookeeper - Updated for security (CVE-2024-23944) -->
+        <dependency>
+            <groupId>org.apache.zookeeper</groupId>
+            <artifactId>zookeeper</artifactId>
+            <version>${zookeeper.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.netty</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.slf4j</groupId>
+                    <artifactId>slf4j-log4j12</artifactId>
+                </exclusion>
+                <!-- Security: Exclude vulnerable log4j 1.x -->
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
+                </exclusion>
+                <!-- Exclude Logback to prevent conflict with Log4j2 -->
+                <exclusion>
+                    <groupId>ch.qos.logback</groupId>
+                    <artifactId>logback-core</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>ch.qos.logback</groupId>
                     <artifactId>logback-classic</artifactId>
                 </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Netty - Updated -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-handler</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-codec-http2</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+
+        <!-- Avro - Updated -->
+        <dependency>
+            <groupId>org.apache.avro</groupId>
+            <artifactId>avro</artifactId>
+            <version>${avro.version}</version>
+            <exclusions>
                 <exclusion>
-                    <groupId>org.springframework.boot</groupId>
-                    <artifactId>spring-boot-starter-logging</artifactId>
+                    <groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
+
+        <!-- Snappy Java - Updated -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-log4j2</artifactId>
+            <groupId>org.xerial.snappy</groupId>
+            <artifactId>snappy-java</artifactId>
+            <version>${snappy.version}</version>
         </dependency>
+
+
+
+        <!-- Commons IO - Updated -->
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-jdbc</artifactId>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>${commons-io.version}</version>
         </dependency>
+
+        <!-- Apache Ivy - Updated -->
         <dependency>
-            <groupId>com.opencsv</groupId>
-            <artifactId>opencsv</artifactId>
-            <version>4.1</version>
+            <groupId>org.apache.ivy</groupId>
+            <artifactId>ivy</artifactId>
+            <version>2.5.2</version>
         </dependency>
+
+        <!-- Protobuf - Updated -->
         <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <version>1.18.24</version>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>${protobuf.version}</version>
         </dependency>
+
+        <!-- Commons BeanUtils - Updated for security -->
         <dependency>
-            <groupId>com.nimbusds</groupId>
-            <artifactId>nimbus-jose-jwt</artifactId>
-            <version>9.15.2</version> <!-- Replace with the latest version available -->
+            <groupId>commons-beanutils</groupId>
+            <artifactId>commons-beanutils</artifactId>
+            <version>1.11.0</version>
         </dependency>
+
+        <!-- Override org.json for latest version -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+            <version>${json.version}</version>
         </dependency>
+
+        <!-- Fix for commons-lang3 Uncontrolled Recursion vulnerability -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.18.0</version>
+        </dependency>
+
+        <!-- Janino - Exact version that Spark 3.4.x requires -->
+        <dependency>
+            <groupId>org.codehaus.janino</groupId>
+            <artifactId>janino</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.codehaus.janino</groupId>
+            <artifactId>commons-compiler</artifactId>
+            <version>3.1.9</version>
+        </dependency>
+
+        <!-- Test Dependencies -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit5.version}</version>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.duckdb</groupId>
-            <artifactId>duckdb_jdbc</artifactId>
-            <version>1.2.0</version>
-        </dependency>
-        <dependency>
-            <groupId>io.awspring.cloud</groupId>
-            <artifactId>spring-cloud-starter-aws-parameter-store-config</artifactId>
-        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-mongodb</artifactId>
-            <exclusions>
-                <!-- Exclude all Logback -->
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-                <!-- Exclude log4j-to-slf4j which conflicts with log4j-slf4j-impl -->
-                <exclusion>
-                    <groupId>org.apache.logging.log4j</groupId>
-                    <artifactId>log4j-to-slf4j</artifactId>
-                </exclusion>
-            </exclusions>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -149,14 +605,24 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
                 <configuration>
-                    <source>16</source>
-                    <target>16</target>
+                    <source>17</source>
+                    <target>17</target>
                 </configuration>
             </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
             </plugin>
         </plugins>
     </build>
