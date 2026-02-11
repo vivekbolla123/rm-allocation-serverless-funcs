@@ -92,6 +92,7 @@ class ConstantsUtils:
         self.DIRECT_FLIGHT_UPSELL = 10 # Placeholder
         self.RBD_VALUES = RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
+        self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
 
 
         self.logger = logging.getLogger()
@@ -260,6 +261,8 @@ class ConstantsUtils:
                 self.RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
                 self.B2B_THRESHOLD = float(parameter_value)
+            elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
+                self.B2C_DISTINCT_FARES_COUNT = int(parameter_value)
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
