@@ -2044,10 +2044,12 @@ class RMDatabaseHelper:
 
         try:
             result = self.db.fares.find_one({
-                "SECTOR": sector,
-                "RBD": rbd,
-                "route": route,
-                "RBD": condition
+                "$and": [
+                    {"SECTOR": sector},
+                    {"RBD": rbd},
+                    {"RBD": condition},
+                    {"route": route}
+                ]
             })
 
             if not result:
