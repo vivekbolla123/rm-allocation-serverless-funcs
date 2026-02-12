@@ -17,9 +17,9 @@ class MarketFareService:
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)    
     
-    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
-        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo= self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime)
+    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime, carr_exclusion, flightExclusion):
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, carr_exclusion, flightExclusion)
+        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo= self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime, carr_exclusion, flightExclusion)
 
         #Does competetive fare exist
         #We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
@@ -68,38 +68,39 @@ class MarketFareService:
         try:
             mf_adjustments = self.rmdatabasehelper.getMarketFareAdjustments(currParams.origin, currParams.destin)
 
-            low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
-            hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
+            if not mf_adjustments.empty:
+                low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
+                hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
 
-            if not low_fare_adj.empty:
-                low_fare_adj_value = int(low_fare_adj.values[0])
-                lowFare += low_fare_adj_value
+                if not low_fare_adj.empty:
+                    low_fare_adj_value = int(low_fare_adj.values[0])
+                    lowFare += low_fare_adj_value
 
-            if not hi_fare_adj.empty:
-                hi_fare_adj_value = int(hi_fare_adj.values[0])
-                hiFare += hi_fare_adj_value
+                if not hi_fare_adj.empty:
+                    hi_fare_adj_value = int(hi_fare_adj.values[0])
+                    hiFare += hi_fare_adj_value
 
         except Exception as e:
             self.logger.info(f"Market Fare Adjustment not applied due to reason {e}")
         
         return int(lowFare),int(hiFare),lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare,lowmktFile,himktFile
 
-    def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
+    def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, carr_exclusion, flightExclusion):
         mktFareRange = self.fetchMarketFareRange(
-            channel, currFltDate, currParams, DaySpan, startTime, endTime, includeWeekend=False
+            channel, currFltDate, currParams, DaySpan, startTime, endTime, carr_exclusion, flightExclusion, includeWeekend=False
         )
             
 
         return self.prepareResponse(startTime, endTime, criteria, mktFareRange)
     
-    def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
+    def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, carr_exclusion, flightExclusion, includeWeekend):
         ndo=self.timeutils.calculate_ndo(flightDate)
         hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
         if params.mongodb=='1':
             return self.mongohelper.getMarketFareRange(channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs)
         else:
             return self.rmdatabasehelper.getMarketFareRange(
-                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
+                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs,carr_exclusion, flightExclusion
             )
 
     def get_value_for_ndo(self,json_string, ndo):

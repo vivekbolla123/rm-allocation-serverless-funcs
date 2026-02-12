@@ -58,11 +58,15 @@ def testCase1():
         "cache_client":None,
         "route_type":"direct",
         "timelogger":None,
+        "domestic_flag": "1"
     }
     outputData = {}
 
     schema = Schema(db)
     schema.initializTables()
+
+    # For International:
+    currParams["domestic_flag"] = "0"
 
     DynAlloc(inputData, currParams)
     # DynAllocSalesInv(inputData, currParams)

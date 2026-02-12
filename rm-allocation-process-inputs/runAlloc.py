@@ -555,7 +555,7 @@ class DynAlloc:
 				"startTime": self.outputSummaryRow_b2c.startTime, "endTime": self.outputSummaryRow_b2c.endTime,
 				"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2c.criteria,
 				"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2C,
-				"hardfare": hardfareb2c, "hardstartTime": hardstartTimeB2C, "hardendTime": hardendTimeB2C
+				"hardfare": hardfareb2c, "hardstartTime": hardstartTimeB2C, "hardendTime": hardendTimeB2C, "carr_exclusion": self.currParams.carr_exclusion_b2c, "flightExclusion": self.currParams.flightExclusionB2C
 			}
 
 			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, \
@@ -570,7 +570,7 @@ class DynAlloc:
 				"startTime": self.outputSummaryRow_b2b.startTime, "endTime": self.outputSummaryRow_b2b.endTime,
 				"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2b.criteria,
 				"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2B,
-				"hardfare": hardfareb2b, "hardstartTime": hardstartTimeB2B, "hardendTime": hardendTimeB2B
+				"hardfare": hardfareb2b, "hardstartTime": hardstartTimeB2B, "hardendTime": hardendTimeB2B, "carr_exclusion": self.currParams.carr_exclusion_b2b, "flightExclusion": self.currParams.flightExclusionB2B
 			}
 
 			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, \
@@ -579,6 +579,17 @@ class DynAlloc:
 			isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, \
 			self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, \
 			hardfareb2b_updated,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
+			
+			# If B2B Market Fares NA, try again with B2C Market Fares but B2B Strategy
+			if int(self.currParams.domestic_flag) == 0 and not isB2BMarketFareAvailable:
+				mktfare_params_b2b['channel'] = B2C_CHANNEL
+				self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, \
+				self.outputSummaryRow_b2b.AirlineCode_Min, self.outputSummaryRow_b2b.AirlineCode_Max, \
+				self.outputSummaryRow_b2b.FlightNumber_Min, self.outputSummaryRow_b2b.FlightNumber_Max, \
+				isB2BMarketFareAvailable, self.outputSummaryRow_b2b.criteria, \
+				self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, \
+				hardfareb2b_updated,lowmktFileb2b,himktFileb2b = self.marketfaresservice.getMarketFareAnchorFare(**mktfare_params_b2b)
+
 			hardfareb2b = hardfareb2b_updated # Update local var
    
 
@@ -1354,13 +1365,19 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
-			AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			if int(self.currParams.domestic_flag) == 1:
+				AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			else:
+				AUFrame.to_csv(CONST_AU_GRID_INTERNATIONAL_FILE_PATH, index=False)
 
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
 			df = df.drop(columns=["Id"])
-			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			if int(self.currParams.domestic_flag) == 1:
+				df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			else:
+				df.to_csv(CONST_SUMMARY_INTERNATIONAL_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}

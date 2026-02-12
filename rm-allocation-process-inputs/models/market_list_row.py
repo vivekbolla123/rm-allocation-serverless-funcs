@@ -10,6 +10,7 @@ class MarketListRow:
         self.per_start = currParams.get("PerStart", CONST_NA)
         self.per_end = currParams.get("PerEnd", CONST_NA)
         self.dow = currParams.get("DOW", CONST_NA)
+        self.domestic_flag = currParams.get("domestic_flag", 1)
         self.hardanchor = currParams.get("hardAnchor", CONST_NA)
         self.plfthreshold = currParams.get("plfThreshold", CONST_NA)
         self.time_window_start = currParams.get("TimeWindowStart", CONST_NA)

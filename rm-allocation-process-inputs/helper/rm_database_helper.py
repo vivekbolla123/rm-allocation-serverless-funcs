@@ -287,13 +287,17 @@ class RMDatabaseHelper:
                     ]
                     
                     self.logger.info("Executing direct route aggregation pipeline")
-                    results = list(self.db.market_list.aggregate(pipeline))
+                    if int(self.currParams.domestic_flag) == 1:
+                        results = list(self.db.market_list.aggregate(pipeline))
+                    else:
+                        results = list(self.db.market_list_international.aggregate(pipeline))
                     self.logger.info(f"Retrieved {len(results)} records from aggregation")
                     
                     if len(results) == 0:
                         self.logger.warning("No results returned from aggregation pipeline")
                     
                     self.mktList = pd.DataFrame(results)
+                    self.mktList["domestic_flag"] = 1 if self.currParams.domestic_flag == 1 else 0
                     
                 except Exception as e:
                     self.logger.error(f"Error in direct route aggregation: {str(e)}")
@@ -938,7 +942,7 @@ class RMDatabaseHelper:
             self.logger.error(f"Error getting Market fare adjustments: {e}")
             return pd.DataFrame()
 
-    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
+    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs, carr_exclusion, flightExclusion):
         
         try:
             currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
@@ -955,13 +959,6 @@ class RMDatabaseHelper:
                 elif currFltDate < updateDate:
                     startDateTime = datetime.combine(currFltDate, datetime.strptime(startTime, "%H:%M").time())
                     enddateTime = datetime.combine(updateDate, datetime.strptime(endtime, "%H:%M").time())
- 
-            if channel == B2B_CHANNEL:
-                carr_exclusion = currParams.carr_exclusion_b2b
-                flightExclusion = currParams.flightExclusionB2B
-            else:
-                carr_exclusion = currParams.carr_exclusion_b2c
-                flightExclusion = currParams.flightExclusionB2C
  
             carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
  

@@ -571,7 +571,7 @@ def number_of_batches_required(total_records, adhoc_batch_size):
     else:
         return [total_records // adhoc_batch_size, 0]
 
-def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name, cug_alloc, saleinvflag, mongodb):
+def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name, cug_alloc, saleinvflag, mongodb, region):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
     record["runTime"] = start_time
@@ -580,6 +580,7 @@ def add_additional_fields(record, run_id, update_navitaire_method, start_time, r
     record['cug_alloc'] = cug_alloc
     record["mongodb"] = mongodb
     record["saleinvflag"] = saleinvflag
+    record["domestic_flag"] = "1" if region == "Domestic" else "0"
     return record
 
 def send_batch_to_sqs(batch, queue_url, additional_fields):
@@ -597,7 +598,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
     except Exception as e:
         print(e)
 
-def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb, batch_size=10, max_workers=5):
+def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb, region, batch_size=10, max_workers=5):
     records = df.to_dict('records')
     batches = [records[i:i+batch_size] for i in range(0, len(records), batch_size)]
     start_time = datetime.now().isoformat()
@@ -609,7 +610,8 @@ def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_
         'queue_name': queue_name,
         'cug_alloc': cug_alloc,
         'mongodb': mongodb,
-        'saleinvflag': salesinv
+        'saleinvflag': salesinv,
+        'region': region
     }
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         executor.map(lambda batch: send_batch_to_sqs(batch, queue_url, additional_fields), batches)
@@ -1370,7 +1372,7 @@ def lambda_handler(event, context):
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
-                              update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
+                              update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb, region)
     else:
         batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
         for batch_num in range(batches_required[0]):
@@ -1431,9 +1433,10 @@ def lambda_handler(event, context):
 #         "body": json.dumps({
 #             "start_interval": 0,
 #             "end_interval": 7,
-#             "market_list_table_name": "market_list",
+#             "market_list_table_name": "market_list_international",
 #             "run_type": "Scheduled",
-#             "cug_alloc":0
+#             "cug_alloc":0,
+#             "region_method": "International"
 #         })
 #     }
 #     context = {}
