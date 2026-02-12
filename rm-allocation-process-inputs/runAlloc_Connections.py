@@ -999,7 +999,7 @@ class DynAllocConnections:
         3. Neither meets threshold -> MarketFare (or Max(MarketFare, StrategyFare) for domestic)
         4. Direct flight exists -> Apply upsell if direct didn't meet threshold
         """
-        DOM_FORECAST_THRESHOLD = 95
+        DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
         
@@ -1090,7 +1090,9 @@ class DynAllocConnections:
                                else direct_plf >= int_threshold)
             
             if not meets_threshold:
-                upsell_fare = max(direct_fare * 1.025, direct_fare + 200) if channel == 'B2B' else direct_fare * 1.025
+                upsell_pct = 1 + (self.constantsUtils.DIRECT_FLIGHT_UPSELL_PERCENT / 100)
+                upsell_amt = self.constantsUtils.DIRECT_FLIGHT_UPSELL_AMOUNT
+                upsell_fare = max(direct_fare * upsell_pct, direct_fare + upsell_amt) if channel == 'B2B' else direct_fare * upsell_pct
                 anchor_fare = max(anchor_fare, upsell_fare)
                 
                 if is_direct_domestic:

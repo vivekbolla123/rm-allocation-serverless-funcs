@@ -82,14 +82,10 @@ class ConstantsUtils:
         self.MARKET_FLAG = MARKET_FLAG
         
         # Phase 2 Constants
-        self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = {
-            (0, 3): 80,   # Placeholder
-            (4, 7): 60,   # Placeholder
-            (8, 14): 50,  # Placeholder
-            (15, 365): 40 # Placeholder
-        }
-        self.YIELD_FACTOR = 1.4 # Placeholder
-        self.DIRECT_FLIGHT_UPSELL = 10 # Placeholder
+        self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
+        self.YIELD_FACTOR = YIELD_FACTOR
+        self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
+        self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
         self.RBD_VALUES = RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
         self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
@@ -263,6 +259,28 @@ class ConstantsUtils:
                 self.B2B_THRESHOLD = float(parameter_value)
             elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
                 self.B2C_DISTINCT_FARES_COUNT = int(parameter_value)
+            elif parameter_key == DIRECT_FLIGHT_UPSELL_PERCENT_KEY:
+                self.DIRECT_FLIGHT_UPSELL_PERCENT = float(parameter_value)
+            elif parameter_key == DIRECT_FLIGHT_UPSELL_AMOUNT_KEY:
+                self.DIRECT_FLIGHT_UPSELL_AMOUNT = float(parameter_value)
+            elif parameter_key == INTERNATIONAL_BOOKLOAD_THRESHOLDS_KEY:
+                self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(parameter_value)
+            elif parameter_key == YIELD_FACTOR_KEY:
+                self.YIELD_FACTOR = float(parameter_value)
+                
+    def _parse_intl_thresholds(self, json_str):
+        """Parse international threshold JSON string into dict with (start, end) tuple keys."""
+        try:
+            raw_data = json.loads(json_str)
+            parsed_data = {}
+            for key, value in raw_data.items():
+                start_str, end_str = key.split('-')
+                parsed_data[(int(start_str), int(end_str))] = float(value)
+            return parsed_data
+        except Exception as e:
+            self.logger.error(f"Error parsing international bookload thresholds: {e}")
+            # Return default hardcoded if parsing fails
+            return {(0, 3): 80, (4, 7): 60, (8, 14): 50, (15, 365): 40}
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
