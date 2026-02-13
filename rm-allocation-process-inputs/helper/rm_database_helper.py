@@ -2197,34 +2197,34 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return -1, -1
 
-    def insertSummaryRow_connections(self, summary_list):
-        try:
-            print(f"DEBUG: insertSummaryRow_connections called with {len(summary_list)} items")
-            if len(summary_list) > 0:
-                print(f"DEBUG: First item RunId: {summary_list[0].RunId}")
+    # def insertSummaryRow_connections(self, summary_list):
+    #     try:
+    #         print(f"DEBUG: insertSummaryRow_connections called with {len(summary_list)} items")
+    #         if len(summary_list) > 0:
+    #             print(f"DEBUG: First item RunId: {summary_list[0].RunId}")
             
-            data_list = []
-            for summary in summary_list:
-                # This part of the code was incomplete in the instruction.
-                # Assuming it was meant to construct a document for insertion.
-                # For now, it's left as a placeholder to maintain syntactical correctness.
-                pass # Placeholder for the actual logic that was intended to be here.
-            # The original function had logic to insert a single doc based on allocresults[-1]
-            # The new function signature suggests processing a list.
-            # The instruction provided an incomplete code block for the loop.
-            # To ensure syntactical correctness, the loop body is replaced with 'pass'.
-            # The rest of the original function's logic for insertion is commented out
-            # as it's unclear how it should integrate with the new 'summary_list' parameter.
+    #         data_list = []
+    #         for summary in summary_list:
+    #             # This part of the code was incomplete in the instruction.
+    #             # Assuming it was meant to construct a document for insertion.
+    #             # For now, it's left as a placeholder to maintain syntactical correctness.
+    #             pass # Placeholder for the actual logic that was intended to be here.
+    #         # The original function had logic to insert a single doc based on allocresults[-1]
+    #         # The new function signature suggests processing a list.
+    #         # The instruction provided an incomplete code block for the loop.
+    #         # To ensure syntactical correctness, the loop body is replaced with 'pass'.
+    #         # The rest of the original function's logic for insertion is commented out
+    #         # as it's unclear how it should integrate with the new 'summary_list' parameter.
 
-            # if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
-            #     latest_row = allocresults[-1]
-            #     doc = { ... }
-            #     try:
-            #         self.db.run_summary_connections.insert_one(doc)
-            #     except Exception as e:
-            #         self.logger.error(e)
-        except Exception as e:
-            self.logger.error(e)
+    #         # if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
+    #         #     latest_row = allocresults[-1]
+    #         #     doc = { ... }
+    #         #     try:
+    #         #         self.db.run_summary_connections.insert_one(doc)
+    #         #     except Exception as e:
+    #         #         self.logger.error(e)
+    #     except Exception as e:
+    #         self.logger.error(e)
 
     def getSeriesBlockedSeats(self, departure_date):
         try:
