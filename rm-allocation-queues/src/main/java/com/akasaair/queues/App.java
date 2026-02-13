@@ -912,6 +912,46 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case ACTIVE_SECTORS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadActiveSectors(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing active_sectors file content");
+                            throw new RuntimeException("Error processing active_sectors file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing active_sectors file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 default -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -4664,6 +4704,79 @@ public class App implements CommandLineRunner {
 
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadActiveSectors(Reader file, String tableName, String userName, Object role,
+                                         String obj_id) throws DataMismatchedException {
+        try {
+
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String forecastModel = row.get(1).trim();
+
+                    if (sector.isEmpty() || !isLengthEqualTo(sector, 6)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid sector");
+                        continue;
+                    }
+
+                    Set<String> allowedModels = Set.of("LB", "ML");
+                    if (!(allowedModels.contains(forecastModel))) {
+                        String allowedValues = "'" + String.join("', '", allowedModels) + "'";
+                        listOfErrors.get().add("Line " + (i) + ": invalid Forecast Model, allowed values: " + allowedValues);
+                        continue;
+                    }
+
+                    Document filter = new Document()
+                            .append("sector", sector);
+
+                    Document updateFields = new Document()
+                            .append("forecast_model", forecastModel)
+                            .append("updated_at", new Date());
+
+                    Document update = new Document("$set", updateFields);
+
+                    UpdateOptions options = new UpdateOptions().upsert(true);
+
+                    bulkUpdates.add(new UpdateOneModel<>(filter, update, options));
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
         } catch (Exception e) {
             error_occurred.set(1);
             if (listOfErrors.get().isEmpty()) {
