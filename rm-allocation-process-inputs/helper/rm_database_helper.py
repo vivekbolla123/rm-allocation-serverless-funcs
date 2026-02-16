@@ -297,7 +297,7 @@ class RMDatabaseHelper:
                         self.logger.warning("No results returned from aggregation pipeline")
                     
                     self.mktList = pd.DataFrame(results)
-                    self.mktList["domestic_flag"] = 1 if self.currParams.domestic_flag == 1 else 0
+                    self.mktList["domestic_flag"] = 1 if int(self.currParams.domestic_flag) == 1 else 0
                     
                 except Exception as e:
                     self.logger.error(f"Error in direct route aggregation: {str(e)}")
