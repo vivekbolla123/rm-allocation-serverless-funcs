@@ -1601,6 +1601,24 @@ public class App implements CommandLineRunner {
     private void bulkUpsertProfileFares(List<Map<String, String>> data) {
         try {
             MongoCollection<Document> collection = database.getCollection(PROFILE_FARES_TABLE_NAME);
+            
+            // Create unique compound index on the key fields if it doesn't exist
+            try {
+                collection.createIndex(
+                    Indexes.compoundIndex(
+                        Indexes.ascending("sector"),
+                        Indexes.ascending("month"),
+                        Indexes.ascending("dow"),
+                        Indexes.ascending("cluster")
+                    ),
+                    new IndexOptions().unique(true).name("profile_fares_unique_key")
+                );
+                log.info("Ensured unique index exists on profile_fares composite key");
+            } catch (Exception e) {
+                // Index might already exist, that's fine
+                log.debug("Index creation skipped (may already exist): {}", e.getMessage());
+            }
+            
             List<WriteModel<Document>> bulkOps = new ArrayList<>();
             
             int skippedRows = 0;
@@ -1610,26 +1628,45 @@ public class App implements CommandLineRunner {
                 String sector = rowData.get("sector");
                 String month = rowData.get("month");
                 String dow = rowData.get("dow");
-                String cluster = rowData.get("cluster");
+                String clusterStr = rowData.get("cluster");
                 
                 // Skip if any key field is missing
                 if (sector == null || sector.trim().isEmpty() || 
                     month == null || month.trim().isEmpty() || 
                     dow == null || dow.trim().isEmpty() || 
-                    cluster == null || cluster.trim().isEmpty()) {
+                    clusterStr == null || clusterStr.trim().isEmpty()) {
                     skippedRows++;
                     log.warn("Skipping row due to missing key fields - sector: {}, month: {}, dow: {}, cluster: {}", 
-                        sector, month, dow, cluster);
+                        sector, month, dow, clusterStr);
                     continue;
                 }
                 
-                // Create composite key filter
+                // Convert cluster to the appropriate type (try integer first, fallback to string)
+                Object clusterValue;
+                try {
+                    clusterValue = Integer.parseInt(clusterStr.trim());
+                } catch (NumberFormatException e) {
+                    clusterValue = clusterStr.trim();
+                }
+                
+                // Create composite key filter - try to match both string and integer cluster
                 Bson filter = Filters.and(
                         Filters.eq("sector", sector.trim()),
                         Filters.eq("month", month.trim()),
                         Filters.eq("dow", dow.trim()),
-                        Filters.eq("cluster", cluster.trim())
+                        Filters.eq("cluster", clusterValue)
                 );
+                
+                // Handle both "starttime" and "start time" variations
+                String startTime = rowData.get("starttime");
+                if (startTime == null) {
+                    startTime = rowData.get("start time");
+                }
+                
+                String endTime = rowData.get("endtime");
+                if (endTime == null) {
+                    endTime = rowData.get("end time");
+                }
                 
                 // Create document with all columns
                 Document doc = new Document()
@@ -1637,7 +1674,7 @@ public class App implements CommandLineRunner {
                         .append("currency", rowData.get("currency"))
                         .append("month", month.trim())
                         .append("dow", dow.trim())
-                        .append("cluster", cluster.trim())
+                        .append("cluster", clusterValue)
                         .append("Q0", autoConvert(rowData.get("q0")))
                         .append("Q1", autoConvert(rowData.get("q1")))
                         .append("Q2", autoConvert(rowData.get("q2")))
@@ -1659,8 +1696,8 @@ public class App implements CommandLineRunner {
                         .append("Q18", autoConvert(rowData.get("q18")))
                         .append("Q19", autoConvert(rowData.get("q19")))
                         .append("Q20", autoConvert(rowData.get("q20")))
-                        .append("startTime", rowData.get("starttime"))
-                        .append("endTime", rowData.get("endtime"));
+                        .append("startTime", startTime)
+                        .append("endTime", endTime);
                 
                 // Upsert operation
                 ReplaceOptions options = new ReplaceOptions().upsert(true);
@@ -1674,9 +1711,10 @@ public class App implements CommandLineRunner {
             if (!bulkOps.isEmpty()) {
                 BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
                 BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
-                log.info("Profile Fares bulk upsert completed: {} inserted, {} modified",
+                log.info("Profile Fares bulk upsert completed: {} inserted, {} modified, {} upserted",
                         result.getInsertedCount(),
-                        result.getModifiedCount());
+                        result.getModifiedCount(),
+                        result.getUpserts().size());
             } else {
                 log.warn("No bulk operations to perform - all rows were skipped or data was empty");
             }
