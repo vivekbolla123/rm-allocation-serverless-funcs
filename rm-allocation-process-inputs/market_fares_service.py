@@ -221,8 +221,8 @@ class MarketFareService:
         return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria,lowmktFile,himktFile
 
 
-    def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime, dplfBand):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+    def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime, dplfBand, carr_exclusion, flightExclusion):
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, carr_exclusion, flightExclusion)
         min_10 = 0
         if(dplfBand == 0):
             if(len(mktFareRange) > 0):

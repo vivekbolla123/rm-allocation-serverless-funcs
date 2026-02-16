@@ -66,7 +66,7 @@ def testCase1():
     schema.initializTables()
 
     # For International:
-    currParams["domestic_flag"] = "0"
+    # currParams["domestic_flag"] = "0"
 
     DynAlloc(inputData, currParams)
     # DynAllocSalesInv(inputData, currParams)

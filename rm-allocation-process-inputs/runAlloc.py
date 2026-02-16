@@ -1596,15 +1596,15 @@ class DynAlloc:
 		if(dplfBand == 0):
 			ab_start_time = "00:00"
 			ab_end_time = "23:59"
-			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
-			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
+			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand, self.currParams.carr_exclusion_b2c, self.currParams.flightExclusionB2C)
+			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand, self.currParams.carr_exclusion_b2b, self.currParams.flightExclusionB2B)
 			final_mkt_fare_b2b = min_10_b2b
 			final_mkt_fare_b2c = min_10_b2c
 		elif(dplfBand == 1 or dplfBand == 2):
 			ab_start_time = "00:00"
 			ab_end_time = "23:59"
-			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand)
-			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand)
+			min_10_b2c=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2C_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2c.criteria, input_time_str,dplfBand, self.currParams.carr_exclusion_b2c, self.currParams.flightExclusionB2C)
+			min_10_b2b=self.marketfaresservice.getMFinRange(self.currParams, currFltDate, B2B_CHANNEL, ab_start_time, ab_end_time, DaySpan, self.outputSummaryRow_b2b.criteria, input_time_str,dplfBand, self.currParams.carr_exclusion_b2b, self.currParams.flightExclusionB2B)
 			final_mkt_fare_b2b = min_10_b2b
 			final_mkt_fare_b2c = min_10_b2c
 		elif(dplfBand == 3):
