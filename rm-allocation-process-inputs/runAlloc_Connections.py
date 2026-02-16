@@ -1038,6 +1038,10 @@ class DynAllocConnections:
                 l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
                 calculated_fare = selling_fare1 + (yield_factor * l2_stage_length)
                 anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
+            elif leg2_meets:
+                l1_stage_length = self.rmdatabasehelper.get_stage_length(sector1[:3], sector1[3:])
+                calculated_fare = selling_fare2 + (yield_factor * l1_stage_length)
+                anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
             else:
                 anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
         else:
