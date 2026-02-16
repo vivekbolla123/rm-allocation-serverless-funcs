@@ -88,22 +88,22 @@ class MarketFareService:
                 mktfareRange_minomaxo = allFaresMinoMaxo
         
         if(len(mktFareRange) > 0):
-            lowFare = mktFareRange['gross_fare'][0]
+            lowFare = mktFareRange['gross_fare'].iloc[0]
             hiFare = mktFareRange['gross_fare'].iloc[-1]
-            lowAirlineCode = mktFareRange['outbound_airline_code'][0]
+            lowAirlineCode = mktFareRange['outbound_airline_code'].iloc[0]
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
-            lowFilghtNum = mktFareRange['outbound_flight'][0]
+            lowFilghtNum = mktFareRange['outbound_flight'].iloc[0]
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
-            lowmktFile = mktFareRange['mktFile'][0]
+            lowmktFile = mktFareRange['mktFile'].iloc[0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
             if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
-                lowFare = mktfareRange_minomaxo['gross_fare'][0]
+                lowFare = mktfareRange_minomaxo['gross_fare'].iloc[0]
                 hiFare = mktfareRange_minomaxo['gross_fare'].iloc[-1]
-                lowAirlineCode = mktfareRange_minomaxo['outbound_airline_code'][0]
+                lowAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[0]
                 hiAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[-1]
-                lowFilghtNum = mktfareRange_minomaxo['outbound_flight'][0]
+                lowFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[0]
                 hiFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[-1]
-                lowmktFile = mktfareRange_minomaxo['mktFile'][0]
+                lowmktFile = mktfareRange_minomaxo['mktFile'].iloc[0]
                 himktFile = mktfareRange_minomaxo['mktFile'].iloc[-1]
             if hardcriteria !=CONST_NA:
                 if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
