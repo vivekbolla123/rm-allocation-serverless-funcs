@@ -941,16 +941,16 @@ class RMDatabaseHelper:
     def getMappedOriginStation(self, origin):
         try:
             doc = self.db.market_fare_origin_map.find_one(
-                {"$or": [{"sector1": origin}, {"sector2": origin}]}
+                {"$or": [{"origin1": origin}, {"origin2": origin}]}
             )
 
             if not doc:
                 return None
 
-            if origin == doc.get("sector1"):
-                return doc.get("sector2")
-            elif origin == doc.get("sector2"):
-                return doc.get("sector1")
+            if origin == doc.get("origin1"):
+                return doc.get("origin2")
+            elif origin == doc.get("origin2"):
+                return doc.get("origin1")
 
             return None
         except Exception as e:
