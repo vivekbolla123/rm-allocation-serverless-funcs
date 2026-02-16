@@ -1548,15 +1548,33 @@ public class App implements CommandLineRunner {
             
             // Parse CSV into list of maps
             List<String> headers = csvData.get(0);
+            
+            // Remove BOM from first header if present
+            if (!headers.isEmpty() && headers.get(0) != null) {
+                headers.set(0, headers.get(0).replace("\uFEFF", "").trim());
+            }
+            
+            log.info("Profile Fares CSV headers: {}", headers);
+            log.info("Profile Fares total rows (excluding header): {}", csvData.size() - 1);
+            
             List<Map<String, String>> data = new ArrayList<>();
             
             for (int i = 1; i < csvData.size(); i++) {
                 List<String> row = csvData.get(i);
                 Map<String, String> rowMap = new HashMap<>();
                 for (int j = 0; j < headers.size() && j < row.size(); j++) {
-                    rowMap.put(headers.get(j).toLowerCase(), row.get(j));
+                    String headerKey = headers.get(j).replace("\uFEFF", "").trim().toLowerCase();
+                    String value = (row.get(j) != null) ? row.get(j).trim() : "";
+                    rowMap.put(headerKey, value);
                 }
                 data.add(rowMap);
+                
+                // Log first row for debugging
+                if (i == 1) {
+                    log.info("First row data - sector: '{}', month: '{}', dow: '{}', cluster: '{}'", 
+                        rowMap.get("sector"), rowMap.get("month"), rowMap.get("dow"), rowMap.get("cluster"));
+                    log.info("First row all keys: {}", rowMap.keySet());
+                }
             }
             
             // Validate using ProfileValidator
@@ -1585,6 +1603,9 @@ public class App implements CommandLineRunner {
             MongoCollection<Document> collection = database.getCollection(PROFILE_FARES_TABLE_NAME);
             List<WriteModel<Document>> bulkOps = new ArrayList<>();
             
+            int skippedRows = 0;
+            int processedRows = 0;
+            
             for (Map<String, String> rowData : data) {
                 String sector = rowData.get("sector");
                 String month = rowData.get("month");
@@ -1592,25 +1613,31 @@ public class App implements CommandLineRunner {
                 String cluster = rowData.get("cluster");
                 
                 // Skip if any key field is missing
-                if (sector == null || month == null || dow == null || cluster == null) {
+                if (sector == null || sector.trim().isEmpty() || 
+                    month == null || month.trim().isEmpty() || 
+                    dow == null || dow.trim().isEmpty() || 
+                    cluster == null || cluster.trim().isEmpty()) {
+                    skippedRows++;
+                    log.warn("Skipping row due to missing key fields - sector: {}, month: {}, dow: {}, cluster: {}", 
+                        sector, month, dow, cluster);
                     continue;
                 }
                 
                 // Create composite key filter
                 Bson filter = Filters.and(
-                        Filters.eq("sector", sector),
-                        Filters.eq("month", month),
-                        Filters.eq("dow", dow),
-                        Filters.eq("cluster", cluster)
+                        Filters.eq("sector", sector.trim()),
+                        Filters.eq("month", month.trim()),
+                        Filters.eq("dow", dow.trim()),
+                        Filters.eq("cluster", cluster.trim())
                 );
                 
                 // Create document with all columns
                 Document doc = new Document()
-                        .append("sector", sector)
+                        .append("sector", sector.trim())
                         .append("currency", rowData.get("currency"))
-                        .append("month", month)
-                        .append("dow", dow)
-                        .append("cluster", cluster)
+                        .append("month", month.trim())
+                        .append("dow", dow.trim())
+                        .append("cluster", cluster.trim())
                         .append("Q0", autoConvert(rowData.get("q0")))
                         .append("Q1", autoConvert(rowData.get("q1")))
                         .append("Q2", autoConvert(rowData.get("q2")))
@@ -1638,7 +1665,11 @@ public class App implements CommandLineRunner {
                 // Upsert operation
                 ReplaceOptions options = new ReplaceOptions().upsert(true);
                 bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
+                processedRows++;
             }
+            
+            log.info("Profile Fares processing summary - Total rows: {}, Processed: {}, Skipped: {}", 
+                data.size(), processedRows, skippedRows);
             
             if (!bulkOps.isEmpty()) {
                 BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
@@ -1646,6 +1677,8 @@ public class App implements CommandLineRunner {
                 log.info("Profile Fares bulk upsert completed: {} inserted, {} modified",
                         result.getInsertedCount(),
                         result.getModifiedCount());
+            } else {
+                log.warn("No bulk operations to perform - all rows were skipped or data was empty");
             }
         } catch (Exception e) {
             log.error("Error in bulkUpsertProfileFares: " + e.getMessage(), e);
