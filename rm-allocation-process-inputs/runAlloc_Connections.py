@@ -317,16 +317,25 @@ class DynAllocConnections:
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
         flight2 = self.currParams.flight2
-        forecasted_plf_sector1 = self.currParams.forecastPLF1
-        forecasted_plf_sector2 = self.currParams.forecastPLF2
+        try:
+            forecasted_plf_sector1 = float(self.currParams.forecastPLF1)
+        except (ValueError, TypeError):
+            forecasted_plf_sector1 = 0.0
+
+        try:
+            forecasted_plf_sector2 = float(self.currParams.forecastPLF2)
+        except (ValueError, TypeError):
+            forecasted_plf_sector2 = 0.0
         forecasted_varience_sector1 = self.currParams.forecast_variance1
         forecasted_varience_sector2 = self.currParams.forecast_variance2
         is_sector1_domestic, is_sector2_domestic = self.rmdatabasehelper.check_sector_types(sector1, sector2)
         domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         international_plf_threshold = self.constantsUtils.INTERNATIONAL_PLF_THRESHOLD
         dow = self.currParams.dow
-        B2BBackstop = self.currParams.b2b_backstop
-        B2CBackstop = self.currParams.b2c_backstop
+        B2CBackstop = int(self.currParams.b2c_backstop)
+        B2BBackstop = int(self.currParams.b2b_backstop)
+        B2CBackstop_INR = B2CBackstop
+        B2BBackstop_INR = B2BBackstop
         priceStrategy = self.currParams.pricestartegy
         discountValue = self.currParams.discountvalue
         SkippingFactor = self.currParams.skipping_factor
@@ -348,27 +357,30 @@ class DynAllocConnections:
             current_date1, '%Y-%m-%d') , "%w"))
         
         should_allocate_to_y = False
+        self.conversion_rate = 0
+        self.imputed_forecast_1 = "NA"
+        self.imputed_forecast_2 = "NA"
         apply_domestic_fare_logic = False
         use_sector1_fare = False
         use_sector2_fare = False
 
 
-        if is_sector1_domestic and not is_sector2_domestic:
-            # Sector1 is domestic, Sector2 is international
-            if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
-                should_allocate_to_y = True
-            elif forecasted_plf_sector1 >= domestic_plf_threshold:
-                # Only domestic leg meets PLF threshold - use domestic fare logic
-                apply_domestic_fare_logic = True
-                use_sector1_fare = True
-        elif not is_sector1_domestic and is_sector2_domestic:
-            # Sector1 is international, Sector2 is domestic  
-            if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
-                should_allocate_to_y = True
-            elif forecasted_plf_sector2 >= domestic_plf_threshold:
-                # Only domestic leg meets PLF threshold - use domestic fare logic
-                apply_domestic_fare_logic = True
-                use_sector2_fare = True
+        # if is_sector1_domestic and not is_sector2_domestic:
+        #     # Sector1 is domestic, Sector2 is international
+        #     if forecasted_plf_sector1 >= domestic_plf_threshold and forecasted_plf_sector2 >= international_plf_threshold:
+        #         should_allocate_to_y = True
+        #     elif forecasted_plf_sector1 >= domestic_plf_threshold:
+        #         # Only domestic leg meets PLF threshold - use domestic fare logic
+        #         apply_domestic_fare_logic = True
+        #         use_sector1_fare = True
+        # elif not is_sector1_domestic and is_sector2_domestic:
+        #     # Sector1 is international, Sector2 is domestic  
+        #     if forecasted_plf_sector1 >= international_plf_threshold and forecasted_plf_sector2 >= domestic_plf_threshold:
+        #         should_allocate_to_y = True
+        #     elif forecasted_plf_sector2 >= domestic_plf_threshold:
+        #         # Only domestic leg meets PLF threshold - use domestic fare logic
+        #         apply_domestic_fare_logic = True
+        #         use_sector2_fare = True
                 
         if int(self.currParams.sosFlag) == 1:
             should_allocate_to_y = True
@@ -406,6 +418,8 @@ class DynAllocConnections:
 
             if (b2c_rbd_sector1 == CONST_NA or pd.isna(b2c_rbd_sector1) or b2c_rbd_sector2 == CONST_NA or pd.isna(b2c_rbd_sector2) or  self.qpcurrency==''):
                 # unable to get bookload aborting
+                b2bTotal = "NA"
+                b2cTotal = "NA"
                 lowFare="NA"
                 lowAirlineCode="NA"
                 lowFilghtNum="NA"
@@ -469,6 +483,7 @@ class DynAllocConnections:
                 b2cTotal = "NA"
                 strategyFare=0
                 self.fareStatus = ""
+                how_determined_b2c = None
                 b2cdiscountedFare, b2cdiscount = self.getTotalPriceForConnections(
                         priceStrategy, discountValue, b2cSectorTotal)
                 self.outputSummaryRow_b2c.discountedFare=b2cdiscountedFare
@@ -491,8 +506,12 @@ class DynAllocConnections:
                     B2BBackstop = self.convert_currency('INR',self.qpcurrency,B2BBackstop)
                 if self.qpcurrency!='INR':
                     strfare=self.convert_currency('INR',self.qpcurrency,float(strfare))
-                rbddata=self.getStrategyFare(
-                    strfare, origin, destin, "B2C", B2CBackstop,offset)
+                # Skip strategy fare calculation when market fare is not found (strfare=0)
+                if strfare == 0 or strfare == 'NA':
+                    rbddata = 'NA'
+                else:
+                    rbddata=self.getStrategyFare(
+                        strfare, origin, destin, "B2C", B2CBackstop,offset)
                 if rbddata!='NA':
                     self.outputSummaryRow_b2c.conversionRate=0
                     if self.qpcurrency!='INR':
@@ -503,17 +522,20 @@ class DynAllocConnections:
                     strategyFare= float(self.outputSummaryRow_b2c.strategyfare)
                 if str(self.currParams.discountflag) == "1":
                     self.fareStatus = " - DiscountedFare"
-                    b2cTotal=b2cdiscountedFare
-                elif isMarketFareAvailable:
+                    b2cTotal = b2cdiscountedFare
+                else:
                     self.fareStatus = " - MarketFare"
-                    if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                        b2cTotal = max(fare1, float(strategyFare))
-                    else:
-                        b2cTotal = min(fare1, float(strategyFare))
-                    if apply_domestic_fare_logic and use_sector1_fare:
-                        b2cTotal = max(SellingFare1,float(strategyFare))
-                    if apply_domestic_fare_logic and use_sector2_fare:
-                        b2cTotal = max(SellingFare2,float(strategyFare))
+                    # Phase 2: Calculate anchor fare using helper
+                    b2cTotal, how_determined_b2c = self._calculate_phase2_anchor_fare(
+                        channel="B2C", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
+                        market_fare=strategyFare, strategy_fare=strategyFare, sector1=sector1,
+                        sector2=sector2, is_sector1_domestic=is_sector1_domestic,
+                        is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
+                        forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                        bookload2=bookload2, ndocounter=ndocounter
+                    )
+                    if self.currParams.currency != "INR":
+                        b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
@@ -528,10 +550,11 @@ class DynAllocConnections:
                         'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                 else:
                     openDataB2C = self.determineRBDToOpen(
-                    b2cTotal, origin, destin, "B2C", B2CBackstop,0,should_allocate_to_y)
+                    b2cTotal, origin, destin, "B2C", B2CBackstop,0,should_allocate_to_y, how_determined_msg=how_determined_b2c)
                 
                 if (b2b_rbd_sector1 == CONST_NA or pd.isna(b2b_rbd_sector1) or b2b_rbd_sector2 == CONST_NA or pd.isna(b2b_rbd_sector2)):
                     # unable to get bookload aborting
+                    b2bTotal = "NA"
                     openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                         'BaseLeg B2B SellingFare NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     if b2b_rbd_sector1 != CONST_NA and not pd.isna(b2b_rbd_sector1):
@@ -556,11 +579,13 @@ class DynAllocConnections:
                     self.outputSummaryRow_b2b.OpenRBD1 = b2b_rbd_sector1
                     self.outputSummaryRow_b2b.OpenRBD2 = b2b_rbd_sector2
                     if (b2cTotal == 0 ):
+                        b2bTotal = "NA"
                         openDataB2C = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2C Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Fares NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     elif  b2b_rbd_sector1=='' or b2b_rbd_sector2=='':
+                        b2bTotal = "NA"
                         openDataB2B = {'RBD': ['NA'], 'Fare': ['NA'], 'FareResult': [
                             'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
@@ -586,6 +611,7 @@ class DynAllocConnections:
                         b2bTotal="NA"
                         b2bdiscount="NA"
                         strategyFare=0
+                        how_determined_b2b = None
                         b2bdiscountedFare, b2bdiscount = self.getTotalPriceForConnections(
                                 priceStrategy, discountValue, b2bSectorTotal)
                         fare1=b2bdiscountedFare
@@ -601,8 +627,12 @@ class DynAllocConnections:
                         columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                         if self.qpcurrency!='INR':
                             strfare=self.convert_currency('INR',self.qpcurrency,strfare)
-                        rbddata=self.getStrategyFare(
-                            strfare, origin, destin, "B2B", B2BBackstop,offset)
+                        # Skip strategy fare calculation when market fare is not found (strfare=0)
+                        if strfare == 0 or strfare == 'NA':
+                            rbddata = 'NA'
+                        else:
+                            rbddata=self.getStrategyFare(
+                                strfare, origin, destin, "B2B", B2BBackstop,offset)
                         if rbddata!="NA":
                             self.outputSummaryRow_b2b.conversionRate=0
                             if self.qpcurrency!='INR':
@@ -613,17 +643,19 @@ class DynAllocConnections:
                             strategyFare= float(self.outputSummaryRow_b2b.strategyfare)
                         if str(self.currParams.discountflag) == "1":
                             self.fareStatus = " - DiscountedFare"
-                            b2bTotal=b2bdiscountedFare
+                            b2bTotal = b2bdiscountedFare
                         else:
                             self.fareStatus = " - MarketFare"
-                            if (bookload1 > tgtBookedLoad1 and bookload2 > tgtBookedLoad2):
-                                b2bTotal = max(fare1, float(strategyFare))
-                            else:
-                                b2bTotal = min(fare1, float(strategyFare))
-                            if apply_domestic_fare_logic and use_sector1_fare:
-                                b2bTotal = max(SellingFare1,float(strategyFare))
-                            if apply_domestic_fare_logic and use_sector2_fare:
-                                b2bTotal = max(SellingFare2,float(strategyFare))
+                            # Phase 2: Calculate anchor fare using helper
+                            # Phase 2: Calculate anchor fare using helper
+                            b2bTotal, how_determined_b2b = self._calculate_phase2_anchor_fare(
+                                channel="B2B", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
+                                market_fare=fare2, strategy_fare=strategyFare, sector1=sector1,
+                                sector2=sector2, is_sector1_domestic=is_sector1_domestic,
+                                is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
+                                forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                                bookload2=bookload2, ndocounter=ndocounter
+                            )
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
@@ -634,7 +666,7 @@ class DynAllocConnections:
                                 'Market Fares Not Available'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                         else:
                             openDataB2B = self.determineRBDToOpen(
-                            b2bTotal, origin, destin, "B2B", B2BBackstop,0,should_allocate_to_y)
+                            b2bTotal, origin, destin, "B2B", B2BBackstop,0,should_allocate_to_y, how_determined_msg=how_determined_b2b)
                         self.outputSummaryRow_b2b.Discount = b2bdiscount
 
             if (openDataB2C['statusInd'][0] != 1):
@@ -682,37 +714,32 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.DepDate1 = str(current_date1)
             self.outputSummaryRow_b2c.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2c.BookedLoad = str(bookload)
-            self.outputSummaryRow_b2c.allocationStatus = str(
-                openDataB2C["allocationStatus"][0])
-            self.outputSummaryRow_b2c.OpenRBD = str(openDataB2C['RBD'][0])
-            self.outputSummaryRow_b2c.SellingFare = str(openDataB2C["Fare"][0])
-            self.outputSummaryRow_b2c.Channel = 'B2C'
-            self.outputSummaryRow_b2c.HowDetermined = str(
-                openDataB2C['FareResult'][0])
-            self.outputSummaryRow_b2c.Backstop = B2CBackstop
-            self.outputSummaryRow_b2c.Backstop_INR = B2CBackstop_inr
-            
-            self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
-            self.outputSummaryRow_b2c.firstrbd = self.currParams.first_rbd_alloc
-            self.outputSummaryRow_b2c.otherrbd = self.currParams.other_rbd_alloc
-            
+            self.outputSummaryRow_b2c.anchorFare=int(b2cTotal) if b2cTotal != 'NA' else 'NA'
+            self.outputSummaryRow_b2c.OpenRBD=openDataB2C['RBD'][0]
+            self.outputSummaryRow_b2c.SellingFare=str(openDataB2C['Fare'][0])
+            self.outputSummaryRow_b2c.Channel="B2C"
+            self.outputSummaryRow_b2c.HowDetermined=openDataB2C['FareResult'][0]
+            self.outputSummaryRow_b2c.allocationStatus=str(openDataB2C['allocationStatus'][0])
+            self.outputSummaryRow_b2c.Backstop=str(B2CBackstop)
+            self.outputSummaryRow_b2c.CreatedAt=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.outputSummaryRow_b2c.analystName=self.currParams.analyst_name
+            self.outputSummaryRow_b2c.Variance1=str(self.currParams.forecast_variance1)
+            self.outputSummaryRow_b2c.Variance2=str(self.currParams.forecast_variance2)
+            self.outputSummaryRow_b2c.criteria=self.currParams.fareAnchor
+            self.outputSummaryRow_b2c.fareOffset=str(self.currParams.offset)
+            self.outputSummaryRow_b2c.outBoundStop=str(self.currParams.outboundstop)
+            self.outputSummaryRow_b2c.outboundDuration=str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2c.Currency=str(self.qpcurrency)
+            self.outputSummaryRow_b2c.conversionRate=str(self.conversion_rate)
+            self.outputSummaryRow_b2c.firstrbd=str(self.currParams.first_rbd_alloc)
+            self.outputSummaryRow_b2c.otherrbd=str(self.currParams.other_rbd_alloc)
+            self.outputSummaryRow_b2c.Backstop_INR=str(B2CBackstop_INR)
+
             self.allocResults.append(self.outputSummaryRow_b2c)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
             
-            self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
-            self.outputSummaryRow_b2b.outBoundStop = self.currParams.outboundstop
-            self.outputSummaryRow_b2b.outboundDuration = self.currParams.outbound_duration
-            self.outputSummaryRow_b2b.fareOffset = self.currParams.offset
-            self.outputSummaryRow_b2b.Id = b2bRunId
-            self.outputSummaryRow_b2b.RunId = self.runId
-            self.outputSummaryRow_b2b.Sector1 = sector1
-            self.outputSummaryRow_b2b.Sector2 = sector2
-            self.outputSummaryRow_b2b.FltNum1 = str(flight1)
-            self.outputSummaryRow_b2b.FltNum2 = str(flight2)
-            self.outputSummaryRow_b2b.DepDate1 = str(current_date1)
-            self.outputSummaryRow_b2b.DepDate2 = str(current_date2)
-            self.outputSummaryRow_b2b.BookedLoad = str(bookload)
+            self.outputSummaryRow_b2b.anchorFare=int(b2bTotal) if b2bTotal != 'NA' else 'NA'
             self.outputSummaryRow_b2b.allocationStatus = str(
                 openDataB2B["allocationStatus"][0])
             self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
@@ -725,6 +752,24 @@ class DynAllocConnections:
             self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
             self.outputSummaryRow_b2b.firstrbd = self.currParams.first_rbd_alloc
             self.outputSummaryRow_b2b.otherrbd = self.currParams.other_rbd_alloc
+            self.outputSummaryRow_b2b.Id = b2bRunId
+            self.outputSummaryRow_b2b.RunId = self.runId
+            self.outputSummaryRow_b2b.Sector1 = sector1
+            self.outputSummaryRow_b2b.Sector2 = sector2
+            self.outputSummaryRow_b2b.FltNum1 = str(flight1)
+            self.outputSummaryRow_b2b.FltNum2 = str(flight2)
+            self.outputSummaryRow_b2b.DepDate1 = str(current_date1)
+            self.outputSummaryRow_b2b.DepDate2 = str(current_date2)
+            self.outputSummaryRow_b2b.BookedLoad = str(bookload)
+            self.outputSummaryRow_b2b.CreatedAt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.outputSummaryRow_b2b.Variance1 = str(self.currParams.forecast_variance1)
+            self.outputSummaryRow_b2b.Variance2 = str(self.currParams.forecast_variance2)
+            self.outputSummaryRow_b2b.Currency = str(self.qpcurrency)
+            self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
+            self.outputSummaryRow_b2b.fareOffset = str(self.currParams.offset)
+            self.outputSummaryRow_b2b.outBoundStop = str(self.currParams.outboundstop)
+            self.outputSummaryRow_b2b.outboundDuration = str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2b.conversionRate = str(self.conversion_rate)
             self.allocResults.append(self.outputSummaryRow_b2b)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
@@ -732,6 +777,8 @@ class DynAllocConnections:
             print("Run Parameters requested to skip - (FlightNumber, DOW, or Status)")
 
     def getTotalPriceForConnections(self, priceStrategy, discountValue, sectorTotal):
+        discount = 0
+        total = sectorTotal
         if (priceStrategy == 1):
             discount = discountValue
             total = (sectorTotal) - discount
@@ -780,7 +827,7 @@ class DynAllocConnections:
         print(f"strategy fare is {strategyFare}")
         return strategyFare
     
-    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset,should_allocate_to_y):
+    def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset,should_allocate_to_y, how_determined_msg=None):
         anchorFare = finalprice
         if self.qpcurrency!='INR':
             anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
@@ -800,6 +847,9 @@ class DynAllocConnections:
             openResult = self.determinerbd.getFaresWithBackstop(
                 origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'R')
         
+        if how_determined_msg:
+            openResult['FareResult'][0] = how_determined_msg
+
         return openResult
 
     def outputResults(self):
@@ -821,7 +871,7 @@ class DynAllocConnections:
                 columns=["b2brunid", "b2crunid", "au_column_length"])
             AUFrame.columns = AUlist
             AUFrame.to_csv(CONST_AU_GRID_CONNECTIONS_FILE_PATH, index=False)
-        if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
+        if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and len(self.allocResults) > 0:
             df = pd.DataFrame([vars(row) for row in self.allocResults])
             df = df.drop(columns=["Id"])
             df.to_csv(CONST_SUMMARY_CONNECTIONS_FILE_PATH, index=False)
@@ -929,3 +979,134 @@ class DynAllocConnections:
             return CONST_NA
         except (ValueError, TypeError):
             return CONST_NA
+
+    def _calculate_phase2_anchor_fare(self, channel, selling_fare1, selling_fare2, market_fare, 
+                                       strategy_fare, sector1, sector2, is_sector1_domestic, 
+                                       is_sector2_domestic, forecasted_plf1, forecasted_plf2,
+                                       bookload1, bookload2, ndocounter):
+        """
+        Calculate anchor fare using Phase 2 logic.
+        
+        Fare Components:
+        - SellingFare: QP fare for opening RBD (L1/L2 from qp_fares)
+        - AnchorFare: Final calculated fare for RBD determination
+        - StrategyFare: Used when both legs are domestic and didn't meet threshold
+        - MarketFare: Competitor fare (lowFare/hiFare)
+        
+        Scenarios:
+        1. Both legs meet threshold -> Max(L1+L2, MarketFare)
+        2. One leg meets threshold -> Max(StrongLeg + YieldFactor*WeakLegStageLength, MarketFare)
+        3. Neither meets threshold -> MarketFare (or Max(MarketFare, StrategyFare) for domestic)
+        4. Direct flight exists -> Apply upsell if direct didn't meet threshold
+        """
+        DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
+        int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
+        yield_factor = self.constantsUtils.YIELD_FACTOR
+        
+        plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
+        plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
+        
+        leg1_meets = (forecasted_plf1 >= DOM_FORECAST_THRESHOLD if is_sector1_domestic 
+                      else plf1 >= int_plf_threshold)
+        leg2_meets = (forecasted_plf2 >= DOM_FORECAST_THRESHOLD if is_sector2_domestic 
+                      else plf2 >= int_plf_threshold)
+        
+        sum_l1_l2 = selling_fare1 + selling_fare2
+
+        # Determine Sector Type and Description for String
+        if is_sector1_domestic and is_sector2_domestic:
+            sector_type_str = "DD"
+            sector_desc = "Both DOM"
+        elif is_sector1_domestic and not is_sector2_domestic:
+            sector_type_str = "DI"
+            sector_desc = "DOM and INT"
+        elif not is_sector1_domestic and is_sector2_domestic:
+            sector_type_str = "ID"
+            sector_desc = "INT and DOM"
+        else:
+            sector_type_str = "II"
+            sector_desc = "Both INT"
+
+        status_str = ""
+        
+        if leg1_meets and leg2_meets:
+            status_str = "Both Legs Meet Threshold"
+            anchor_fare = max(sum_l1_l2, market_fare) if market_fare > 0 else sum_l1_l2
+        elif leg1_meets or leg2_meets:
+            status_str = "One Leg Meets Threshold"
+            if leg1_meets:
+                l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
+                calculated_fare = selling_fare1 + (yield_factor * l2_stage_length)
+                anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
+            elif leg2_meets:
+                l1_stage_length = self.rmdatabasehelper.get_stage_length(sector1[:3], sector1[3:])
+                calculated_fare = selling_fare2 + (yield_factor * l1_stage_length)
+                anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
+            else:
+                anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
+        else:
+            status_str = "Both Legs Didn't Meet Threshold"
+            # Neither leg meets threshold
+            if is_sector1_domestic and is_sector2_domestic:
+                strategy_fare_val = float(strategy_fare) if strategy_fare != "NA" else 0
+                if market_fare > 0:
+                    anchor_fare = max(market_fare, strategy_fare_val)
+                elif strategy_fare_val > 0:
+                    anchor_fare = strategy_fare_val
+                else:
+                    anchor_fare = sum_l1_l2
+            else:
+                anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
+        
+        how_determined = f"Matched and allocated {sector_type_str} - {status_str}, {sector_desc}"
+
+        anchor_fare, how_determined = self._apply_direct_flight_upsell(
+            channel, anchor_fare, sector1, sector2, is_sector1_domestic,
+            DOM_FORECAST_THRESHOLD, int_plf_threshold, how_determined, sector_type_str
+        )
+        return anchor_fare, how_determined
+
+    def _apply_direct_flight_upsell(self, channel, anchor_fare, sector1, sector2, 
+                                     is_direct_domestic, dom_threshold, int_threshold, how_determined, sector_type_str):
+        """Apply direct flight upsell if applicable (Scenario 4)."""
+        rbd_attr = 'DirectFlightOpeningRBDB2C' if channel == 'B2C' else 'DirectFlightOpeningRBDB2B'
+        direct_rbd = getattr(self.currParams, rbd_attr, CONST_NA)
+        direct_forecast = self.currParams.DirectFlightForecast
+        direct_plf = self.currParams.DirectFlightPLF
+        
+        if direct_rbd == CONST_NA or pd.isna(direct_rbd) or direct_forecast == CONST_NA or pd.isna(direct_forecast):
+            return anchor_fare, how_determined
+            
+        try:
+            direct_forecast = float(direct_forecast) if direct_forecast else 0
+            direct_plf = float(direct_plf) if direct_plf else 0
+            
+            direct_fare, currency = self.rmdatabasehelper.getSellingPrice(
+                direct_rbd, f"{sector1[:3]}{sector2[3:]}", channel, "L"
+            )
+            if currency != 'INR':
+                direct_fare = self.convert_currency(currency, 'INR', direct_fare)
+            
+            if direct_fare <= 0:
+                return anchor_fare, how_determined
+                
+            meets_threshold = (direct_forecast >= dom_threshold if is_direct_domestic 
+                               else direct_plf >= int_threshold)
+            
+            if not meets_threshold:
+                upsell_pct = 1 + (self.constantsUtils.DIRECT_FLIGHT_UPSELL_PERCENT / 100)
+                upsell_amt = self.constantsUtils.DIRECT_FLIGHT_UPSELL_AMOUNT
+                upsell_fare = max(direct_fare * upsell_pct, direct_fare + upsell_amt) if channel == 'B2B' else direct_fare * upsell_pct
+                anchor_fare = max(anchor_fare, upsell_fare)
+                
+                if is_direct_domestic:
+                    how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Forecast < {dom_threshold}%"
+                else:
+                    how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Threshold < {int_threshold}%"
+                
+                print(f"Scenario 4 ({channel}): Direct flight fare {direct_fare} with upsell = {upsell_fare}")
+                
+        except Exception as e:
+            print(f"Error processing Scenario 4 {channel}: {e}")
+            
+        return anchor_fare, how_determined

@@ -122,5 +122,7 @@ public class MarketListEntity {
     public String Spoilage_Flag;
     @Column(name = "CanAdjustedForecast")
     public String canAdjustedForecast;
+    @Column(name = "market_origin_mapping")
+    public String market_origin_mapping;
 
 }
