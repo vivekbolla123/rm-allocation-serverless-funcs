@@ -95,7 +95,7 @@ def lambda_handler(event, context):
 # DO COMMENT THE BELOW LINE AFTER TESTING
 messageBody = {
     "modules": {"ml_forecasting": 1},
-    "overrides": {"action": "score"} 
+    "overrides": {"action": "train"} 
 }
 lambda_handler(messageBody, None)
 
