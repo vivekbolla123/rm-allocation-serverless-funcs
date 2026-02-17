@@ -604,7 +604,23 @@ class RMDatabaseHelper:
                         "OpeningRBDB2B1": {"$arrayElemAt": ["$crb1_b2b.OpeningRBD", 0]},
                         "OpeningRBDB2C1": {"$arrayElemAt": ["$crb1_b2c.OpeningRBD", 0]},
                         "OpeningRBDB2B2": {"$arrayElemAt": ["$crb2_b2b.OpeningRBD", 0]},
-                        "OpeningRBDB2C2": {"$arrayElemAt": ["$crb2_b2c.OpeningRBD", 0]}
+                        "OpeningRBDB2C2": {"$arrayElemAt": ["$crb2_b2c.OpeningRBD", 0]},
+                        
+                        # Second Flight Departure Date
+                        "SecondFlightDepartureDate": "$connections_details.Departuredate2",
+                        
+                        # Direct Flight Data for Scenario 4 (Connection OD)
+                        "DirectFlightNumber": "$connections_details.DirectFlightNumber",
+                        "DirectFlightBookedPax": "$connections_details.DirectFlightBookedPax",
+                        "DirectFlightLid": "$connections_details.DirectFlightLid",
+                        "DirectFlightForecast": "$connections_details.DirectFlightForecast",
+                        "DirectFlightPLF": "$connections_details.DirectFlightPLF",
+                        "DirectFlightDepTime": "$connections_details.DirectFlightDepTime",
+                        "DirectFlightOpeningRBDB2B": "$connections_details.DirectFlightOpeningRBDB2B",
+                        "DirectFlightOpeningRBDB2C": "$connections_details.DirectFlightOpeningRBDB2C",
+                        
+                        # Map SOSFlag to sosFlag
+                        "sosFlag": "$SOSFlag"
                     }
                 ]
             }
@@ -804,6 +820,21 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return None
 
+    def get_international_bookload_threshold(self, ndo):
+        """
+        Get the International Bookload Threshold (PLF) for a given NDO.
+        Uses the NDO Bands defined in ConstantsUtils.
+        """
+        try:
+            for (start, end), threshold in self.constants_utils.INTERNATIONAL_BOOKLOAD_THRESHOLDS.items():
+                if start <= ndo <= end:
+                    return threshold
+            # Default to 0 if no band matches (should cover all cases if 365 is max)
+            return 0
+        except Exception as e:
+            self.logger.error(f"Error getting international bookload threshold for NDO {ndo}: {e}")
+            return 0
+
     def getForecastBand(self, forecast):
         try:
             result = self.db.forecast_bands.find_one({"start": {"$lte": int(forecast)}, "end": {"$gt": int(forecast)}})
@@ -982,7 +1013,7 @@ class RMDatabaseHelper:
                 carr_exclusion = currParams.carr_exclusion_b2c
                 flightExclusion = currParams.flightExclusionB2C
  
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
  
             # Log the search parameters
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
@@ -1205,7 +1236,7 @@ class RMDatabaseHelper:
             else:
                 carr_exclusion = currParams.carrierExclusionB2C
     
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
             # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.
@@ -1296,6 +1327,8 @@ class RMDatabaseHelper:
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
             
+           
+            
             # --- 4. Query Collections and Combine ---
             all_results = []
 
@@ -1305,16 +1338,6 @@ class RMDatabaseHelper:
                     ag_pipeline = [
                         
                         {"$match": match_conditions},
-                         {"$addFields": {
-        "gross_fare": {
-            "$convert": {
-                "input": "$gross_fare",
-                "to": "double",
-                "onError": None,
-                "onNull": None
-            }
-        }
-    }},
                         {"$addFields": {
                             "source_table": "AG",
                             "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
@@ -1350,6 +1373,8 @@ class RMDatabaseHelper:
             if not all_results:
                 self.logger.warning("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
+
+        
 
             # --- 5. Deduplicate and Sort in Pandas (Replicates SQL Window Function) ---
             df = pd.DataFrame(all_results)
@@ -1437,12 +1462,12 @@ class RMDatabaseHelper:
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
-        if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare):
+        if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
             self.logger.info('Strategy Fare not available.')
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Strategy Fare NA'],
                          'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
-            return openResult, None
+            return openResult, pd.DataFrame()
         
         try:
             results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
@@ -2030,10 +2055,12 @@ class RMDatabaseHelper:
 
         try:
             result = self.db.fares.find_one({
-                "SECTOR": sector,
-                "RBD": rbd,
-                "route": route,
-                "RBD": condition
+                "$and": [
+                    {"SECTOR": sector},
+                    {"RBD": rbd},
+                    {"RBD": condition},
+                    {"route": route}
+                ]
             })
 
             if not result:
@@ -2180,6 +2207,35 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return -1, -1
+
+    # def insertSummaryRow_connections(self, summary_list):
+    #     try:
+    #         print(f"DEBUG: insertSummaryRow_connections called with {len(summary_list)} items")
+    #         if len(summary_list) > 0:
+    #             print(f"DEBUG: First item RunId: {summary_list[0].RunId}")
+            
+    #         data_list = []
+    #         for summary in summary_list:
+    #             # This part of the code was incomplete in the instruction.
+    #             # Assuming it was meant to construct a document for insertion.
+    #             # For now, it's left as a placeholder to maintain syntactical correctness.
+    #             pass # Placeholder for the actual logic that was intended to be here.
+    #         # The original function had logic to insert a single doc based on allocresults[-1]
+    #         # The new function signature suggests processing a list.
+    #         # The instruction provided an incomplete code block for the loop.
+    #         # To ensure syntactical correctness, the loop body is replaced with 'pass'.
+    #         # The rest of the original function's logic for insertion is commented out
+    #         # as it's unclear how it should integrate with the new 'summary_list' parameter.
+
+    #         # if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
+    #         #     latest_row = allocresults[-1]
+    #         #     doc = { ... }
+    #         #     try:
+    #         #         self.db.run_summary_connections.insert_one(doc)
+    #         #     except Exception as e:
+    #         #         self.logger.error(e)
+    #     except Exception as e:
+    #         self.logger.error(e)
 
     def getSeriesBlockedSeats(self, departure_date):
         try:
@@ -2473,3 +2529,49 @@ class RMDatabaseHelper:
             print(f"Error checking sector types for {sector1}, {sector2}: {e}")
             # Default to domestic if there's an error
             return True, True
+
+    def get_stage_length(self, departure_station, arrival_station):
+        """
+        Get the ActualDistance (stage length) from MySQL CityPair table or MongoDB city_pair collection.
+        
+        Args:
+            departure_station: 3-letter departure station code (e.g., 'DEL')
+            arrival_station: 3-letter arrival station code (e.g., 'BOM')
+            
+        Returns:
+            float: ActualDistance in km, or 0 if not found
+        """
+        try:
+            if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+                # Fetch from MySQL
+                query = f"""
+                    SELECT ActualDistance 
+                    FROM QP_DWH_MASTER.CityPair 
+                    WHERE DepartureStation = '{departure_station}' 
+                    AND ArrivalStation = '{arrival_station}'
+                    AND InActive = 0
+                    LIMIT 1
+                """
+                result = pd.read_sql(query, self.dwconn)
+                
+                if not result.empty and result['ActualDistance'].iloc[0] is not None:
+                    return float(result['ActualDistance'].iloc[0])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+            else:
+                # Fetch from MongoDB city_pair collection
+                result = self.db.city_pair.find_one({
+                    "DepartureStation": departure_station,
+                    "ArrivalStation": arrival_station,
+                    "InActive": 0
+                })
+                
+                if result and result.get('ActualDistance') is not None:
+                    return float(result['ActualDistance'])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching stage length for {departure_station}-{arrival_station}: {e}")
+            return 0
