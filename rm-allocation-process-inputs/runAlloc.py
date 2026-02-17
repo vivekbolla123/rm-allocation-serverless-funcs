@@ -555,7 +555,8 @@ class DynAlloc:
 				"startTime": self.outputSummaryRow_b2c.startTime, "endTime": self.outputSummaryRow_b2c.endTime,
 				"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2c.criteria,
 				"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2C,
-				"hardfare": hardfareb2c, "hardstartTime": hardstartTimeB2C, "hardendTime": hardendTimeB2C
+				"hardfare": hardfareb2c, "hardstartTime": hardstartTimeB2C, "hardendTime": hardendTimeB2C,
+				"imp_forecast": imp_forecast
 			}
 
 			self.outputSummaryRow_b2c.MktFare_Min, self.outputSummaryRow_b2c.MktFare_Max, \
@@ -570,7 +571,8 @@ class DynAlloc:
 				"startTime": self.outputSummaryRow_b2b.startTime, "endTime": self.outputSummaryRow_b2b.endTime,
 				"DaySpan": DaySpan_full, "criteria": self.outputSummaryRow_b2b.criteria,
 				"flightTime": input_time_str_dep_full, "hardcriteria": hardcriteriaB2B,
-				"hardfare": hardfareb2b, "hardstartTime": hardstartTimeB2B, "hardendTime": hardendTimeB2B
+				"hardfare": hardfareb2b, "hardstartTime": hardstartTimeB2B, "hardendTime": hardendTimeB2B,
+				"imp_forecast": imp_forecast
 			}
 
 			self.outputSummaryRow_b2b.MktFare_Min, self.outputSummaryRow_b2b.MktFare_Max, \
