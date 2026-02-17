@@ -3622,6 +3622,7 @@ public class App implements CommandLineRunner {
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
+                    .append("market_origin_mapping", toIntOrKeepSame(marketListEntity.getMarket_origin_mapping()))
                     .append("createdAt", new Date());
 
             collection.insertOne(doc);
@@ -3899,6 +3900,7 @@ public class App implements CommandLineRunner {
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
+                .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
                 .analystName(analystName)
                 .build());
     }
@@ -4298,6 +4300,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_MKT_FARE_FLAG))) {
                 listOfErrors.get().add(lineNum + "Mktfare Flag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING))) {
+                listOfErrors.get().add(lineNum + "Market Origin Mapping Flag has value other than 'Y' or 'N'");
             }
 
             return user;
