@@ -534,8 +534,8 @@ class DynAllocConnections:
                         forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
                         bookload2=bookload2, ndocounter=ndocounter
                     )
-                    if self.currParams.currency != "INR":
-                        b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
+                if self.currParams.currency != "INR":
+                    b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
                 self.outputSummaryRow_b2c.anchorFare=b2cTotal
                 self.outputSummaryRow_b2c.Discount = b2cdiscount
                 self.outputSummaryRow_b2c.currency=self.qpcurrency
@@ -656,6 +656,9 @@ class DynAllocConnections:
                                 forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
                                 bookload2=bookload2, ndocounter=ndocounter
                             )
+                        if self.currParams.currency != "INR":
+                            b2bTotal = self.convert_currency('INR', self.currParams.currency, b2bTotal)
+
                         self.outputSummaryRow_b2b.anchorFare=b2bTotal
                         if b2bTotal=="NA":
                             self.outputSummaryRow_b2c.Backstop = B2CBackstop
@@ -829,8 +832,6 @@ class DynAllocConnections:
     
     def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset,should_allocate_to_y, how_determined_msg=None):
         anchorFare = finalprice
-        if self.qpcurrency!='INR':
-            anchorFare = self.convert_currency('INR',self.qpcurrency,anchorFare)
         openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         print("Anchor Fare is " + str(anchorFare))
