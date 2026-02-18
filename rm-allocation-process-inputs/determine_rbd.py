@@ -319,8 +319,8 @@ class DetermineRBD:
                 key_imp_fcs_plf = f"ImputedForecastPLF:{origin}{destin}_{flight_number}_{departure_date}"
                 
                 if currParams.cache_client.exists(key_imp_fcs_plf):
-                    redis_data = json.loads(currParams.cache_client.get(key_imp_fcs_plf).decode('utf-8'))
-                    imp_fcs_plf_list = redis_data.get('list', [])
+                    imp_fcs_plf_list = json.loads(currParams.cache_client.get(key_imp_fcs_plf).decode('utf-8'))
+                    # imp_fcs_plf_list = redis_data.get('list', [])
                     
                     if not imp_fcs_plf_list:
                         self.logger.warning(f"Empty ImputedForecastPLF list for key: {key_imp_fcs_plf}")
@@ -331,7 +331,7 @@ class DetermineRBD:
                     selected_value = find_plf_value(imp_fcs_plf_list, current_time, hours)
                     
                     if selected_value is not None:
-                        self.logger.info(f"Found ImputedForecastPLF value: {selected_value} for target time: {current_time}")
+                        # self.logger.info(f"Found ImputedForecastPLF value: {selected_value} for target time: {current_time}")
                         return selected_value
                     else:
                         self.logger.warning(f"No suitable ImputedForecastPLF value found for target time: {current_time}")
