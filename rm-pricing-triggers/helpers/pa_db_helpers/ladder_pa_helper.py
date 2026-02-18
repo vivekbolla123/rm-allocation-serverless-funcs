@@ -6,11 +6,12 @@ from bson import ObjectId
 class LadderPAHelper:
     """Handles Ladder Pricing/Analytics-related database operations using MongoDB."""
     
-    def __init__(self, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
+    def __init__(self, ladder_gen, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
         """
         Initialize with MongoDB database instance.
         
         Args:
+            ladder_gen: LadderGen instance (for accessing shared methods/constants if needed)
             mongo_db: MongoDB database instance (e.g., client['QP_DW_PRIAUT'])
             logger: Logger instance
             calculate_all_in_fare_func: Function to calculate all-in fares
@@ -20,6 +21,15 @@ class LadderPAHelper:
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
+        self.B2B_RBD_LIST = ladder_gen.B2B_RBD_LIST
+        self.B2C_RBD_LIST = ladder_gen.B2C_RBD_LIST
+        self.TOTAL_B2C_FARES = ladder_gen.TOTAL_B2C_FARES
+        self.TOTAL_B2B_FARES = ladder_gen.TOTAL_B2B_FARES
+        self.TOTAL_FARES = ladder_gen.TOTAL_FARES
+        self.BUFFER_FARES_B2C = ladder_gen.BUFFER_FARES_B2C
+        self.BUFFER_FARES_B2B = ladder_gen.BUFFER_FARES_B2B
+        self.CORE_FARES_B2C = ladder_gen.CORE_FARES_B2C
+        self.CORE_FARES_B2B = ladder_gen.CORE_FARES_B2B
         
     def collect_tax_master_data(self):
         """Collect both domestic and international tax master data from MongoDB."""
@@ -223,44 +233,8 @@ class LadderPAHelper:
             created_at = datetime.now(pytz.timezone('Asia/Kolkata'))
             
             # Get RBD sequence from rm_parameter_values
-            try:
-                rbd_doc = self.db.rm_parameter_values.find_one(
-                    {'parameterKey': 'RBD_VALUES'},
-                    {'parameterValue': 1, '_id': 0}
-                )
-                
-                if rbd_doc and 'parameterValue' in rbd_doc:
-                    all_rbds = rbd_doc['parameterValue'].split(',')
-                    # First 20 are B2B (Z* RBDs), remaining are B2C
-                    rbd_names_b2b = all_rbds[:20]  # ZJ, ZI, ZH, ... Z0
-                    rbd_names_b2c = all_rbds[20:84]  # V9, V8, ... Y0 (64 RBDs)
-                else:
-                    # Fallback
-                    rbd_names_b2b = [f"Z{chr(74-i)}" if i < 10 else f"Z{9-i+10}" for i in range(20)]
-                    rbd_names_b2c = [f"V{9-i}" for i in range(10)] + [f"U{9-i}" for i in range(10)] + \
-                                [f"T{9-i}" for i in range(10)] + [f"R{9-i}" for i in range(10)] + \
-                                [f"Q{9-i}" for i in range(10)] + [f"QA", "O0", "N0", "M0", "K0", 
-                                                                    "J0", "I0", "H0", "F0", "E0", 
-                                                                    "D0", "C0", "B0", "Y0"]
-                    
-            except Exception as e:
-                self.logger.warning(f"Could not fetch RBD values: {str(e)}")
-                # Fallback RBD names
-                rbd_names_b2b = [f"Z{chr(74-i)}" if i < 10 else f"Z{9-i+10}" for i in range(20)]
-                rbd_names_b2c = [f"V{9-i}" for i in range(10)] + [f"U{9-i}" for i in range(10)] + \
-                            [f"T{9-i}" for i in range(10)] + [f"R{9-i}" for i in range(10)] + \
-                            [f"Q{9-i}" for i in range(10)] + [f"QA", "O0", "N0", "M0", "K0", 
-                                                                "J0", "I0", "H0", "F0", "E0", 
-                                                                "D0", "C0", "B0", "Y0"]
-            
-            # Ensure we have exactly 20 B2B and 64 B2C RBDs
-            while len(rbd_names_b2b) < 20:
-                rbd_names_b2b.append(f"Z{len(rbd_names_b2b)}")
-            rbd_names_b2b = rbd_names_b2b[:20]
-            
-            while len(rbd_names_b2c) < 64:
-                rbd_names_b2c.append(f"RBD_{len(rbd_names_b2c)+1}")
-            rbd_names_b2c = rbd_names_b2c[:64]
+            rbd_names_b2b = self.B2B_RBD_LIST  
+            rbd_names_b2c = self.B2C_RBD_LIST      
             
             # Get current QP fares for B2C (using V9-Y0 RBDs)
             fare_match_b2c = {
@@ -346,7 +320,7 @@ class LadderPAHelper:
                 ]
             }
             
-            # Get B2C fares (64 fares)
+            # Get B2C fares
             try:
                 current_qp_pipeline_b2c = [
                     {'$match': fare_match_b2c},
@@ -358,7 +332,7 @@ class LadderPAHelper:
                         }
                     },
                     {'$sort': {'fare_amount': 1}},
-                    {'$limit': 64}
+                    {'$limit': self.TOTAL_B2C_FARES}
                 ]
                 
                 current_qp_fares_list_b2c = list(self.db.qp_fares.aggregate(current_qp_pipeline_b2c))
@@ -366,18 +340,18 @@ class LadderPAHelper:
                 if current_qp_fares_list_b2c:
                     current_qp_fares_b2c = [item['fare_amount'] for item in current_qp_fares_list_b2c]
                 else:
-                    current_qp_fares_b2c = [0] * 64
+                    current_qp_fares_b2c = [0] * self.TOTAL_B2C_FARES
                     
             except Exception as e:
                 self.logger.warning(f"Could not fetch current QP B2C fares: {str(e)}")
-                current_qp_fares_b2c = [0] * 64
+                current_qp_fares_b2c = [0] * self.TOTAL_B2C_FARES
             
-            # Ensure we have exactly 64 current B2C fares
-            while len(current_qp_fares_b2c) < 64:
+            # Ensure we have exactly self.TOTAL_B2C_FARES current B2C fares
+            while len(current_qp_fares_b2c) < self.TOTAL_B2C_FARES:
                 current_qp_fares_b2c.append(0)
-            current_qp_fares_b2c = current_qp_fares_b2c[:64]
+            current_qp_fares_b2c = current_qp_fares_b2c[:self.TOTAL_B2C_FARES]
             
-            # Get B2B fares (20 fares)
+            # Get B2B fares
             try:
                 current_qp_pipeline_b2b = [
                     {'$match': fare_match_b2b},
@@ -389,7 +363,7 @@ class LadderPAHelper:
                         }
                     },
                     {'$sort': {'fare_amount': 1}},
-                    {'$limit': 20}
+                    {'$limit': self.TOTAL_B2B_FARES}
                 ]
                 
                 current_qp_fares_list_b2b = list(self.db.qp_fares.aggregate(current_qp_pipeline_b2b))
@@ -397,27 +371,27 @@ class LadderPAHelper:
                 if current_qp_fares_list_b2b:
                     current_qp_fares_b2b = [item['fare_amount'] for item in current_qp_fares_list_b2b]
                 else:
-                    current_qp_fares_b2b = [0] * 20
+                    current_qp_fares_b2b = [0] * self.TOTAL_B2B_FARES
                     
             except Exception as e:
                 self.logger.warning(f"Could not fetch current QP B2B fares: {str(e)}")
-                current_qp_fares_b2b = [0] * 20
+                current_qp_fares_b2b = [0] * self.TOTAL_B2B_FARES
             
-            # Ensure we have exactly 20 current B2B fares
-            while len(current_qp_fares_b2b) < 20:
+            # Ensure we have exactly self.TOTAL_B2B_FARES current B2B fares
+            while len(current_qp_fares_b2b) < self.TOTAL_B2B_FARES:
                 current_qp_fares_b2b.append(0)
-            current_qp_fares_b2b = current_qp_fares_b2b[:20]
+            current_qp_fares_b2b = current_qp_fares_b2b[:self.TOTAL_B2B_FARES]
             
             collection_name = 'ladder_gen_output'
             ladder_documents = []
             
-            # Save B2B ladder first (20 fares with Z* RBDs)
+            # Save B2B ladder first
             ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
-            self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: 20)")
+            self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: {self.TOTAL_B2B_FARES})")
             
             if ladder_fares_b2b:
-                # Handle cases where B2B ladder might not be exactly 20 fares
-                expected_b2b_count = 20
+                # Handle cases where B2B ladder might not be exactly self.TOTAL_B2B_FARES fares
+                expected_b2b_count = self.TOTAL_B2B_FARES
                 actual_b2b_count = len(ladder_fares_b2b)
                 
                 if actual_b2b_count != expected_b2b_count:
@@ -433,7 +407,7 @@ class LadderPAHelper:
                         ladder_fares_b2b = ladder_fares_b2b[:expected_b2b_count]
                         self.logger.info(f"Truncated B2B ladder from {actual_b2b_count} to {len(ladder_fares_b2b)} fares")
                 
-                for i in range(min(len(ladder_fares_b2b), 20)):
+                for i in range(min(len(ladder_fares_b2b), self.TOTAL_B2B_FARES)):
                     current_base = current_qp_fares_b2b[i]
                     new_base = ladder_fares_b2b[i]
                     
@@ -460,13 +434,13 @@ class LadderPAHelper:
                     }
                     ladder_documents.append(doc)
             
-            # Save B2C ladder (64 fares with V9-Y0 RBDs)
+            # Save B2C ladder
             ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', [])
-            self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: 64)")
+            self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: {self.TOTAL_B2C_FARES})")
             
             if ladder_fares_b2c:
-                # Handle cases where B2C ladder might not be exactly 64 fares
-                expected_b2c_count = 64
+                # Handle cases where B2C ladder might not be exactly self.TOTAL_B2C_FARES fares
+                expected_b2c_count = self.TOTAL_B2C_FARES
                 actual_b2c_count = len(ladder_fares_b2c)
                 
                 if actual_b2c_count != expected_b2c_count:
@@ -482,7 +456,7 @@ class LadderPAHelper:
                         ladder_fares_b2c = ladder_fares_b2c[:expected_b2c_count]
                         self.logger.info(f"Truncated B2C ladder from {actual_b2c_count} to {len(ladder_fares_b2c)} fares")
                 
-                for i in range(min(len(ladder_fares_b2c), 64)):
+                for i in range(min(len(ladder_fares_b2c), self.TOTAL_B2C_FARES)):
                     current_base = current_qp_fares_b2c[i]
                     new_base = ladder_fares_b2c[i]
                     
@@ -494,7 +468,7 @@ class LadderPAHelper:
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'channel': 'B2C',
-                        'fare_point_number': i + 21,  # Start from 21 (after 20 B2B fares)
+                        'fare_point_number': i + self.TOTAL_B2B_FARES + 1,  # (start after B2B fares)
                         'rbd_name': rbd_names_b2c[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
@@ -509,17 +483,17 @@ class LadderPAHelper:
                     }
                     ladder_documents.append(doc)
             
-            # Validate we have exactly 84 documents
+            # Validate we have exactly self.TOTAL_FARES documents
             b2b_docs = len([d for d in ladder_documents if d['channel']=='B2B'])
             b2c_docs = len([d for d in ladder_documents if d['channel']=='B2C'])
             total_docs = len(ladder_documents)
             
             self.logger.info(f"Document count summary: B2B={b2b_docs}, B2C={b2c_docs}, Total={total_docs}")
             
-            if total_docs != 84:
-                self.logger.warning(f"Expected 84 ladder documents but got {total_docs}")
-                self.logger.warning(f"  B2B documents: {b2b_docs} (expected: 20)")
-                self.logger.warning(f"  B2C documents: {b2c_docs} (expected: 64)")
+            if total_docs != self.TOTAL_FARES:
+                self.logger.warning(f"Expected {self.TOTAL_FARES} ladder documents but got {total_docs}")
+                self.logger.warning(f"  B2B documents: {b2b_docs} (expected: {self.TOTAL_B2B_FARES})")
+                self.logger.warning(f"  B2C documents: {b2c_docs} (expected: {self.TOTAL_B2C_FARES})")
             
             # Insert into MongoDB
             if ladder_documents:
@@ -609,11 +583,11 @@ class LadderPAHelper:
                         'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                         'status': status,
                         'b2c_total_ladder_points': len(ladder_fares_b2c) if ladder_fares_b2c else 0,
-                        'b2c_core_ladder_points': 58 if ladder_fares_b2c else 0,
-                        'b2c_buffer_ladder_points': 6 if ladder_fares_b2c else 0,
+                        'b2c_core_ladder_points': self.CORE_FARES_B2C if ladder_fares_b2c else 0,
+                        'b2c_buffer_ladder_points': self.BUFFER_FARES_B2C if ladder_fares_b2c else 0,
                         'b2b_total_ladder_points': len(ladder_fares_b2b) if ladder_fares_b2b else 0,
-                        'b2b_core_ladder_points': 16 if ladder_fares_b2b else 0,
-                        'b2b_buffer_ladder_points': 4 if ladder_fares_b2b else 0,
+                        'b2b_core_ladder_points': self.CORE_FARES_B2B if ladder_fares_b2b else 0,
+                        'b2b_buffer_ladder_points': self.BUFFER_FARES_B2B if ladder_fares_b2b else 0,
                         'outliers_removed': outlier_count,
                         'b2c_min_ladder_fare': round(min(ladder_fares_b2c), 2) if ladder_fares_b2c else None,
                         'b2c_max_ladder_fare': round(max(ladder_fares_b2c), 2) if ladder_fares_b2c else None,
