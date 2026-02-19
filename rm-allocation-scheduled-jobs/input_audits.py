@@ -330,10 +330,6 @@ class S3AuditProcessor:
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
-                # FILTER: Only include audits where changedAt > departureDate
-                if changed_at_date_int <= dept_date_int:
-                    continue
-                
                 # Skip connection-specific metadata fields
                 skip_columns = [
                     'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
@@ -399,10 +395,6 @@ class S3AuditProcessor:
                 # Extract date and time separately
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
-                
-                # FILTER: Only include audits where changedAt > departureDate
-                if changed_at_date_int <= dept_date_int:
-                    continue
                 
                 for col, val in row.items():
                     if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
