@@ -953,7 +953,7 @@ class DynAlloc:
 				current_brd_counter = self.w_rbd_allocation(currRec_fullalloc, current_brd_counter) # Uses final_plf
 
 				# CUG allocation
-				B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
+				B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, [CUG_CHANNEL, GROUP_CHANNEL, TBF_CHANNEL], '', 'L')
 				cug_bookings_dict_local = getattr(self, 'cug_bookings_dict', {}) # Use if it's a class member, else ensure defined
 
 				param_cug_flag = getattr(self.currParams, 'cug_flag', 0) # Default

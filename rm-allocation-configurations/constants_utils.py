@@ -87,6 +87,10 @@ class ConstantsUtils:
         self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
         self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
         self.RBD_VALUES = RBD_VALUES
+        self.B2B_RBD_VALUES = B2B_RBD_VALUES
+        self.B2C_RBD_VALUES = B2C_RBD_VALUES
+        self.GROUP_RBD_VALUES = GROUP_RBD_VALUES
+        self.DISTRESS_RBD_VALUES = DISTRESS_RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
         self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
@@ -98,6 +102,12 @@ class ConstantsUtils:
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
+
+        # Calculate rbd counts and column lengths based on RBD values
+        self.B2B_RDB_COUNT = len(self.B2B_RBD_VALUES.split(','))
+        self.B2C_RDB_COUNT = len(self.B2C_RBD_VALUES.split(','))
+        self.AU_COLUMN_LENGTH = self.B2B_RDB_COUNT + self.B2C_RDB_COUNT + len(self.GROUP_RBD_VALUES.split(',')) + len(self.DISTRESS_RBD_VALUES.split(',')) + len(self.TBF_RBD.split(',')) + len(self.CUG_RBD.split(',')) + len(json.loads(self.SOFTBLOCK_RBDS))
+        self.AU_COLUMN_LENGTH_CONNECTIONS = self.B2B_RDB_COUNT + self.B2C_RDB_COUNT
 
     def generateConstantValues(self):
         parameterValue = self.get_parameters()
@@ -256,6 +266,14 @@ class ConstantsUtils:
                 self.MARKET_FLAG = parameter_value
             elif parameter_key == RBD_VALUES_KEY:
                 self.RBD_VALUES = parameter_value
+            elif parameter_key == B2B_RBD_VALUES_KEY:
+                self.B2B_RBD_VALUES = parameter_value
+            elif parameter_key == B2C_RBD_VALUES_KEY:
+                self.B2C_RBD_VALUES = parameter_value
+            elif parameter_key == GROUP_RBD_VALUES_KEY:
+                self.GROUP_RBD_VALUES = parameter_value
+            elif parameter_key == DISTRESS_RBD_VALUES_KEY:
+                self.DISTRESS_RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
                 self.B2B_THRESHOLD = float(parameter_value)
             elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
