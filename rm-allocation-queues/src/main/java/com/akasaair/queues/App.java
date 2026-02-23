@@ -8,6 +8,8 @@ import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
 import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.*;
@@ -56,7 +58,6 @@ import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
-import java.util.Date;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -1512,7 +1513,7 @@ public class App implements CommandLineRunner {
             Validator validate = getValidator(tableName);
             String val = null;
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
-                val = searchResults(PARAMETER_RBD_VALUES);
+                val = getAllRBDs();
             }
             if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
                 updateInputStatus(tableName);
@@ -2025,6 +2026,38 @@ public class App implements CommandLineRunner {
             e.printStackTrace();
         }
         return listObj;
+    }
+
+    public String getAllRBDs() {
+        String rbdList = null;
+        try {
+            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+
+            for (Document doc : docs) {
+                String key = doc.getString("parameterKey");
+                Object val = doc.get(PARAMETER_VALUE_COLUMN_NAME);
+
+                if (key != null && val != null) {
+                    String value;
+                    try {
+                        if (SOFTBLOCK_RBDS.equals(key)) {
+                            List<String> softBlockRBDs = new ObjectMapper().readValue(val.toString(), new TypeReference<>() {});
+                            value = softBlockRBDs.stream().filter(Objects::nonNull).collect(Collectors.joining(","));
+                        } else {
+                            value = val.toString();
+                        }
+                    } catch (Exception parseEx) {
+                        log.error("Failed parsing SOFTBLOCK_RBDS JSON", parseEx);
+                        continue;
+                    }
+                    rbdList = (rbdList == null) ? value : rbdList + "," + value;
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+        return rbdList;
     }
 
     private  Validator getValidator(String tableName) {
