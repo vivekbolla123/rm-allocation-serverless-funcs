@@ -33,7 +33,7 @@ class LadderGen:
         self.constants = ConstantsUtils(self.db)
         self.pa_helper = LadderPAHelper(self.db, self.db_fares, logger, self.calculate_all_in_fare)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
-        self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, logger)
+        self.esb_helper = LadderEsbHelper(self.db_fares, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         self.sector = overrides['sector']
@@ -41,7 +41,7 @@ class LadderGen:
         # Configuration parameters for ladder generation
         self.min_fare_threshold_domestic = lambda fare: max(0.02 * fare, 50)
         self.min_fare_threshold_international = lambda fare: 0.02 * fare
-        self.min_distinct_fares_required = self.constants.B2C_DISTINCT_FARES_COUNT
+        self.min_distinct_fares_required = 11
         self.ladder_bins_b2c = 58
         self.ladder_bins_b2b = 16
         self.total_ladder_points = 64
@@ -175,52 +175,38 @@ class LadderGen:
         return filtered_data
 
     def get_historical_booking_data(self, channel):
-        """Get booking data with priority logic."""
+        """Get market fare data with priority logic using NDO (days forward)."""
         try:
-            current_date = datetime.now().date()
             if channel == self.B2C_CHANNEL:
-                # Priority 1: Last 30 days
-                start_date_30 = current_date - timedelta(days=30)
-                combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector, channel)
-                combined_30 = self.remove_outliers(combined_30, period_label="30day")
+                # Priority 1: NDO 30
+                combined_30 = self.esb_helper.collect_combined_market_fare_data(30, self.sector, channel)
+                combined_30 = self.remove_outliers(combined_30, period_label="ndo30")
                 distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
                 
                 if distinct_fares_30 >= self.min_distinct_fares_required:
-                    return combined_30, "Last 30 days"
+                    return combined_30, "NDO 30"
                 
-                # Priority 2: Last 60 days
-                start_date_60 = current_date - timedelta(days=60)
-                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
-                combined_60 = self.remove_outliers(combined_60, period_label="60day")
+                # Priority 2: NDO 60
+                combined_60 = self.esb_helper.collect_combined_market_fare_data(60, self.sector, channel)
+                combined_60 = self.remove_outliers(combined_60, period_label="ndo60")
                 distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
                 
                 if distinct_fares_60 >= self.min_distinct_fares_required:
-                    return combined_60, "Last 60 days"
+                    return combined_60, "NDO 60"
                 
-                # Priority 3: Previous year same period
-                prev_year_current = current_date.replace(year=current_date.year - 1)
-                prev_year_start = prev_year_current - timedelta(days=30)
-                combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector, channel)
-                combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
-                distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
-                
-                if distinct_fares_prev >= self.min_distinct_fares_required:
-                    return combined_prev, "Previous year same period"
-                
-                self.failure_reason = f"Insufficient distinct fares across all periods. Found: 30-day: {distinct_fares_30}, 60-day: {distinct_fares_60}, Previous year: {distinct_fares_prev}. Required: {self.min_distinct_fares_required} for Channel:{channel}"
+                self.failure_reason = f"Insufficient distinct fares. Found: NDO-30: {distinct_fares_30}, NDO-60: {distinct_fares_60}. Required: {self.min_distinct_fares_required} for Channel:{channel}"
                 self.logger.warning(self.failure_reason)
                 return pd.DataFrame(), "Insufficient distinct fares"
             
             else:
-                # Priority 2: Last 60 days
-                start_date_60 = current_date - timedelta(days=60)
-                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
-                combined_60 = self.remove_outliers(combined_60, period_label="60day")
-                return combined_60, "Last 60 days"
+                # B2B: Use NDO 60 directly
+                combined_60 = self.esb_helper.collect_combined_market_fare_data(60, self.sector, channel)
+                combined_60 = self.remove_outliers(combined_60, period_label="ndo60")
+                return combined_60, "NDO 60"
             
         except Exception as e:
-            self.logger.error(f"Error in booking data collection: {str(e)}")
-            self.failure_reason = f"Booking data collection failed: {str(e)}"
+            self.logger.error(f"Error in market fare data collection: {str(e)}")
+            self.failure_reason = f"Market fare data collection failed: {str(e)}"
             raise
 
     def create_fare_bins(self, booking_data, channel):
