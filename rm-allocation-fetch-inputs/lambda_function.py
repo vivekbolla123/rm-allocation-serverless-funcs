@@ -657,7 +657,7 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
         suffixes=('', '_drop')
     )
 
-    mkt.loc[mkt['forecast_model'] == 'ML', 'forecastPLF'] = mkt['forecastPLF_ml']
+    mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
     mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
     return mkt
@@ -1314,7 +1314,9 @@ def lambda_handler(event, context):
         ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        mkt_list.loc[mkt_list['forecast_model1'] == 'ML', 'forecastPLF1'] = mkt_list['forecastPLF_ml1']
+        mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
+            'forecastPLF1'
+        ] = mkt_list['forecastPLF_ml1']
 
         mkt_list = mkt_list.merge(
             sector_forecast_model_map[['Origin', 'Destination', 'forecast_model']],
@@ -1333,7 +1335,9 @@ def lambda_handler(event, context):
         ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
-        mkt_list.loc[mkt_list['forecast_model2'] == 'ML', 'forecastPLF2'] = mkt_list['forecastPLF_ml2']
+        mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),
+            'forecastPLF2'
+        ] = mkt_list['forecastPLF_ml2']
 
         mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1','forecast_model2', 'forecastPLF_ml2'], inplace=True, errors='ignore')
         
