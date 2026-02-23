@@ -801,7 +801,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
             'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
             'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast'
+            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_origin_mapping'
         ]
         sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
         connection_cols = [
@@ -1408,6 +1408,173 @@ def lambda_handler(event, context):
             suffixes=('', '_drop')
         ).rename(columns={'OpeningRBDB2B': 'OpeningRBDB2B2', 'OpeningRBDB2C': 'OpeningRBDB2C2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+        
+        # --- Scenario 4: Direct Flight on Connection OD ---
+        # For each connection, find direct flights on the same OD (Sector1Origin to Sector2Dest)
+        # Only consider direct flights within +/- 6 hours of the connection's first flight departure time
+        # and attach the best direct flight's forecast/PLF/fare data
+        
+        # Create connection OD columns
+        mkt_list['ConnectionOrigin'] = mkt_list['Sector1Origin']
+        mkt_list['ConnectionDest'] = mkt_list['Sector2Dest']
+        
+        # First, get the first flight's departure time for each connection
+        # Merge booked_loads to get Flight1's departure time
+        first_flight_times = booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'DepartureTime']].copy()
+        first_flight_times = first_flight_times.rename(columns={
+            'DepartureTime': 'FirstFlightDepTime'
+        })
+        
+        # Merge to get first flight departure time for each connection
+        mkt_list = mkt_list.merge(
+            first_flight_times,
+            how='left',
+            left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
+            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+            suffixes=('', '_ff')
+        ).drop(columns=['FlightNumber', 'Origin', 'Destination'], errors='ignore')
+        
+        # Filter booked_loads and forecast for direct flights on connection OD
+        # We'll merge to get direct flight data for each connection
+        
+        # Get direct flight bookloads for connection OD
+        direct_flight_bookloads = booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax', 'capacity', 'DepartureTime']].copy()
+        direct_flight_bookloads = direct_flight_bookloads.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'bookedPax': 'DirectFlightBookedPax',
+            'capacity': 'DirectFlightLid',
+            'DepartureTime': 'DirectFlightDepTime'
+        })
+        
+        # Get direct flight forecasts for connection OD
+        direct_flight_forecasts = forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF']].copy()
+        direct_flight_forecasts = direct_flight_forecasts.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'forecastPLF': 'DirectFlightForecast'
+        })
+        
+        # Get direct flight opening RBDs for connection OD
+        direct_flight_openings = opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']].copy()
+        direct_flight_openings = direct_flight_openings.rename(columns={
+            'FlightNumber': 'DirectFlightNumber',
+            'OpeningRBDB2B': 'DirectFlightOpeningRBDB2B',
+            'OpeningRBDB2C': 'DirectFlightOpeningRBDB2C'
+        })
+        
+        # Merge bookloads with forecasts
+        direct_flights_data = direct_flight_bookloads.merge(
+            direct_flight_forecasts,
+            on=['DepartureDate', 'DirectFlightNumber', 'Origin', 'Destination'],
+            how='left'
+        )
+        
+        # Merge with opening RBDs
+        direct_flights_data = direct_flights_data.merge(
+            direct_flight_openings,
+            on=['DepartureDate', 'DirectFlightNumber', 'Origin', 'Destination'],
+            how='left'
+        )
+        
+        # Calculate PLF for direct flights
+        direct_flights_data['DirectFlightPLF'] = (
+            direct_flights_data['DirectFlightBookedPax'] / direct_flights_data['DirectFlightLid'] * 100
+        ).fillna(0)
+        
+        direct_flights_data['DirectFlightForecast'] = direct_flights_data['DirectFlightForecast'].fillna(0)
+        
+        # Now, for each connection, filter direct flights to only those within +/- 6 hours
+        # of the connection's first flight departure time
+        # We need to do this by merging and then filtering
+        
+        # First, merge all direct flights to each connection (cross-join on OD and Date)
+        # Then filter by time window
+        
+        # Create a temporary key for merging
+        mkt_list['merge_key'] = mkt_list['DepartureDate'].astype(str) + '_' + mkt_list['ConnectionOrigin'] + '_' + mkt_list['ConnectionDest']
+        direct_flights_data['merge_key'] = direct_flights_data['DepartureDate'].astype(str) + '_' + direct_flights_data['Origin'] + '_' + direct_flights_data['Destination']
+        
+        # Helper function to filter by time window (+/- 6 hours)
+        def filter_direct_flights_by_time(connection_group):
+            first_flight_time_str = connection_group['FirstFlightDepTime'].iloc[0]
+            merge_key = connection_group['merge_key'].iloc[0]
+            
+            if pd.isna(first_flight_time_str) or first_flight_time_str == '':
+                # No first flight time available, return empty
+                return pd.DataFrame()
+            
+            # Get all direct flights for this OD and date
+            matching_direct = direct_flights_data[direct_flights_data['merge_key'] == merge_key].copy()
+            
+            if matching_direct.empty:
+                return pd.DataFrame()
+            
+            try:
+                # Parse first flight time (format: HH:mm)
+                first_flight_minutes = int(first_flight_time_str.split(':')[0]) * 60 + int(first_flight_time_str.split(':')[1])
+                
+                # Filter direct flights within +/- 6 hours (360 minutes)
+                def is_within_time_window(dep_time_str):
+                    if pd.isna(dep_time_str) or dep_time_str == '':
+                        return False
+                    try:
+                        direct_minutes = int(dep_time_str.split(':')[0]) * 60 + int(dep_time_str.split(':')[1])
+                        time_diff = abs(direct_minutes - first_flight_minutes)
+                        # Handle wrap-around at midnight
+                        time_diff = min(time_diff, 1440 - time_diff)
+                        return time_diff <= 360  # 6 hours = 360 minutes
+                    except:
+                        return False
+                
+                matching_direct = matching_direct[matching_direct['DirectFlightDepTime'].apply(is_within_time_window)]
+                
+                if matching_direct.empty:
+                    return pd.DataFrame()
+                
+                # Return the direct flight with highest forecast
+                best_direct = matching_direct.sort_values(by='DirectFlightForecast', ascending=False).iloc[0]
+                return pd.DataFrame([best_direct])
+            except Exception as e:
+                logger.warning(f"Error filtering direct flights by time: {str(e)}")
+                return pd.DataFrame()
+        
+        # Group connections by merge_key and filter direct flights
+        best_direct_flights_list = []
+        for merge_key, group in mkt_list.groupby('merge_key'):
+            result = filter_direct_flights_by_time(group)
+            if not result.empty:
+                best_direct_flights_list.append(result)
+        
+        if best_direct_flights_list:
+            best_direct_flights = pd.concat(best_direct_flights_list, ignore_index=True)
+            best_direct_flights = best_direct_flights.drop_duplicates(subset=['merge_key'], keep='first')
+            
+            # Merge direct flight data to connection market list
+            mkt_list = mkt_list.merge(
+                best_direct_flights[[
+                    'merge_key',
+                    'DirectFlightNumber', 'DirectFlightBookedPax', 'DirectFlightLid',
+                    'DirectFlightForecast', 'DirectFlightPLF', 'DirectFlightDepTime',
+                    'DirectFlightOpeningRBDB2B', 'DirectFlightOpeningRBDB2C'
+                ]],
+                how='left',
+                on='merge_key',
+                suffixes=('', '_direct')
+            )
+        else:
+            # No direct flights found within time window, add empty columns
+            mkt_list['DirectFlightNumber'] = None
+            mkt_list['DirectFlightBookedPax'] = None
+            mkt_list['DirectFlightLid'] = None
+            mkt_list['DirectFlightForecast'] = None
+            mkt_list['DirectFlightPLF'] = None
+            mkt_list['DirectFlightDepTime'] = None
+            mkt_list['DirectFlightOpeningRBDB2B'] = None
+            mkt_list['DirectFlightOpeningRBDB2C'] = None
+        
+        # Drop helper columns
+        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest', 'merge_key'], errors='ignore')
+        
+        logger.info(f"Added direct flight data for {mkt_list['DirectFlightNumber'].notna().sum()} connections (filtered within +/-6 hours of first flight time)")
         
         markets_count = mkt_list.shape[0]
         mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].astype(str)

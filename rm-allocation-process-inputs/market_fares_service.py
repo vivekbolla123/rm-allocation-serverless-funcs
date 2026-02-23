@@ -17,14 +17,22 @@ class MarketFareService:
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)    
     
-    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
-        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo= self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime)
+    def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime, imp_forecast=CONST_NA):
+        # Extract origin and destin from currParams
+        origin = currParams.origin
+        destin = currParams.destin
+        
+        # Apply routing logic (getroutedDestination)
+        routedSector = self.rmdatabasehelper.getroutedDestination(origin, destin)
+        
+        if len(routedSector) > 0:
+            origin = routedSector['routedSector'][0][:3]
+            destin = routedSector['routedSector'][0][3:]
+        
+        # Get fares from PRIMARY sector (with routed origin/destin)
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, destin)
+        _, _, _, hardmktFareRange, hardmktfareRange_minomaxo= self.getMarketFares(currFltDate, currParams, channel, hardstartTime, hardendTime, 0, criteria, flightTime, origin, destin)
 
-        #Does competetive fare exist
-        #We only proceed if a B2C fare exists - If B2C does not exist, we will skip the whole thing even with a B2B fare
-        # This is because, when we prepare the AU Grid, if we donr push inventory on to B2C RBD, then the flight will not be visible 
-        # on OTA - Flag the error for correction here
         isMarketFareAvailable = False
         lowFare = 0
         hiFare = 0
@@ -35,29 +43,77 @@ class MarketFareService:
         lowmktFile = "Market Fare not found"
         himktFile = "Market Fare not found"
 
+        # If feature flag is enabled and no market fare sector rerouting is present and imputed forecast is available
+        try:
+            if int(currParams.market_origin_mapping) == 1 and routedSector.empty and imp_forecast != CONST_NA:
+                # Check for mapped origin and get fares from mapped sector
+                MARKET_FARE_FORECAST_THRESHOLD = self.constantsutils.MARKET_FARE_FORECAST_THRESHOLD
+                origin2 = self.rmdatabasehelper.getMappedOriginStation(currParams.origin)
+                mapped_mktFareRange = pd.DataFrame()
+                mapped_mktFareRange_minomaxo = pd.DataFrame()
+                
+                if origin2 is not None and origin2 != currParams.origin:
+                    # Fetch market fares for the mapped sector (with routing applied)
+                    _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
+                        currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin2, destin
+                    )
+                    
+                    if mapped_mktFareRange.empty:
+                        self.logger.info(f"No Market fares found for mapped sector {origin2}{destin}")
+
+
+                if mktFareRange.empty or mapped_mktFareRange.empty:
+                    if mktFareRange.empty:
+                        mktFareRange = mapped_mktFareRange
+                else:
+                    allFares = pd.concat([mktFareRange.iloc[[0, -1]], mapped_mktFareRange.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                    if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        allFares = allFares.iloc[1:]
+                    else:
+                        allFares = allFares.iloc[:-1]
+                        
+                    mktFareRange = allFares
+
+                if mktfareRange_minomaxo.empty or mapped_mktFareRange_minomaxo.empty:
+                    if mktfareRange_minomaxo.empty:
+                        mktfareRange_minomaxo = mapped_mktFareRange_minomaxo
+                else:
+                    allFaresMinoMaxo = pd.concat([mktfareRange_minomaxo.iloc[[0, -1]], mapped_mktFareRange_minomaxo.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                    if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        allFaresMinoMaxo = allFaresMinoMaxo.iloc[1:]
+                    else:
+                        allFaresMinoMaxo = allFaresMinoMaxo.iloc[:-1]
+                        
+                    mktfareRange_minomaxo = allFaresMinoMaxo
+        
+        except Exception as e:
+            self.logger.error(f"Error comparing dual sector market fares due to reason {e}")
+        
         if(len(mktFareRange) > 0):
-            lowFare = mktFareRange['gross_fare'][0]
+            lowFare = mktFareRange['gross_fare'].iloc[0]
             hiFare = mktFareRange['gross_fare'].iloc[-1]
-            lowAirlineCode = mktFareRange['outbound_airline_code'][0]
+            lowAirlineCode = mktFareRange['outbound_airline_code'].iloc[0]
             hiAirlineCode = mktFareRange['outbound_airline_code'].iloc[-1]
-            lowFilghtNum = mktFareRange['outbound_flight'][0]
+            lowFilghtNum = mktFareRange['outbound_flight'].iloc[0]
             hiFilghtNum = mktFareRange['outbound_flight'].iloc[-1]
-            lowmktFile = mktFareRange['mktFile'][0]
+            lowmktFile = mktFareRange['mktFile'].iloc[0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
             if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
-                lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
-                hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
-                lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
-                hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
-                lowFare = mktfareRange_minomaxo['LowFare'][0]
-                hiFare = mktfareRange_minomaxo['HiFare'][0]
-                lowmktFile = mktfareRange_minomaxo['lowmktFile'][0]
-                himktFile = mktfareRange_minomaxo['himktFile'][0]
+                lowFare = mktfareRange_minomaxo['gross_fare'].iloc[0]
+                hiFare = mktfareRange_minomaxo['gross_fare'].iloc[-1]
+                lowAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[0]
+                hiAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[-1]
+                lowFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[0]
+                hiFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[-1]
+                lowmktFile = mktfareRange_minomaxo['mktFile'].iloc[0]
+                himktFile = mktfareRange_minomaxo['mktFile'].iloc[-1]
             if hardcriteria !=CONST_NA:
                 if ((hardcriteria == MINO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
-                    hardfare = hardmktfareRange_minomaxo['LowFare'][0]
+                    hardfare = hardmktfareRange_minomaxo['gross_fare'][0]
                 if ((hardcriteria == MAXO_FARE_ANCHOR ) and (len(hardmktfareRange_minomaxo)>0)):
-                    hardfare = hardmktfareRange_minomaxo['HiFare'][0]
+                    hardfare = hardmktfareRange_minomaxo['gross_fare'].iloc[-1]
                 if ((hardcriteria == MIN_FARE_ANCHOR ) and (len(hardmktFareRange)>0)):
                     hardfare = hardmktFareRange['gross_fare'][0]
                 if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(hardmktFareRange)>0)):
@@ -65,41 +121,43 @@ class MarketFareService:
 
             isMarketFareAvailable = True
 
+        # Apply market fare adjustments
         try:
             mf_adjustments = self.rmdatabasehelper.getMarketFareAdjustments(currParams.origin, currParams.destin)
 
-            low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
-            hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
+            if not mf_adjustments.empty:
+                low_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == lowAirlineCode]['adjustment']
+                hi_fare_adj = mf_adjustments[mf_adjustments['airlineCode'] == hiAirlineCode]['adjustment']
 
-            if not low_fare_adj.empty:
-                low_fare_adj_value = int(low_fare_adj.values[0])
-                lowFare += low_fare_adj_value
+                if not low_fare_adj.empty:
+                    low_fare_adj_value = int(low_fare_adj.values[0])
+                    lowFare = max(0, lowFare + low_fare_adj_value)
 
-            if not hi_fare_adj.empty:
-                hi_fare_adj_value = int(hi_fare_adj.values[0])
-                hiFare += hi_fare_adj_value
+                if not hi_fare_adj.empty:
+                    hi_fare_adj_value = int(hi_fare_adj.values[0])
+                    hiFare = max(0, hiFare + hi_fare_adj_value)
 
         except Exception as e:
-            self.logger.info(f"Market Fare Adjustment not applied due to reason {e}")
+            self.logger.error(f"Market Fare Adjustment not applied due to reason {e}")
         
         return int(lowFare),int(hiFare),lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare,lowmktFile,himktFile
 
-    def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime):
+    def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, destin):
+        # Fetch market fares for the sector with provided origin/destin
         mktFareRange = self.fetchMarketFareRange(
-            channel, currFltDate, currParams, DaySpan, startTime, endTime, includeWeekend=False
+            channel, currFltDate, currParams, DaySpan, startTime, endTime, origin, destin, includeWeekend=False,
         )
             
-
         return self.prepareResponse(startTime, endTime, criteria, mktFareRange)
     
-    def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, includeWeekend):
+    def fetchMarketFareRange(self, channel, flightDate, params, daySpan, start_time, end_time, origin, destin, includeWeekend):
         ndo=self.timeutils.calculate_ndo(flightDate)
         hrs=self.get_value_for_ndo(self.constantsutils.MARKET_FARES_THRESHOLD,ndo)
         if params.mongodb=='1':
             return self.mongohelper.getMarketFareRange(channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs)
         else:
             return self.rmdatabasehelper.getMarketFareRange(
-                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs
+                channel, params,flightDate, daySpan, start_time, end_time, includeWeekend,hrs, origin, destin
             )
 
     def get_value_for_ndo(self,json_string, ndo):
@@ -129,36 +187,17 @@ class MarketFareService:
                     fare_list.append(fare)
             min_fare = min(fare_list)
             max_fare = max(fare_list)
-            min_fare_row = data[data["gross_fare"] == min_fare].iloc[0]
-            max_fare_row = data[data["gross_fare"] == max_fare].iloc[0]
-            min_airline_code = min_fare_row["outbound_airline_code"]
-            min_outbound_flight = min_fare_row["outbound_flight"]
-            max_airline_code = max_fare_row["outbound_airline_code"]
-            max_outbound_flight = max_fare_row["outbound_flight"]
-            lowmktFile = min_fare_row["mktFile"]
-            himktFile = max_fare_row["mktFile"]
+            min_fare_row = data[data["gross_fare"] == min_fare].iloc[[0]]
+            max_fare_row = data[data["gross_fare"] == max_fare].iloc[[0]]
         elif len(fare_list)==0:
-            min_fare=0
-            max_fare=0
-            min_airline_code = 'Market Fare not found'
-            min_outbound_flight = 'Market Fare not found'
-            max_airline_code = 'Market Fare not found'
-            max_outbound_flight = 'Market Fare not found'
-            lowmktFile = "Market Fare not found"
-            himktFile = "Market Fare not found"
+            return pd.DataFrame()
         else:
             min_fare=fare_list[0]
             max_fare=fare_list[0]
-            min_fare_row = data[data["gross_fare"] == min_fare].iloc[0]
-            max_fare_row = data[data["gross_fare"] == max_fare].iloc[0]
-            min_airline_code = min_fare_row["outbound_airline_code"]
-            min_outbound_flight = min_fare_row["outbound_flight"]
-            max_airline_code = max_fare_row["outbound_airline_code"]
-            max_outbound_flight = max_fare_row["outbound_flight"]
-            lowmktFile = min_fare_row["mktFile"]
-            himktFile = max_fare_row["mktFile"]
-        mktFareRange = pd.DataFrame(
-            {'LowFare': [min_fare], 'HiFare': [max_fare],'LowFare_airline_code': [min_airline_code], 'LowFare_outbound_flight': [min_outbound_flight], 'HiFare_airline_code': [max_airline_code], 'HiFare_outbound_flight': [max_outbound_flight],'lowmktFile':[lowmktFile],'himktFile':[himktFile]})
+            min_fare_row = data[data["gross_fare"] == min_fare].iloc[[0]]
+            max_fare_row = data[data["gross_fare"] == max_fare].iloc[[0]]
+            
+        mktFareRange = pd.concat([min_fare_row, max_fare_row], ignore_index=True)
         return mktFareRange
 
     def prepareResponse(self, startTime, endTime, criteria, marketFareRange):
@@ -221,7 +260,7 @@ class MarketFareService:
 
 
     def getMFinRange(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime, dplfBand):
-        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime)
+        startTime, endTime, criteria, mktFareRange, mktfareRange_minomaxo = self.getMarketFares(currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, currParams.origin, currParams.destin)
         min_10 = 0
         if(dplfBand == 0):
             if(len(mktFareRange) > 0):
