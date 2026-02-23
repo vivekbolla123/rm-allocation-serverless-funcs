@@ -54,6 +54,8 @@ param_names = [
     f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-Pass',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
   
 ]
@@ -120,6 +122,8 @@ if env == 'prod':
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
@@ -203,6 +207,8 @@ if env == 'uat':
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     MONGO_USERNAME = "testuser"
