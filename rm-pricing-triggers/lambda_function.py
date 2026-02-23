@@ -115,11 +115,22 @@ def lambda_handler(event, context):
 #     "modules": {"action_sect": 1}
 # }
 
+# Single sector (backward compatible)
 # messageBody = {
 #     "overrides": {
 #         "route": "D",
 #         "analyst": "Kenneth Menezes",
 #         "sector": "BOMDEL"
+#     },
+#     "modules": {"ladder_gen": 1}
+# }
+
+# Multiple sectors (new format)
+# messageBody = {
+#     "overrides": {
+#         "route": "D",
+#         "analyst": "Kenneth Menezes",
+#         "sectors": ["DELBOM", "AMDBLR"]
 #     },
 #     "modules": {"ladder_gen": 1}
 # }

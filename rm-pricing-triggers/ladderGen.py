@@ -35,7 +35,16 @@ class LadderGen:
         self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
-        self.sector = overrides['sector']
+        
+        # Support both single sector (backward compatibility) and multiple sectors
+        if 'sectors' in overrides and isinstance(overrides['sectors'], list):
+            self.sectors = overrides['sectors']
+        elif 'sector' in overrides:
+            self.sectors = [overrides['sector']]
+        else:
+            raise ValueError("Either 'sector' or 'sectors' must be provided in overrides")
+        
+        self.sector = None  # Will be set per sector during processing
         
         # Configuration parameters for ladder generation
         self.min_fare_threshold_domestic = lambda fare: max(0.02 * fare, 50)
@@ -70,6 +79,12 @@ class LadderGen:
         self.outlier_count = None
         
         
+    def _get_reverse_sector(self, sector):
+        """Get the reverse sector (e.g., BOMDEL -> DELBOM)."""
+        if len(sector) != 6:
+            return None
+        return sector[3:] + sector[:3]
+    
     def collect_all_data(self):
         """Collect all required data efficiently."""
         try:
@@ -86,7 +101,11 @@ class LadderGen:
                     self.failure_reason = f"Tax master data collection failed: {str(e)}"
             
             try:
-                self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares(self.route, self.sector)
+                # Collect market fares for both directions
+                reverse_sector = self._get_reverse_sector(self.sector)
+                self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares_bidirectional(
+                    self.route, self.sector, reverse_sector
+                )
                 if failure_reason:
                     self.failure_reason = failure_reason
                 else:
@@ -181,13 +200,17 @@ class LadderGen:
         return filtered_data
 
     def get_historical_booking_data(self, channel):
-        """Get booking data with priority logic."""
+        """Get booking data with priority logic for both directions."""
         try:
             current_date = datetime.now().date()
+            reverse_sector = self._get_reverse_sector(self.sector)
+            
             if channel == self.B2C_CHANNEL:
                 # Priority 1: Last 30 days
                 start_date_30 = current_date - timedelta(days=30)
-                combined_30 = self.esb_helper.collect_combined_booking_data(start_date_30, current_date, self.sector, channel)
+                combined_30 = self.esb_helper.collect_combined_booking_data_bidirectional(
+                    start_date_30, current_date, self.sector, reverse_sector, channel
+                )
                 combined_30 = self.remove_outliers(combined_30, period_label="30day")
                 distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
                 
@@ -196,7 +219,9 @@ class LadderGen:
                 
                 # Priority 2: Last 60 days
                 start_date_60 = current_date - timedelta(days=60)
-                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
+                combined_60 = self.esb_helper.collect_combined_booking_data_bidirectional(
+                    start_date_60, current_date, self.sector, reverse_sector, channel
+                )
                 combined_60 = self.remove_outliers(combined_60, period_label="60day")
                 distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
                 
@@ -206,7 +231,9 @@ class LadderGen:
                 # Priority 3: Previous year same period
                 prev_year_current = current_date.replace(year=current_date.year - 1)
                 prev_year_start = prev_year_current - timedelta(days=30)
-                combined_prev = self.esb_helper.collect_combined_booking_data(prev_year_start, prev_year_current, self.sector, channel)
+                combined_prev = self.esb_helper.collect_combined_booking_data_bidirectional(
+                    prev_year_start, prev_year_current, self.sector, reverse_sector, channel
+                )
                 combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
                 distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
                 
@@ -220,7 +247,9 @@ class LadderGen:
             else:
                 # Priority 2: Last 60 days
                 start_date_60 = current_date - timedelta(days=60)
-                combined_60 = self.esb_helper.collect_combined_booking_data(start_date_60, current_date, self.sector, channel)
+                combined_60 = self.esb_helper.collect_combined_booking_data_bidirectional(
+                    start_date_60, current_date, self.sector, reverse_sector, channel
+                )
                 combined_60 = self.remove_outliers(combined_60, period_label="60day")
                 return combined_60, "Last 60 days"
             
@@ -1063,34 +1092,102 @@ class LadderGen:
             raise
 
     def run(self):
-        """Main execution method."""
+        """Main execution method - processes all sectors under a single run_id."""
         run_id = str(uuid.uuid4())
+        self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
+        all_results = []
+        all_ladder_results = []
+        total_outliers = 0
+        
+        # Get version info once for the batch
+        try:
+            self.currentVersion = self.pa_helper.get_current_version()
+        except Exception as e:
+            self.logger.warning(f"Version info collection failed: {str(e)}")
+            self.currentVersion = None
+        
+        # Create initial audit record for the batch
+        try:
+            sectors_str = ', '.join(self.sectors)
+            self.pa_helper.save_batch_run_audit(
+                sectors_str, self.route, self.analystName, None, 
+                self.start_time, self.currentVersion, run_id, None, 
+                None, None, 'IN_PROGRESS', is_initial=True
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to create initial batch audit record: {str(e)}")
+        
+        # Process each sector
+        for sector in self.sectors:
+            self.sector = sector
+            self.logger.info(f"=" * 80)
+            self.logger.info(f"Processing sector: {sector} (run_id: {run_id})")
+            self.logger.info(f"=" * 80)
+            
+            # Reset failure tracking for each sector
+            self.failure_reason = None
+            self.outlier_count = None
+            
+            result = self._run_single_sector(run_id)
+            all_results.append(result)
+            
+            # Accumulate outliers
+            if self.outlier_count:
+                total_outliers += self.outlier_count
+            
+            # Collect successful ladder results
+            if result['status'] == 'SUCCESS' and result.get('ladder_result'):
+                all_ladder_results.append(result['ladder_result'])
+            
+            self.logger.info(f"Sector {sector} completed with status: {result['status']}")
+            if result['status'] == 'FAILED':
+                self.logger.error(f"Sector {sector} failure reason: {result.get('reason', 'Unknown')}")
+        
+        # Summary
+        success_count = sum(1 for r in all_results if r['status'] == 'SUCCESS')
+        failed_count = len(all_results) - success_count
+        
+        self.logger.info(f"=" * 80)
+        self.logger.info(f"BATCH SUMMARY: {success_count} succeeded, {failed_count} failed out of {len(all_results)} sectors")
+        self.logger.info(f"=" * 80)
+        
+        # Update batch audit with final status
+        try:
+            batch_status = 'SUCCESS' if success_count > 0 else 'FAILED'
+            failure_reasons = [r.get('reason') for r in all_results if r['status'] == 'FAILED']
+            batch_failure_reason = '; '.join(failure_reasons) if failure_reasons else None
+            
+            self.pa_helper.save_batch_run_audit(
+                sectors_str, self.route, self.analystName, total_outliers,
+                self.start_time, self.currentVersion, run_id, batch_failure_reason,
+                all_ladder_results, 'ladder_gen_output', batch_status, is_initial=False,
+                success_count=success_count, failed_count=failed_count
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to update batch audit record: {str(e)}")
+        
+        return {
+            'statusCode': 200 if success_count > 0 else 500,
+            'run_id': run_id,
+            'total_sectors': len(all_results),
+            'successful': success_count,
+            'failed': failed_count,
+            'results': all_results
+        }
+    
+    def _run_single_sector(self, run_id):
+        """Execute ladder generation for a single sector using provided run_id."""
         
         try:
-            self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-            
-            # Get version info
-            try:
-                self.currentVersion = self.pa_helper.get_current_version()
-            except Exception as e:
-                self.logger.warning(f"Version info collection failed: {str(e)}")
-            
-            # Insert initial audit record with IN_PROGRESS status BEFORE data collection
-            try:
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'IN_PROGRESS', is_initial=True)
-            except Exception as e:
-                self.logger.error(f"Failed to create initial audit record: {str(e)}")
-            
             # Collect all data
             data_collection_success = self.collect_all_data()
             
             if not data_collection_success:
-                # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
                     'run_id': run_id,
+                    'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason or 'Data collection failed'
                 }
@@ -1099,12 +1196,11 @@ class LadderGen:
             ladder_result = self.generate_saver_ladder()
             
             if not ladder_result:
-                # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': None,
                     'file_path': None,
                     'run_id': run_id,
+                    'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason or 'Ladder generation failed'
                 }
@@ -1112,19 +1208,16 @@ class LadderGen:
             # Save results
             try:
                 file_path = self.pa_helper.save_ladder_to_csv(ladder_result, run_id, self.sector, self.analystName, self.route)
-                # Update audit with success - use original run_id
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, None, ladder_result, file_path, 'SUCCESS', is_initial=False)
                 
             except Exception as e:
                 self.logger.error(f"Error saving results: {str(e)}")
                 self.failure_reason = f"Failed to save results: {str(e)}"
                 
-                # Update audit with failure
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, ladder_result, None, 'FAILED', is_initial=False)
                 return {
                     'ladder_result': ladder_result,
                     'file_path': None,
                     'run_id': run_id,
+                    'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason
                 }
@@ -1161,22 +1254,17 @@ class LadderGen:
             }
             
         except Exception as e:
-            self.logger.error(f"Error in main execution: {str(e)}")
+            self.logger.error(f"Error in sector execution: {str(e)}")
             self.logger.error(f"Traceback: {traceback.format_exc()}")
             
             if not self.failure_reason:
-                self.failure_reason = f"Unexpected error in main execution: {str(e)}"
-            
-            # Update audit with failure
-            try:
-                self.pa_helper.save_run_audit(self.sector, self.route, self.analystName, self.outlier_count, self.start_time, self.currentVersion, run_id, self.failure_reason, None, None, 'FAILED', is_initial=False)
-            except Exception as audit_error:
-                self.logger.error(f"Failed to update failure audit: {str(audit_error)}")
+                self.failure_reason = f"Unexpected error in sector execution: {str(e)}"
             
             return {
                 'ladder_result': None,
                 'file_path': None,
                 'run_id': run_id,
+                'sector': self.sector,
                 'status': 'FAILED',
                 'reason': self.failure_reason,
                 'error_details': str(e)

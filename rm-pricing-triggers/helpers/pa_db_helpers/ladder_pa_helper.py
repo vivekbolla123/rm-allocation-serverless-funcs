@@ -206,6 +206,140 @@ class LadderPAHelper:
             self.logger.error(f"Error collecting market fares: {str(e)}")
             self.failure_reason = f"Market fares data collection failed: {str(e)}"
             return None, self.failure_reason
+    
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector):
+        """Collect market fares for both directions and both B2B and B2C channels."""
+        try:
+            # Date filters - Keep as datetime objects
+            now = datetime.now()
+            date_filter = {
+                'departure_date': {
+                    '$gte': now.replace(hour=0, minute=0, second=0, microsecond=0),
+                    '$lte': (now + timedelta(days=365)).replace(hour=23, minute=59, second=59, microsecond=999999)
+                },
+                'created_at': {'$gt': now - timedelta(hours=24)}
+            }
+            
+            # Route filter
+            if route == 'D':
+                route_filter = {'outbound_stop': "0"}
+            elif route == 'I':
+                route_filter = {'outbound_stop': {'$gte': "0"}}
+            else:
+                raise ValueError(f"Invalid route: {route}")
+            
+            # Common match conditions - BOTH DIRECTIONS AND BOTH CHANNELS
+            match_stage = {
+                'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                'channel': {'$in': ['B2C', 'B2B']},
+                '$or': [
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                reverse_sector
+                            ]
+                        }
+                    }
+                ],
+                **date_filter,
+                **route_filter
+            }
+            
+            pipeline = [
+                {'$match': match_stage},
+                {
+                    '$addFields': {
+                        'gross_fare_numeric': {'$toDouble': '$gross_fare'}
+                    }
+                },
+                # First count instances of each fare per channel
+                {
+                    '$group': {
+                        '_id': {
+                            'source': '$source_airport',
+                            'dest': '$destination_airport',
+                            'channel': '$channel',
+                            'fare': '$gross_fare_numeric'
+                        },
+                        'airlines': {'$addToSet': '$outbound_airline_code'},
+                        'instances': {'$sum': 1}
+                    }
+                },
+                {
+                    '$match': {
+                        'instances': {'$gte': 2}
+                    }
+                },
+                {'$unwind': '$airlines'},
+                {'$sort': {'_id.channel': 1, '_id.fare': 1}},
+                {
+                    '$group': {
+                        '_id': {
+                            'channel': '$_id.channel',
+                            'airline': '$airlines',
+                            'source': '$_id.source',
+                            'dest': '$_id.dest'
+                        },
+                        'gross_fare': {'$first': '$_id.fare'},
+                        'instances': {'$first': '$instances'}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'source_airport': '$_id.source',
+                        'destination_airport': '$_id.dest',
+                        'channel': '$_id.channel',
+                        'gross_fare': 1,
+                        'outbound_airline_code': '$_id.airline',
+                        'instances': 1
+                    }
+                },
+                {'$sort': {'channel': 1, 'gross_fare': 1}}
+            ]
+            
+            ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            
+            # Combine data
+            combined_data = ag_data + rg_data
+            
+            if not combined_data:
+                self.failure_reason = f"No market fares data available for sectors {sector} and {reverse_sector}"
+                self.logger.warning(self.failure_reason)
+                return None, self.failure_reason
+            
+            # Convert to DataFrame
+            market_fares_data = pd.DataFrame(combined_data)
+            
+            # If same airline appears in both collections, keep one and sum instances
+            market_fares_data = market_fares_data.groupby(
+                ['source_airport', 'destination_airport', 'channel', 'outbound_airline_code', 'gross_fare'],
+                as_index=False
+            ).agg({'instances': 'sum'})
+            
+            # Final sort by channel and fare
+            market_fares_data = market_fares_data.sort_values(['channel', 'gross_fare']).reset_index(drop=True)
+            
+            self.logger.info(f"Bidirectional market fares collected for {sector} + {reverse_sector} - "
+                            f"B2C: {len(market_fares_data[market_fares_data['channel']=='B2C'])}, "
+                            f"B2B: {len(market_fares_data[market_fares_data['channel']=='B2B'])}")
+            
+            return market_fares_data, None
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting bidirectional market fares: {str(e)}")
+            self.failure_reason = f"Bidirectional market fares data collection failed: {str(e)}"
+            return None, self.failure_reason
         
     def get_current_version(self):
         """Get current version information from MongoDB."""
@@ -512,6 +646,143 @@ class LadderPAHelper:
             self.logger.error(f"Error saving ladder to database: {str(e)}")
             self.failure_reason = f"Failed to save ladder to database: {str(e)}"
             raise
+
+    def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
+                  failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
+                  success_count=0, failed_count=0):
+        """Save or update batch audit information for multiple sectors under one run_id."""
+        try:
+            collection = self.db.ladder_generation_audits
+            
+            if is_initial:
+                # Initial audit record - insert with IN_PROGRESS status
+                tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
+                
+                # Get version info safely
+                qp_fares_version = None
+                tax_master_version = None
+                
+                try:
+                    if currVersion is not None and not currVersion.empty:
+                        qp_version_rows = currVersion[currVersion['table_name'] == 'qp_fares']
+                        tax_version_rows = currVersion[currVersion['table_name'] == tax_table]
+                        
+                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
+                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                except Exception:
+                    pass
+                
+                initial_audit = {
+                    'run_id': run_id,
+                    'sectors': sectors,  # Comma-separated list of sectors
+                    'is_batch': True,
+                    'start_time': start_time,
+                    'end_time': None,
+                    'status': 'IN_PROGRESS',
+                    'total_sectors': len(sectors.split(', ')),
+                    'successful_sectors': None,
+                    'failed_sectors': None,
+                    'outliers_removed': None,
+                    'route': route,
+                    'qp_fares': qp_fares_version,
+                    'tax_master': tax_master_version,
+                    'analyst': analystName,
+                    'failure_reason': None
+                }
+                
+                collection.insert_one(initial_audit)
+                self.logger.info(f"Created batch audit record for run_id: {run_id}, sectors: {sectors}")
+                
+                return 'ladder_generation_audits'
+                
+            else:
+                # Update existing audit record with final results
+                if status == 'SUCCESS' and not ladder_results:
+                    status = 'FAILED'
+                
+                # Aggregate statistics from all ladder results
+                total_b2c_records = 0
+                total_b2b_records = 0
+                total_b2c_fares = 0
+                total_b2b_fares = 0
+                min_b2c_fare = None
+                max_b2c_fare = None
+                min_b2b_fare = None
+                max_b2b_fare = None
+                
+                if ladder_results:
+                    for lr in ladder_results:
+                        total_b2c_records += lr.get('total_booking_records_b2c', 0)
+                        total_b2b_records += lr.get('total_booking_records_b2b', 0)
+                        total_b2c_fares += lr.get('distinct_fares_count_b2c', 0)
+                        total_b2b_fares += lr.get('distinct_fares_count_b2b', 0)
+                        
+                        # Track min/max across all sectors
+                        b2c_fares = lr.get('ladder_fares_b2c', [])
+                        b2b_fares = lr.get('ladder_fares_b2b', [])
+                        
+                        if b2c_fares:
+                            sector_min_b2c = min(b2c_fares)
+                            sector_max_b2c = max(b2c_fares)
+                            min_b2c_fare = sector_min_b2c if min_b2c_fare is None else min(min_b2c_fare, sector_min_b2c)
+                            max_b2c_fare = sector_max_b2c if max_b2c_fare is None else max(max_b2c_fare, sector_max_b2c)
+                        
+                        if b2b_fares:
+                            sector_min_b2b = min(b2b_fares)
+                            sector_max_b2b = max(b2b_fares)
+                            min_b2b_fare = sector_min_b2b if min_b2b_fare is None else min(min_b2b_fare, sector_min_b2b)
+                            max_b2b_fare = sector_max_b2b if max_b2b_fare is None else max(max_b2b_fare, sector_max_b2b)
+                
+                update_doc = {
+                    '$set': {
+                        'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                        'status': status,
+                        'successful_sectors': success_count,
+                        'failed_sectors': failed_count,
+                        'outliers_removed': outlier_count,
+                        'total_booking_records_b2c': total_b2c_records,
+                        'total_booking_records_b2b': total_b2b_records,
+                        'total_distinct_fares_b2c': total_b2c_fares,
+                        'total_distinct_fares_b2b': total_b2b_fares,
+                        'min_b2c_fare': round(min_b2c_fare, 2) if min_b2c_fare else None,
+                        'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
+                        'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
+                        'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
+                        'failure_reason': failure_reason if status == 'FAILED' else None
+                    }
+                }
+                
+                collection.update_one(
+                    {'run_id': run_id},
+                    update_doc
+                )
+                
+                self.logger.info(f"Updated batch audit record for run_id: {run_id}, status: {status}")
+                
+                return 'ladder_generation_audits'
+            
+        except Exception as e:
+            self.logger.error(f"Error saving/updating batch audit: {str(e)}")
+            if not is_initial:
+                # For update failures, try minimal fallback
+                try:
+                    collection.update_one(
+                        {'run_id': run_id},
+                        {
+                            '$set': {
+                                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                                'status': 'FAILED',
+                                'failure_reason': f"Audit update failed: {str(e)}. Original failure: {failure_reason}"
+                            }
+                        }
+                    )
+                    
+                    return 'ladder_generation_audits'
+                except:
+                    self.logger.error("Failed to save even minimal batch audit update")
+                    return None
+            else:
+                return None
 
     def save_run_audit(self, sector, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False):
