@@ -96,7 +96,7 @@ public class AuditHelper {
     private static final Map<String, MethodHandle> ML_AUDIT_GETTER_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, MethodHandle> ML_AUDIT_SETTER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> ML_AUDIT_ONLY_FIELDS =
-            Set.of("userName", "sector", "date", "changedAt", "flightNo");
+            Set.of("userName", "sector", "date", "changedAt", "flightNo", "newRecord");
 
     // MethodHandle caches for MarketListConnections
     private static final Map<String, MethodHandle> CONN_ENTITY_GETTER_CACHE = new ConcurrentHashMap<>();
@@ -104,7 +104,7 @@ public class AuditHelper {
     private static final Map<String, MethodHandle> CONN_AUDIT_GETTER_CACHE = new ConcurrentHashMap<>();
     private static final Map<String, MethodHandle> CONN_AUDIT_SETTER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> CONN_AUDIT_ONLY_FIELDS =
-            Set.of("userName", "sector", "date", "changedAt", "flightNo");
+            Set.of("userName", "sector", "date", "changedAt", "flightNo", "newRecord");
 
     // Initialize MethodHandles once at class loading
     static {
@@ -181,6 +181,7 @@ public class AuditHelper {
 
             // If it's a new record, add full audit and continue
             if (oldRow == null) {
+                newAudit.setNewRecord(true);
                 changeMap.add(newAudit);
                 continue;
             }
@@ -280,6 +281,7 @@ public class AuditHelper {
 
             // If it's a new record, add full audit and continue
             if (oldRow == null) {
+                newAudit.setNewRecord(true);
                 changeMap.add(newAudit);
                 continue;
             }
