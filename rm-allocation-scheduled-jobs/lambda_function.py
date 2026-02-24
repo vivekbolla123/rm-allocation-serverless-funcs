@@ -37,6 +37,7 @@ from heuristicCalc import FareStatisticalAnalysis
 from run_paused_scheduled_runs import Run_Paused_Runs
 from active_sectors import ActiveSectors
 from forecast_date_config import ForecastDateConfig
+from mlForecastScore import MLForecastScore
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -78,6 +79,12 @@ try:
     # Initialize AWS resources
     sqs = boto3.client('sqs')
     s3 = boto3.client("s3")
+    s3_old = boto3.client(
+        's3',
+        aws_access_key_id=configsettings.RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD,
+        aws_secret_access_key=configsettings.RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD,
+        region_name='ap-south-1'
+    )
 
 except Exception as e:
     logger.error(e)
@@ -107,7 +114,8 @@ module_map = {
     "calc": FareStatisticalAnalysis,
     "run_paused_runs": Run_Paused_Runs,
     "active_sectors": ActiveSectors,
-    "forecast_date_config": ForecastDateConfig
+    "forecast_date_config": ForecastDateConfig,
+    "ml_forecast_score": MLForecastScore
 }
 
 
@@ -145,6 +153,7 @@ def lambda_handler(event, context):
         params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['s3'] = s3
+        params['s3_old'] = s3_old
         params['cache_client'] = cache_client
         params['events'] = events 
         params['constantutils'] = ConstantsUtils(mongo_db)
