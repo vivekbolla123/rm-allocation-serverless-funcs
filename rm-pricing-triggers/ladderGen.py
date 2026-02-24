@@ -15,6 +15,7 @@ import numpy as np
 from helpers.nav_db_helpers.ladder_nav_helper import LadderNavHelper
 from helpers.pa_db_helpers.ladder_pa_helper import LadderPAHelper
 from helpers.esb_db_helpers.ladder_esb_helper import LadderEsbHelper
+from helpers.dw_db_helpers.ladder_dw_helper import LadderDWHelper
 
 
 class LadderGen:
@@ -25,6 +26,7 @@ class LadderGen:
         self.db_fares = params['mongofares']
         self.nav_conn = params['navconn']
         self.rm_rd_esb_conn = params['rdEsbConn']
+        self.dw_conn = params['dwconn']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
@@ -33,6 +35,7 @@ class LadderGen:
         self.constants = ConstantsUtils(self.db)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, logger)
+        self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         
@@ -45,6 +48,8 @@ class LadderGen:
             raise ValueError("Either 'sector' or 'sectors' must be provided in overrides")
         
         self.sector = None  # Will be set per sector during processing
+        self.sector_currency = None  # Will be set per sector
+        self.conversion_rate = None  # Will be set if currency conversion needed
         
         # Configuration parameters for ladder generation
         self.min_fare_threshold_domestic = lambda fare: max(0.02 * fare, 50)
@@ -84,6 +89,54 @@ class LadderGen:
         if len(sector) != 6:
             return None
         return sector[3:] + sector[:3]
+    
+    def _setup_currency_conversion(self):
+        """Setup currency conversion for the current sector if needed."""
+        try:
+            # Get currency for the sector
+            self.sector_currency = self.pa_helper.get_sector_currency(self.sector, self.route)
+            
+            # Check if conversion is needed
+            if self.sector_currency != 'INR':
+                self.logger.info(f"Sector {self.sector} requires currency conversion: INR -> {self.sector_currency}")
+                
+                # Get conversion rate
+                self.conversion_rate = self.dw_helper.get_conversion_rate('INR', self.sector_currency)
+                
+                if self.conversion_rate is None:
+                    self.logger.warning(f"Could not get conversion rate for INR -> {self.sector_currency}, will not convert fares")
+                    self.conversion_rate = 1.0  # No conversion
+                else:
+                    self.logger.info(f"Using conversion rate: {self.conversion_rate}")
+            else:
+                self.logger.info(f"Sector {self.sector} uses INR, no currency conversion needed")
+                self.conversion_rate = 1.0  # No conversion needed
+                
+        except Exception as e:
+            self.logger.error(f"Error setting up currency conversion: {str(e)}")
+            self.conversion_rate = 1.0  # Default to no conversion on error
+    
+    def _convert_fares_to_local_currency(self, fare_points):
+        """Convert fare points from INR to local currency if needed."""
+        try:
+            if self.conversion_rate == 1.0:
+                self.logger.info("No currency conversion needed (rate = 1.0)")
+                return fare_points
+            
+            converted_fares = [fare * self.conversion_rate for fare in fare_points]
+            
+            self.logger.info(f"Currency Conversion Applied:")
+            self.logger.info(f"  Currency: INR -> {self.sector_currency}")
+            self.logger.info(f"  Conversion Rate: {self.conversion_rate}")
+            self.logger.info(f"  Sample conversions:")
+            for i in range(min(3, len(fare_points))):
+                self.logger.info(f"    Fare {i+1}: {fare_points[i]:.2f} INR -> {converted_fares[i]:.2f} {self.sector_currency}")
+            
+            return converted_fares
+            
+        except Exception as e:
+            self.logger.error(f"Error converting fares to local currency: {str(e)}")
+            return fare_points  # Return original fares on error
     
     def collect_all_data(self):
         """Collect all required data efficiently."""
@@ -259,6 +312,7 @@ class LadderGen:
             raise
 
     def create_fare_bins(self, booking_data, channel):
+        """Create fare bins and apply currency conversion if needed."""
         try:
             if(channel == self.B2C_CHANNEL):
                 ladderBins = self.CORE_FARES_B2C
@@ -293,7 +347,11 @@ class LadderGen:
                 self.failure_reason = f"Fare bin creation failed. Expected {ladderBins} bins, got {len(fare_points)}"
                 return []
             
-            return fare_points
+            # Apply currency conversion after fare bins are created
+            self.logger.info(f"Created {len(fare_points)} fare bins for {channel} channel")
+            converted_fare_points = self._convert_fares_to_local_currency(fare_points)
+            
+            return converted_fare_points
             
         except Exception as e:
             self.logger.error(f"Error creating fare bins: {str(e)}")
@@ -1179,6 +1237,9 @@ class LadderGen:
         """Execute ladder generation for a single sector using provided run_id."""
         
         try:
+            # Setup currency conversion for this sector
+            self._setup_currency_conversion()
+            
             # Collect all data
             data_collection_success = self.collect_all_data()
             

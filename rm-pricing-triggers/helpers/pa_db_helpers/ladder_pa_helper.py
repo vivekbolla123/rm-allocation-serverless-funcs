@@ -356,6 +356,54 @@ class LadderPAHelper:
             self.failure_reason = f"Version info collection failed: {str(e)}"
             raise
     
+    def get_sector_currency(self, sector, route):
+        """Get the currency for a specific sector from qp_fares."""
+        try:
+            # Determine rule number based on route
+            rule_nbr = '1001' if route == 'D' else 'R101'
+            
+            # Query to get currency for the sector
+            query = {
+                'Carrier_Code': 'QP',
+                'Rule_Nbr': rule_nbr,
+                'OW_RT': 'O',
+                '$or': [
+                    {
+                        'Fare_Direction': 'F',
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$Origin', '$Destination']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        'Fare_Direction': 'T',
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$Destination', '$Origin']},
+                                sector
+                            ]
+                        }
+                    }
+                ]
+            }
+            
+            # Get one document to check currency
+            result = self.db.qp_fares.find_one(query, {'Currency': 1, '_id': 0})
+            
+            if result and 'Currency' in result:
+                currency = result['Currency']
+                self.logger.info(f"Sector {sector} uses currency: {currency}")
+                return currency
+            else:
+                self.logger.warning(f"No currency found for sector {sector}, defaulting to INR")
+                return 'INR'
+                
+        except Exception as e:
+            self.logger.error(f"Error getting sector currency: {str(e)}")
+            return 'INR'  # Default to INR on error
+    
     def save_ladder_to_csv(self, ladder_result, run_id, sector, analystName, route):
         """Save both B2B and B2C ladders to MongoDB with current QP fares, RBD mapping, and all-in fares."""
         try:
