@@ -20,8 +20,8 @@ class MLForecastScore:
         self.s3_old = params.get("s3_old")
 
         
-        self.s3_bucket = 'qp-s3-fs' 
-        self.s3_base_path = 'prod' 
+        self.s3_bucket = configsettings.ML_FORECAST_SCORE_S3_BUCKET_NAME 
+        self.s3_base_path = configsettings.ML_FORECAST_SCORE_S3_FILE_PATH 
 
         # Model artifacts stored in mlforecast/models/ folder
         self.model_key = f"{self.s3_base_path}/mlforecast/models/ml_forecast_model.pkl"
@@ -272,7 +272,7 @@ class MLForecastScore:
 
         preds = model.predict(X_score)
         # Clip predictions to valid PLF percentage range [0, 100]
-        df_proc['ForecastPLF'] = np.clip(preds, 0.0, 100.0)
+        df_proc['ForecastPLF'] = preds
 
         self.logger.info(f"Generated {len(preds)} predictions. PLF range: [{df_proc['ForecastPLF'].min():.4f}, {df_proc['ForecastPLF'].max():.4f}]")
         df_proc['Predicted_Bookload'] = (df_proc['ForecastPLF'] / 100) * df_proc['AdjustedCapacity']
@@ -299,10 +299,13 @@ class MLForecastScore:
             'ArrivalStation': 'Destination'
         }, inplace=True)
 
+        # Convert DepartureDate to date (remove time component)
+        output_df['DepartureDate'] = pd.to_datetime(output_df['DepartureDate']).dt.date
+
         output_df['CreatedDatetime'] = datetime.now()
 
         try:
-            output_df.to_sql('forecasting_results_ml', self.dwconn, if_exists='append', index=False, chunksize=1000)
+            output_df.to_sql('forecast_results_ml', self.dwconn, if_exists='replace', index=False, chunksize=1000)
             self.logger.info(f"Saved {len(output_df)} forecast results to DB.")
         except Exception as e:
             self.logger.error(f"Failed to write results to DB: {e}")
