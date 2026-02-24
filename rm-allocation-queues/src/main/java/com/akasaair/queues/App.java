@@ -520,6 +520,46 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case PROFILE_FARES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) rowCount);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadProfileFaresFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Profile Fares File to DB. Please check file content");
+                            throw new RuntimeException("Error processing profile fares file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 case AUTO_B2B_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -1528,6 +1568,199 @@ public class App implements CommandLineRunner {
             throw e;
         } finally {
             updateInputStatus(AUTO_B2B_TABLE_NAME);
+        }
+    }
+
+    public void uploadProfileFaresFile(Reader file, String userName, String obj_id) throws Exception {
+        String uuid = obj_id;
+        try {
+            insertAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(PROFILE_FARES_TABLE_NAME);
+            
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                listOfErrors.get().add("Profile Fares CSV file is empty or lacks data rows.");
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+            
+            // Parse CSV into list of maps
+            List<String> headers = csvData.get(0);
+            
+            // Remove BOM from first header if present
+            if (!headers.isEmpty() && headers.get(0) != null) {
+                headers.set(0, headers.get(0).replace("\uFEFF", "").trim());
+            }
+            
+            log.info("Profile Fares CSV headers: {}", headers);
+            log.info("Profile Fares total rows (excluding header): {}", csvData.size() - 1);
+            
+            List<Map<String, String>> data = new ArrayList<>();
+            
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                Map<String, String> rowMap = new HashMap<>();
+                for (int j = 0; j < headers.size() && j < row.size(); j++) {
+                    String headerKey = headers.get(j).replace("\uFEFF", "").trim().toLowerCase();
+                    String value = (row.get(j) != null) ? row.get(j).trim() : "";
+                    rowMap.put(headerKey, value);
+                }
+                data.add(rowMap);
+                
+                // Log first row for debugging
+                if (i == 1) {
+                    log.info("First row data - sector: '{}', month: '{}', dow: '{}', cluster: '{}'", 
+                        rowMap.get("sector"), rowMap.get("month"), rowMap.get("dow"), rowMap.get("cluster"));
+                    log.info("First row all keys: {}", rowMap.keySet());
+                }
+            }
+            
+            // Validate using ProfileValidator
+            Validator validator = new ProfileValidator();
+            if (!validator.isValid(data, null, listOfErrors.get())) {
+                error_occurred.set(1);
+                listOfErrors.get().add("Profile Fares validation failed");
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+            
+            // Upsert to MongoDB
+            bulkUpsertProfileFares(data);
+            
+            s3FileStorageDao.storeFile(createCSV(PROFILE_FARES_TABLE_NAME), PROFILE_FARES_TABLE_NAME, uuid);
+            updateAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            throw e;
+        } finally {
+            updateInputStatus(PROFILE_FARES_TABLE_NAME);
+        }
+    }
+
+    private void bulkUpsertProfileFares(List<Map<String, String>> data) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(PROFILE_FARES_TABLE_NAME);
+            
+            // Create unique compound index on the key fields if it doesn't exist
+            try {
+                collection.createIndex(
+                    Indexes.compoundIndex(
+                        Indexes.ascending("sector"),
+                        Indexes.ascending("month"),
+                        Indexes.ascending("dow"),
+                        Indexes.ascending("cluster")
+                    ),
+                    new IndexOptions().unique(true).name("profile_fares_unique_key")
+                );
+                log.info("Ensured unique index exists on profile_fares composite key");
+            } catch (Exception e) {
+                // Index might already exist, that's fine
+                log.debug("Index creation skipped (may already exist): {}", e.getMessage());
+            }
+            
+            List<WriteModel<Document>> bulkOps = new ArrayList<>();
+            
+            int skippedRows = 0;
+            int processedRows = 0;
+            
+            for (Map<String, String> rowData : data) {
+                String sector = rowData.get("sector");
+                String month = rowData.get("month");
+                String dow = rowData.get("dow");
+                String clusterStr = rowData.get("cluster");
+                
+                // Skip if any key field is missing
+                if (sector == null || sector.trim().isEmpty() || 
+                    month == null || month.trim().isEmpty() || 
+                    dow == null || dow.trim().isEmpty() || 
+                    clusterStr == null || clusterStr.trim().isEmpty()) {
+                    skippedRows++;
+                    log.warn("Skipping row due to missing key fields - sector: {}, month: {}, dow: {}, cluster: {}", 
+                        sector, month, dow, clusterStr);
+                    continue;
+                }
+                
+                // Convert cluster to the appropriate type (try integer first, fallback to string)
+                Object clusterValue;
+                try {
+                    clusterValue = Integer.parseInt(clusterStr.trim());
+                } catch (NumberFormatException e) {
+                    clusterValue = clusterStr.trim();
+                }
+                
+                // Create composite key filter - try to match both string and integer cluster
+                Bson filter = Filters.and(
+                        Filters.eq("sector", sector.trim()),
+                        Filters.eq("month", month.trim()),
+                        Filters.eq("dow", dow.trim()),
+                        Filters.eq("cluster", clusterValue)
+                );
+                
+                // Handle both "starttime" and "start time" variations
+                String startTime = rowData.get("starttime");
+                if (startTime == null) {
+                    startTime = rowData.get("start time");
+                }
+                
+                String endTime = rowData.get("endtime");
+                if (endTime == null) {
+                    endTime = rowData.get("end time");
+                }
+                
+                // Create document with all columns
+                Document doc = new Document()
+                        .append("sector", sector.trim())
+                        .append("currency", rowData.get("currency"))
+                        .append("month", month.trim())
+                        .append("dow", dow.trim())
+                        .append("cluster", clusterValue)
+                        .append("Q0", autoConvert(rowData.get("q0")))
+                        .append("Q1", autoConvert(rowData.get("q1")))
+                        .append("Q2", autoConvert(rowData.get("q2")))
+                        .append("Q3", autoConvert(rowData.get("q3")))
+                        .append("Q4", autoConvert(rowData.get("q4")))
+                        .append("Q5", autoConvert(rowData.get("q5")))
+                        .append("Q6", autoConvert(rowData.get("q6")))
+                        .append("Q7", autoConvert(rowData.get("q7")))
+                        .append("Q8", autoConvert(rowData.get("q8")))
+                        .append("Q9", autoConvert(rowData.get("q9")))
+                        .append("Q10", autoConvert(rowData.get("q10")))
+                        .append("Q11", autoConvert(rowData.get("q11")))
+                        .append("Q12", autoConvert(rowData.get("q12")))
+                        .append("Q13", autoConvert(rowData.get("q13")))
+                        .append("Q14", autoConvert(rowData.get("q14")))
+                        .append("Q15", autoConvert(rowData.get("q15")))
+                        .append("Q16", autoConvert(rowData.get("q16")))
+                        .append("Q17", autoConvert(rowData.get("q17")))
+                        .append("Q18", autoConvert(rowData.get("q18")))
+                        .append("Q19", autoConvert(rowData.get("q19")))
+                        .append("Q20", autoConvert(rowData.get("q20")))
+                        .append("startTime", startTime)
+                        .append("endTime", endTime);
+                
+                // Upsert operation
+                ReplaceOptions options = new ReplaceOptions().upsert(true);
+                bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
+                processedRows++;
+            }
+            
+            log.info("Profile Fares processing summary - Total rows: {}, Processed: {}, Skipped: {}", 
+                data.size(), processedRows, skippedRows);
+            
+            if (!bulkOps.isEmpty()) {
+                BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+                BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
+                log.info("Profile Fares bulk upsert completed: {} inserted, {} modified, {} upserted",
+                        result.getInsertedCount(),
+                        result.getModifiedCount(),
+                        result.getUpserts().size());
+            } else {
+                log.warn("No bulk operations to perform - all rows were skipped or data was empty");
+            }
+        } catch (Exception e) {
+            log.error("Error in bulkUpsertProfileFares: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to upsert profile fares: " + e.getMessage(), e);
         }
     }
 
