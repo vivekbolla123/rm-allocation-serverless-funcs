@@ -610,7 +610,3 @@ class S3AuditProcessor:
             self.logger.error(f"Process failed: {e}")
             traceback.print_exc()
             return False
-
-
-# Backward compatibility
-S3CsvCombiner = S3AuditProcessor
