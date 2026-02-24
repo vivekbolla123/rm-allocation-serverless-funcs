@@ -2039,18 +2039,7 @@ public class App implements CommandLineRunner {
                 Object val = doc.get(PARAMETER_VALUE_COLUMN_NAME);
 
                 if (key != null && val != null) {
-                    String value;
-                    try {
-                        if (SOFTBLOCK_RBDS.equals(key)) {
-                            List<String> softBlockRBDs = new ObjectMapper().readValue(val.toString(), new TypeReference<>() {});
-                            value = softBlockRBDs.stream().filter(Objects::nonNull).collect(Collectors.joining(","));
-                        } else {
-                            value = val.toString();
-                        }
-                    } catch (Exception parseEx) {
-                        log.error("Failed parsing SOFTBLOCK_RBDS JSON", parseEx);
-                        continue;
-                    }
+                    String value = val.toString();
                     rbdList = (rbdList == null) ? value : rbdList + "," + value;
                 }
             }
