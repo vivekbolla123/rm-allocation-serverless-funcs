@@ -80,6 +80,7 @@ class ConstantsUtils:
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
         self.MARKET_FLAG = MARKET_FLAG
+        self.GDS_RBD_VALUES = GDS_RBD_VALUES
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -270,6 +271,8 @@ class ConstantsUtils:
                 self.YIELD_FACTOR = float(parameter_value)
             elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
                 self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
+            elif parameter_key == GDS_RBD_VALUES_KEY:
+                self.GDS_RBD_VALUES = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
