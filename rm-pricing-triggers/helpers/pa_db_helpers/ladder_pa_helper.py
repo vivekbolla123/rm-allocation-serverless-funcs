@@ -6,11 +6,12 @@ from bson import ObjectId
 class LadderPAHelper:
     """Handles Ladder Pricing/Analytics-related database operations using MongoDB."""
     
-    def __init__(self, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
+    def __init__(self, ladder_gen, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
         """
         Initialize with MongoDB database instance.
         
         Args:
+            ladder_gen: LadderGen instance (for accessing shared methods/constants if needed)
             mongo_db: MongoDB database instance (e.g., client['QP_DW_PRIAUT'])
             logger: Logger instance
             calculate_all_in_fare_func: Function to calculate all-in fares
@@ -20,6 +21,15 @@ class LadderPAHelper:
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
+        self.B2B_RBD_LIST = ladder_gen.B2B_RBD_LIST
+        self.B2C_RBD_LIST = ladder_gen.B2C_RBD_LIST
+        self.TOTAL_B2C_FARES = ladder_gen.TOTAL_B2C_FARES
+        self.TOTAL_B2B_FARES = ladder_gen.TOTAL_B2B_FARES
+        self.TOTAL_FARES = ladder_gen.TOTAL_FARES
+        self.BUFFER_FARES_B2C = ladder_gen.BUFFER_FARES_B2C
+        self.BUFFER_FARES_B2B = ladder_gen.BUFFER_FARES_B2B
+        self.CORE_FARES_B2C = ladder_gen.CORE_FARES_B2C
+        self.CORE_FARES_B2B = ladder_gen.CORE_FARES_B2B
         
     def collect_tax_master_data(self):
         """Collect both domestic and international tax master data from MongoDB."""
@@ -89,27 +99,37 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
             
-            # Route filter
-            if route == 'D':
-                route_filter = {'outbound_stop': "0"}
-            elif route == 'I':
-                route_filter = {'outbound_stop': {'$gte': "0"}}
-            else:
-                raise ValueError(f"Invalid route: {route}")
+            route_filter = {'outbound_stop': "0"}
             
             # Common match conditions - NOW INCLUDING BOTH B2B AND B2C
-            match_stage = {
-                'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
-                'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
-                '$expr': {
-                    '$eq': [
-                        {'$concat': ['$source_airport', '$destination_airport']},
-                        sector
-                    ]
-                },
-                **date_filter,
-                **route_filter
-            }
+            if route == 'D':
+                match_stage = {
+                    'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    '$expr': {
+                        '$eq': [
+                            {'$concat': ['$source_airport', '$destination_airport']},
+                            sector
+                        ]
+                    },
+                    **date_filter,
+                    **route_filter
+                }
+            elif route == 'I':
+                match_stage = {
+                    'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    '$expr': {
+                        '$eq': [
+                            {'$concat': ['$source_airport', '$destination_airport']},
+                            sector
+                        ]
+                    },
+                    **date_filter,
+                    **route_filter
+                }
+            else:
+                raise ValueError(f"Invalid route: {route}")
             
             pipeline = [
                 {'$match': match_stage},
@@ -196,6 +216,162 @@ class LadderPAHelper:
             self.logger.error(f"Error collecting market fares: {str(e)}")
             self.failure_reason = f"Market fares data collection failed: {str(e)}"
             return None, self.failure_reason
+    
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector):
+        """Collect market fares for both directions and both B2B and B2C channels."""
+        try:
+            # Date filters - Keep as datetime objects
+            now = datetime.now()
+            date_filter = {
+                'departure_date': {
+                    '$gte': now.replace(hour=0, minute=0, second=0, microsecond=0),
+                    '$lte': (now + timedelta(days=365)).replace(hour=23, minute=59, second=59, microsecond=999999)
+                },
+                'created_at': {'$gt': now - timedelta(hours=24)}
+            }
+            
+            route_filter = {'outbound_stop': "0"}
+            
+            # Common match conditions - BOTH DIRECTIONS AND BOTH CHANNELS
+            if route == 'D':
+                 match_stage = {
+                'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                'channel': {'$in': ['B2C', 'B2B']},
+                '$or': [
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                reverse_sector
+                            ]
+                        }
+                    }
+                ],
+                **date_filter,
+                **route_filter
+            }
+            elif route == 'I':
+                 match_stage = {
+                'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                'channel': {'$in': ['B2C', 'B2B']},
+                '$or': [
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                reverse_sector
+                            ]
+                        }
+                    }
+                ],
+                **date_filter,
+                **route_filter
+            }
+            else:
+                raise ValueError(f"Invalid route: {route}")
+            
+            pipeline = [
+                {'$match': match_stage},
+                {
+                    '$addFields': {
+                        'gross_fare_numeric': {'$toDouble': '$gross_fare'}
+                    }
+                },
+                # First count instances of each fare per channel
+                {
+                    '$group': {
+                        '_id': {
+                            'source': '$source_airport',
+                            'dest': '$destination_airport',
+                            'channel': '$channel',
+                            'fare': '$gross_fare_numeric'
+                        },
+                        'airlines': {'$addToSet': '$outbound_airline_code'},
+                        'instances': {'$sum': 1}
+                    }
+                },
+                {
+                    '$match': {
+                        'instances': {'$gte': 2}
+                    }
+                },
+                {'$unwind': '$airlines'},
+                {'$sort': {'_id.channel': 1, '_id.fare': 1}},
+                {
+                    '$group': {
+                        '_id': {
+                            'channel': '$_id.channel',
+                            'airline': '$airlines',
+                            'source': '$_id.source',
+                            'dest': '$_id.dest'
+                        },
+                        'gross_fare': {'$first': '$_id.fare'},
+                        'instances': {'$first': '$instances'}
+                    }
+                },
+                {
+                    '$project': {
+                        '_id': 0,
+                        'source_airport': '$_id.source',
+                        'destination_airport': '$_id.dest',
+                        'channel': '$_id.channel',
+                        'gross_fare': 1,
+                        'outbound_airline_code': '$_id.airline',
+                        'instances': 1
+                    }
+                },
+                {'$sort': {'channel': 1, 'gross_fare': 1}}
+            ]
+            
+            ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            
+            # Combine data
+            combined_data = ag_data + rg_data
+            
+            if not combined_data:
+                self.failure_reason = f"No market fares data available for sectors {sector} and {reverse_sector}"
+                self.logger.warning(self.failure_reason)
+                return None, self.failure_reason
+            
+            # Convert to DataFrame
+            market_fares_data = pd.DataFrame(combined_data)
+            
+            # If same airline appears in both collections, keep one and sum instances
+            market_fares_data = market_fares_data.groupby(
+                ['source_airport', 'destination_airport', 'channel', 'outbound_airline_code', 'gross_fare'],
+                as_index=False
+            ).agg({'instances': 'sum'})
+            
+            # Final sort by channel and fare
+            market_fares_data = market_fares_data.sort_values(['channel', 'gross_fare']).reset_index(drop=True)
+            
+            self.logger.info(f"Bidirectional market fares collected for {sector} + {reverse_sector} - "
+                            f"B2C: {len(market_fares_data[market_fares_data['channel']=='B2C'])}, "
+                            f"B2B: {len(market_fares_data[market_fares_data['channel']=='B2B'])}")
+            
+            return market_fares_data, None
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting bidirectional market fares: {str(e)}")
+            self.failure_reason = f"Bidirectional market fares data collection failed: {str(e)}"
+            return None, self.failure_reason
         
     def get_current_version(self):
         """Get current version information from MongoDB."""
@@ -212,6 +388,54 @@ class LadderPAHelper:
             self.failure_reason = f"Version info collection failed: {str(e)}"
             raise
     
+    def get_sector_currency(self, sector, route):
+        """Get the currency for a specific sector from qp_fares."""
+        try:
+            # Determine rule number based on route
+            rule_nbr = '1001' if route == 'D' else 'R101'
+            
+            # Query to get currency for the sector
+            query = {
+                'Carrier_Code': 'QP',
+                'Rule_Nbr': rule_nbr,
+                'OW_RT': 'O',
+                '$or': [
+                    {
+                        'Fare_Direction': 'F',
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$Origin', '$Destination']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        'Fare_Direction': 'T',
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$Destination', '$Origin']},
+                                sector
+                            ]
+                        }
+                    }
+                ]
+            }
+            
+            # Get one document to check currency
+            result = self.db.qp_fares.find_one(query, {'Currency': 1, '_id': 0})
+            
+            if result and 'Currency' in result:
+                currency = result['Currency']
+                self.logger.info(f"Sector {sector} uses currency: {currency}")
+                return currency
+            else:
+                self.logger.warning(f"No currency found for sector {sector}, defaulting to INR")
+                return 'INR'
+                
+        except Exception as e:
+            self.logger.error(f"Error getting sector currency: {str(e)}")
+            return 'INR'  # Default to INR on error
+    
     def save_ladder_to_csv(self, ladder_result, run_id, sector, analystName, route):
         """Save both B2B and B2C ladders to MongoDB with current QP fares, RBD mapping, and all-in fares."""
         try:
@@ -223,44 +447,8 @@ class LadderPAHelper:
             created_at = datetime.now(pytz.timezone('Asia/Kolkata'))
             
             # Get RBD sequence from rm_parameter_values
-            try:
-                rbd_doc = self.db.rm_parameter_values.find_one(
-                    {'parameterKey': 'RBD_VALUES'},
-                    {'parameterValue': 1, '_id': 0}
-                )
-                
-                if rbd_doc and 'parameterValue' in rbd_doc:
-                    all_rbds = rbd_doc['parameterValue'].split(',')
-                    # First 20 are B2B (Z* RBDs), remaining are B2C
-                    rbd_names_b2b = all_rbds[:20]  # ZJ, ZI, ZH, ... Z0
-                    rbd_names_b2c = all_rbds[20:84]  # V9, V8, ... Y0 (64 RBDs)
-                else:
-                    # Fallback
-                    rbd_names_b2b = [f"Z{chr(74-i)}" if i < 10 else f"Z{9-i+10}" for i in range(20)]
-                    rbd_names_b2c = [f"V{9-i}" for i in range(10)] + [f"U{9-i}" for i in range(10)] + \
-                                [f"T{9-i}" for i in range(10)] + [f"R{9-i}" for i in range(10)] + \
-                                [f"Q{9-i}" for i in range(10)] + [f"QA", "O0", "N0", "M0", "K0", 
-                                                                    "J0", "I0", "H0", "F0", "E0", 
-                                                                    "D0", "C0", "B0", "Y0"]
-                    
-            except Exception as e:
-                self.logger.warning(f"Could not fetch RBD values: {str(e)}")
-                # Fallback RBD names
-                rbd_names_b2b = [f"Z{chr(74-i)}" if i < 10 else f"Z{9-i+10}" for i in range(20)]
-                rbd_names_b2c = [f"V{9-i}" for i in range(10)] + [f"U{9-i}" for i in range(10)] + \
-                            [f"T{9-i}" for i in range(10)] + [f"R{9-i}" for i in range(10)] + \
-                            [f"Q{9-i}" for i in range(10)] + [f"QA", "O0", "N0", "M0", "K0", 
-                                                                "J0", "I0", "H0", "F0", "E0", 
-                                                                "D0", "C0", "B0", "Y0"]
-            
-            # Ensure we have exactly 20 B2B and 64 B2C RBDs
-            while len(rbd_names_b2b) < 20:
-                rbd_names_b2b.append(f"Z{len(rbd_names_b2b)}")
-            rbd_names_b2b = rbd_names_b2b[:20]
-            
-            while len(rbd_names_b2c) < 64:
-                rbd_names_b2c.append(f"RBD_{len(rbd_names_b2c)+1}")
-            rbd_names_b2c = rbd_names_b2c[:64]
+            rbd_names_b2b = self.B2B_RBD_LIST  
+            rbd_names_b2c = self.B2C_RBD_LIST      
             
             # Get current QP fares for B2C (using V9-Y0 RBDs)
             fare_match_b2c = {
@@ -346,7 +534,7 @@ class LadderPAHelper:
                 ]
             }
             
-            # Get B2C fares (64 fares)
+            # Get B2C fares
             try:
                 current_qp_pipeline_b2c = [
                     {'$match': fare_match_b2c},
@@ -358,7 +546,7 @@ class LadderPAHelper:
                         }
                     },
                     {'$sort': {'fare_amount': 1}},
-                    {'$limit': 64}
+                    {'$limit': self.TOTAL_B2C_FARES}
                 ]
                 
                 current_qp_fares_list_b2c = list(self.db.qp_fares.aggregate(current_qp_pipeline_b2c))
@@ -366,18 +554,18 @@ class LadderPAHelper:
                 if current_qp_fares_list_b2c:
                     current_qp_fares_b2c = [item['fare_amount'] for item in current_qp_fares_list_b2c]
                 else:
-                    current_qp_fares_b2c = [0] * 64
+                    current_qp_fares_b2c = [0] * self.TOTAL_B2C_FARES
                     
             except Exception as e:
                 self.logger.warning(f"Could not fetch current QP B2C fares: {str(e)}")
-                current_qp_fares_b2c = [0] * 64
+                current_qp_fares_b2c = [0] * self.TOTAL_B2C_FARES
             
-            # Ensure we have exactly 64 current B2C fares
-            while len(current_qp_fares_b2c) < 64:
+            # Ensure we have exactly self.TOTAL_B2C_FARES current B2C fares
+            while len(current_qp_fares_b2c) < self.TOTAL_B2C_FARES:
                 current_qp_fares_b2c.append(0)
-            current_qp_fares_b2c = current_qp_fares_b2c[:64]
+            current_qp_fares_b2c = current_qp_fares_b2c[:self.TOTAL_B2C_FARES]
             
-            # Get B2B fares (20 fares)
+            # Get B2B fares
             try:
                 current_qp_pipeline_b2b = [
                     {'$match': fare_match_b2b},
@@ -389,7 +577,7 @@ class LadderPAHelper:
                         }
                     },
                     {'$sort': {'fare_amount': 1}},
-                    {'$limit': 20}
+                    {'$limit': self.TOTAL_B2B_FARES}
                 ]
                 
                 current_qp_fares_list_b2b = list(self.db.qp_fares.aggregate(current_qp_pipeline_b2b))
@@ -397,27 +585,27 @@ class LadderPAHelper:
                 if current_qp_fares_list_b2b:
                     current_qp_fares_b2b = [item['fare_amount'] for item in current_qp_fares_list_b2b]
                 else:
-                    current_qp_fares_b2b = [0] * 20
+                    current_qp_fares_b2b = [0] * self.TOTAL_B2B_FARES
                     
             except Exception as e:
                 self.logger.warning(f"Could not fetch current QP B2B fares: {str(e)}")
-                current_qp_fares_b2b = [0] * 20
+                current_qp_fares_b2b = [0] * self.TOTAL_B2B_FARES
             
-            # Ensure we have exactly 20 current B2B fares
-            while len(current_qp_fares_b2b) < 20:
+            # Ensure we have exactly self.TOTAL_B2B_FARES current B2B fares
+            while len(current_qp_fares_b2b) < self.TOTAL_B2B_FARES:
                 current_qp_fares_b2b.append(0)
-            current_qp_fares_b2b = current_qp_fares_b2b[:20]
+            current_qp_fares_b2b = current_qp_fares_b2b[:self.TOTAL_B2B_FARES]
             
             collection_name = 'ladder_gen_output'
             ladder_documents = []
             
-            # Save B2B ladder first (20 fares with Z* RBDs)
+            # Save B2B ladder first
             ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
-            self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: 20)")
+            self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: {self.TOTAL_B2B_FARES})")
             
             if ladder_fares_b2b:
-                # Handle cases where B2B ladder might not be exactly 20 fares
-                expected_b2b_count = 20
+                # Handle cases where B2B ladder might not be exactly self.TOTAL_B2B_FARES fares
+                expected_b2b_count = self.TOTAL_B2B_FARES
                 actual_b2b_count = len(ladder_fares_b2b)
                 
                 if actual_b2b_count != expected_b2b_count:
@@ -433,7 +621,7 @@ class LadderPAHelper:
                         ladder_fares_b2b = ladder_fares_b2b[:expected_b2b_count]
                         self.logger.info(f"Truncated B2B ladder from {actual_b2b_count} to {len(ladder_fares_b2b)} fares")
                 
-                for i in range(min(len(ladder_fares_b2b), 20)):
+                for i in range(min(len(ladder_fares_b2b), self.TOTAL_B2B_FARES)):
                     current_base = current_qp_fares_b2b[i]
                     new_base = ladder_fares_b2b[i]
                     
@@ -460,13 +648,13 @@ class LadderPAHelper:
                     }
                     ladder_documents.append(doc)
             
-            # Save B2C ladder (64 fares with V9-Y0 RBDs)
+            # Save B2C ladder
             ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', [])
-            self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: 64)")
+            self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: {self.TOTAL_B2C_FARES})")
             
             if ladder_fares_b2c:
-                # Handle cases where B2C ladder might not be exactly 64 fares
-                expected_b2c_count = 64
+                # Handle cases where B2C ladder might not be exactly self.TOTAL_B2C_FARES fares
+                expected_b2c_count = self.TOTAL_B2C_FARES
                 actual_b2c_count = len(ladder_fares_b2c)
                 
                 if actual_b2c_count != expected_b2c_count:
@@ -482,7 +670,7 @@ class LadderPAHelper:
                         ladder_fares_b2c = ladder_fares_b2c[:expected_b2c_count]
                         self.logger.info(f"Truncated B2C ladder from {actual_b2c_count} to {len(ladder_fares_b2c)} fares")
                 
-                for i in range(min(len(ladder_fares_b2c), 64)):
+                for i in range(min(len(ladder_fares_b2c), self.TOTAL_B2C_FARES)):
                     current_base = current_qp_fares_b2c[i]
                     new_base = ladder_fares_b2c[i]
                     
@@ -494,7 +682,7 @@ class LadderPAHelper:
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'channel': 'B2C',
-                        'fare_point_number': i + 21,  # Start from 21 (after 20 B2B fares)
+                        'fare_point_number': i + self.TOTAL_B2B_FARES + 1,  # (start after B2B fares)
                         'rbd_name': rbd_names_b2c[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
@@ -509,17 +697,17 @@ class LadderPAHelper:
                     }
                     ladder_documents.append(doc)
             
-            # Validate we have exactly 84 documents
+            # Validate we have exactly self.TOTAL_FARES documents
             b2b_docs = len([d for d in ladder_documents if d['channel']=='B2B'])
             b2c_docs = len([d for d in ladder_documents if d['channel']=='B2C'])
             total_docs = len(ladder_documents)
             
             self.logger.info(f"Document count summary: B2B={b2b_docs}, B2C={b2c_docs}, Total={total_docs}")
             
-            if total_docs != 84:
-                self.logger.warning(f"Expected 84 ladder documents but got {total_docs}")
-                self.logger.warning(f"  B2B documents: {b2b_docs} (expected: 20)")
-                self.logger.warning(f"  B2C documents: {b2c_docs} (expected: 64)")
+            if total_docs != self.TOTAL_FARES:
+                self.logger.warning(f"Expected {self.TOTAL_FARES} ladder documents but got {total_docs}")
+                self.logger.warning(f"  B2B documents: {b2b_docs} (expected: {self.TOTAL_B2B_FARES})")
+                self.logger.warning(f"  B2C documents: {b2c_docs} (expected: {self.TOTAL_B2C_FARES})")
             
             # Insert into MongoDB
             if ladder_documents:
@@ -538,6 +726,143 @@ class LadderPAHelper:
             self.logger.error(f"Error saving ladder to database: {str(e)}")
             self.failure_reason = f"Failed to save ladder to database: {str(e)}"
             raise
+
+    def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
+                  failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
+                  success_count=0, failed_count=0):
+        """Save or update batch audit information for multiple sectors under one run_id."""
+        try:
+            collection = self.db.ladder_generation_audits
+            
+            if is_initial:
+                # Initial audit record - insert with IN_PROGRESS status
+                tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
+                
+                # Get version info safely
+                qp_fares_version = None
+                tax_master_version = None
+                
+                try:
+                    if currVersion is not None and not currVersion.empty:
+                        qp_version_rows = currVersion[currVersion['table_name'] == 'qp_fares']
+                        tax_version_rows = currVersion[currVersion['table_name'] == tax_table]
+                        
+                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
+                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                except Exception:
+                    pass
+                
+                initial_audit = {
+                    'run_id': run_id,
+                    'sectors': sectors,  # Comma-separated list of sectors
+                    'is_batch': True,
+                    'start_time': start_time,
+                    'end_time': None,
+                    'status': 'IN_PROGRESS',
+                    'total_sectors': len(sectors.split(', ')),
+                    'successful_sectors': None,
+                    'failed_sectors': None,
+                    'outliers_removed': None,
+                    'route': route,
+                    'qp_fares': qp_fares_version,
+                    'tax_master': tax_master_version,
+                    'analyst': analystName,
+                    'failure_reason': None
+                }
+                
+                collection.insert_one(initial_audit)
+                self.logger.info(f"Created batch audit record for run_id: {run_id}, sectors: {sectors}")
+                
+                return 'ladder_generation_audits'
+                
+            else:
+                # Update existing audit record with final results
+                if status == 'SUCCESS' and not ladder_results:
+                    status = 'FAILED'
+                
+                # Aggregate statistics from all ladder results
+                total_b2c_records = 0
+                total_b2b_records = 0
+                total_b2c_fares = 0
+                total_b2b_fares = 0
+                min_b2c_fare = None
+                max_b2c_fare = None
+                min_b2b_fare = None
+                max_b2b_fare = None
+                
+                if ladder_results:
+                    for lr in ladder_results:
+                        total_b2c_records += lr.get('total_booking_records_b2c', 0)
+                        total_b2b_records += lr.get('total_booking_records_b2b', 0)
+                        total_b2c_fares += lr.get('distinct_fares_count_b2c', 0)
+                        total_b2b_fares += lr.get('distinct_fares_count_b2b', 0)
+                        
+                        # Track min/max across all sectors
+                        b2c_fares = lr.get('ladder_fares_b2c', [])
+                        b2b_fares = lr.get('ladder_fares_b2b', [])
+                        
+                        if b2c_fares:
+                            sector_min_b2c = min(b2c_fares)
+                            sector_max_b2c = max(b2c_fares)
+                            min_b2c_fare = sector_min_b2c if min_b2c_fare is None else min(min_b2c_fare, sector_min_b2c)
+                            max_b2c_fare = sector_max_b2c if max_b2c_fare is None else max(max_b2c_fare, sector_max_b2c)
+                        
+                        if b2b_fares:
+                            sector_min_b2b = min(b2b_fares)
+                            sector_max_b2b = max(b2b_fares)
+                            min_b2b_fare = sector_min_b2b if min_b2b_fare is None else min(min_b2b_fare, sector_min_b2b)
+                            max_b2b_fare = sector_max_b2b if max_b2b_fare is None else max(max_b2b_fare, sector_max_b2b)
+                
+                update_doc = {
+                    '$set': {
+                        'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                        'status': status,
+                        'successful_sectors': success_count,
+                        'failed_sectors': failed_count,
+                        'outliers_removed': outlier_count,
+                        'total_booking_records_b2c': total_b2c_records,
+                        'total_booking_records_b2b': total_b2b_records,
+                        'total_distinct_fares_b2c': total_b2c_fares,
+                        'total_distinct_fares_b2b': total_b2b_fares,
+                        'min_b2c_fare': round(min_b2c_fare, 2) if min_b2c_fare else None,
+                        'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
+                        'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
+                        'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
+                        'failure_reason': failure_reason if status == 'FAILED' else None
+                    }
+                }
+                
+                collection.update_one(
+                    {'run_id': run_id},
+                    update_doc
+                )
+                
+                self.logger.info(f"Updated batch audit record for run_id: {run_id}, status: {status}")
+                
+                return 'ladder_generation_audits'
+            
+        except Exception as e:
+            self.logger.error(f"Error saving/updating batch audit: {str(e)}")
+            if not is_initial:
+                # For update failures, try minimal fallback
+                try:
+                    collection.update_one(
+                        {'run_id': run_id},
+                        {
+                            '$set': {
+                                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                                'status': 'FAILED',
+                                'failure_reason': f"Audit update failed: {str(e)}. Original failure: {failure_reason}"
+                            }
+                        }
+                    )
+                    
+                    return 'ladder_generation_audits'
+                except:
+                    self.logger.error("Failed to save even minimal batch audit update")
+                    return None
+            else:
+                return None
 
     def save_run_audit(self, sector, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False):
@@ -609,11 +934,11 @@ class LadderPAHelper:
                         'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                         'status': status,
                         'b2c_total_ladder_points': len(ladder_fares_b2c) if ladder_fares_b2c else 0,
-                        'b2c_core_ladder_points': 58 if ladder_fares_b2c else 0,
-                        'b2c_buffer_ladder_points': 6 if ladder_fares_b2c else 0,
+                        'b2c_core_ladder_points': self.CORE_FARES_B2C if ladder_fares_b2c else 0,
+                        'b2c_buffer_ladder_points': self.BUFFER_FARES_B2C if ladder_fares_b2c else 0,
                         'b2b_total_ladder_points': len(ladder_fares_b2b) if ladder_fares_b2b else 0,
-                        'b2b_core_ladder_points': 16 if ladder_fares_b2b else 0,
-                        'b2b_buffer_ladder_points': 4 if ladder_fares_b2b else 0,
+                        'b2b_core_ladder_points': self.CORE_FARES_B2B if ladder_fares_b2b else 0,
+                        'b2b_buffer_ladder_points': self.BUFFER_FARES_B2B if ladder_fares_b2b else 0,
                         'outliers_removed': outlier_count,
                         'b2c_min_ladder_fare': round(min(ladder_fares_b2c), 2) if ladder_fares_b2c else None,
                         'b2c_max_ladder_fare': round(max(ladder_fares_b2c), 2) if ladder_fares_b2c else None,

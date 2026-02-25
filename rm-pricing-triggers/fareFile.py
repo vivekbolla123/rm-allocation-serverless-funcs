@@ -723,7 +723,7 @@ class FareFiling:
                 if companion_rule == '2001':
                     # Rule 2001 should cover ZJ to Y0 (84 RBDs) when generated from 1007
                     # Override the RBD range from config if needed
-                    b2b_rbds = self.get_rbd_range('ZJ', 'Y0')  # 84 RBDs for B2B
+                    b2b_rbds = self.get_rbd_range('Z9', 'Y0')  # 84 RBDs for B2B
                     if len(b2b_rbds) == 84:  # Verify we have the right range
                         rbd_range = b2b_rbds
                 
@@ -990,8 +990,8 @@ class FareFiling:
             saver_rows = []
             
             # Get RBD ranges
-            b2c_rbds = self.get_rbd_range('V9', 'Y0')  # 64 RBDs for B2C
-            b2b_rbds = self.get_rbd_range('ZJ', 'Y0')  # 148 RBDs for B2B (includes B2C)
+            b2c_rbds = self.get_rbd_range('V4', 'Y0')  # 64 RBDs for B2C
+            b2b_rbds = self.get_rbd_range('Z9', 'Y0')  # 148 RBDs for B2B (includes B2C)
             
             # Process each saver fare
             for _, saver_row in self.saver_data.iterrows():
