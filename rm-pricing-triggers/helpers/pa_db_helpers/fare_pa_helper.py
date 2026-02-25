@@ -251,21 +251,28 @@ class FarePAHelper:
                 {
                     '_id': 0,
                     'rule_nbr': 1,
+                    'Product': 1,
                     'sector': 1,
                     'rbd_start': 1,
                     'rbd_end': 1,
+                    'SaleStart': 1,
+                    'SaleEnd': 1,
+                    'TravelStart': 1,
+                    'TravelEnd': 1,
                     'footnote': 1,
                     'type': 1,
                     'value': 1,
-                    'ow_rt': 1,
-                    'ndo': 1,
-                    'sort_price': 1,
+                    'ndostart': 1,
+                    'ndoend': 1,
                     'base_all_in': 1,
                     'min_value': 1,
                     'max_value': 1,
-                    'pos': 1,
                     'base_footnote': 1,
-                    'base_ndo': 1
+                    'base_ndo': 1,
+                    'ow_rt': 1,
+                    'ndo': 1,
+                    'pos': 1,
+                    'sort_price': 1
                 }
             ))
             
@@ -284,21 +291,28 @@ class FarePAHelper:
                 {
                     '_id': 0,
                     'rule_nbr': 1,
+                    'Product': 1,
                     'sector': 1,
                     'rbd_start': 1,
                     'rbd_end': 1,
+                    'SaleStart': 1,
+                    'SaleEnd': 1,
+                    'TravelStart': 1,
+                    'TravelEnd': 1,
                     'footnote': 1,
                     'type': 1,
                     'value': 1,
-                    'ow_rt': 1,
-                    'ndo': 1,
-                    'sort_price': 1,
+                    'ndostart': 1,
+                    'ndoend': 1,
                     'base_all_in': 1,
                     'min_value': 1,
                     'max_value': 1,
-                    'pos': 1,
                     'base_footnote': 1,
-                    'base_ndo': 1
+                    'base_ndo': 1,
+                    'ow_rt': 1,
+                    'ndo': 1,
+                    'pos': 1,
+                    'sort_price': 1
                 }
             ))
             

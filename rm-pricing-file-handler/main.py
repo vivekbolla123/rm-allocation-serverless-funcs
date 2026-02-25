@@ -103,13 +103,13 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Saver to DB")
                     raise RuntimeError(f"Error processing Saver content: {str(e)}")
-            elif table == PRODUCT_UPSELL_TABLE:
+            elif table in [PRODUCT_UPSELL_TABLE, PRODUCT_UPSELL_MASTER_TABLE]:
                 try:
-                    product_upsell_df = validate_product_upsell(csv_df)
+                    product_upsell_df = validate_product_upsell(csv_df, table_name=table)
                     # Use upsert for product upsell table
-                    self.insert_file_data(product_upsell_df, PRODUCT_UPSELL_TABLE, user_name, use_upsert=True)
+                    self.insert_file_data(product_upsell_df, table, user_name, use_upsert=True)
 
-                    self.s3_helper.store_file(file_content, PRODUCT_UPSELL_TABLE, self.obj_id)
+                    self.s3_helper.store_file(file_content, table, self.obj_id)
                 except ValueError as ve:
                     # Specific handling for validation errors (like duplicates)
                     self.list_of_errors.append(f"Product Upsell Validation Failed: {str(ve)}")

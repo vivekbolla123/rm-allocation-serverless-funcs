@@ -12,6 +12,7 @@ SALE_DISCOUNTS_TABLE = "config_sale_discounts"
 SALE_DATES_TABLE = "config_sale_dates"
 SAVER_TABLE = "saver"
 PRODUCT_UPSELL_TABLE = "product_upsell"
+PRODUCT_UPSELL_MASTER_TABLE = "product_upsell_master"
 
 #error constants
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
