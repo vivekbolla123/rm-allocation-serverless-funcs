@@ -272,7 +272,7 @@ class ConstantsUtils:
             elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
                 self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == GDS_RBD_VALUES_KEY:
-                self.GDS_RBD_VALUES = float(parameter_value)
+                self.GDS_RBD_VALUES = parameter_value
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
