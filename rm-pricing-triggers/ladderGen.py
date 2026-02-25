@@ -39,13 +39,19 @@ class LadderGen:
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         
-        # Support both single sector (backward compatibility) and multiple sectors
-        if 'sectors' in overrides and isinstance(overrides['sectors'], list):
-            self.sectors = overrides['sectors']
-        elif 'sector' in overrides:
-            self.sectors = [overrides['sector']]
+        # Sector is always expected as a list (single or multiple)
+        if 'sector' not in overrides:
+            raise ValueError("'sector' must be provided in overrides as a list")
+        
+        # Ensure sector is a list
+        if isinstance(overrides['sector'], list):
+            self.sectors = overrides['sector']
         else:
-            raise ValueError("Either 'sector' or 'sectors' must be provided in overrides")
+            self.sectors = [overrides['sector']]
+            self.logger.warning(f"'sector' should be a list. Converting '{overrides['sector']}' to list.")
+        
+        if not self.sectors:
+            raise ValueError("'sector' list cannot be empty")
         
         self.sector = None  # Will be set per sector during processing
         self.sector_currency = None  # Will be set per sector
@@ -137,6 +143,20 @@ class LadderGen:
         except Exception as e:
             self.logger.error(f"Error converting fares to local currency: {str(e)}")
             return fare_points  # Return original fares on error
+    
+    def _convert_fare_to_inr(self, fare):
+        """Convert a single fare from local currency to INR for yield calculation."""
+        try:
+            if self.conversion_rate == 1.0:
+                return fare  # Already in INR
+            
+            # Divide by conversion rate to get back to INR
+            inr_fare = fare / self.conversion_rate
+            return inr_fare
+            
+        except Exception as e:
+            self.logger.error(f"Error converting fare to INR: {str(e)}")
+            return fare  # Return original fare on error
     
     def collect_all_data(self):
         """Collect all required data efficiently."""
@@ -520,15 +540,15 @@ class LadderGen:
             return base_fare
         
     def _calculate_base_xqp_fare(self, gross_fare, origin, destination):
-        """Calculate base XQP fare using reverse tax calculation based on route."""
+        """
+        Calculate base XQP fare using reverse tax calculation based on route.
+        Note: For yield calculation, gross_fare should be in INR.
+        """
         try:
             if self.route == 'D':
                 return self._calculate_base_domestic_fare(gross_fare, origin, destination)
             elif self.route == 'I':
-                # For international routes, base fare calculation is not required
-                # Return the gross fare as base fare for international
-                self.logger.debug(f"International route: returning gross fare as base fare for {origin}-{destination}")
-                return gross_fare
+                return self._calculate_base_international_fare(gross_fare, origin, destination)
             else:
                 raise ValueError(f"Invalid route: {self.route}")
                 
@@ -578,9 +598,57 @@ class LadderGen:
             
         except Exception as e:
             self.logger.error(f"Error calculating base domestic fare: {str(e)}")
+            
+    def _calculate_base_international_fare(self, gross_fare, origin, destination):
+        """Calculate base international fare using the correct reverse formula: Base Fare = [Gross Fare - GST×(RCS+CUTE) - RCS - Other Taxes] / (1 + GST)"""
+        try:
+            if self.tax_master_intl_data is None or self.tax_master_intl_data.empty:
+                return 0
+                
+            sector_key = f"{origin}{destination}"
+            tax_data = self.tax_master_intl_data[self.tax_master_intl_data['Sectors'] == sector_key]
+            if tax_data.empty:
+                return 0
+            
+            tax_row = tax_data.iloc[0]
+            
+            # Extract all tax components
+            gst_rate = float(tax_row.get('GST', 0)) / 100
+            cute = float(tax_row.get('CUTE', 0)) if pd.notna(tax_row.get('CUTE')) else 0
+            asf = float(tax_row.get('ASF', 0)) if pd.notna(tax_row.get('ASF')) else 0
+            psf_adf = float(tax_row.get('PSF_ADF', 0)) if pd.notna(tax_row.get('PSF_ADF')) else 0
+            udf = float(tax_row.get('UDF', 0)) if pd.notna(tax_row.get('UDF')) else 0
+            psc_pz = float(tax_row.get('PSC_PZ', 0)) if pd.notna(tax_row.get('PSC_PZ')) else 0
+            rcs_cute = float(tax_row.get('RCS_CUTE', 0)) if pd.notna(tax_row.get('RCS_CUTE')) else 0
+            rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
+            
+            # Additional taxes
+            tax1 = float(tax_row.get('Tax1', 0)) if pd.notna(tax_row.get('Tax1')) else 0
+            tax2 = float(tax_row.get('Tax2', 0)) if pd.notna(tax_row.get('Tax2')) else 0
+            tax3 = float(tax_row.get('Tax3', 0)) if pd.notna(tax_row.get('Tax3')) else 0
+            tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
+            tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
+            
+            # Apply same special handling for RCS sectors - set RCS to 0
+            if destination in self.constants.PRICING_RCS_SECTORS:
+                rcs = 0
+            
+            # Start with gross fare and subtract DUF if applicable
+            adjusted_gross_fare = gross_fare
+            
+            gst_on_taxes = gst_rate * (rcs + cute + rcs_cute)
+            other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5
+            base_fare    = (
+                adjusted_gross_fare - rcs - cute - rcs_cute - gst_on_taxes - other_taxes
+            ) / (1 + gst_rate)
+
+            return base_fare
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating base international fare: {str(e)}")
 
     def _find_valid_market_fare(self, market_data, fare_type, origin, destination):
-        """Find valid market fare that satisfies yield constraint (domestic only)."""
+        """Find valid market fare that satisfies yield constraint for both domestic and international."""
         try:
             if market_data.empty:
                 return None
@@ -591,28 +659,35 @@ class LadderGen:
             else:
                 sorted_data = market_data.sort_values('gross_fare', ascending=False)
             
-            # For international routes, yield check not needed
-            if self.route == 'I':
-                # Return first fare (already satisfies instances >= 2)
-                return sorted_data.iloc[0]['gross_fare'] if not sorted_data.empty else None
-            
-            # For domestic routes, check yield constraint
+            # Get distance for yield calculation
             distance = self._get_distance(origin, destination)
             if distance == 0:
                 self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
-                return None
+                # Return first fare without yield check if distance not available
+                return sorted_data.iloc[0]['gross_fare'] if not sorted_data.empty else None
             
+            # Perform yield check for both domestic and international
             for _, row in sorted_data.iterrows():
                 gross_fare = row['gross_fare']
                 
                 try:
-                    # Calculate base fare and yield
-                    base_fare = self._calculate_base_xqp_fare(gross_fare, origin, destination)
+                    # For international routes with currency conversion, convert fare to INR for yield calculation
+                    if self.route == 'I' and self.conversion_rate != 1.0:
+                        # Market fare is in local currency, convert to INR for yield check
+                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
+                        self.logger.debug(f"Converted market fare for yield check: {gross_fare:.2f} {self.sector_currency} -> {gross_fare_inr:.2f} INR")
+                    else:
+                        # Domestic or international without conversion - already in INR
+                        gross_fare_inr = gross_fare
+                    
+                    # Calculate base fare and yield using INR fare
+                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, origin, destination)
                     yield_value = base_fare / distance
                     
-                    # Check yield constraint (domestic only)
+                    # Check yield constraint (1.5 for both domestic and international)
                     if yield_value >= 1.5:
-                        return gross_fare
+                        self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= 1.5")
+                        return gross_fare  # Return original fare in local currency
                     else:
                         self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < 1.5")
                         
@@ -620,7 +695,8 @@ class LadderGen:
                     self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
                     continue
             
-            self.logger.warning(f"No valid {fare_type} market fare found satisfying yield >= 1.5")
+            route_type = "International" if self.route == 'I' else "Domestic"
+            self.logger.warning(f"No valid {fare_type} market fare found satisfying yield >= 1.5 for {route_type} route")
             return None
             
         except Exception as e:
@@ -657,8 +733,18 @@ class LadderGen:
             f4 = core_fares[0]
             f61 = core_fares[-1]
             
-            min_booking_fare = float(booking_data['Fare'].min())
-            max_booking_fare = float(booking_data['Fare'].max())
+            # Get min/max booking fares (in INR from ESB)
+            min_booking_fare_inr = float(booking_data['Fare'].min())
+            max_booking_fare_inr = float(booking_data['Fare'].max())
+            
+            # Convert booking fares to local currency if needed
+            min_booking_fare = min_booking_fare_inr * self.conversion_rate
+            max_booking_fare = max_booking_fare_inr * self.conversion_rate
+            
+            if self.conversion_rate != 1.0:
+                self.logger.info(f"Converted booking fares to {self.sector_currency}:")
+                self.logger.info(f"  Min: {min_booking_fare_inr:.2f} INR -> {min_booking_fare:.2f} {self.sector_currency}")
+                self.logger.info(f"  Max: {max_booking_fare_inr:.2f} INR -> {max_booking_fare:.2f} {self.sector_currency}")
             
             # Find valid market fares
             valid_min_market_fare = self._find_valid_market_fare(b2c_data, 'min', origin, destination)
@@ -666,7 +752,7 @@ class LadderGen:
             
             self.logger.info(f"B2C Buffer Fare Calculation Started")
             self.logger.info(f"  Core fares: {len(core_fares)} (f4-f61)")
-            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f}")
+            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f} {self.sector_currency}")
             self.logger.info(f"  Market fares: min={valid_min_market_fare}, max={valid_max_market_fare}")
             
             # ===== LOWER BUFFER FARES (f1, f2, f3) =====
@@ -856,8 +942,18 @@ class LadderGen:
             f3 = core_fares[0]
             # f18 = core_fares[-1]
             
-            min_booking_fare = float(booking_data['Fare'].min())
-            max_booking_fare = float(booking_data['Fare'].max())
+            # Get min/max booking fares (in INR from ESB)
+            min_booking_fare_inr = float(booking_data['Fare'].min())
+            max_booking_fare_inr = float(booking_data['Fare'].max())
+            
+            # Convert booking fares to local currency if needed
+            min_booking_fare = min_booking_fare_inr * self.conversion_rate
+            max_booking_fare = max_booking_fare_inr * self.conversion_rate
+            
+            if self.conversion_rate != 1.0:
+                self.logger.info(f"Converted booking fares to {self.sector_currency}:")
+                self.logger.info(f"  Min: {min_booking_fare_inr:.2f} INR -> {min_booking_fare:.2f} {self.sector_currency}")
+                self.logger.info(f"  Max: {max_booking_fare_inr:.2f} INR -> {max_booking_fare:.2f} {self.sector_currency}")
             
             # Find valid B2B market fares
             valid_min_market_fare = self._find_valid_market_fare(b2b_data, 'min', origin, destination)
@@ -865,7 +961,7 @@ class LadderGen:
             
             self.logger.info(f"B2B Buffer Fare Calculation Started")
             self.logger.info(f"  Core fares: {len(core_fares)}")
-            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f}")
+            self.logger.info(f"  Booking range: {min_booking_fare:.2f} - {max_booking_fare:.2f} {self.sector_currency}")
             self.logger.info(f"  Market fares: min={valid_min_market_fare}, max={valid_max_market_fare}")
             self.logger.info(f"  B2C_min (for constraint): {b2c_min:.2f}")
             

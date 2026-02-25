@@ -99,27 +99,37 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
             
-            # Route filter
-            if route == 'D':
-                route_filter = {'outbound_stop': "0"}
-            elif route == 'I':
-                route_filter = {'outbound_stop': {'$gte': "0"}}
-            else:
-                raise ValueError(f"Invalid route: {route}")
+            route_filter = {'outbound_stop': "0"}
             
             # Common match conditions - NOW INCLUDING BOTH B2B AND B2C
-            match_stage = {
-                'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
-                'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
-                '$expr': {
-                    '$eq': [
-                        {'$concat': ['$source_airport', '$destination_airport']},
-                        sector
-                    ]
-                },
-                **date_filter,
-                **route_filter
-            }
+            if route == 'D':
+                match_stage = {
+                    'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    '$expr': {
+                        '$eq': [
+                            {'$concat': ['$source_airport', '$destination_airport']},
+                            sector
+                        ]
+                    },
+                    **date_filter,
+                    **route_filter
+                }
+            elif route == 'I':
+                match_stage = {
+                    'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    '$expr': {
+                        '$eq': [
+                            {'$concat': ['$source_airport', '$destination_airport']},
+                            sector
+                        ]
+                    },
+                    **date_filter,
+                    **route_filter
+                }
+            else:
+                raise ValueError(f"Invalid route: {route}")
             
             pipeline = [
                 {'$match': match_stage},
@@ -220,16 +230,11 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
             
-            # Route filter
-            if route == 'D':
-                route_filter = {'outbound_stop': "0"}
-            elif route == 'I':
-                route_filter = {'outbound_stop': {'$gte': "0"}}
-            else:
-                raise ValueError(f"Invalid route: {route}")
+            route_filter = {'outbound_stop': "0"}
             
             # Common match conditions - BOTH DIRECTIONS AND BOTH CHANNELS
-            match_stage = {
+            if route == 'D':
+                 match_stage = {
                 'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
                 'channel': {'$in': ['B2C', 'B2B']},
                 '$or': [
@@ -253,6 +258,33 @@ class LadderPAHelper:
                 **date_filter,
                 **route_filter
             }
+            elif route == 'I':
+                 match_stage = {
+                'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                'channel': {'$in': ['B2C', 'B2B']},
+                '$or': [
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                reverse_sector
+                            ]
+                        }
+                    }
+                ],
+                **date_filter,
+                **route_filter
+            }
+            else:
+                raise ValueError(f"Invalid route: {route}")
             
             pipeline = [
                 {'$match': match_stage},
