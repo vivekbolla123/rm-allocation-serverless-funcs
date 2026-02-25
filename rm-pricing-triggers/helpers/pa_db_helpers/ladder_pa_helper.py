@@ -86,7 +86,7 @@ class LadderPAHelper:
             self.failure_reason = f"Tax master data collection failed: {str(e)}"
             return None, None, self.failure_reason
     
-    def collect_market_fares(self, route, sector):
+    def collect_market_fares(self, route, sector, max_market_b2b, max_market_b2c):
         """Collect market fares for both B2B and B2C channels. Optimized for large datasets."""
         try:
             # Date filters - Keep as datetime objects
@@ -98,14 +98,13 @@ class LadderPAHelper:
                 },
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
-            
+
             route_filter = {'outbound_stop': "0"}
-            
-            # Common match conditions - NOW INCLUDING BOTH B2B AND B2C
+
             if route == 'D':
                 match_stage = {
                     'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
-                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    'channel': {'$in': ['B2C', 'B2B']},
                     '$expr': {
                         '$eq': [
                             {'$concat': ['$source_airport', '$destination_airport']},
@@ -118,7 +117,7 @@ class LadderPAHelper:
             elif route == 'I':
                 match_stage = {
                     'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
-                    'channel': {'$in': ['B2C', 'B2B']},  # Changed to include both channels
+                    'channel': {'$in': ['B2C', 'B2B']},
                     '$expr': {
                         '$eq': [
                             {'$concat': ['$source_airport', '$destination_airport']},
@@ -130,7 +129,7 @@ class LadderPAHelper:
                 }
             else:
                 raise ValueError(f"Invalid route: {route}")
-            
+
             pipeline = [
                 {'$match': match_stage},
                 {
@@ -138,36 +137,32 @@ class LadderPAHelper:
                         'gross_fare_numeric': {'$toDouble': '$gross_fare'}
                     }
                 },
-                # First count instances of each fare per channel
+                {
+                    '$match': {
+                        '$or': [
+                            {'channel': 'B2C', 'gross_fare_numeric': {'$lte': max_market_b2c}},
+                            {'channel': 'B2B', 'gross_fare_numeric': {'$lte': max_market_b2b}}
+                        ]
+                    }
+                },
+                # Group by fare + airline + channel to count instances — airline is included
+                # so all fare levels are preserved, not just the cheapest per airline
                 {
                     '$group': {
                         '_id': {
                             'source': '$source_airport',
                             'dest': '$destination_airport',
                             'channel': '$channel',
-                            'fare': '$gross_fare_numeric'
+                            'fare': '$gross_fare_numeric',
+                            'airline': '$outbound_airline_code'
                         },
-                        'airlines': {'$addToSet': '$outbound_airline_code'},
                         'instances': {'$sum': 1}
                     }
                 },
+                # Keep only fares seen at least twice (dedup noise)
                 {
                     '$match': {
                         'instances': {'$gte': 2}
-                    }
-                },
-                {'$unwind': '$airlines'},
-                {'$sort': {'_id.channel': 1, '_id.fare': 1}},
-                {
-                    '$group': {
-                        '_id': {
-                            'channel': '$_id.channel',
-                            'airline': '$airlines',
-                            'source': '$_id.source',
-                            'dest': '$_id.dest'
-                        },
-                        'gross_fare': {'$first': '$_id.fare'},
-                        'instances': {'$first': '$instances'}
                     }
                 },
                 {
@@ -176,116 +171,99 @@ class LadderPAHelper:
                         'source_airport': '$_id.source',
                         'destination_airport': '$_id.dest',
                         'channel': '$_id.channel',
-                        'gross_fare': 1,
+                        'gross_fare': '$_id.fare',
                         'outbound_airline_code': '$_id.airline',
                         'instances': 1
                     }
                 },
                 {'$sort': {'channel': 1, 'gross_fare': 1}}
             ]
-            
+
             ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
             rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
-            
-            # Combine data
+
             combined_data = ag_data + rg_data
-            
+
             if not combined_data:
                 self.failure_reason = f"No market fares data available for sector {sector}"
                 self.logger.warning(self.failure_reason)
                 return None, self.failure_reason
-            
-            # Convert to DataFrame
+
             market_fares_data = pd.DataFrame(combined_data)
-            
-            # If same airline appears in both collections, keep one and sum instances
+
+            # If same airline+fare appears in both collections, sum instances
             market_fares_data = market_fares_data.groupby(
                 ['source_airport', 'destination_airport', 'channel', 'outbound_airline_code', 'gross_fare'],
                 as_index=False
             ).agg({'instances': 'sum'})
-            
-            # Final sort by channel and fare
+
             market_fares_data = market_fares_data.sort_values(['channel', 'gross_fare']).reset_index(drop=True)
-            
+
             self.logger.info(f"Market fares collected - B2C: {len(market_fares_data[market_fares_data['channel']=='B2C'])}, "
                             f"B2B: {len(market_fares_data[market_fares_data['channel']=='B2B'])}")
-            
+
             return market_fares_data, None
-            
+
         except Exception as e:
             self.logger.error(f"Error collecting market fares: {str(e)}")
             self.failure_reason = f"Market fares data collection failed: {str(e)}"
             return None, self.failure_reason
-    
-    def collect_market_fares_bidirectional(self, route, sector, reverse_sector):
+
+
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c):
         """Collect market fares for both directions and both B2B and B2C channels."""
         try:
-            # Date filters - Keep as datetime objects
             now = datetime.now()
             date_filter = {
                 'departure_date': {
                     '$gte': now.replace(hour=0, minute=0, second=0, microsecond=0),
                     '$lte': (now + timedelta(days=365)).replace(hour=23, minute=59, second=59, microsecond=999999)
                 },
-                'created_at': {'$gt': now - timedelta(hours=24)}
+                'created_at': {'$gt': now - timedelta(hours=72)}
             }
-            
+
             route_filter = {'outbound_stop': "0"}
-            
-            # Common match conditions - BOTH DIRECTIONS AND BOTH CHANNELS
+
+            sector_expr = {
+                '$or': [
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                sector
+                            ]
+                        }
+                    },
+                    {
+                        '$expr': {
+                            '$eq': [
+                                {'$concat': ['$source_airport', '$destination_airport']},
+                                reverse_sector
+                            ]
+                        }
+                    }
+                ]
+            }
+
             if route == 'D':
-                 match_stage = {
-                'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
-                'channel': {'$in': ['B2C', 'B2B']},
-                '$or': [
-                    {
-                        '$expr': {
-                            '$eq': [
-                                {'$concat': ['$source_airport', '$destination_airport']},
-                                sector
-                            ]
-                        }
-                    },
-                    {
-                        '$expr': {
-                            '$eq': [
-                                {'$concat': ['$source_airport', '$destination_airport']},
-                                reverse_sector
-                            ]
-                        }
-                    }
-                ],
-                **date_filter,
-                **route_filter
-            }
+                match_stage = {
+                    'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                    'channel': {'$in': ['B2C', 'B2B']},
+                    **sector_expr,
+                    **date_filter,
+                    **route_filter
+                }
             elif route == 'I':
-                 match_stage = {
-                'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
-                'channel': {'$in': ['B2C', 'B2B']},
-                '$or': [
-                    {
-                        '$expr': {
-                            '$eq': [
-                                {'$concat': ['$source_airport', '$destination_airport']},
-                                sector
-                            ]
-                        }
-                    },
-                    {
-                        '$expr': {
-                            '$eq': [
-                                {'$concat': ['$source_airport', '$destination_airport']},
-                                reverse_sector
-                            ]
-                        }
-                    }
-                ],
-                **date_filter,
-                **route_filter
-            }
+                match_stage = {
+                    'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                    'channel': {'$in': ['B2C', 'B2B']},
+                    **sector_expr,
+                    **date_filter,
+                    **route_filter
+                }
             else:
                 raise ValueError(f"Invalid route: {route}")
-            
+
             pipeline = [
                 {'$match': match_stage},
                 {
@@ -293,36 +271,32 @@ class LadderPAHelper:
                         'gross_fare_numeric': {'$toDouble': '$gross_fare'}
                     }
                 },
-                # First count instances of each fare per channel
+                {
+                    '$match': {
+                        '$or': [
+                            {'channel': 'B2C', 'gross_fare_numeric': {'$lte': max_market_b2c}},
+                            {'channel': 'B2B', 'gross_fare_numeric': {'$lte': max_market_b2b}}
+                        ]
+                    }
+                },
+                # Group by fare + airline + channel to count instances — airline is included
+                # so all fare levels are preserved, not just the cheapest per airline
                 {
                     '$group': {
                         '_id': {
                             'source': '$source_airport',
                             'dest': '$destination_airport',
                             'channel': '$channel',
-                            'fare': '$gross_fare_numeric'
+                            'fare': '$gross_fare_numeric',
+                            'airline': '$outbound_airline_code'
                         },
-                        'airlines': {'$addToSet': '$outbound_airline_code'},
                         'instances': {'$sum': 1}
                     }
                 },
+                # Keep only fares seen at least twice (dedup noise)
                 {
                     '$match': {
                         'instances': {'$gte': 2}
-                    }
-                },
-                {'$unwind': '$airlines'},
-                {'$sort': {'_id.channel': 1, '_id.fare': 1}},
-                {
-                    '$group': {
-                        '_id': {
-                            'channel': '$_id.channel',
-                            'airline': '$airlines',
-                            'source': '$_id.source',
-                            'dest': '$_id.dest'
-                        },
-                        'gross_fare': {'$first': '$_id.fare'},
-                        'instances': {'$first': '$instances'}
                     }
                 },
                 {
@@ -331,47 +305,45 @@ class LadderPAHelper:
                         'source_airport': '$_id.source',
                         'destination_airport': '$_id.dest',
                         'channel': '$_id.channel',
-                        'gross_fare': 1,
+                        'gross_fare': '$_id.fare',
                         'outbound_airline_code': '$_id.airline',
                         'instances': 1
                     }
                 },
                 {'$sort': {'channel': 1, 'gross_fare': 1}}
             ]
-            
+
             ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
             rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
-            
-            # Combine data
+
             combined_data = ag_data + rg_data
-            
+
             if not combined_data:
                 self.failure_reason = f"No market fares data available for sectors {sector} and {reverse_sector}"
                 self.logger.warning(self.failure_reason)
                 return None, self.failure_reason
-            
-            # Convert to DataFrame
+
             market_fares_data = pd.DataFrame(combined_data)
-            
-            # If same airline appears in both collections, keep one and sum instances
+
+            # If same airline+fare appears in both collections, sum instances
             market_fares_data = market_fares_data.groupby(
                 ['source_airport', 'destination_airport', 'channel', 'outbound_airline_code', 'gross_fare'],
                 as_index=False
             ).agg({'instances': 'sum'})
-            
-            # Final sort by channel and fare
+
             market_fares_data = market_fares_data.sort_values(['channel', 'gross_fare']).reset_index(drop=True)
-            
+
             self.logger.info(f"Bidirectional market fares collected for {sector} + {reverse_sector} - "
                             f"B2C: {len(market_fares_data[market_fares_data['channel']=='B2C'])}, "
                             f"B2B: {len(market_fares_data[market_fares_data['channel']=='B2B'])}")
-            
+
             return market_fares_data, None
-            
+
         except Exception as e:
             self.logger.error(f"Error collecting bidirectional market fares: {str(e)}")
             self.failure_reason = f"Bidirectional market fares data collection failed: {str(e)}"
             return None, self.failure_reason
+   
         
     def get_current_version(self):
         """Get current version information from MongoDB."""
