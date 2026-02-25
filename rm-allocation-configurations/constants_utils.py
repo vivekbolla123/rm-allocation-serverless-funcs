@@ -87,6 +87,8 @@ class ConstantsUtils:
         self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
         self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
         self.RBD_VALUES = RBD_VALUES
+        self.B2B_RBD_VALUES = B2B_RBD_VALUES
+        self.B2C_RBD_VALUES = B2C_RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
         self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
@@ -256,6 +258,10 @@ class ConstantsUtils:
                 self.MARKET_FLAG = parameter_value
             elif parameter_key == RBD_VALUES_KEY:
                 self.RBD_VALUES = parameter_value
+            elif parameter_key == B2B_RBD_VALUES_KEY:
+                self.B2B_RBD_VALUES = parameter_value
+            elif parameter_key == B2C_RBD_VALUES_KEY:
+                self.B2C_RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
                 self.B2B_THRESHOLD = float(parameter_value)
             elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
