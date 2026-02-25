@@ -13,6 +13,8 @@ class MathUtils:
             return int(number)
 
     def dynamicAllocationD3Formula(self, dPLF, remainingCapacity, remainingRBD, ndocounter):
+        if remainingRBD == 0:
+            return 0
         return int(round((remainingCapacity/remainingRBD) * (1/(1+(dPLF/100)+0.001)) / math.exp(3*(dPLF/100)/((ndocounter/75)+0.1)), 0))
 
     def dynamicAllocationD4Formula(self, dPLF, rbdPosition, d3Allocation):
