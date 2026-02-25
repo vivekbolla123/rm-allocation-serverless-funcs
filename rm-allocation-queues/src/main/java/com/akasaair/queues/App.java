@@ -5113,7 +5113,7 @@ public class App implements CommandLineRunner {
 
             List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
 
-            for (int i = 1; i < csvData.size(); i++) {
+            for (int i = 0; i < csvData.size(); i++) {
                 List<String> row = csvData.get(i);
 
                 try {
@@ -5125,12 +5125,11 @@ public class App implements CommandLineRunner {
                     String total = row.get(5).trim();
                     String currency = row.get(6).trim();
 
-                    Document filter = new Document().append("SECTOR", sector).append("route", route);
+                    Document filter = new Document().append("SECTOR", sector).append("route", route).append("RBD", rbd);
 
                     Document updateFields = new Document()
                             .append("Org", org)
                             .append("Dst", dst)
-                            .append("RBD", rbd)
                             .append("TOTAL", autoConvert(total))
                             .append("currency", currency);
 
@@ -5150,7 +5149,7 @@ public class App implements CommandLineRunner {
                 throw new DataMismatchedException(listOfErrors.get());
             }
 
-            updateRecords(bulkUpdates, tableName);
+            updateRecords(bulkUpdates, "fares");
 
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, objId);
             updateAuditStatement(tableName, getCurrentDateTime(), objId);
