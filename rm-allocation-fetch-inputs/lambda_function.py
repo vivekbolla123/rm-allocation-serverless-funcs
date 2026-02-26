@@ -460,6 +460,8 @@ class NavDatabaseHelper:
         
     def get_opening_rbds(self, min_date, max_date):
         """Get opening RBDs for both B2B and B2C customers"""
+        B2B_RBDS = ",".join(f"'{rbd.strip()}'" for rbd in constantsutils.B2B_RBD_VALUES.split(","))
+        B2C_RBDS = ",".join(f"'{rbd.strip()}'" for rbd in constantsutils.B2C_RBD_VALUES.split(","))
         query = f"""
         WITH RankedInventory AS (
             SELECT 
@@ -470,10 +472,18 @@ class NavDatabaseHelper:
                 ILC.ClassOfService,
                 ROW_NUMBER() OVER (
                     PARTITION BY IL.FlightNumber, IL.DepartureStation, IL.ArrivalStation, IL.DepartureDate,
-                                CASE WHEN Substring(ILC.ClassOfService,1,1) = 'Z' THEN 'B2B' ELSE 'B2C' END
+                                CASE 
+                                    WHEN ILC.ClassOfService IN ({B2B_RBDS}) THEN 'B2B'  
+                                    WHEN ILC.ClassOfService IN ({B2C_RBDS}) THEN 'B2C'  
+                                    ELSE 'OTHER'
+                                END
                     ORDER BY ILC.ClassRank, ILC.ModifiedUTC DESC
                 ) AS RowNum,
-                CASE WHEN Substring(ILC.ClassOfService,1,1) = 'Z' THEN 'B2B' ELSE 'B2C' END AS CustomerType
+                CASE 
+                    WHEN ILC.ClassOfService IN ({B2B_RBDS}) THEN 'B2B'
+                    WHEN ILC.ClassOfService IN ({B2C_RBDS}) THEN 'B2C'
+                    ELSE 'OTHER'
+                END AS CustomerType
             FROM 
                 {self.NAV_DB_NAME}[Rez].[InventoryLegClass] ILC 
             JOIN 

@@ -29,9 +29,9 @@ class RBDAllocations:
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
         fullRbds=B2CRBDs
-        rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
-        rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
-        B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
+        # rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
+        # rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        # B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
         B2CRBDs['id'] = B2CRBDs.reset_index().index + 1
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['TOTAL'].iloc[-1]
@@ -703,8 +703,10 @@ class RBDAllocations:
     
     def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice,groupbookload,currBookedLoad,month,sector):
         rbd_list = list(json.loads(GROUP_QUOTATION).values())
-        group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
-        group_alloc_df=group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
+        group_alloc_df = pd.DataFrame()
+        if not B2CRBDs.empty:
+            group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
+            group_alloc_df=group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
         if int(autoGroup) == 1 and (not profilefarextract.empty):
             potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector,month)
@@ -797,11 +799,12 @@ class RBDAllocations:
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):
         max_au = currBookedLoad-currtbfBookedLoad+int(self.constantsutils.TBF_SEATS)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
-        tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
         blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE,depdate)
         alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
-        tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
-        remaining_tbf_rbds = tbf_rbds.copy()
+        tbf_rbds = pd.DataFrame()
+        if not B2CRBDs.empty:
+            tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
+            tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
         latest_allocations = {}
         desired_order = ['TF', 'TE', 'TD', 'TC', 'TB', 'TY']
         default_values = {
@@ -948,7 +951,9 @@ class RBDAllocations:
         - AND (B2C - opening fare) <= 30% of B2C fare
         """
         w_rbd_list = self.constantsutils.CUG_RBD.split(',')
-        w_rbds = B2CRBDs[B2CRBDs['RBD'].isin(w_rbd_list) & B2CRBDs['TOTAL'].notna()].copy()
+        w_rbds = pd.DataFrame()  # Initialize empty DataFrame
+        if not B2CRBDs.empty:
+            w_rbds = B2CRBDs[B2CRBDs['RBD'].isin(w_rbd_list) & B2CRBDs['TOTAL'].notna()].copy()
 
         open_rbd = None
         opening_fare = None
@@ -976,7 +981,7 @@ class RBDAllocations:
             profile_fare_numeric = None
 
         # Condition 1: Valid range for PLF and NDO
-        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and int(cug_flag) == 1 and int(cug_mkt_flag) == 1
+        is_applicable = 10 <= ndo <= 30 and forecastedPLF < 90 and int(cug_flag) == 1 and int(cug_mkt_flag) == 1 and not w_rbds.empty
 
         if is_applicable:
             # Find best RBD with fare <= profile_fare_value
@@ -1105,7 +1110,7 @@ class RBDAllocations:
         b2cAllocationsUnits = []
         origin = currParams.sector1[:3]
         destin = currParams.sector2[-3:]
-        B2CRBDs = self.rmdatabasehelper.fareExtract(origin, destin, 'B2C', '', 'R')
+        B2CRBDs = self.rmdatabasehelper.fareExtract(origin, destin, B2C_CHANNEL, '', 'R')
         rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
         rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
         B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
@@ -1123,7 +1128,7 @@ class RBDAllocations:
 
         # reset
         # Loop on each rbd
-        while b2cctr < B2CRBDs.shape[0] or b2bctr < B2B_RDB_COUNT:
+        while b2cctr < B2CRBDs.shape[0] or b2bctr < self.constantsutils.B2B_RDB_COUNT:
 
             if b2cctr < B2CRBDs.shape[0]:
                 RBDLabel = B2CRBDs['RBD'][b2cctr]
@@ -1168,7 +1173,7 @@ class RBDAllocations:
     def b2BAllocation_connections(self, openDataB2B, currRec, b2cAllocationsUnits, brd_counter, currParams):
         origin = currParams.sector1[:3]
         destin = currParams.sector2[-3:]
-        B2BRBDs = self.rmdatabasehelper.fareExtract(origin, destin, 'B2B', '', 'R')
+        B2BRBDs = self.rmdatabasehelper.fareExtract(origin, destin, B2B_CHANNEL, '', 'R')
         openbuketFlag = False
         openingRBD = openDataB2B['RBD'][0]
         counter = 0
