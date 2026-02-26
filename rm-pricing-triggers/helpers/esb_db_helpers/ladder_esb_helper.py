@@ -9,13 +9,14 @@ class LadderEsbHelper:
         self.logger = logger
         self.failure_reason = None
 
-    def collect_combined_market_fare_data(self, ndo, sector, channel):
+    def collect_combined_market_fare_data(self, ndo, sector, channel, max_fare_threshold=None):
         """Query market_fares_rg and market_fares_ag for fare data within NDO days from today.
         
         Args:
             ndo: Number of days out (e.g. 30 or 60) — departure_date range is today to today+ndo.
             sector: 6-char sector string e.g. 'BOMDEL'.
             channel: 'B2C' or 'B2B'.
+            max_fare_threshold: Maximum fare threshold. If provided, only fares <= this value are returned.
             
         Returns:
             DataFrame with columns: Fare, departure_date, source_airport, destination_airport, data_source
@@ -42,6 +43,11 @@ class LadderEsbHelper:
                     "$in": ["6E", "AI", "IX", "XY", "FZ", "GF", "J9", "KU", "FD", "SG", "TG", "WY", "VZ", "SV", "F3"]
                 }
             }
+
+            # Add fare threshold filter if provided
+            if max_fare_threshold is not None:
+                match_conditions["gross_fare"] = {"$lte": max_fare_threshold}
+                self.logger.info(f"Applying max fare threshold: gross_fare <= {max_fare_threshold}")
 
             # Projection — keep only what we need
             projection = {
