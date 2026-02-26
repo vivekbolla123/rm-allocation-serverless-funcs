@@ -73,8 +73,10 @@ class LadderGen:
         self.COVERAGE_PARAMETER = self.constants.COVERAGE_PARAMETER
         self.UP_B2C = self.constants.UP_B2C
         self.UP_B2B = self.constants.UP_B2B
-        self.MARKET_FLAG = self.constants.MARKET_FLAG
-        self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD
+        self.MARKET_FLAG = self.constants.MARKET_FLAG_DOMESTIC if self.route == 'D' else self.constants.MARKET_FLAG_INTERNATIONAL
+        self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD if self.route == 'D' else self.constants.B2B_THRESHOLD_INTERNATIONAL
+        self.MAX_MARKET_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MAX_MARKET_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
         self.B2B_CHANNEL = "B2B"
         self.B2C_CHANNEL = "B2C"
         self.pa_helper = LadderPAHelper(self, self.db, self.db_fares, logger, self.calculate_all_in_fare)
@@ -177,7 +179,7 @@ class LadderGen:
                 # Collect market fares for both directions
                 reverse_sector = self._get_reverse_sector(self.sector)
                 self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares_bidirectional(
-                    self.route, self.sector, reverse_sector
+                    self.route, self.sector, reverse_sector, (self.MAX_MARKET_THRESHOLD_B2B * self.conversion_rate), (self.MAX_MARKET_THRESHOLD_B2C * self.conversion_rate)
                 )
                 if failure_reason:
                     self.failure_reason = failure_reason
@@ -966,6 +968,7 @@ class LadderGen:
             self.logger.info(f"  B2C_min (for constraint): {b2c_min:.2f}")
             
             # ===== LOWER BUFFER FARES (f1, f2) =====
+            self.B2B_THRESHOLD = self.B2B_THRESHOLD * self.conversion_rate
             b2c_threshold_limit = b2c_min - self.B2B_THRESHOLD
             
             self.logger.info(f"B2B constraint analysis:")

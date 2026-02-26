@@ -79,7 +79,12 @@ class ConstantsUtils:
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
-        self.MARKET_FLAG = MARKET_FLAG
+        self.MARKET_FLAG_DOMESTIC = MARKET_FLAG_DOMESTIC
+        self.MARKET_FLAG_INTERNATIONAL = MARKET_FLAG_INTERNATIONAL
+        self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B = MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B
+        self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C = MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C
+        self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -92,6 +97,7 @@ class ConstantsUtils:
         self.GROUP_RBD_VALUES = GROUP_RBD_VALUES
         self.DISTRESS_RBD_VALUES = DISTRESS_RBD_VALUES
         self.B2B_THRESHOLD = B2B_THRESHOLD
+        self.B2B_THRESHOLD_INTERNATIONAL = B2B_THRESHOLD_INTERNATIONAL
         self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
 
@@ -262,8 +268,10 @@ class ConstantsUtils:
                 self.UP_B2C = int(parameter_value)
             elif parameter_key == UP_B2B_KEY:
                 self.UP_B2B = int(parameter_value)
-            elif parameter_key == MARKET_FLAG_KEY:
-                self.MARKET_FLAG = parameter_value
+            elif parameter_key == MARKET_FLAG_DOMESTIC_KEY:
+                self.MARKET_FLAG_DOMESTIC = parameter_value
+            elif parameter_key == MARKET_FLAG_INTERNATIONAL_KEY:
+                self.MARKET_FLAG_INTERNATIONAL = parameter_value
             elif parameter_key == RBD_VALUES_KEY:
                 self.RBD_VALUES = parameter_value
             elif parameter_key == B2B_RBD_VALUES_KEY:
@@ -276,6 +284,8 @@ class ConstantsUtils:
                 self.DISTRESS_RBD_VALUES = parameter_value
             elif parameter_key == B2B_THRESHOLD_KEY:
                 self.B2B_THRESHOLD = float(parameter_value)
+            elif parameter_key == B2B_THRESHOLD_INTERNATIONAL_KEY:
+                self.B2B_THRESHOLD_INTERNATIONAL = float(parameter_value)
             elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
                 self.B2C_DISTINCT_FARES_COUNT = int(parameter_value)
             elif parameter_key == DIRECT_FLIGHT_UPSELL_PERCENT_KEY:
@@ -288,6 +298,14 @@ class ConstantsUtils:
                 self.YIELD_FACTOR = float(parameter_value)
             elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
                 self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
