@@ -1459,6 +1459,28 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return is_valid
 
+    def rbd_list_builder(self, channel):
+        include_rbd_list = []
+
+        if channel == 'B2C':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2C_RBD_VALUES.split(',')]
+        elif channel == 'B2B':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2B_RBD_VALUES.split(',')]
+        elif channel == 'TBF':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.TBF_RBD.split(',')]
+        elif channel == 'CUG':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.CUG_RBD.split(',')]
+        elif channel == 'GROUP':        
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.GROUP_RBD_VALUES.split(',')]
+        elif channel == 'ALL':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2C_RBD_VALUES.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.B2B_RBD_VALUES.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.TBF_RBD.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.CUG_RBD.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.GROUP_RBD_VALUES.split(',')]
+
+        return include_rbd_list
+
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
@@ -1483,23 +1505,14 @@ class RMDatabaseHelper:
             self.redishelper.updateRunAudit()
             return openResult, rbddata
 
-        exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
-        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
+        # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
-
-        rbd_conditions = [{"RBD": {"$nin": exclude_rbd_list}}]
-
-        # Add channel-specific regex filter
-        if channel == 'B2C':
-            rbd_conditions.append({"RBD": {"$not": {"$regex": "^Z"}}})
-        elif channel == 'B2B':
-            rbd_conditions.append({"RBD": {"$regex": "^Z"}})
-            
         query = {
     "Org": origin,
     "Dst": destin,
     "route": route,
-    "$and": rbd_conditions  # both conditions must be true
+    "RBD": {"$in": self.rbd_list_builder(channel)}
 }
 
         sortorder = -1  # desc
@@ -1589,24 +1602,22 @@ class RMDatabaseHelper:
         return openResult, rbddata
 
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop, route):
-        exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
-        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
+        # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
         # Base query
         query = {
             "Org": origin,
             "Dst": destin,
             "route": route,
-            "$and": [
-                {"RBD": {"$nin": exclude_rbd_list}}  # exclude list
-            ]
+            "RBD": {"$in": self.rbd_list_builder(channel)}
         }
 
         # Add channel-specific regex filter
-        if channel == 'B2C':
-            query["$and"].append({"RBD": {"$not": {"$regex": "^Z"}}})
-        else:  # B2B
-            query["$and"].append({"RBD": {"$regex": "^Z"}})
+        # if channel == 'B2C':
+        #     query["$and"].append({"RBD": {"$not": {"$regex": "^Z"}}})
+        # else:  # B2B
+        #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
         # Add TOTAL/backstop and sort order
         query["TOTAL"] = {"$gte": float(backstop)}
@@ -1865,10 +1876,16 @@ class RMDatabaseHelper:
     def fareExtract(self, origin, destination, channel, openingRBD, route):
         query = {"Org": origin, "Dst": destination, "route": route}
 
-        if channel == 'B2C':
-            query["RBD"] = {"$not": {"$regex": "^Z"}}
-        if channel == 'B2B':
-            query["RBD"] = {"$regex": "^Z"}
+        if isinstance(channel, str):
+            channel_list = [channel]
+        else:
+            channel_list = channel
+
+        rbd_list = []
+        for ch in channel_list:
+            rbd_list.extend(self.rbd_list_builder(ch.strip()))
+
+        query["RBD"] = {"$in": rbd_list}
         if openingRBD:
             query["RBD"] = openingRBD
 
@@ -2015,25 +2032,18 @@ class RMDatabaseHelper:
             return pd.DataFrame()
 
     def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel):
-        condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
 
         try:
             sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
                 "route": "L",
-                "$and": [
-            {"RBD": rbd_sector1},
-            {"RBD": condition}
-        ]
+                "RBD": rbd_sector1
             })
 
             sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
                 "route": "L",
-                "$and": [
-            {"RBD": rbd_sector2},
-            {"RBD": condition}
-        ]
+                "RBD": rbd_sector2
             })
 
             if not sector1_result or not sector2_result:
@@ -2051,14 +2061,11 @@ class RMDatabaseHelper:
             return 0, 0, 0, "", ""
 
     def getSellingPrice(self, rbd, sector, channel, route):
-        condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
-
         try:
             result = self.db.fares.find_one({
                 "$and": [
                     {"SECTOR": sector},
                     {"RBD": rbd},
-                    {"RBD": condition},
                     {"route": route}
                 ]
             })

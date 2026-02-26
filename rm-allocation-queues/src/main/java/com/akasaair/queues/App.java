@@ -8,6 +8,8 @@ import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
 import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.*;
@@ -56,7 +58,6 @@ import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
-import java.util.Date;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -196,9 +197,9 @@ public class App implements CommandLineRunner {
                         S3Object file = fileQueue.take();
                         String key = file.key();
                         if (processingSet.add(key)) {
-                            try {
-                                processFile(file);
-                            } finally {
+                        try {
+                            processFile(file);
+                        } finally {
                                 processingSet.remove(key);
                             }
                         }
@@ -988,6 +989,46 @@ public class App implements CommandLineRunner {
                         }
                     } catch (Exception ex) {
                         listOfErrors.get().add("Error processing active_sectors file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case QP_FARES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadFares(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing Fares file content");
+                            throw new RuntimeException("Error processing Fares file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing Fares file content");
                         log.info("Error during file processing: " + ex.getMessage());
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
@@ -1785,7 +1826,7 @@ public class App implements CommandLineRunner {
             Validator validate = getValidator(tableName);
             String val = null;
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
-                val = searchResults(PARAMETER_RBD_VALUES);
+                val = getAllRBDs();
             }
             if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
                 updateInputStatus(tableName);
@@ -2298,6 +2339,27 @@ public class App implements CommandLineRunner {
             e.printStackTrace();
         }
         return listObj;
+    }
+
+    public String getAllRBDs() {
+        String rbdList = null;
+        try {
+            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+
+            for (Document doc : docs) {
+                String key = doc.getString("parameterKey");
+                Object val = doc.get(PARAMETER_VALUE_COLUMN_NAME);
+
+                if (key != null && val != null) {
+                    String value = val.toString();
+                    rbdList = (rbdList == null) ? value : rbdList + "," + value;
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+        return rbdList;
     }
 
     private  Validator getValidator(String tableName) {
@@ -5021,6 +5083,83 @@ public class App implements CommandLineRunner {
                 listOfErrors.get().add("An unexpected error occurred");
             }
             addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadFares(Reader file, String tableName, String userName, Object role,
+                                  String objId) throws DataMismatchedException {
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, objId);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<String> headers = Arrays.asList(getColumnHeaders(tableName).split(COMMA));
+            List<Map<String, String>> data = createListOfMap(csvData, headers);
+
+            Validator validate = getValidator(tableName);
+            String val = getAllRBDs();
+            if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                listOfErrors.get().add(INVALID_DATA_ERROR_MESSAGE);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 0; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector   = row.get(0).trim();
+                    String org      = row.get(1).trim();
+                    String dst      = row.get(2).trim();
+                    String route    = row.get(3).trim();
+                    String rbd      = row.get(4).trim();
+                    String total = row.get(5).trim();
+                    String currency = row.get(6).trim();
+
+                    Document filter = new Document().append("SECTOR", sector).append("route", route).append("RBD", rbd);
+
+                    Document updateFields = new Document()
+                            .append("Org", org)
+                            .append("Dst", dst)
+                            .append("TOTAL", autoConvert(total))
+                            .append("currency", currency);
+
+                    bulkUpdates.add(new UpdateOneModel<>(filter, new Document("$set", updateFields), new UpdateOptions().upsert(true)));
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + i + ": Insufficient columns in CSV");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + i + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, "fares");
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, objId);
+            updateAuditStatement(tableName, getCurrentDateTime(), objId);
+
+        } catch (DataMismatchedException e) {
+            throw e;
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) listOfErrors.get().add("An unexpected error occurred");
+            addErrorsToTable(listOfErrors.get(), objId);
             throw new RuntimeException(e);
         } finally {
             updateInputStatus(tableName);
