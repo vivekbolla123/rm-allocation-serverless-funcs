@@ -407,6 +407,46 @@ class LadderPAHelper:
         except Exception as e:
             self.logger.error(f"Error getting sector currency: {str(e)}")
             return 'INR'  # Default to INR on error
+
+    def get_sector_native_currency(self, sector, route, fare_direction='F'):
+        """Get the native currency for a sector using a specific Fare_Direction.
+        
+        In qp_fares, Origin/Destination stay the same for both directions.
+        Only Fare_Direction changes: 'F' for forward, 'T' for reverse.
+        For BOMHKT with direction='T', this returns the reverse (HKTBOM) currency (e.g., THB).
+        
+        Args:
+            sector: The forward sector string e.g. 'BOMHKT'.
+            route: 'D' or 'I'.
+            fare_direction: 'F' for forward currency, 'T' for reverse currency.
+        """
+        try:
+            rule_nbr = '1001' if route == 'D' else 'R101'
+            origin = sector[:3]
+            destination = sector[3:]
+            
+            query = {
+                'Carrier_Code': 'QP',
+                'Rule_Nbr': rule_nbr,
+                'OW_RT': 'O',
+                'Fare_Direction': fare_direction,
+                'Origin': origin,
+                'Destination': destination
+            }
+            
+            result = self.db.qp_fares.find_one(query, {'Currency': 1, '_id': 0})
+            
+            if result and 'Currency' in result:
+                currency = result['Currency']
+                self.logger.info(f"Sector {sector} (direction={fare_direction}) currency: {currency}")
+                return currency
+            else:
+                self.logger.warning(f"No currency found for sector {sector} (direction={fare_direction}), defaulting to INR")
+                return 'INR'
+                
+        except Exception as e:
+            self.logger.error(f"Error getting sector native currency: {str(e)}")
+            return 'INR'
     
     def save_ladder_to_csv(self, ladder_result, run_id, sector, analystName, route):
         """Save both B2B and B2C ladders to MongoDB with current QP fares, RBD mapping, and all-in fares."""

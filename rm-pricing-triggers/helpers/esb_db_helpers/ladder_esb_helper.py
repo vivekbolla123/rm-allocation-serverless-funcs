@@ -44,9 +44,8 @@ class LadderEsbHelper:
                 }
             }
 
-            # Add fare threshold filter if provided
+            # Log fare threshold if provided (applied after type conversion in pipeline)
             if max_fare_threshold is not None:
-                match_conditions["gross_fare"] = {"$lte": max_fare_threshold}
                 self.logger.info(f"Applying max fare threshold: gross_fare <= {max_fare_threshold}")
 
             # Projection — keep only what we need
@@ -55,7 +54,8 @@ class LadderEsbHelper:
                 "gross_fare": 1,
                 "departure_date": 1,
                 "source_airport": 1,
-                "destination_airport": 1
+                "destination_airport": 1,
+                "outbound_flight_number": 1
             }
 
             all_results = []
@@ -67,7 +67,12 @@ class LadderEsbHelper:
 
             if not ag_exists and not rg_exists:
                 self.logger.warning("Neither market_fares_ag nor market_fares_rg collections found")
-                return pd.DataFrame(columns=['Fare', 'departure_date', 'source_airport', 'destination_airport', 'data_source'])
+                return pd.DataFrame(columns=['Fare', 'departure_date', 'source_airport', 'destination_airport', 'outbound_flight_number', 'data_source'])
+
+            # Build fare threshold match stage (applied after $convert so gross_fare is numeric)
+            fare_threshold_stage = []
+            if max_fare_threshold is not None:
+                fare_threshold_stage = [{"$match": {"gross_fare": {"$lte": max_fare_threshold}}}]
 
             # Query AG collection
             if ag_exists:
@@ -84,6 +89,7 @@ class LadderEsbHelper:
                                 }
                             }
                         }},
+                        *fare_threshold_stage,
                         {"$addFields": {"data_source": "AG"}},
                         {"$project": {**projection, "data_source": 1}}
                     ]
@@ -109,6 +115,7 @@ class LadderEsbHelper:
                                 }
                             }
                         }},
+                        *fare_threshold_stage,
                         {"$addFields": {"data_source": "RG"}},
                         {"$project": {**projection, "data_source": 1}}
                     ]
@@ -121,7 +128,7 @@ class LadderEsbHelper:
 
             if not all_results:
                 self.logger.warning(f"No market fare records found for {sector}, channel={channel}, NDO={ndo}")
-                return pd.DataFrame(columns=['Fare', 'departure_date', 'source_airport', 'destination_airport', 'data_source'])
+                return pd.DataFrame(columns=['Fare', 'departure_date', 'source_airport', 'destination_airport', 'outbound_flight_number', 'data_source'])
 
             # Convert to DataFrame
             df = pd.DataFrame(all_results)
@@ -141,4 +148,62 @@ class LadderEsbHelper:
         except Exception as e:
             self.logger.error(f"Error collecting market fare data: {str(e)}")
             self.failure_reason = f"Market fare data collection failed: {str(e)}"
+            raise
+
+    def collect_combined_market_fare_data_bidirectional(self, ndo, sector, reverse_sector, channel, max_fare_threshold=None, conversion_rate=1.0):
+        """Fetch fares for both sector directions and normalize all to INR.
+        
+        Args:
+            ndo: Number of days out.
+            sector: Forward sector e.g. 'BOMHKT' (fares assumed in INR).
+            reverse_sector: Reverse sector e.g. 'HKTBOM' (fares in foreign currency).
+            channel: 'B2C' or 'B2B'.
+            max_fare_threshold: Max fare in INR. Applied after currency conversion.
+            conversion_rate: INR -> foreign currency rate (e.g. INR -> THB).
+                             Reverse fares are converted to INR by dividing by this rate.
+        
+        Returns:
+            DataFrame with all fares normalized to INR, sorted ascending.
+        """
+        try:
+            # 1. Forward sector fares (already in INR) — no threshold at query level,
+            #    we apply it after since forward fares are already in INR
+            forward_df = self.collect_combined_market_fare_data(ndo, sector, channel)
+            forward_count = len(forward_df) if not forward_df.empty else 0
+            self.logger.info(f"Forward sector {sector}: {forward_count} records")
+
+            # 2. Reverse sector fares (in foreign currency)
+            reverse_df = self.collect_combined_market_fare_data(ndo, reverse_sector, channel)
+            reverse_count = len(reverse_df) if not reverse_df.empty else 0
+            self.logger.info(f"Reverse sector {reverse_sector}: {reverse_count} records")
+
+            # 3. Convert reverse fares to INR
+            if not reverse_df.empty and conversion_rate != 1.0:
+                reverse_df['Fare'] = reverse_df['Fare'] / conversion_rate
+                self.logger.info(f"Converted {reverse_count} reverse fares to INR (÷ {conversion_rate})")
+
+            # 4. Combine both directions
+            if forward_df.empty and reverse_df.empty:
+                self.logger.warning(f"No market fare records found for {sector} or {reverse_sector}, channel={channel}, NDO={ndo}")
+                return pd.DataFrame(columns=['Fare', 'departure_date', 'source_airport', 'destination_airport', 'outbound_flight_number', 'data_source'])
+
+            combined_df = pd.concat([forward_df, reverse_df], ignore_index=True)
+
+            # 5. Apply fare threshold in INR on the combined data
+            if max_fare_threshold is not None:
+                before_count = len(combined_df)
+                combined_df = combined_df[combined_df['Fare'] <= max_fare_threshold]
+                after_count = len(combined_df)
+                self.logger.info(f"Fare threshold {max_fare_threshold} INR: {before_count} -> {after_count} records")
+
+            # 6. Drop nulls and sort
+            combined_df = combined_df.dropna(subset=['Fare'])
+            combined_df = combined_df.sort_values('Fare', ascending=True).reset_index(drop=True)
+
+            self.logger.info(f"Bidirectional total: {len(combined_df)} records for {sector}+{reverse_sector}, channel={channel}, NDO={ndo}")
+            return combined_df
+
+        except Exception as e:
+            self.logger.error(f"Error in bidirectional market fare collection: {str(e)}")
+            self.failure_reason = f"Bidirectional market fare collection failed: {str(e)}"
             raise
