@@ -456,7 +456,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.OpenRBD1 = b2c_rbd_sector1
                 self.outputSummaryRow_b2c.OpenRBD2 = b2c_rbd_sector2
                 b2cSectorTotal,SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
-                    b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, "B2C")
+                    b2c_rbd_sector1, b2c_rbd_sector2, sector1, sector2, B2C_CHANNEL)
                 if currency1!='INR':
                     SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                 if currency2!='INR':
@@ -590,7 +590,7 @@ class DynAllocConnections:
                             'B2B Opening NA - Skipping allocation'], 'anchorFare': ['NA'], 'statusInd': [1], 'allocationStatus': [0]}
                     else:
                         b2bSectorTotal, SellingFare1, SellingFare2,currency1,currency2 = self.rmdatabasehelper.getFinalPrice(
-                            b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, "B2B")
+                            b2b_rbd_sector1, b2b_rbd_sector2, sector1, sector2, B2B_CHANNEL)
                         if currency1!='INR':
                             SellingFare1=self.convert_currency(currency1,'INR',SellingFare1)
                         if currency2!='INR':
@@ -857,7 +857,7 @@ class DynAllocConnections:
         if self.inputSource.output[CONST_AU_GRID] == FILE and len(self.AUFileData) != 0:
             AUlist = ['Type', 'Flight', 'StartDate', 'EndDate', 'DayOfWeek',
                       'Aircraft Type', 'Aircraft Suffix', 'Lid', 'Capacity', 'Status']
-            length = Constants.AU_COLUMN_LENGTH_CONNECTIONS
+            length = self.AU_COLUMN_LENGTH_CONNECTIONS
             for i in range(length):
                 AUlist.append(f'Class Of Service AU Class {i+1}')
                 AUlist.append(f'Class Type AU Class {i+1}')
