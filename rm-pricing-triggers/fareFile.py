@@ -652,17 +652,17 @@ class FareFiling:
                         # Now determine the final base fare for output
                         if base_all_in == 'Base':
                             # Upsold fare is already base fare
-                            if currency == 'INR':
+                            if currency == 'INR' and currency not in self.constants.CURRENCY_ROUND_OFF_LIST:
                                 final_base_fare = round(upsold_fare)
                             else:
-                                final_base_fare = round(upsold_fare, 2)
+                                final_base_fare = round(upsold_fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
                         else:
                             # Upsold fare is all-in fare, extract base fare
                             extracted_base = self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin")
-                            if currency == 'INR':
+                            if currency == 'INR' and currency not in self.constants.CURRENCY_ROUND_OFF_LIST:
                                 final_base_fare = round(extracted_base)
                             else:
-                                final_base_fare = round(extracted_base, 2)
+                                final_base_fare = round(extracted_base, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
                         
                         # Get other parameters - use upsell row's OWN footnote for output
                         ow_rt = upsell_row.get('ow_rt', 'O')
@@ -947,9 +947,15 @@ class FareFiling:
                     
                     # Convert to base fare
                     if base_all_in == 'Base':
-                        final_base_fare = round(upsold_fare)
+                        if currency == 'INR' and currency not in self.constants.CURRENCY_ROUND_OFF_LIST:
+                            final_base_fare = round(upsold_fare)
+                        else:
+                            final_base_fare = round(upsold_fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
                     else:
-                        final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
+                        if currency == 'INR' and currency not in self.constants.CURRENCY_ROUND_OFF_LIST:
+                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"))
+                        else:
+                            final_base_fare = round(self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin"), int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
                     
                     # Sort price logic
                     sort_price = config_row.get('sort_price')
@@ -1235,10 +1241,10 @@ class FareFiling:
                     
                     # Convert to base fare
                     if base_all_in == 'Base':
-                        final_base_fare = round(upsold_fare, 2) if currency != 'INR' else round(upsold_fare)
+                        final_base_fare = round(upsold_fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency])) if currency != 'INR' else round(upsold_fare)
                     else:
                         final_base_fare = self.calculate_all_in_fare(upsold_fare, origin, destination, ftype="allin")
-                        final_base_fare = round(final_base_fare, 2) if currency != 'INR' else round(final_base_fare)
+                        final_base_fare = round(final_base_fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency])) if currency != 'INR' else round(final_base_fare)
                     
                     # Sort price logic
                     sort_price = config_row.get('sort_price')
@@ -1446,10 +1452,10 @@ class FareFiling:
                 base_fare = self.calculate_all_in_fare(allin_fare, origin, destination, ftype="allin")
                 
                 # Round based on currency
-                if currency == 'INR':
+                if currency == 'INR' and currency not in self.constants.CURRENCY_ROUND_OFF_LIST:
                     base_fare = round(base_fare)
                 else:
-                    base_fare = round(base_fare, 2)
+                    base_fare = round(base_fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
                 
                 # Determine rule number(s) based on RBD
                 rules_to_generate = []
