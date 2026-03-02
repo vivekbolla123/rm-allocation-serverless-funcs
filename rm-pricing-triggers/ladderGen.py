@@ -219,6 +219,19 @@ class LadderGen:
                                 self.market_fares_data.loc[reverse_mask, 'gross_fare'] / self.reverse_conversion_rate
                             )
                             self.logger.info(f"Converted {reverse_count} reverse-sector market fares to INR (÷ {self.reverse_conversion_rate})")
+                    
+                    if self.market_fares_data is not None and not self.market_fares_data.empty:
+                        initial_count = len(self.market_fares_data)
+                        b2c_mask = (self.market_fares_data['channel'] == 'B2C') & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2C)
+                        b2b_mask = (self.market_fares_data['channel'] == 'B2B') & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2B)
+                        other_mask = ~self.market_fares_data['channel'].isin(['B2C', 'B2B'])
+                        
+                        self.market_fares_data = self.market_fares_data[b2c_mask | b2b_mask | other_mask].copy()
+                        
+                        filtered_count = initial_count - len(self.market_fares_data)
+                        if filtered_count > 0:
+                            self.logger.info(f"Filtered {filtered_count} market fares exceeding thresholds after conversion (B2C: {self.MAX_MARKET_THRESHOLD_B2C}, B2B: {self.MAX_MARKET_THRESHOLD_B2B})")
+                    
                     success_count += 1
             except Exception as e:
                 self.logger.error(f"Market fares collection failed: {str(e)}")
@@ -831,12 +844,6 @@ class LadderGen:
                 fmax_new = max_booking_fare
                 self.logger.info(f"fmax calculation: using max booking fare = {fmax_new:.2f} (MARKET_FLAG={self.MARKET_FLAG})")
             
-            # Cap fmax at MAX_MARKET_THRESHOLD_B2C (convert to local currency if needed)
-            max_threshold_b2c_local = self.MAX_MARKET_THRESHOLD_B2C * self.conversion_rate
-            if fmax_new > max_threshold_b2c_local:
-                self.logger.info(f"Capping fmax from {fmax_new:.2f} to threshold {max_threshold_b2c_local:.2f}")
-                fmax_new = max_threshold_b2c_local
-            
             # Build initial complete ladder (before UP recalculation)
             initial_ladder = [f1, f2, f3] + core_fares
             
@@ -1075,12 +1082,6 @@ class LadderGen:
             else:
                 fmax_b2b_new = max_booking_fare
                 self.logger.info(f"fmax_b2b calculation: using max booking fare = {fmax_b2b_new:.2f} (MARKET_FLAG={self.MARKET_FLAG})")
-            
-            # Cap fmax_b2b at MAX_MARKET_THRESHOLD_B2B (convert to local currency if needed)
-            max_threshold_b2b_local = self.MAX_MARKET_THRESHOLD_B2B * self.conversion_rate
-            if fmax_b2b_new > max_threshold_b2b_local:
-                self.logger.info(f"Capping fmax_b2b from {fmax_b2b_new:.2f} to threshold {max_threshold_b2b_local:.2f}")
-                fmax_b2b_new = max_threshold_b2b_local
             
             # Build initial complete ladder (before UP recalculation)
             initial_ladder = [f1, f2] + core_fares
