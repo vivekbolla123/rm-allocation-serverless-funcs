@@ -38,6 +38,8 @@ class LadderGen:
         self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
+        self.batch_run_id = overrides.get('batch_run_id', None)
+        self.batch_total = overrides.get('batch_total', None)
         
         # Sector is always expected as a list (single or multiple)
         if 'sector' not in overrides:
@@ -1347,7 +1349,8 @@ class LadderGen:
 
     def run(self):
         """Main execution method - processes all sectors under a single run_id."""
-        run_id = str(uuid.uuid4())
+        # Use batch_run_id if dispatched from orchestrator, otherwise generate new
+        run_id = self.batch_run_id or str(uuid.uuid4())
         self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         all_results = []
         all_ladder_results = []
