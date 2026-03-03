@@ -87,6 +87,8 @@ class LadderGen:
         self.market_fares_data = None
         self.city_pair_data = None
         self.currentVersion = None
+        self.fare_cap_data = None  # Sector-level fare caps (Base Fare + RCS + CUTE)
+        self.fare_cap_value = None  # Effective fare cap value for current sector
         # Failure tracking
         self.failure_reason = None
         self.outlier_count = None
@@ -197,6 +199,27 @@ class LadderGen:
             except Exception as e:
                 self.logger.error(f"City pair data collection failed (non-critical): {str(e)}")
             
+            # Collect fare caps for this sector
+            try:
+                reverse_sector = self._get_reverse_sector(self.sector)
+                self.fare_cap_data = self.pa_helper.collect_fare_caps(self.sector, reverse_sector)
+                if self.fare_cap_data:
+                    # Use fare cap from the sector or reverse sector
+                    cap_entry = self.fare_cap_data.get(self.sector) or self.fare_cap_data.get(reverse_sector)
+                    if cap_entry:
+                        self.fare_cap_value = float(cap_entry.get('fare_cap', 0))
+                        self.logger.info(f"Fare cap for {self.sector}: {self.fare_cap_value} "
+                                       f"(Base={cap_entry.get('base_fare_cap')}, RCS={cap_entry.get('rcs')}, CUTE={cap_entry.get('cute')})")
+                    else:
+                        self.fare_cap_value = None
+                        self.logger.warning(f"No fare cap entry found for sector {self.sector}")
+                else:
+                    self.fare_cap_value = None
+                    self.logger.warning(f"No fare caps available for sector {self.sector}")
+            except Exception as e:
+                self.logger.error(f"Fare cap collection failed (non-critical): {str(e)}")
+                self.fare_cap_value = None
+            
             # Check if critical data is missing
             critical_failures = []
             if self.market_fares_data is None or self.market_fares_data.empty:
@@ -275,7 +298,11 @@ class LadderGen:
         return filtered_data
 
     def get_historical_booking_data(self, channel):
-        """Get booking data with priority logic for both directions."""
+        """Get booking data with priority logic for both directions.
+        
+        ESB data now returns base fare (DiscountedBaseFare_Pro).
+        Fare cap is applied to filter out base fares above the cap.
+        """
         try:
             current_date = datetime.now().date()
             reverse_sector = self._get_reverse_sector(self.sector)
@@ -286,6 +313,7 @@ class LadderGen:
                 combined_30 = self.esb_helper.collect_combined_booking_data_bidirectional(
                     start_date_30, current_date, self.sector, reverse_sector, channel
                 )
+                combined_30 = self._apply_fare_cap_to_bookings(combined_30, channel)
                 combined_30 = self.remove_outliers(combined_30, period_label="30day")
                 distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
                 
@@ -297,6 +325,7 @@ class LadderGen:
                 combined_60 = self.esb_helper.collect_combined_booking_data_bidirectional(
                     start_date_60, current_date, self.sector, reverse_sector, channel
                 )
+                combined_60 = self._apply_fare_cap_to_bookings(combined_60, channel)
                 combined_60 = self.remove_outliers(combined_60, period_label="60day")
                 distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
                 
@@ -309,6 +338,7 @@ class LadderGen:
                 combined_prev = self.esb_helper.collect_combined_booking_data_bidirectional(
                     prev_year_start, prev_year_current, self.sector, reverse_sector, channel
                 )
+                combined_prev = self._apply_fare_cap_to_bookings(combined_prev, channel)
                 combined_prev = self.remove_outliers(combined_prev, period_label="prev_year")
                 distinct_fares_prev = len(combined_prev['Fare'].unique()) if not combined_prev.empty else 0
                 
@@ -325,6 +355,7 @@ class LadderGen:
                 combined_60 = self.esb_helper.collect_combined_booking_data_bidirectional(
                     start_date_60, current_date, self.sector, reverse_sector, channel
                 )
+                combined_60 = self._apply_fare_cap_to_bookings(combined_60, channel)
                 combined_60 = self.remove_outliers(combined_60, period_label="60day")
                 return combined_60, "Last 60 days"
             
@@ -332,6 +363,37 @@ class LadderGen:
             self.logger.error(f"Error in booking data collection: {str(e)}")
             self.failure_reason = f"Booking data collection failed: {str(e)}"
             raise
+    
+    def _apply_fare_cap_to_bookings(self, booking_data, channel):
+        """Filter out booking fares that exceed the fare cap.
+        
+        Since ESB now returns base fare, we compare directly against the 
+        base_fare_cap component of the fare cap.
+        """
+        if booking_data.empty or self.fare_cap_value is None:
+            return booking_data
+        
+        # Get base fare cap component (fare_cap = base_fare_cap + RCS + CUTE)
+        # For base fare comparison, use base_fare_cap
+        cap_entry = None
+        if self.fare_cap_data:
+            cap_entry = self.fare_cap_data.get(self.sector) or self.fare_cap_data.get(self._get_reverse_sector(self.sector))
+        
+        if cap_entry and cap_entry.get('base_fare_cap'):
+            base_fare_cap = float(cap_entry['base_fare_cap'])
+        else:
+            # If only fare_cap is available, use it as-is for filtering
+            base_fare_cap = self.fare_cap_value
+        
+        original_count = len(booking_data)
+        filtered_data = booking_data[booking_data['Fare'] <= base_fare_cap].copy()
+        removed_count = original_count - len(filtered_data)
+        
+        if removed_count > 0:
+            self.logger.info(f"Fare cap filter ({channel}): removed {removed_count} of {original_count} "
+                           f"bookings with base fare > {base_fare_cap:.2f}")
+        
+        return filtered_data
 
     def create_fare_bins(self, booking_data, channel):
         """Create fare bins and apply currency conversion if needed."""
@@ -650,23 +712,55 @@ class LadderGen:
             self.logger.error(f"Error calculating base international fare: {str(e)}")
 
     def _find_valid_market_fare(self, market_data, fare_type, origin, destination):
-        """Find valid market fare that satisfies yield constraint for both domestic and international."""
+        """Find valid market fare that satisfies yield constraint.
+        
+        Market fares are stored as gross_fare (all-in). This method:
+        1. Filters fares by fare cap (gross_fare <= fare_cap)
+        2. Performs yield check using reverse-calculated base fare
+        3. Returns the BASE FARE (reverse-calculated) instead of gross_fare
+        """
         try:
             if market_data.empty:
                 return None
             
+            # Apply fare cap filter to market fares
+            filtered_data = market_data.copy()
+            if self.fare_cap_value is not None:
+                before_count = len(filtered_data)
+                filtered_data = filtered_data[filtered_data['gross_fare'] <= self.fare_cap_value]
+                after_count = len(filtered_data)
+                if before_count != after_count:
+                    self.logger.info(f"Fare cap filter on market fares: {before_count - after_count} fares removed "
+                                   f"(cap={self.fare_cap_value:.2f})")
+            
+            if filtered_data.empty:
+                self.logger.warning(f"No market fares remain after fare cap filter")
+                return None
+            
             # Data is already filtered for B2C and instances >= 2 from MongoDB
             if fare_type == 'min':
-                sorted_data = market_data.sort_values('gross_fare', ascending=True)
+                sorted_data = filtered_data.sort_values('gross_fare', ascending=True)
             else:
-                sorted_data = market_data.sort_values('gross_fare', ascending=False)
+                sorted_data = filtered_data.sort_values('gross_fare', ascending=False)
             
             # Get distance for yield calculation
             distance = self._get_distance(origin, destination)
             if distance == 0:
                 self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
-                # Return first fare without yield check if distance not available
-                return sorted_data.iloc[0]['gross_fare'] if not sorted_data.empty else None
+                # Return base fare without yield check if distance not available
+                if not sorted_data.empty:
+                    gross_fare = sorted_data.iloc[0]['gross_fare']
+                    # For international routes with currency conversion, convert to INR first
+                    if self.route == 'I' and self.conversion_rate != 1.0:
+                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
+                    else:
+                        gross_fare_inr = gross_fare
+                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, origin, destination)
+                    # Convert base fare to local currency if needed
+                    if self.route == 'I' and self.conversion_rate != 1.0:
+                        base_fare = base_fare * self.conversion_rate
+                    return base_fare
+                return None
             
             # Perform yield check for both domestic and international
             for _, row in sorted_data.iterrows():
@@ -689,7 +783,10 @@ class LadderGen:
                     # Check yield constraint (1.5 for both domestic and international)
                     if yield_value >= 1.5:
                         self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= 1.5")
-                        return gross_fare  # Return original fare in local currency
+                        # Return BASE FARE in local currency (not gross_fare)
+                        if self.route == 'I' and self.conversion_rate != 1.0:
+                            return base_fare * self.conversion_rate
+                        return base_fare
                     else:
                         self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < 1.5")
                         
@@ -1284,6 +1381,8 @@ class LadderGen:
             # Reset failure tracking for each sector
             self.failure_reason = None
             self.outlier_count = None
+            self.fare_cap_data = None
+            self.fare_cap_value = None
             
             result = self._run_single_sector(run_id)
             all_results.append(result)

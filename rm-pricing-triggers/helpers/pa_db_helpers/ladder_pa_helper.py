@@ -86,6 +86,52 @@ class LadderPAHelper:
             self.failure_reason = f"Tax master data collection failed: {str(e)}"
             return None, None, self.failure_reason
     
+    def collect_fare_caps(self, sector, reverse_sector):
+        """Collect sector-level fare caps from MongoDB.
+        
+        Fare cap = Base Fare + RCS + CUTE (provided as input per sector).
+        Returns a dict with fare cap values for the sector.
+        """
+        try:
+            fare_caps_collection = self.db.fare_caps
+            
+            # Fetch fare caps for both sector and reverse sector
+            query = {
+                'sector': {'$in': [sector, reverse_sector]}
+            }
+            
+            fare_caps_list = list(fare_caps_collection.find(
+                query,
+                {
+                    '_id': 0,
+                    'sector': 1,
+                    'base_fare_cap': 1,
+                    'rcs': 1,
+                    'cute': 1,
+                    'fare_cap': 1,
+                    'route': 1
+                }
+            ))
+            
+            if not fare_caps_list:
+                self.logger.warning(f"No fare caps found for sectors {sector} / {reverse_sector}")
+                return None
+            
+            # Build dict keyed by sector
+            fare_caps = {}
+            for cap in fare_caps_list:
+                fare_caps[cap['sector']] = cap
+            
+            self.logger.info(f"Fare caps loaded for {list(fare_caps.keys())}: "
+                           f"cap values = {[c.get('fare_cap') for c in fare_caps.values()]}")
+            
+            return fare_caps
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting fare caps: {str(e)}")
+            self.failure_reason = f"Fare caps collection failed: {str(e)}"
+            return None
+    
     def collect_market_fares(self, route, sector, max_market_b2b, max_market_b2c):
         """Collect market fares for both B2B and B2C channels. Optimized for large datasets."""
         try:
@@ -609,8 +655,8 @@ class LadderPAHelper:
                         'rbd_name': rbd_names_b2b[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in , 2),
-                        'new_all_in_ladder_fare': round( new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -658,8 +704,8 @@ class LadderPAHelper:
                         'rbd_name': rbd_names_b2c[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in, 2),
-                        'new_all_in_ladder_fare': round(new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
