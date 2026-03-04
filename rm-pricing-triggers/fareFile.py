@@ -33,6 +33,10 @@ class FareFiling:
         self.saver_data = None
         self.currentVersion = None
         self.isSaver = True if self.type == "Saver" else False
+        self.B2B_RBD_LIST = self.constants.B2B_RBD_VALUES.split(',')
+        self.B2C_RBD_LIST = self.constants.B2C_RBD_VALUES.split(',')
+        self.TOTAL_B2C_FARES = len(self.B2C_RBD_LIST)
+        self.TOTAL_B2B_FARES = len(self.B2B_RBD_LIST)
         
         # RBD list for iteration
         self.rbd_list = None
@@ -432,14 +436,12 @@ class FareFiling:
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
             if(ftype == 'base'):
-                 gst = gst_rate * (gross_fare + rcs + cute + rcs_cute)
-                 total_taxes = gross_fare + asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
+                 gst = gst_rate * (gross_fare + rcs + cute)
+                 total_taxes = gross_fare + asf + psf_adf + udf + psc_pz + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
             else:
-                gst_on_taxes = gst_rate * (rcs + cute + rcs_cute)
+                gst_on_taxes = gst_rate * (rcs + cute)
                 other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5
-                total_taxes  = (
-                    gross_fare - rcs - cute - rcs_cute - gst_on_taxes - other_taxes
-                ) / (1 + gst_rate)
+                total_taxes  = (gross_fare - (rcs + cute + gst_on_taxes + other_taxes)) / (1 + gst_rate)
                 
             return total_taxes
             
@@ -849,7 +851,7 @@ class FareFiling:
                     # Rule 2001 should cover ZJ to Y0 (84 RBDs) when generated from 1007
                     # Override the RBD range from config if needed
                     b2b_rbds = self.get_rbd_range('Z9', 'Y0')  # 84 RBDs for B2B
-                    if len(b2b_rbds) == 84:  # Verify we have the right range
+                    if len(b2b_rbds) == self.TOTAL_B2B_FARES + self.TOTAL_B2C_FARES:  # Verify we have the right range
                         rbd_range = b2b_rbds
                 
                 if not rbd_range:
@@ -1142,7 +1144,7 @@ class FareFiling:
                     if self.saver_data is not None and not self.saver_data.empty:
                         z_rbds = self.saver_data[
                             (self.saver_data['sector'] == sector) &
-                            (self.saver_data['rbd'].str.startswith('Z'))
+                            (self.saver_data['rbd'])
                         ]['rbd'].unique().tolist()
                         
                         # Combine with existing RBD range
@@ -1468,18 +1470,18 @@ class FareFiling:
                     elif self.route == 'I':
                         if saver_is_connections == 'Y':
                             rules_to_generate.append('R201')
+                            rules_to_generate.append('M201')
                         else:
                             rules_to_generate.append('R101')
+                            rules_to_generate.append('M101')
                 elif rbd in b2b_rbds:
                     # B2B only RBDs (ZJ to Z0, excluding V9 to Y0) generate only 2001
                     if self.route == 'D':
                         rules_to_generate.append('2001')
                     elif self.route == 'I':
                         if saver_is_connections == 'Y':
-                            rules_to_generate.append('R201')
                             rules_to_generate.append('M201')
                         else:
-                            rules_to_generate.append('R101')
                             rules_to_generate.append('M101')
                 
                 # Determine actual origin, destination and fare direction based on QP fares convention
