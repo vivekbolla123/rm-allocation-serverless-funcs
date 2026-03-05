@@ -34,10 +34,11 @@ class LadderGen:
         self.FILE_PATH = configsettings.PA_FILE_PATH
         self.constants = ConstantsUtils(self.db)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
-        self.esb_helper = LadderEsbHelper(self.db_fares, logger)
+        self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, self.db_fares, logger)
         self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
+        self.fare_source_flag = overrides.get('fare_source_flag', 'market')
         
         # Sector is always expected as a list (single or multiple)
         if 'sector' not in overrides:
@@ -78,10 +79,14 @@ class LadderGen:
         self.UP_B2B = self.constants.UP_B2B
         self.MARKET_FLAG = self.constants.MARKET_FLAG_DOMESTIC if self.route == 'D' else self.constants.MARKET_FLAG_INTERNATIONAL
         self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD if self.route == 'D' else self.constants.B2B_THRESHOLD_INTERNATIONAL
-        self.MAX_MARKET_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
-        self.MAX_MARKET_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
-        self.MIN_MARKET_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
-        self.MIN_MARKET_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+        # Market fare thresholds (used when fare_source_flag == 'market')
+        self.MAX_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MAX_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.MIN_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
+        self.MIN_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+        # ESB fare thresholds (used when fare_source_flag == 'esb')
+        self.MAX_ESBFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MAX_ESBFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
         self.B2B_CHANNEL = "B2B"
         self.B2C_CHANNEL = "B2C"
         self.pa_helper = LadderPAHelper(self, self.db, self.db_fares, logger, self.calculate_all_in_fare)
@@ -202,7 +207,7 @@ class LadderGen:
                 # Collect market fares for both directions
                 reverse_sector = self._get_reverse_sector(self.sector)
                 self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares_bidirectional(
-                    self.route, self.sector, reverse_sector, self.MAX_MARKET_THRESHOLD_B2B, self.MAX_MARKET_THRESHOLD_B2C
+                    self.route, self.sector, reverse_sector, self.MAX_MARKETFARES_THRESHOLD_B2B, self.MAX_MARKETFARES_THRESHOLD_B2C
                 )
                 if failure_reason:
                     self.failure_reason = failure_reason
@@ -224,15 +229,15 @@ class LadderGen:
                     
                     if self.market_fares_data is not None and not self.market_fares_data.empty:
                         initial_count = len(self.market_fares_data)
-                        b2c_mask = (self.market_fares_data['channel'] == 'B2C') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKET_THRESHOLD_B2C) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2C)
-                        b2b_mask = (self.market_fares_data['channel'] == 'B2B') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKET_THRESHOLD_B2B) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2B)
+                        b2c_mask = (self.market_fares_data['channel'] == 'B2C') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKETFARES_THRESHOLD_B2C) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKETFARES_THRESHOLD_B2C)
+                        b2b_mask = (self.market_fares_data['channel'] == 'B2B') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKETFARES_THRESHOLD_B2B) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKETFARES_THRESHOLD_B2B)
                         other_mask = ~self.market_fares_data['channel'].isin(['B2C', 'B2B'])
                         
                         self.market_fares_data = self.market_fares_data[b2c_mask | b2b_mask | other_mask].copy()
                         
                         filtered_count = initial_count - len(self.market_fares_data)
                         if filtered_count > 0:
-                            self.logger.info(f"Filtered {filtered_count} market fares exceeding thresholds after conversion (B2C: {self.MIN_MARKET_THRESHOLD_B2C}-{self.MAX_MARKET_THRESHOLD_B2C}, B2B: {self.MIN_MARKET_THRESHOLD_B2B}-{self.MAX_MARKET_THRESHOLD_B2B})")
+                            self.logger.info(f"Filtered {filtered_count} market fares exceeding thresholds after conversion (B2C: {self.MIN_MARKETFARES_THRESHOLD_B2C}-{self.MAX_MARKETFARES_THRESHOLD_B2C}, B2B: {self.MIN_MARKETFARES_THRESHOLD_B2B}-{self.MAX_MARKETFARES_THRESHOLD_B2B})")
                     
                     success_count += 1
             except Exception as e:
@@ -325,7 +330,7 @@ class LadderGen:
         return filtered_data
 
     def get_historical_booking_data(self, channel):
-        """Get market fare data with priority logic using NDO (days forward).
+        """Get market fare data or ESB data with priority logic using NDO (days).
         Fetches fares from both forward and reverse sectors, normalized to INR.
         """
         try:
@@ -333,11 +338,7 @@ class LadderGen:
             
             if channel == self.B2C_CHANNEL:
                 # Priority 1: NDO 30
-                combined_30 = self.esb_helper.collect_combined_market_fare_data_bidirectional(
-                    30, self.sector, reverse_sector, channel,
-                    max_fare_threshold=self.MAX_MARKET_THRESHOLD_B2C,
-                    conversion_rate=self.reverse_conversion_rate
-                )
+                combined_30 = self._fetch_booking_data_by_ndo(30, channel, reverse_sector)
                 combined_30 = self.remove_outliers(combined_30, period_label="ndo30")
                 distinct_fares_30 = len(combined_30['Fare'].unique()) if not combined_30.empty else 0
                 
@@ -345,11 +346,7 @@ class LadderGen:
                     return combined_30, "NDO 30"
                 
                 # Priority 2: NDO 60
-                combined_60 = self.esb_helper.collect_combined_market_fare_data_bidirectional(
-                    60, self.sector, reverse_sector, channel,
-                    max_fare_threshold=self.MAX_MARKET_THRESHOLD_B2C,
-                    conversion_rate=self.reverse_conversion_rate
-                )
+                combined_60 = self._fetch_booking_data_by_ndo(60, channel, reverse_sector)
                 combined_60 = self.remove_outliers(combined_60, period_label="ndo60")
                 distinct_fares_60 = len(combined_60['Fare'].unique()) if not combined_60.empty else 0
                 
@@ -357,11 +354,7 @@ class LadderGen:
                     return combined_60, "NDO 60"
                 
                 # Priority 3: NDO 365
-                combined_365 = self.esb_helper.collect_combined_market_fare_data_bidirectional(
-                    365, self.sector, reverse_sector, channel,
-                    max_fare_threshold=self.MAX_MARKET_THRESHOLD_B2C,
-                    conversion_rate=self.reverse_conversion_rate
-                )
+                combined_365 = self._fetch_booking_data_by_ndo(365, channel, reverse_sector)
                 combined_365 = self.remove_outliers(combined_365, period_label="ndo365")
                 distinct_fares_365 = len(combined_365['Fare'].unique()) if not combined_365.empty else 0
                 
@@ -374,28 +367,65 @@ class LadderGen:
             
             else:
                 # B2B: Priority 1: NDO 60
-                combined_60 = self.esb_helper.collect_combined_market_fare_data_bidirectional(
-                    60, self.sector, reverse_sector, channel,
-                    max_fare_threshold=self.MAX_MARKET_THRESHOLD_B2B,
-                    conversion_rate=self.reverse_conversion_rate
-                )
+                combined_60 = self._fetch_booking_data_by_ndo(60, channel, reverse_sector)
                 combined_60 = self.remove_outliers(combined_60, period_label="ndo60")
                 if not combined_60.empty:
                     return combined_60, "NDO 60"
                 
                 # B2B: Priority 2: NDO 365
-                combined_365 = self.esb_helper.collect_combined_market_fare_data_bidirectional(
-                    365, self.sector, reverse_sector, channel,
-                    max_fare_threshold=self.MAX_MARKET_THRESHOLD_B2B,
-                    conversion_rate=self.reverse_conversion_rate
-                )
+                combined_365 = self._fetch_booking_data_by_ndo(365, channel, reverse_sector)
                 combined_365 = self.remove_outliers(combined_365, period_label="ndo365")
                 return combined_365, "NDO 365"
             
         except Exception as e:
-            self.logger.error(f"Error in market fare data collection: {str(e)}")
-            self.failure_reason = f"Market fare data collection failed: {str(e)}"
+            self.logger.error(f"Error in data collection: {str(e)}")
+            self.failure_reason = f"Data collection failed: {str(e)}"
             raise
+
+    def _fetch_booking_data_by_ndo(self, ndo, channel, reverse_sector):
+        """Helper to fetch data based on fare_source_flag."""
+        if self.fare_source_flag.lower() == 'esb':
+            max_fare = self.MAX_ESBFARES_THRESHOLD_B2C if channel == self.B2C_CHANNEL else self.MAX_ESBFARES_THRESHOLD_B2B
+            
+            # For ESB, historical data looking backwards
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=ndo)
+            
+            combined_df = self.esb_helper.collect_combined_booking_data_bidirectional(
+                start_date.strftime('%Y-%m-%d'), 
+                end_date.strftime('%Y-%m-%d'), 
+                self.sector, 
+                reverse_sector, 
+                channel
+            )
+            
+            if not combined_df.empty:
+                # Apply reverse conversion rate
+                if self.reverse_conversion_rate != 1.0:
+                    reverse_mask = combined_df['Origin'] + combined_df['Destination'] == reverse_sector
+                    if reverse_mask.any():
+                        combined_df.loc[reverse_mask, 'Fare'] = combined_df.loc[reverse_mask, 'Fare'] / self.reverse_conversion_rate
+                        self.logger.info(f"Converted {reverse_mask.sum()} reverse fares to INR (÷ {self.reverse_conversion_rate})")
+                
+                # Apply ESB max threshold
+                before_count = len(combined_df)
+                combined_df = combined_df[combined_df['Fare'] <= max_fare]
+                after_count = len(combined_df)
+                self.logger.info(f"ESB fare threshold {max_fare} INR: {before_count} -> {after_count} records")
+                
+                combined_df = combined_df.dropna(subset=['Fare'])
+                combined_df = combined_df.sort_values('Fare', ascending=True).reset_index(drop=True)
+                
+            return combined_df
+        else:
+            max_fare = self.MAX_MARKETFARES_THRESHOLD_B2C if channel == self.B2C_CHANNEL else self.MAX_MARKETFARES_THRESHOLD_B2B
+            
+            # For Market Fares, looking forwards
+            return self.esb_helper.collect_combined_market_fare_data_bidirectional(
+                ndo, self.sector, reverse_sector, channel,
+                max_fare_threshold=max_fare,
+                conversion_rate=self.reverse_conversion_rate
+            )
 
     def create_fare_bins(self, booking_data, channel):
         """Create fare bins and apply currency conversion if needed."""
@@ -1254,12 +1284,18 @@ class LadderGen:
                     self.failure_reason = "Failed to create fare bins"
                 return None
             
-            adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c, self.B2C_CHANNEL)
-            adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b, self.B2B_CHANNEL)
-            if not adjusted_fare_points_b2c or not adjusted_fare_points_b2b:
-                if not self.failure_reason:
-                    self.failure_reason = "Failed to apply minimum threshold"
-                return None
+            # Apply minimum threshold only for market fares, not ESB fares
+            if self.fare_source_flag.lower() != 'esb':
+                adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c, self.B2C_CHANNEL)
+                adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b, self.B2B_CHANNEL)
+                if not adjusted_fare_points_b2c or not adjusted_fare_points_b2b:
+                    if not self.failure_reason:
+                        self.failure_reason = "Failed to apply minimum threshold"
+                    return None
+            else:
+                self.logger.info("Skipping minimum threshold for ESB fares")
+                adjusted_fare_points_b2c = fare_points_b2c
+                adjusted_fare_points_b2b = fare_points_b2b
                 
             complete_ladder_b2c = self.calculate_buffer_fares_b2c(adjusted_fare_points_b2c, booking_data_b2c)
             if not complete_ladder_b2c:
@@ -1294,9 +1330,13 @@ class LadderGen:
                 margin = b2c_threshold_limit - b2b_min
                 self.logger.info(f"B2B constraint validation: B2B constraint satisfied with margin of {margin:.2f}")
             
+            # Determine source label
+            fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
+            
             return {
                 'sector': self.sector,
                 'route': self.route,
+                'fare_source': fare_source,
                 'data_period': data_period,
                 'total_booking_records_b2c': len(booking_data_b2c),
                 'total_booking_records_b2b': len(booking_data_b2b),
