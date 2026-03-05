@@ -17,7 +17,7 @@ class FarePAHelper:
         self.db = mongo_db
         self.logger = logger
         
-    def collect_qp_fares(self, sectors, base_footnotes=None, base_ndos=None):
+    def collect_qp_fares(self, sectors, route, base_footnotes=None, base_ndos=None):
         """Collect QP fares data from MongoDB for rules 1001 and 2001 (Saver).
         Fetches both rules since they can have different footnotes and NDO combinations.
         Now supports footnote and NDO filtering for optimized queries.
@@ -96,17 +96,44 @@ class FarePAHelper:
             
             # Build optimized match conditions - fetch both 1001 and 2001
             # Both rules are needed since they can have different footnotes/NDOs
-            base_match = {
-                'Carrier_Code': 'QP',
-                'Rule_Nbr': {'$in': ['1001', '2001']},
-                'OW_RT': {'$in': ['O', 'C']},
-                'Fare_Direction': {'$in': ['F', 'T']},  # ← FIX: Include both F and T
-                '$and': [
-                    {'$or': sector_conditions},
-                    {'$or': footnote_conditions},
-                    {'$or': ndo_conditions}
-                ]
-            }
+            if route == 'D':
+                base_match = {
+                    'Carrier_Code': 'QP',
+                    'Rule_Nbr': {'$in': ['1001', '2001']},
+                    'OW_RT': {'$in': ['O', 'C']},
+                    'Fare_Direction': {'$in': ['F', 'T']},  # ← FIX: Include both F and T
+                    '$and': [
+                        {'$or': sector_conditions},
+                        {'$or': footnote_conditions},
+                        {'$or': ndo_conditions}
+                    ]
+                }
+                
+                rule_cond = {
+                                'if': {'$eq': ['$Rule_Nbr', '1001']},
+                                'then': 'B2C',
+                                'else': 'B2B'
+                            }
+            elif route == 'I':
+                base_match = {
+                    'Carrier_Code': 'QP',
+                    'Rule_Nbr': {'$in': ['R101', 'M101', 'R201', 'M201']},
+                    'OW_RT': {'$in': ['O', 'C', 'R']},
+                    'Fare_Direction': {'$in': ['F', 'T']},  # ← FIX: Include both F and T
+                    '$and': [
+                        {'$or': sector_conditions},
+                        {'$or': footnote_conditions},
+                        {'$or': ndo_conditions}
+                    ]
+                }
+                
+                rule_cond = {
+                                'if': {'$eq': ['$Rule_Nbr', 'R101', 'R201']},
+                                'then': 'B2C',
+                                'else': 'B2B'
+                            }
+            else:
+                raise ValueError("Invalid route value: ", route)
             
             # Simplified aggregation pipeline
             pipeline = [
@@ -168,11 +195,7 @@ class FarePAHelper:
                         'rule_number': '$Rule_Nbr',
                         'footnote': '$Footnote',
                         'channel': {
-                            '$cond': {
-                                'if': {'$eq': ['$Rule_Nbr', '1001']},
-                                'then': 'B2C',
-                                'else': 'B2B'
-                            }
+                            '$cond': rule_cond
                         }
                     }
                 }
@@ -322,7 +345,8 @@ class FarePAHelper:
                     'currency': 1,
                     'pos': 1,
                     'footnote': 1,
-                    'ndo': 1
+                    'ndo': 1,
+                    'connections': 1
                 }
             ))
             
