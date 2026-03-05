@@ -93,6 +93,7 @@ class ConstantsUtils:
         self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C
         self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.CURRENCY_ROUND_OFF_LIST = CURRENCY_ROUND_OFF_LIST
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -330,6 +331,8 @@ class ConstantsUtils:
                 self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
             elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C_KEY:
                 self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
+            elif parameter_key == CURRENCY_ROUND_OFF_LIST_KEY:
+                self.CURRENCY_ROUND_OFF_LIST = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
