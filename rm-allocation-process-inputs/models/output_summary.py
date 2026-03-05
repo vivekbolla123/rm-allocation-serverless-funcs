@@ -56,6 +56,9 @@ class OutputSummary:
         
         self.forecastPLF=CONST_NA
         self.ImputedForecastPLF=CONST_NA
+        self.ForecastAF_Allin=CONST_NA
+        self.AF_Allin=CONST_NA
+        self.AF_NB_Allin=CONST_NA
         self.FirstRBDAlloc=CONST_NA
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
