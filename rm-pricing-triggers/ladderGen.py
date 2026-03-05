@@ -80,6 +80,8 @@ class LadderGen:
         self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD if self.route == 'D' else self.constants.B2B_THRESHOLD_INTERNATIONAL
         self.MAX_MARKET_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.MAX_MARKET_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.MIN_MARKET_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
+        self.MIN_MARKET_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
         self.B2B_CHANNEL = "B2B"
         self.B2C_CHANNEL = "B2C"
         self.pa_helper = LadderPAHelper(self, self.db, self.db_fares, logger, self.calculate_all_in_fare)
@@ -222,15 +224,15 @@ class LadderGen:
                     
                     if self.market_fares_data is not None and not self.market_fares_data.empty:
                         initial_count = len(self.market_fares_data)
-                        b2c_mask = (self.market_fares_data['channel'] == 'B2C') & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2C)
-                        b2b_mask = (self.market_fares_data['channel'] == 'B2B') & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2B)
+                        b2c_mask = (self.market_fares_data['channel'] == 'B2C') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKET_THRESHOLD_B2C) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2C)
+                        b2b_mask = (self.market_fares_data['channel'] == 'B2B') & (self.market_fares_data['gross_fare'] >= self.MIN_MARKET_THRESHOLD_B2B) & (self.market_fares_data['gross_fare'] <= self.MAX_MARKET_THRESHOLD_B2B)
                         other_mask = ~self.market_fares_data['channel'].isin(['B2C', 'B2B'])
                         
                         self.market_fares_data = self.market_fares_data[b2c_mask | b2b_mask | other_mask].copy()
                         
                         filtered_count = initial_count - len(self.market_fares_data)
                         if filtered_count > 0:
-                            self.logger.info(f"Filtered {filtered_count} market fares exceeding thresholds after conversion (B2C: {self.MAX_MARKET_THRESHOLD_B2C}, B2B: {self.MAX_MARKET_THRESHOLD_B2B})")
+                            self.logger.info(f"Filtered {filtered_count} market fares exceeding thresholds after conversion (B2C: {self.MIN_MARKET_THRESHOLD_B2C}-{self.MAX_MARKET_THRESHOLD_B2C}, B2B: {self.MIN_MARKET_THRESHOLD_B2B}-{self.MAX_MARKET_THRESHOLD_B2B})")
                     
                     success_count += 1
             except Exception as e:
