@@ -264,6 +264,8 @@ class RMDatabaseHelper:
     "WE_bookings": "$bl.WE_bookings",
     "forecastPLF": "$fr.ForecastPLF",
     "forecast_variance": "$fr.variance",
+    "ALLIN_AF": "$fr.ALLIN_AF",
+    "ForecastAF_Allin": "$fr.ForecastAF_Allin",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},

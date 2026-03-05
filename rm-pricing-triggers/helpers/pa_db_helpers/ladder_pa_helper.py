@@ -407,6 +407,46 @@ class LadderPAHelper:
         except Exception as e:
             self.logger.error(f"Error getting sector currency: {str(e)}")
             return 'INR'  # Default to INR on error
+
+    def get_sector_native_currency(self, sector, route, fare_direction='F'):
+        """Get the native currency for a sector using a specific Fare_Direction.
+        
+        In qp_fares, Origin/Destination stay the same for both directions.
+        Only Fare_Direction changes: 'F' for forward, 'T' for reverse.
+        For BOMHKT with direction='T', this returns the reverse (HKTBOM) currency (e.g., THB).
+        
+        Args:
+            sector: The forward sector string e.g. 'BOMHKT'.
+            route: 'D' or 'I'.
+            fare_direction: 'F' for forward currency, 'T' for reverse currency.
+        """
+        try:
+            rule_nbr = '1001' if route == 'D' else 'R101'
+            origin = sector[:3]
+            destination = sector[3:]
+            
+            query = {
+                'Carrier_Code': 'QP',
+                'Rule_Nbr': rule_nbr,
+                'OW_RT': 'O',
+                'Fare_Direction': fare_direction,
+                'Origin': origin,
+                'Destination': destination
+            }
+            
+            result = self.db.qp_fares.find_one(query, {'Currency': 1, '_id': 0})
+            
+            if result and 'Currency' in result:
+                currency = result['Currency']
+                self.logger.info(f"Sector {sector} (direction={fare_direction}) currency: {currency}")
+                return currency
+            else:
+                self.logger.warning(f"No currency found for sector {sector} (direction={fare_direction}), defaulting to INR")
+                return 'INR'
+                
+        except Exception as e:
+            self.logger.error(f"Error getting sector native currency: {str(e)}")
+            return 'INR'
     
     def save_ladder_to_csv(self, ladder_result, run_id, sector, analystName, route):
         """Save both B2B and B2C ladders to MongoDB with current QP fares, RBD mapping, and all-in fares."""
@@ -701,7 +741,7 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  success_count=0, failed_count=0):
+                  success_count=0, failed_count=0, source=None):
         """Save or update batch audit information for multiple sectors under one run_id."""
         try:
             collection = self.db.ladder_generation_audits
@@ -739,6 +779,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'source': source,
                     'failure_reason': None
                 }
                 
@@ -800,6 +841,7 @@ class LadderPAHelper:
                         'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
                         'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
                         'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
+                        'source': source,
                         'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
@@ -837,7 +879,7 @@ class LadderPAHelper:
                 return None
 
     def save_run_audit(self, sector, route, analystName, outlier_count, start_time, currVersion, run_id, 
-                  failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False):
+                  failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False, source=None):
         """Save or update audit information with enhanced failure tracking for both B2B and B2C."""
         try:
             collection = self.db.ladder_generation_audits
@@ -886,6 +928,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'source': source,
                     'failure_reason': None
                 }
                 
@@ -921,6 +964,7 @@ class LadderPAHelper:
                         'total_booking_records_b2b': ladder_result.get('total_booking_records_b2b', 0) if ladder_result else 0,
                         'distinct_fares_count_b2c': ladder_result.get('distinct_fares_count_b2c', 0) if ladder_result else 0,
                         'distinct_fares_count_b2b': ladder_result.get('distinct_fares_count_b2b', 0) if ladder_result else 0,
+                        'source': source,
                         'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
