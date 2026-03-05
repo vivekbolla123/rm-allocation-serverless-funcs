@@ -1370,10 +1370,11 @@ class LadderGen:
         # Create initial audit record for the batch
         try:
             sectors_str = ', '.join(self.sectors)
+            fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None, 
                 self.start_time, self.currentVersion, run_id, None, 
-                None, None, 'IN_PROGRESS', is_initial=True
+                None, None, 'IN_PROGRESS', is_initial=True, source=fare_source
             )
         except Exception as e:
             self.logger.error(f"Failed to create initial batch audit record: {str(e)}")
@@ -1418,11 +1419,12 @@ class LadderGen:
             failure_reasons = [r.get('reason') for r in all_results if r['status'] == 'FAILED']
             batch_failure_reason = '; '.join(failure_reasons) if failure_reasons else None
             
+            fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, total_outliers,
                 self.start_time, self.currentVersion, run_id, batch_failure_reason,
                 all_ladder_results, 'ladder_gen_output', batch_status, is_initial=False,
-                success_count=success_count, failed_count=failed_count
+                success_count=success_count, failed_count=failed_count, source=fare_source
             )
         except Exception as e:
             self.logger.error(f"Failed to update batch audit record: {str(e)}")

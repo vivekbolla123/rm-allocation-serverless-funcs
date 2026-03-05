@@ -741,7 +741,7 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  success_count=0, failed_count=0):
+                  success_count=0, failed_count=0, source=None):
         """Save or update batch audit information for multiple sectors under one run_id."""
         try:
             collection = self.db.ladder_generation_audits
@@ -779,6 +779,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'source': source,
                     'failure_reason': None
                 }
                 
@@ -840,6 +841,7 @@ class LadderPAHelper:
                         'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
                         'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
                         'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
+                        'source': source,
                         'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
@@ -877,7 +879,7 @@ class LadderPAHelper:
                 return None
 
     def save_run_audit(self, sector, route, analystName, outlier_count, start_time, currVersion, run_id, 
-                  failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False):
+                  failure_reason, ladder_result, file_path, status='SUCCESS', is_initial=False, source=None):
         """Save or update audit information with enhanced failure tracking for both B2B and B2C."""
         try:
             collection = self.db.ladder_generation_audits
@@ -926,6 +928,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'source': source,
                     'failure_reason': None
                 }
                 
@@ -961,6 +964,7 @@ class LadderPAHelper:
                         'total_booking_records_b2b': ladder_result.get('total_booking_records_b2b', 0) if ladder_result else 0,
                         'distinct_fares_count_b2c': ladder_result.get('distinct_fares_count_b2c', 0) if ladder_result else 0,
                         'distinct_fares_count_b2b': ladder_result.get('distinct_fares_count_b2b', 0) if ladder_result else 0,
+                        'source': source,
                         'failure_reason': failure_reason if status == 'FAILED' else None
                     }
                 }
