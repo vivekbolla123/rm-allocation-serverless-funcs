@@ -109,6 +109,7 @@ class ConstantsUtils:
         self.B2B_THRESHOLD_INTERNATIONAL = B2B_THRESHOLD_INTERNATIONAL
         self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
+        self.ACTIVE_SECTORS_DEFAULT_FIELDS = ACTIVE_SECTORS_DEFAULT_FIELDS
 
 
         self.logger = logging.getLogger()
@@ -333,6 +334,8 @@ class ConstantsUtils:
                 self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
             elif parameter_key == CURRENCY_ROUND_OFF_LIST_KEY:
                 self.CURRENCY_ROUND_OFF_LIST = json.loads(parameter_value)
+            elif parameter_key == ACTIVE_SECTORS_DEFAULT_FIELDS_KEY:
+                self.ACTIVE_SECTORS_DEFAULT_FIELDS = parameter_value
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
