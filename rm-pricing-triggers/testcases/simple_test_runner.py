@@ -275,14 +275,14 @@ class SimpleTestRunner:
             # Create mock esb helper class
             module_key = self.module_key  # Capture in closure
             class MockEsbHelper:
-                def __init__(self, rm_rd_esb_conn, logger):
-                    self.rm_rd_esb_conn = rm_rd_esb_conn
+                def __init__(self, db_fares, logger):
+                    self.db_fares = db_fares
                     self.logger = logger
                     self.failure_reason = None
                     self.module_key = module_key  # Store module key
                 
-                def collect_combined_booking_data(self, start_date, end_date, sector, channel):
-                    """Mock method for combined booking data."""
+                def collect_combined_market_fare_data(self, ndo, sector, channel):
+                    """Mock method for combined market fare data."""
                     # Use different CSV files based on the module being tested
                     if self.module_key == 'ladder_gen':
                         csv_path = os.path.join(INPUTS_DIR, 'booking_data.csv')  # Historical fare data
@@ -293,19 +293,19 @@ class SimpleTestRunner:
                         df = pd.read_csv(csv_path)
                         # Filter by sector if provided
                         if sector:
-                            df = df[df['Origin'] + df['Destination'] == sector]
-                        # Parse date columns based on file type
-                        if 'booking_data.csv' in csv_path and 'BookingDate' in df.columns:
-                            df['BookingDate'] = pd.to_datetime(df['BookingDate'], errors='coerce')
-                        elif 'booked_data.csv' in csv_path:
-                            if 'DepartureDate' in df.columns:
-                                df['DepartureDate'] = pd.to_datetime(df['DepartureDate'], errors='coerce')
-                            if 'DepartureTimeUTC' in df.columns:
-                                df['DepartureTimeUTC'] = pd.to_datetime(df['DepartureTimeUTC'], errors='coerce')
-                        self.logger.info(f"[TEST MODE] Loaded {len(df)} combined booking records from {csv_path}")
+                            origin = sector[:3]
+                            destination = sector[3:]
+                            if 'source_airport' in df.columns and 'destination_airport' in df.columns:
+                                df = df[(df['source_airport'] == origin) & (df['destination_airport'] == destination)]
+                            elif 'Origin' in df.columns and 'Destination' in df.columns:
+                                df = df[df['Origin'] + df['Destination'] == sector]
+                        # Rename gross_fare to Fare if needed
+                        if 'gross_fare' in df.columns and 'Fare' not in df.columns:
+                            df = df.rename(columns={'gross_fare': 'Fare'})
+                        self.logger.info(f"[TEST MODE] Loaded {len(df)} market fare records from {csv_path} for NDO={ndo}")
                         return df
                     else:
-                        self.logger.warning(f"[TEST MODE] Booking data CSV not found: {csv_path}")
+                        self.logger.warning(f"[TEST MODE] Market fare data CSV not found: {csv_path}")
                         return pd.DataFrame()
             
             # Replace the class
