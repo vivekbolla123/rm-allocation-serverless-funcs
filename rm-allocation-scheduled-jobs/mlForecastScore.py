@@ -2,9 +2,10 @@ import logging
 import os
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
 import joblib
 from io import BytesIO
+from sqlalchemy import text
 import configsettings
 
 
@@ -29,6 +30,7 @@ class MLForecastScore:
 
         # BRD Constants
         self.NDO_RANGE = range(0, 39)
+        self.MAX_PREDICTED_CANCELLATIONS = 14
 
         self.FEATURES = [
             'NDO', 'Sector_Encoded', 'Day_Encoded', 'Time_Bucket', 'Weekend_Flag',
@@ -222,6 +224,184 @@ class MLForecastScore:
 
         return model, encoders
 
+    # ==================== CANCELLATION ADJUSTMENT METHODS ====================
+
+    def _get_time_cluster_for_std(self, std_time):
+        """Convert STD to time cluster string for band matching."""
+        if pd.isna(std_time):
+            return 'Unknown'
+        try:
+            if isinstance(std_time, str):
+                std_time_obj = datetime.strptime(std_time, '%H:%M:%S').time()
+            elif isinstance(std_time, timedelta):
+                std_time_obj = (datetime.min + std_time).time()
+            elif isinstance(std_time, dt_time):
+                std_time_obj = std_time
+            elif hasattr(std_time, 'time') and callable(std_time.time):
+                std_time_obj = std_time.time()
+            else:
+                return 'Unknown'
+        except ValueError:
+            return 'Unknown'
+
+        t_0230 = dt_time(2, 30)
+        t_0730 = dt_time(7, 30)
+        t_1100 = dt_time(11, 0)
+        t_1430 = dt_time(14, 30)
+        t_1800 = dt_time(18, 0)
+        t_2100 = dt_time(21, 0)
+
+        if std_time_obj <= t_0230 or std_time_obj > t_2100:
+            return '21:00-02:30'
+        elif std_time_obj <= t_0730:
+            return '02:30-07:30'
+        elif std_time_obj <= t_1100:
+            return '07:30-11:00'
+        elif std_time_obj <= t_1430:
+            return '11:00-14:30'
+        elif std_time_obj <= t_1800:
+            return '14:30-18:00'
+        elif std_time_obj <= t_2100:
+            return '18:00-21:00'
+        else:
+            return 'Unknown'
+
+    def fetch_cancellation_rates(self):
+        """Fetch cancellation rates from the DW database."""
+        self.logger.info("Fetching cancellation rates for PLF adjustment...")
+        try:
+            query = """
+            SELECT 
+                Sector, DayOfWeek, TimeCluster, CustomerSegment, NDOBand, FareRange,
+                FlownPassengers, CancelledPassengers, CancellationRate, NDOBandKey
+            FROM cancellation_rates
+            """
+            df = pd.read_sql(query, self.dwconn)
+            if df.empty:
+                self.logger.warning("No cancellation rates found in database.")
+            else:
+                self.logger.info(f"Fetched {len(df)} cancellation rate records.")
+            return df
+        except Exception as e:
+            self.logger.error(f"Error fetching cancellation rates: {e}")
+            return pd.DataFrame()
+
+    def get_bookload_by_bands(self, departure_date, origin, destination, flight_number, std_time):
+        """Get current bookload for a specific flight aggregated by band dimensions."""
+        try:
+            time_cluster = self._get_time_cluster_for_std(std_time)
+            dep_date_str = departure_date.strftime('%Y-%m-%d') if hasattr(departure_date, 'strftime') else str(departure_date)
+
+            query = f"""
+            SELECT
+                CONCAT('{origin}', '-', '{destination}') AS Sector,
+                DAYNAME('{dep_date_str}') AS DayOfWeek,
+                '{time_cluster}' AS TimeCluster,
+                CASE
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'C' THEN 'C'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'F' THEN 'F'
+                    WHEN LEFT(BD.FareBasis, 1) = 'G' THEN 'GROUP'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'K' THEN 'K'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'M' THEN 'M'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'R' THEN 'R'
+                    WHEN LEFT(BD.FareBasis, 1) = 'S' THEN 'STAFF'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) = 'V' THEN 'V'
+                    WHEN SUBSTRING(BD.FareBasis, 5, 1) IN ('A', 'B', 'D', 'J', 'N', 'O', 'S') THEN 'Others'
+                    ELSE 'Unknown'
+                END AS CustomerSegment,
+                CASE
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) = 0 THEN '1. 0'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) BETWEEN 1 AND 2 THEN '2. 1-2'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) BETWEEN 3 AND 7 THEN '3. 3-7'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) BETWEEN 8 AND 14 THEN '4. 8-14'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) BETWEEN 15 AND 30 THEN '5. 15-30'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) BETWEEN 31 AND 60 THEN '6. 31-60'
+                    WHEN DATEDIFF(BD.DepartureDate, DATE(BD.BookingDate)) > 60 THEN '7. 60+'
+                    ELSE 'Unknown'
+                END AS NDOBand,
+                CASE
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) = 0 THEN '1. 0-1000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 0.0001 AND 1000 THEN '1. 0-1000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 1000.0001 AND 3000 THEN '2. 1000-3000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 3000.0001 AND 4000 THEN '3. 3000-4000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 4000.0001 AND 5000 THEN '4. 4000-5000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 5000.0001 AND 8000 THEN '5. 5000-8000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 8000.0001 AND 10000 THEN '6. 8000-10000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) BETWEEN 10000.0001 AND 15000 THEN '7. 10000-15000'
+                    WHEN (BD.DiscountedBaseFare_Pro + BD.YQ_Pro + BD.RCS + BD.CUTE) > 15000 THEN '8. 15000+'
+                    ELSE 'Unknown'
+                END AS FareRange,
+                COUNT(BD.PassengerID) AS PassengerCount
+            FROM
+                QP_DL_BOOKEDDATAPAX BD
+            WHERE
+                BD.DepartureDate = '{dep_date_str}'
+                AND BD.Origin = '{origin}'
+                AND BD.Destination = '{destination}'
+                AND TRIM(BD.FlightNumber) = '{str(flight_number).strip()}'
+            GROUP BY
+                CustomerSegment, NDOBand, FareRange
+            """
+            df = pd.read_sql(query, self.esbconn)
+            return df
+        except Exception as e:
+            self.logger.debug(f"Error getting bookload by bands for {origin}-{destination} {flight_number}: {e}")
+            return pd.DataFrame()
+
+    def predict_cancellations_for_flight(self, row, cancellation_rates):
+        """Predict cancellations for a flight based on current bookload and historical rates."""
+        try:
+            if cancellation_rates.empty:
+                return 0
+
+            ndo_curr = row.get('Target_NDO')
+            if pd.isna(ndo_curr):
+                return 0
+
+            # Determine which NDO band to use based on current NDO
+            if ndo_curr == 2:
+                ndo_band_key = 'ndo_2'
+            elif ndo_curr == 1:
+                ndo_band_key = 'ndo_1'
+            else:
+                return 0  # NDO 0 or >2 — no cancellation prediction
+
+            # Get bookload by bands for this flight
+            bookload_df = self.get_bookload_by_bands(
+                row['DepartureDate'],
+                row['DepartureStation'],
+                row['ArrivalStation'],
+                row['FlightNumber'],
+                row.get('STD')
+            )
+
+            if bookload_df.empty:
+                return 0
+
+            # Filter cancellation rates for the appropriate NDO band
+            rates_for_ndo = cancellation_rates[cancellation_rates['NDOBandKey'] == ndo_band_key]
+            if rates_for_ndo.empty:
+                return 0
+
+            # Merge bookload with cancellation rates
+            merged = bookload_df.merge(
+                rates_for_ndo,
+                on=['Sector', 'DayOfWeek', 'TimeCluster', 'CustomerSegment', 'NDOBand', 'FareRange'],
+                how='left'
+            )
+            merged['CancellationRate'] = merged['CancellationRate'].fillna(0)
+
+            # Calculate predicted cancellations
+            merged['PredictedCancellations'] = merged['PassengerCount'] * merged['CancellationRate']
+            total_predicted = merged['PredictedCancellations'].sum()
+
+            # Apply cap
+            return int(round(min(total_predicted, self.MAX_PREDICTED_CANCELLATIONS)))
+
+        except Exception as e:
+            self.logger.debug(f"Error predicting cancellations for {row.get('DepartureStation', 'N/A')}-{row.get('ArrivalStation', 'N/A')}: {e}")
+            return 0
+
     def score_pipeline(self):
         self.logger.info("Starting Scoring Pipeline")
 
@@ -277,21 +457,60 @@ class MLForecastScore:
         self.logger.info(f"Generated {len(preds)} predictions. PLF range: [{df_proc['ForecastPLF'].min():.4f}, {df_proc['ForecastPLF'].max():.4f}]")
         df_proc['Predicted_Bookload'] = (df_proc['ForecastPLF'] / 100) * df_proc['AdjustedCapacity']
 
-        # 5. Write to DB
+        # 5. Cancellation Adjustment
+        self.logger.info("Calculating predicted cancellations for PLF adjustment...")
+        cancellation_rates = self.fetch_cancellation_rates()
+
+        if not cancellation_rates.empty:
+            df_proc['PredictedCancellations'] = df_proc.apply(
+                lambda row: self.predict_cancellations_for_flight(row, cancellation_rates), axis=1
+            )
+
+            # Calculate Adjusted Forecast PLF
+            df_proc['Forecast_Seats'] = (df_proc['ForecastPLF'] / 100) * df_proc['AdjustedCapacity']
+            df_proc['Adjusted_Forecast_Seats'] = (df_proc['Forecast_Seats'] - df_proc['PredictedCancellations']).clip(lower=0)
+            df_proc['AdjustedForecastPLF'] = np.where(
+                df_proc['AdjustedCapacity'] > 0,
+                (df_proc['Adjusted_Forecast_Seats'] / df_proc['AdjustedCapacity']) * 100,
+                np.nan
+            )
+            df_proc['AdjustedForecastPLF'] = df_proc['AdjustedForecastPLF'].round(2)
+            df_proc['Adjusted_Predicted_Bookload'] = df_proc['Adjusted_Forecast_Seats']
+
+            # Drop intermediate columns
+            df_proc = df_proc.drop(columns=['Forecast_Seats', 'Adjusted_Forecast_Seats'], errors='ignore')
+
+            # Log cancellation statistics
+            cxl_count = len(df_proc[df_proc['PredictedCancellations'] > 0])
+            cxl_stats = df_proc['PredictedCancellations'].describe()
+            self.logger.info(
+                f"Predicted Cancellations: Mean={cxl_stats['mean']:.2f}, "
+                f"Max={cxl_stats['max']:.0f}, "
+                f"Total flights with cancellations={cxl_count}"
+            )
+        else:
+            self.logger.warning("Cancellation rates not available. Setting AdjustedForecastPLF to ForecastPLF.")
+            df_proc['PredictedCancellations'] = 0
+            df_proc['AdjustedForecastPLF'] = df_proc['ForecastPLF']
+            df_proc['Adjusted_Predicted_Bookload'] = df_proc['Predicted_Bookload']
+
+        # 6. Write to DB
         self.save_forecast_results(df_proc)
 
-        # 6. Upload CSV to S3
+        # 7. Upload CSV to S3
         self._upload_to_s3(df_proc)
 
         self.logger.info("Scoring finished and results saved.")
 
     def save_forecast_results(self, df):
-        """Save to forecasting_results_ml table with Origin, Destination, and ForecastPLF."""
-        output_df = df[[
+        """Save to forecasting_results_ml table with Origin, Destination, ForecastPLF, and cancellation adjustment."""
+        output_cols = [
             'InventoryLegID', 'DepartureDate', 'FlightNumber',
             'DepartureStation', 'ArrivalStation', 'Sector',
-            'STD', 'NDO', 'Cum_PLF', 'ForecastPLF', 'Predicted_Bookload'
-        ]].copy()
+            'STD', 'NDO', 'Cum_PLF', 'ForecastPLF', 'Predicted_Bookload',
+            'PredictedCancellations', 'AdjustedForecastPLF', 'Adjusted_Predicted_Bookload'
+        ]
+        output_df = df[[c for c in output_cols if c in df.columns]].copy()
 
         # Rename DepartureStation/ArrivalStation to Origin/Destination
         output_df.rename(columns={
@@ -313,11 +532,13 @@ class MLForecastScore:
     def _upload_to_s3(self, df):
         """Upload scoring results CSV to S3 with mlforecast naming convention."""
         try:
-            output_df = df[[
+            output_cols = [
                 'InventoryLegID', 'DepartureDate', 'FlightNumber',
                 'DepartureStation', 'ArrivalStation', 'Sector',
-                'STD', 'NDO', 'Cum_PLF', 'ForecastPLF', 'Predicted_Bookload'
-            ]].copy()
+                'STD', 'NDO', 'Cum_PLF', 'ForecastPLF', 'Predicted_Bookload',
+                'PredictedCancellations', 'AdjustedForecastPLF', 'Adjusted_Predicted_Bookload'
+            ]
+            output_df = df[[c for c in output_cols if c in df.columns]].copy()
 
             output_df.rename(columns={
                 'DepartureStation': 'Origin',
