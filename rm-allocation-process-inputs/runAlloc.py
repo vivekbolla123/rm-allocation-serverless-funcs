@@ -483,6 +483,7 @@ class DynAlloc:
 			imp_forecast = CONST_NA
 			if ndocounter <= 30:
 				imp_forecast = self.getParsedImputedForecast(variance_full)
+			Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
@@ -901,6 +902,7 @@ class DynAlloc:
 				bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 
+				Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
@@ -1059,6 +1061,9 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
 			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
+			self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
+			self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
@@ -1709,6 +1714,18 @@ class DynAlloc:
 			IMP_FORECAST_DEDUCTION = float(IMP_FORECAST_DEDUCTION)
 			if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
 				return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
+			return CONST_NA
+		except (ValueError, TypeError):
+			return CONST_NA
+
+	def calculateAfNbAllin(self,imputed_plf,curr_plf):
+		Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
+		ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+		try:
+			imputed_plf = float(imputed_plf)
+			curr_plf = float(curr_plf)
+			if not math.isnan(Af_allin) and not math.isnan(ForecastAF_Allin):
+				return ((ForecastAF_Allin * imputed_plf)-(Af_allin * curr_plf))/(imputed_plf-curr_plf)
 			return CONST_NA
 		except (ValueError, TypeError):
 			return CONST_NA
