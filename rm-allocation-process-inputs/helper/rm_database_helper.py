@@ -264,6 +264,8 @@ class RMDatabaseHelper:
     "WE_bookings": "$bl.WE_bookings",
     "forecastPLF": "$fr.ForecastPLF",
     "forecast_variance": "$fr.variance",
+    "ALLIN_AF": "$fr.ALLIN_AF",
+    "ForecastAF_Allin": "$fr.ForecastAF_Allin",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},
@@ -604,7 +606,23 @@ class RMDatabaseHelper:
                         "OpeningRBDB2B1": {"$arrayElemAt": ["$crb1_b2b.OpeningRBD", 0]},
                         "OpeningRBDB2C1": {"$arrayElemAt": ["$crb1_b2c.OpeningRBD", 0]},
                         "OpeningRBDB2B2": {"$arrayElemAt": ["$crb2_b2b.OpeningRBD", 0]},
-                        "OpeningRBDB2C2": {"$arrayElemAt": ["$crb2_b2c.OpeningRBD", 0]}
+                        "OpeningRBDB2C2": {"$arrayElemAt": ["$crb2_b2c.OpeningRBD", 0]},
+                        
+                        # Second Flight Departure Date
+                        "SecondFlightDepartureDate": "$connections_details.Departuredate2",
+                        
+                        # Direct Flight Data for Scenario 4 (Connection OD)
+                        "DirectFlightNumber": "$connections_details.DirectFlightNumber",
+                        "DirectFlightBookedPax": "$connections_details.DirectFlightBookedPax",
+                        "DirectFlightLid": "$connections_details.DirectFlightLid",
+                        "DirectFlightForecast": "$connections_details.DirectFlightForecast",
+                        "DirectFlightPLF": "$connections_details.DirectFlightPLF",
+                        "DirectFlightDepTime": "$connections_details.DirectFlightDepTime",
+                        "DirectFlightOpeningRBDB2B": "$connections_details.DirectFlightOpeningRBDB2B",
+                        "DirectFlightOpeningRBDB2C": "$connections_details.DirectFlightOpeningRBDB2C",
+                        
+                        # Map SOSFlag to sosFlag
+                        "sosFlag": "$SOSFlag"
                     }
                 ]
             }
@@ -806,6 +824,9 @@ class RMDatabaseHelper:
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
                 "mktFile": str(latest_row.mktFile),
+                "ForecastAF_Allin": str(latest_row.ForecastAF_Allin),
+                "AF_Allin": str(latest_row.AF_Allin),
+                "AF_NB_Allin": str(latest_row.AF_NB_Allin),
                 "FirstRBDAlloc": str(latest_row.FirstRBDAlloc),
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
                 "forecastPLF": str(latest_row.forecastPLF),
@@ -874,6 +895,21 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return None
+
+    def get_international_bookload_threshold(self, ndo):
+        """
+        Get the International Bookload Threshold (PLF) for a given NDO.
+        Uses the NDO Bands defined in ConstantsUtils.
+        """
+        try:
+            for (start, end), threshold in self.constants_utils.INTERNATIONAL_BOOKLOAD_THRESHOLDS.items():
+                if start <= ndo <= end:
+                    return threshold
+            # Default to 0 if no band matches (should cover all cases if 365 is max)
+            return 0
+        except Exception as e:
+            self.logger.error(f"Error getting international bookload threshold for NDO {ndo}: {e}")
+            return 0
 
     def getForecastBand(self, forecast):
         try:
@@ -1001,7 +1037,34 @@ class RMDatabaseHelper:
         
         return df
 
-    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs):
+    def getMarketFareAdjustments(self, origin, destin):
+        try:
+            results = list(self.db.market_fare_adjustments.find({ "sector": origin + destin }))
+            return pd.DataFrame(results)
+        except Exception as e:
+            self.logger.error(f"Error getting Market fare adjustments: {e}")
+            return pd.DataFrame()
+    
+    def getMappedOriginStation(self, origin):
+        try:
+            doc = self.db.market_fare_origin_map.find_one(
+                {"$or": [{"origin1": origin}, {"origin2": origin}]}
+            )
+
+            if not doc:
+                return None
+
+            if origin == doc.get("origin1"):
+                return doc.get("origin2")
+            elif origin == doc.get("origin2"):
+                return doc.get("origin1")
+
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting mapped Market fare origin station: {e}")
+            return None
+
+    def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs, origin, destination):
         
         try:
             currFltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
@@ -1026,15 +1089,7 @@ class RMDatabaseHelper:
                 carr_exclusion = currParams.carr_exclusion_b2c
                 flightExclusion = currParams.flightExclusionB2C
  
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
- 
-            origin = currParams.origin
-            destination = currParams.destin
-            routedSector = self.getroutedDestination(origin, destination)
- 
-            if len(routedSector) > 0:
-                origin = routedSector['routedSector'][0][:3]
-                destination = routedSector['routedSector'][0][3:]
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
  
             # Log the search parameters
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
@@ -1257,7 +1312,7 @@ class RMDatabaseHelper:
             else:
                 carr_exclusion = currParams.carrierExclusionB2C
     
-            carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
             # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.
@@ -1348,6 +1403,8 @@ class RMDatabaseHelper:
                 "created_at": 1, "mktFile": 1, "source_table": 1
             }
             
+           
+            
             # --- 4. Query Collections and Combine ---
             all_results = []
 
@@ -1357,16 +1414,6 @@ class RMDatabaseHelper:
                     ag_pipeline = [
                         
                         {"$match": match_conditions},
-                         {"$addFields": {
-        "gross_fare": {
-            "$convert": {
-                "input": "$gross_fare",
-                "to": "double",
-                "onError": None,
-                "onNull": None
-            }
-        }
-    }},
                         {"$addFields": {
                             "source_table": "AG",
                             "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
@@ -1402,6 +1449,8 @@ class RMDatabaseHelper:
             if not all_results:
                 self.logger.warning("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
+
+        
 
             # --- 5. Deduplicate and Sort in Pandas (Replicates SQL Window Function) ---
             df = pd.DataFrame(all_results)
@@ -1486,15 +1535,37 @@ class RMDatabaseHelper:
             self.logger.error(e)
         return is_valid
 
-    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route):
+    def rbd_list_builder(self, channel):
+        include_rbd_list = []
+
+        if channel == 'B2C':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2C_RBD_VALUES.split(',')]
+        elif channel == 'B2B':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2B_RBD_VALUES.split(',')]
+        elif channel == 'TBF':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.TBF_RBD.split(',')]
+        elif channel == 'CUG':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.CUG_RBD.split(',')]
+        elif channel == 'GROUP':        
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.GROUP_RBD_VALUES.split(',')]
+        elif channel == 'ALL':
+            include_rbd_list = [rbd.strip() for rbd in self.constants_utils.B2C_RBD_VALUES.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.B2B_RBD_VALUES.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.TBF_RBD.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.CUG_RBD.split(',')]
+            include_rbd_list += [rbd.strip() for rbd in self.constants_utils.GROUP_RBD_VALUES.split(',')]
+
+        return include_rbd_list
+
+    def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
         self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
 
-        if anchorFare == CONST_NA or pd.isna(anchorFare):
+        if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
             self.logger.info('Strategy Fare not available.')
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Strategy Fare NA'],
                          'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
             self.redishelper.updateRunAudit()
-            return openResult, None
+            return openResult, pd.DataFrame()
         
         try:
             results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
@@ -1510,34 +1581,83 @@ class RMDatabaseHelper:
             self.redishelper.updateRunAudit()
             return openResult, rbddata
 
-        exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
-        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
+        # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
-
-        rbd_conditions = [{"RBD": {"$nin": exclude_rbd_list}}]
-
-        # Add channel-specific regex filter
-        if channel == 'B2C':
-            rbd_conditions.append({"RBD": {"$not": {"$regex": "^Z"}}})
-        elif channel == 'B2B':
-            rbd_conditions.append({"RBD": {"$regex": "^Z"}})
-            
         query = {
     "Org": origin,
     "Dst": destin,
     "route": route,
-    "$and": rbd_conditions  # both conditions must be true
+    "RBD": {"$in": self.rbd_list_builder(channel)}
 }
 
         sortorder = -1  # desc
+        use_pipeline = False
 
         if int(offset) < 0:
-            query["TOTAL"] = {"$lt": int(anchorFare)}
+            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                pipeline = [
+                    {"$match": query},
+                    {
+                        "$addFields": {
+                            "fare_diff": {"$abs": {"$subtract": ["$TOTAL", float(anchorFare)]}}
+                        }
+                    },
+                    {"$sort": {"fare_diff": 1}},
+                    {
+                        "$group": {
+                            "_id": None,
+                            "closest_total": {"$first": "$TOTAL"},
+                            "all_docs": {"$push": "$$ROOT"}
+                        }
+                    },
+                     {"$unwind": "$all_docs"},
+                    {
+                        "$addFields": {
+                            "all_docs.closest_total": "$closest_total"
+                        }
+                    },
+                    {"$replaceRoot": {"newRoot": "$all_docs"}},
+                    {"$match": {"$expr": {"$lte": ["$TOTAL", "$$ROOT.closest_total"]}}},
+                    {"$sort": {"TOTAL": -1}}
+                ]
+                use_pipeline = True
+            else:
+                query["TOTAL"] = {"$lt": int(anchorFare)}
             sortorder = -1
+
         if int(offset) >= 0:
             anchorFare = float(anchorFare)
             if anchorFare > 0:
-                query["TOTAL"] = {"$gte": int(anchorFare)}
+                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                    pipeline = [
+                        {"$match": query},
+                        {
+                            "$addFields": {
+                                "fare_diff": {"$abs": {"$subtract": ["$TOTAL", anchorFare]}}
+                            }
+                        },
+                        {"$sort": {"fare_diff": 1}},
+                        {
+                            "$group": {
+                                "_id": None,
+                                "closest_total": {"$first": "$TOTAL"},
+                                "all_docs": {"$push": "$$ROOT"}
+                            }
+                        },
+                        {"$unwind": "$all_docs"},
+                        {
+                            "$addFields": {
+                                "all_docs.closest_total": "$closest_total"
+                            }
+                        },
+                        {"$replaceRoot": {"newRoot": "$all_docs"}},
+                        {"$match": {"$expr": {"$gte": ["$TOTAL", "$$ROOT.closest_total"]}}},
+                        {"$sort": {"TOTAL": 1}}
+                    ]
+                    use_pipeline = True
+                else:
+                    query["TOTAL"] = {"$gte": int(anchorFare)}
             else:
                 query["TOTAL"] = {"$gte": 1000000}
             sortorder = 1
@@ -1546,7 +1666,10 @@ class RMDatabaseHelper:
             self.logger.info(query)
 
         try:
-            results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
+            if use_pipeline:
+                results = list(self.db.fares.aggregate(pipeline))
+            else:
+                results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1555,24 +1678,22 @@ class RMDatabaseHelper:
         return openResult, rbddata
 
     def fetchExtremePublishedFare(self, origin, destin, channel, type, backstop, route):
-        exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
-        exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
+        # exclude_rbd_list = TBF_RBD.split(',') + CUG_RBD.split(',')
+        # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
         # Base query
         query = {
             "Org": origin,
             "Dst": destin,
             "route": route,
-            "$and": [
-                {"RBD": {"$nin": exclude_rbd_list}}  # exclude list
-            ]
+            "RBD": {"$in": self.rbd_list_builder(channel)}
         }
 
         # Add channel-specific regex filter
-        if channel == 'B2C':
-            query["$and"].append({"RBD": {"$not": {"$regex": "^Z"}}})
-        else:  # B2B
-            query["$and"].append({"RBD": {"$regex": "^Z"}})
+        # if channel == 'B2C':
+        #     query["$and"].append({"RBD": {"$not": {"$regex": "^Z"}}})
+        # else:  # B2B
+        #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
         # Add TOTAL/backstop and sort order
         query["TOTAL"] = {"$gte": float(backstop)}
@@ -1831,10 +1952,16 @@ class RMDatabaseHelper:
     def fareExtract(self, origin, destination, channel, openingRBD, route):
         query = {"Org": origin, "Dst": destination, "route": route}
 
-        if channel == 'B2C':
-            query["RBD"] = {"$not": {"$regex": "^Z"}}
-        if channel == 'B2B':
-            query["RBD"] = {"$regex": "^Z"}
+        if isinstance(channel, str):
+            channel_list = [channel]
+        else:
+            channel_list = channel
+
+        rbd_list = []
+        for ch in channel_list:
+            rbd_list.extend(self.rbd_list_builder(ch.strip()))
+
+        query["RBD"] = {"$in": rbd_list}
         if openingRBD:
             query["RBD"] = openingRBD
 
@@ -1981,25 +2108,18 @@ class RMDatabaseHelper:
             return pd.DataFrame()
 
     def getFinalPrice(self, rbd_sector1, rbd_sector2, sector1, sector2, channel):
-        condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
 
         try:
             sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
                 "route": "L",
-                "$and": [
-            {"RBD": rbd_sector1},
-            {"RBD": condition}
-        ]
+                "RBD": rbd_sector1
             })
 
             sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
                 "route": "L",
-                "$and": [
-            {"RBD": rbd_sector2},
-            {"RBD": condition}
-        ]
+                "RBD": rbd_sector2
             })
 
             if not sector1_result or not sector2_result:
@@ -2017,14 +2137,13 @@ class RMDatabaseHelper:
             return 0, 0, 0, "", ""
 
     def getSellingPrice(self, rbd, sector, channel, route):
-        condition = {"$not": {"$regex": "^Z"}} if channel == 'B2C' else {"$regex": "^Z"}
-
         try:
             result = self.db.fares.find_one({
-                "SECTOR": sector,
-                "RBD": rbd,
-                "route": route,
-                "RBD": condition
+                "$and": [
+                    {"SECTOR": sector},
+                    {"RBD": rbd},
+                    {"route": route}
+                ]
             })
 
             if not result:
@@ -2171,6 +2290,35 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return -1, -1
+
+    # def insertSummaryRow_connections(self, summary_list):
+    #     try:
+    #         print(f"DEBUG: insertSummaryRow_connections called with {len(summary_list)} items")
+    #         if len(summary_list) > 0:
+    #             print(f"DEBUG: First item RunId: {summary_list[0].RunId}")
+            
+    #         data_list = []
+    #         for summary in summary_list:
+    #             # This part of the code was incomplete in the instruction.
+    #             # Assuming it was meant to construct a document for insertion.
+    #             # For now, it's left as a placeholder to maintain syntactical correctness.
+    #             pass # Placeholder for the actual logic that was intended to be here.
+    #         # The original function had logic to insert a single doc based on allocresults[-1]
+    #         # The new function signature suggests processing a list.
+    #         # The instruction provided an incomplete code block for the loop.
+    #         # To ensure syntactical correctness, the loop body is replaced with 'pass'.
+    #         # The rest of the original function's logic for insertion is commented out
+    #         # as it's unclear how it should integrate with the new 'summary_list' parameter.
+
+    #         # if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
+    #         #     latest_row = allocresults[-1]
+    #         #     doc = { ... }
+    #         #     try:
+    #         #         self.db.run_summary_connections.insert_one(doc)
+    #         #     except Exception as e:
+    #         #         self.logger.error(e)
+    #     except Exception as e:
+    #         self.logger.error(e)
 
     def getSeriesBlockedSeats(self, departure_date):
         try:
@@ -2464,3 +2612,49 @@ class RMDatabaseHelper:
             print(f"Error checking sector types for {sector1}, {sector2}: {e}")
             # Default to domestic if there's an error
             return True, True
+
+    def get_stage_length(self, departure_station, arrival_station):
+        """
+        Get the ActualDistance (stage length) from MySQL CityPair table or MongoDB city_pair collection.
+        
+        Args:
+            departure_station: 3-letter departure station code (e.g., 'DEL')
+            arrival_station: 3-letter arrival station code (e.g., 'BOM')
+            
+        Returns:
+            float: ActualDistance in km, or 0 if not found
+        """
+        try:
+            if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+                # Fetch from MySQL
+                query = f"""
+                    SELECT ActualDistance 
+                    FROM QP_DWH_MASTER.CityPair 
+                    WHERE DepartureStation = '{departure_station}' 
+                    AND ArrivalStation = '{arrival_station}'
+                    AND InActive = 0
+                    LIMIT 1
+                """
+                result = pd.read_sql(query, self.dwconn)
+                
+                if not result.empty and result['ActualDistance'].iloc[0] is not None:
+                    return float(result['ActualDistance'].iloc[0])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+            else:
+                # Fetch from MongoDB city_pair collection
+                result = self.db.city_pair.find_one({
+                    "DepartureStation": departure_station,
+                    "ArrivalStation": arrival_station,
+                    "InActive": 0
+                })
+                
+                if result and result.get('ActualDistance') is not None:
+                    return float(result['ActualDistance'])
+                else:
+                    self.logger.info(f"No stage length found for {departure_station}-{arrival_station}")
+                    return 0
+        except Exception as e:
+            self.logger.error(f"Error fetching stage length for {departure_station}-{arrival_station}: {e}")
+            return 0

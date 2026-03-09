@@ -16,8 +16,8 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band):
-
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria):
+        hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
         forecastAllocFlag = int(getattr(currParams, 'forecastAllocFlag', 0))
@@ -27,7 +27,7 @@ class DetermineRBD:
         overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
+        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
         if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
             hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
             if hardrbddata.shape[0] == 0 and  hardAnchorFare!=CONST_NA:
@@ -37,12 +37,12 @@ class DetermineRBD:
             hardAnchorFare=hardopenResult['Fare'][0]
             
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
         else:
-            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L')
+            openResult = self.getFares(origin, destin, anchorFare, offset, channel,  openResult, rbddata, howDetermined, 'L', strategy_criteria)
            
         curTime = datetime.strptime(str(currenttime), TIME_FORMAT).time().strftime(TIME_FORMAT)
         timeString = 'Pre10'
@@ -51,7 +51,7 @@ class DetermineRBD:
         
         strategyFare = openResult['Fare'][0]
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
         
         anchorValue = ''
     
@@ -74,7 +74,7 @@ class DetermineRBD:
                 openResult['RBD']=['NA']
                 openResult['Fare']=['NA']
                 
-                return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare
+                return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
 
             self.logger.info("totalCapacity: " + str(totalCapacity))
             self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -114,17 +114,18 @@ class DetermineRBD:
             upsell = CONST_NA
             howDetermined = howDetermined+'_Manual_inventory_retained_skipping_allocation'
             anchorFare =  0
-
+        if anchorFare == hardAnchorFare:
+            hard_anchor_flag = True
         if anchorFare != 0:
             offset = 0
-            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L')
+            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
             if rbddata.shape[0] == 0:
                 openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             else:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare
+        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare,hard_anchor_flag
 
     def calculate_overbooking_fare_and_status(
         self,
@@ -318,8 +319,8 @@ class DetermineRBD:
                 key_imp_fcs_plf = f"ImputedForecastPLF:{origin}{destin}_{flight_number}_{departure_date}"
                 
                 if currParams.cache_client.exists(key_imp_fcs_plf):
-                    redis_data = json.loads(currParams.cache_client.get(key_imp_fcs_plf).decode('utf-8'))
-                    imp_fcs_plf_list = redis_data.get('list', [])
+                    imp_fcs_plf_list = json.loads(currParams.cache_client.get(key_imp_fcs_plf).decode('utf-8'))
+                    # imp_fcs_plf_list = redis_data.get('list', [])
                     
                     if not imp_fcs_plf_list:
                         self.logger.warning(f"Empty ImputedForecastPLF list for key: {key_imp_fcs_plf}")
@@ -330,7 +331,7 @@ class DetermineRBD:
                     selected_value = find_plf_value(imp_fcs_plf_list, current_time, hours)
                     
                     if selected_value is not None:
-                        self.logger.info(f"Found ImputedForecastPLF value: {selected_value} for target time: {current_time}")
+                        # self.logger.info(f"Found ImputedForecastPLF value: {selected_value} for target time: {current_time}")
                         return selected_value
                     else:
                         self.logger.warning(f"No suitable ImputedForecastPLF value found for target time: {current_time}")
@@ -697,6 +698,8 @@ class DetermineRBD:
                 howDetermined = 'AllocationY_Interpollated_Max_own_fare_UpsellN'
                 
                 # Calculate v1 based on dPLF
+                if dPLF <= -15:
+                    dPLF = -15
                 if dPLF > -self.constantsutils.OWN_FARE_DELTA_B:
                     v1 = max_value + (delta / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
                 else:
@@ -722,6 +725,8 @@ class DetermineRBD:
                 howDetermined = "AllocationY_interpolated_lastSold_Profile_fare_UpsellN"
                 min_fare = min(float(lastSoldFare), float(profileFare))
                 fare_diff = abs(float(lastSoldFare) - float(profileFare))
+                if dPLF < -15:
+                    dPLF = -15
                 v1 = min_fare + (fare_diff / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
                 v2 = calculate_tolerance_value()
                 
@@ -872,13 +877,13 @@ class DetermineRBD:
         except:
             return False
         
-    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route):
+    def getFares(self, origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, route, strategy_criteria=None):
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
         # Calculating the offset that is required based on entries remaining in the RBD table
         offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1)
-        if int(offset) < 0:
+        if int(offset) < 0 and not (strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR)):
             offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop

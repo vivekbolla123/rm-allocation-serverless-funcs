@@ -61,3 +61,13 @@ class MarketListConnectiosnsRow:
         self.forecastPLF2 = currParams.get("forecastPLF2",CONST_NA)
         self.forecast_variance1 = currParams.get("forecast_variance1",CONST_NA)
         self.forecast_variance2 = currParams.get("forecast_variance2",CONST_NA)
+        
+        # Direct flight data for Scenario 4 (connection OD direct flights)
+        self.DirectFlightNumber = currParams.get("DirectFlightNumber", CONST_NA)
+        self.DirectFlightBookedPax = currParams.get("DirectFlightBookedPax", CONST_NA)
+        self.DirectFlightLid = currParams.get("DirectFlightLid", CONST_NA)
+        self.DirectFlightForecast = currParams.get("DirectFlightForecast", CONST_NA)
+        self.DirectFlightPLF = currParams.get("DirectFlightPLF", CONST_NA)
+        self.DirectFlightDepTime = currParams.get("DirectFlightDepTime", CONST_NA)
+        self.DirectFlightOpeningRBDB2B = currParams.get("DirectFlightOpeningRBDB2B", CONST_NA)
+        self.DirectFlightOpeningRBDB2C = currParams.get("DirectFlightOpeningRBDB2C", CONST_NA)

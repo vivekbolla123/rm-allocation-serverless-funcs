@@ -6,15 +6,16 @@ import com.akasaair.queues.common.aws.S3FileStorageDao;
 import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
 import com.akasaair.queues.common.entity.MarketListEntity;
-//import com.akasaair.queues.common.helpers.AuditHelper;
+import com.akasaair.queues.common.helpers.AuditHelper;
 import com.akasaair.queues.common.helpers.MongoConnection;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mongodb.MongoException;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.Filters;
+import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.*;
+import com.mongodb.client.model.*;
 import com.mongodb.client.result.DeleteResult;
-import com.nimbusds.jose.shaded.json.JSONArray;
+import net.minidev.json.JSONArray;
 import com.akasaair.queues.common.entity.MarketListSalesInvEntity;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,20 +51,20 @@ import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
-import javax.annotation.PostConstruct;
-import javax.annotation.PreDestroy;
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.io.*;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
-import java.util.Date;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.text.SimpleDateFormat;
 import static com.akasaair.queues.common.Validations.MarketListValidator.*;
+import static com.akasaair.queues.common.Validations.CommonValidator.*;
 import static com.akasaair.queues.common.constants.ColumnNamesConstants.*;
 import static com.akasaair.queues.common.constants.Constants.*;
 import static com.akasaair.queues.common.constants.CsvHeaderConstants.*;
@@ -97,7 +98,7 @@ public class App implements CommandLineRunner {
     private final MongoDatabase database2;
 
     private final S3FileStorageDao s3FileStorageDao;
-//    private final AuditHelper auditHelper;
+    private final AuditHelper auditHelper;
 
     private final S3Client s3Client;
     private static final ThreadLocal<List<String>> listOfErrors = ThreadLocal.withInitial(ArrayList::new);
@@ -112,12 +113,12 @@ public class App implements CommandLineRunner {
         UPSELL,
         DISTRESS
     }
-    public App(S3FileStorageDao s3FileStorageDao, DependencyFactory dependencyFactory, MongoConnection mongoConnection) {
+    public App(S3FileStorageDao s3FileStorageDao, DependencyFactory dependencyFactory, MongoConnection mongoConnection, AuditHelper auditHelper) {
         this.s3FileStorageDao = s3FileStorageDao;
         this.s3Client = dependencyFactory.s3Client();
         this.database = mongoConnection.getDatabase();
         this.database2 = mongoConnection.getDatabase();
-//        this.auditHelper = auditHelper;
+        this.auditHelper = auditHelper;
     }
 
     public static void main(String[] args) {
@@ -196,9 +197,9 @@ public class App implements CommandLineRunner {
                         S3Object file = fileQueue.take();
                         String key = file.key();
                         if (processingSet.add(key)) {
-                            try {
-                                processFile(file);
-                            } finally {
+                        try {
+                            processFile(file);
+                        } finally {
                                 processingSet.remove(key);
                             }
                         }
@@ -520,6 +521,46 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case PROFILE_FARES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) rowCount);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadProfileFaresFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Profile Fares File to DB. Please check file content");
+                            throw new RuntimeException("Error processing profile fares file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 case AUTO_B2B_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -828,6 +869,166 @@ public class App implements CommandLineRunner {
                         }
                     } catch (Exception ex) {
                         listOfErrors.get().add("Error processing market_list_salesinv file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case MARKET_FARE_ADJUSTMENTS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadMarketFareAdjustments(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing market_fare_adjustments file content");
+                            throw new RuntimeException("Error processing market_fare_adjustments file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing market_fare_adjustments file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case FORECAST_DATE_CONFIG_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadForecastDateConfig(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing forecast_date_config file content");
+                            throw new RuntimeException("Error processing forecast_date_config file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing forecast_date_config file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case ACTIVE_SECTORS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadActiveSectors(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing active_sectors file content");
+                            throw new RuntimeException("Error processing active_sectors file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing active_sectors file content");
+                        log.info("Error during file processing: " + ex.getMessage());
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case QP_FARES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    String finalTableName = tableName;
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadFares(reader, finalTableName, userName, role_obj, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error processing Fares file content");
+                            throw new RuntimeException("Error processing Fares file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        listOfErrors.get().add("Error processing Fares file content");
                         log.info("Error during file processing: " + ex.getMessage());
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
@@ -1233,13 +1434,13 @@ public class App implements CommandLineRunner {
             if (!validMarketListEntityList.isEmpty()) {
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
 
-//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-//                    try {
-//                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
-//                    } catch (Exception e) {
-//                        log.error("Failed to build audit logs for table: " + tableName + ". Error: " + e.getMessage());
-//                    }
-//                }
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    try {
+                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        log.error("Failed to build audit logs for table: {}. Error: {}", tableName, e.getMessage());
+                    }
+                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
@@ -1411,6 +1612,199 @@ public class App implements CommandLineRunner {
         }
     }
 
+    public void uploadProfileFaresFile(Reader file, String userName, String obj_id) throws Exception {
+        String uuid = obj_id;
+        try {
+            insertAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(PROFILE_FARES_TABLE_NAME);
+            
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                listOfErrors.get().add("Profile Fares CSV file is empty or lacks data rows.");
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+            
+            // Parse CSV into list of maps
+            List<String> headers = csvData.get(0);
+            
+            // Remove BOM from first header if present
+            if (!headers.isEmpty() && headers.get(0) != null) {
+                headers.set(0, headers.get(0).replace("\uFEFF", "").trim());
+            }
+            
+            log.info("Profile Fares CSV headers: {}", headers);
+            log.info("Profile Fares total rows (excluding header): {}", csvData.size() - 1);
+            
+            List<Map<String, String>> data = new ArrayList<>();
+            
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                Map<String, String> rowMap = new HashMap<>();
+                for (int j = 0; j < headers.size() && j < row.size(); j++) {
+                    String headerKey = headers.get(j).replace("\uFEFF", "").trim().toLowerCase();
+                    String value = (row.get(j) != null) ? row.get(j).trim() : "";
+                    rowMap.put(headerKey, value);
+                }
+                data.add(rowMap);
+                
+                // Log first row for debugging
+                if (i == 1) {
+                    log.info("First row data - sector: '{}', month: '{}', dow: '{}', cluster: '{}'", 
+                        rowMap.get("sector"), rowMap.get("month"), rowMap.get("dow"), rowMap.get("cluster"));
+                    log.info("First row all keys: {}", rowMap.keySet());
+                }
+            }
+            
+            // Validate using ProfileValidator
+            Validator validator = new ProfileValidator();
+            if (!validator.isValid(data, null, listOfErrors.get())) {
+                error_occurred.set(1);
+                listOfErrors.get().add("Profile Fares validation failed");
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+            
+            // Upsert to MongoDB
+            bulkUpsertProfileFares(data);
+            
+            s3FileStorageDao.storeFile(createCSV(PROFILE_FARES_TABLE_NAME), PROFILE_FARES_TABLE_NAME, uuid);
+            updateAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            throw e;
+        } finally {
+            updateInputStatus(PROFILE_FARES_TABLE_NAME);
+        }
+    }
+
+    private void bulkUpsertProfileFares(List<Map<String, String>> data) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(PROFILE_FARES_TABLE_NAME);
+            
+            // Create unique compound index on the key fields if it doesn't exist
+            try {
+                collection.createIndex(
+                    Indexes.compoundIndex(
+                        Indexes.ascending("sector"),
+                        Indexes.ascending("month"),
+                        Indexes.ascending("dow"),
+                        Indexes.ascending("cluster")
+                    ),
+                    new IndexOptions().unique(true).name("profile_fares_unique_key")
+                );
+                log.info("Ensured unique index exists on profile_fares composite key");
+            } catch (Exception e) {
+                // Index might already exist, that's fine
+                log.debug("Index creation skipped (may already exist): {}", e.getMessage());
+            }
+            
+            List<WriteModel<Document>> bulkOps = new ArrayList<>();
+            
+            int skippedRows = 0;
+            int processedRows = 0;
+            
+            for (Map<String, String> rowData : data) {
+                String sector = rowData.get("sector");
+                String month = rowData.get("month");
+                String dow = rowData.get("dow");
+                String clusterStr = rowData.get("cluster");
+                
+                // Skip if any key field is missing
+                if (sector == null || sector.trim().isEmpty() || 
+                    month == null || month.trim().isEmpty() || 
+                    dow == null || dow.trim().isEmpty() || 
+                    clusterStr == null || clusterStr.trim().isEmpty()) {
+                    skippedRows++;
+                    log.warn("Skipping row due to missing key fields - sector: {}, month: {}, dow: {}, cluster: {}", 
+                        sector, month, dow, clusterStr);
+                    continue;
+                }
+                
+                // Convert cluster to the appropriate type (try integer first, fallback to string)
+                Object clusterValue;
+                try {
+                    clusterValue = Integer.parseInt(clusterStr.trim());
+                } catch (NumberFormatException e) {
+                    clusterValue = clusterStr.trim();
+                }
+                
+                // Create composite key filter - try to match both string and integer cluster
+                Bson filter = Filters.and(
+                        Filters.eq("sector", sector.trim()),
+                        Filters.eq("month", month.trim()),
+                        Filters.eq("dow", dow.trim()),
+                        Filters.eq("cluster", clusterValue)
+                );
+                
+                // Handle both "starttime" and "start time" variations
+                String startTime = rowData.get("starttime");
+                if (startTime == null) {
+                    startTime = rowData.get("start time");
+                }
+                
+                String endTime = rowData.get("endtime");
+                if (endTime == null) {
+                    endTime = rowData.get("end time");
+                }
+                
+                // Create document with all columns
+                Document doc = new Document()
+                        .append("sector", sector.trim())
+                        .append("currency", rowData.get("currency"))
+                        .append("month", month.trim())
+                        .append("dow", dow.trim())
+                        .append("cluster", clusterValue)
+                        .append("Q0", autoConvert(rowData.get("q0")))
+                        .append("Q1", autoConvert(rowData.get("q1")))
+                        .append("Q2", autoConvert(rowData.get("q2")))
+                        .append("Q3", autoConvert(rowData.get("q3")))
+                        .append("Q4", autoConvert(rowData.get("q4")))
+                        .append("Q5", autoConvert(rowData.get("q5")))
+                        .append("Q6", autoConvert(rowData.get("q6")))
+                        .append("Q7", autoConvert(rowData.get("q7")))
+                        .append("Q8", autoConvert(rowData.get("q8")))
+                        .append("Q9", autoConvert(rowData.get("q9")))
+                        .append("Q10", autoConvert(rowData.get("q10")))
+                        .append("Q11", autoConvert(rowData.get("q11")))
+                        .append("Q12", autoConvert(rowData.get("q12")))
+                        .append("Q13", autoConvert(rowData.get("q13")))
+                        .append("Q14", autoConvert(rowData.get("q14")))
+                        .append("Q15", autoConvert(rowData.get("q15")))
+                        .append("Q16", autoConvert(rowData.get("q16")))
+                        .append("Q17", autoConvert(rowData.get("q17")))
+                        .append("Q18", autoConvert(rowData.get("q18")))
+                        .append("Q19", autoConvert(rowData.get("q19")))
+                        .append("Q20", autoConvert(rowData.get("q20")))
+                        .append("startTime", startTime)
+                        .append("endTime", endTime);
+                
+                // Upsert operation
+                ReplaceOptions options = new ReplaceOptions().upsert(true);
+                bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
+                processedRows++;
+            }
+            
+            log.info("Profile Fares processing summary - Total rows: {}, Processed: {}, Skipped: {}", 
+                data.size(), processedRows, skippedRows);
+            
+            if (!bulkOps.isEmpty()) {
+                BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+                BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
+                log.info("Profile Fares bulk upsert completed: {} inserted, {} modified, {} upserted",
+                        result.getInsertedCount(),
+                        result.getModifiedCount(),
+                        result.getUpserts().size());
+            } else {
+                log.warn("No bulk operations to perform - all rows were skipped or data was empty");
+            }
+        } catch (Exception e) {
+            log.error("Error in bulkUpsertProfileFares: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to upsert profile fares: " + e.getMessage(), e);
+        }
+    }
+
     public void uploadFile(Reader file, String tableName, String userName, String obj_id) throws Exception {
         String uuid = obj_id;
 
@@ -1432,7 +1826,7 @@ public class App implements CommandLineRunner {
             Validator validate = getValidator(tableName);
             String val = null;
             if (tableName.equalsIgnoreCase(QP_FARES_TABLE_NAME)) {
-                val = searchResults(PARAMETER_RBD_VALUES);
+                val = getAllRBDs();
             }
             if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
                 updateInputStatus(tableName);
@@ -1947,6 +2341,27 @@ public class App implements CommandLineRunner {
         return listObj;
     }
 
+    public String getAllRBDs() {
+        String rbdList = null;
+        try {
+            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+
+            for (Document doc : docs) {
+                String key = doc.getString("parameterKey");
+                Object val = doc.get(PARAMETER_VALUE_COLUMN_NAME);
+
+                if (key != null && val != null) {
+                    String value = val.toString();
+                    rbdList = (rbdList == null) ? value : rbdList + "," + value;
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+        return rbdList;
+    }
+
     private  Validator getValidator(String tableName) {
         Validator validator;
         switch (tableName) {
@@ -2118,13 +2533,13 @@ public class App implements CommandLineRunner {
             if (!validMarketListConnectionsEntityList.isEmpty()) {
                 LocalDateTime currentDateTime = ZonedDateTime.now(ZoneId.of(INDIAN_REGION)).toLocalDateTime();
 
-//                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
-//                    try {
-//                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
-//                    } catch (Exception e) {
-//                        log.error("Failed to build connection audit logs for table: " + tableName + ". Error: " + e.getMessage());
-//                    }
-//                }
+                if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
+                    try {
+                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                    } catch (Exception e) {
+                        log.error("Failed to build connection audit logs for table: {}. Error: {}", tableName, e.getMessage());
+                    }
+                }
 
                 if (tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     deleteValues(Collections.singleton(ZERO), tableName, ZERO);
@@ -2323,21 +2738,18 @@ public class App implements CommandLineRunner {
 
     public void uploadPartialDateEvent(Reader file, String userName, String obj_id) throws RuntimeException {
         String uuid = obj_id;
-        try {
-            String dateEventTempTableName = DATE_EVENT_TABLE_NAME + UNDERSCORE + TEMP;
-            String ProfileFareStationUpsellTempTableName = CONFIG_PROFILE_FARE_STATION_UPSELL + UNDERSCORE + TEMP;
 
+        try {
+            // 1. Audit logging
             insertAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), userName, uuid);
             insertAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), userName, uuid);
 
-            createTable(dateEventTempTableName, DATE_EVENT_TABLE_NAME);
-            createTable(ProfileFareStationUpsellTempTableName, CONFIG_PROFILE_FARE_STATION_UPSELL);
-
+            // 2. Set input status
             insertInputStatusTable(DATE_EVENT_TABLE_NAME);
             insertInputStatusTable(CONFIG_PROFILE_FARE_STATION_UPSELL);
 
+            // 3. Parse and validate CSV
             List<List<String>> csvData = getDataFromCSVFile(file);
-
             Map<String, Map<String, String>> dateEventMap = getPartialDateEvent(csvData);
 
             if (!listOfErrors.get().isEmpty()) {
@@ -2348,39 +2760,27 @@ public class App implements CommandLineRunner {
                 throw new DataMismatchedException(listOfErrors.get());
             }
 
+            // 4. Prepare data
             List<String> dateEventHeaders = Arrays.asList(getColumnHeaders(DATE_EVENT_TABLE_NAME).split(COMMA));
-            List<String> upsellHeaders = Arrays.asList(getColumnHeaders(CONFIG_PROFILE_FARE_STATION_UPSELL).split(COMMA));
-            List<Map<String, String>> data = createListOfMapDateEvent(csvData, dateEventHeaders);
+            List<Map<String, String>> dateEventData = createListOfMapDateEvent(csvData, dateEventHeaders);
 
-            insertStatement(new ArrayList<>(dateEventMap.values()), upsellHeaders,
-                    ProfileFareStationUpsellTempTableName);
-            insertStatement(data, dateEventHeaders, dateEventTempTableName);
-
-            String columnName = SECTOR_COLUMN_NAME.toLowerCase();
-            Set<String> uniqueValues = dateEventMap.values().stream()
-                    .map(obj -> obj.get(columnName))
-                    .collect(Collectors.toSet());
-
-            Set<String> uniqueDates = data.stream()
+            Set<String> uniqueDates = dateEventData.stream()
                     .map(map -> map.get(DATE_COLUMN_NAME))
                     .collect(Collectors.toSet());
 
-            deleteValues(uniqueDates, DATE_EVENT_TABLE_NAME, DATE_COLUMN_NAME);
+            // 5. Fetch existing upsell records to determine mode
+            Map<String, Document> existingUpsells = fetchExistingUpsells(uniqueDates);
 
-            for (String sector : uniqueValues) {
-                deletePartialSectorValues(uniqueDates, sector, CONFIG_PROFILE_FARE_STATION_UPSELL);
-            }
+            // 6. Update tables using bulk upsert
+            bulkUpsertDateEvents(dateEventData, dateEventHeaders);
+            bulkUpsertUpsells(dateEventMap, existingUpsells);
 
-            copyFromTempToMainTable(CONFIG_PROFILE_FARE_STATION_UPSELL, ProfileFareStationUpsellTempTableName);
-            copyFromTempToMainTable(DATE_EVENT_TABLE_NAME, dateEventTempTableName);
-
+            // 7. Update audit
             updateAuditStatement(CONFIG_PROFILE_FARE_STATION_UPSELL, getCurrentDateTime(), uuid);
             updateAuditStatement(DATE_EVENT_TABLE_NAME, getCurrentDateTime(), uuid);
 
-            deleteTable(ProfileFareStationUpsellTempTableName);
-            deleteTable(dateEventTempTableName);
-
             error_occurred.set(0);
+
         } catch (Exception e) {
             error_occurred.set(1);
             e.printStackTrace();
@@ -2393,45 +2793,259 @@ public class App implements CommandLineRunner {
 
     public Map<String, Map<String, String>> getPartialDateEvent(List<List<String>> csvData) {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
-        int dateHeader = 0;
-        int startColumn = 3;
 
+        if (csvData == null || csvData.isEmpty()) {
+            return strategyMap;
+        }
+
+        // Get header row
+        List<String> headerRow = csvData.get(0);
+
+        // Detect which columns are present and their positions
+        int dateColumnIndex = findColumnIndex(headerRow, "Date");
+        int dowColumnIndex = findColumnIndex(headerRow, "DOW");
+        int mappedMonthColumnIndex = findColumnIndex(headerRow, "Mapped Month", "mappedMonth");
+        int eventColumnIndex = findColumnIndex(headerRow, "Event");
+
+        if (dateColumnIndex == -1) {
+            listOfErrors.get().add("Date column is required");
+            return strategyMap;
+        }
+
+        // Determine start column for sectors (after special columns)
+        int startColumn = Math.max(
+                Math.max(dateColumnIndex, dowColumnIndex),
+                Math.max(mappedMonthColumnIndex, eventColumnIndex)
+        ) + 1;
+
+        // If DOW doesn't exist in header, start from after Date column
+        if (dowColumnIndex == -1) {
+            startColumn = dateColumnIndex + 1;
+            // Skip Mapped Month and Event if they exist
+            if (mappedMonthColumnIndex > dateColumnIndex) {
+                startColumn = Math.max(startColumn, mappedMonthColumnIndex + 1);
+            }
+            if (eventColumnIndex > dateColumnIndex) {
+                startColumn = Math.max(startColumn, eventColumnIndex + 1);
+            }
+        }
+
+        // Process data rows
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
-            if (inputRow.size() <= dateHeader) continue;
+            if (inputRow.size() <= dateColumnIndex) continue;
 
-            String dateKey = inputRow.get(dateHeader).trim();
+            String dateKey = inputRow.get(dateColumnIndex).trim();
             if (dateKey == null || dateKey.trim().isEmpty()) continue;
             if (!dateKey.matches("\\d{2}/\\d{2}/\\d{4}")) {
-                listOfErrors.get().add(dateKey + ": Date should should have mm/dd/yyyy format");
+                listOfErrors.get().add(dateKey + ": Date should have mm/dd/yyyy format");
             }
 
-            for (int j = startColumn; j < inputRow.size(); j++) {
-                if (j >= csvData.get(0).size()) continue;
+            // Process sector columns
+            for (int j = startColumn; j < headerRow.size(); j++) {
+                if (j >= headerRow.size()) continue;
 
-                String stationKey = csvData.get(0).get(j).trim();
-                if (stationKey == null || stationKey.trim().isEmpty()) continue;
-                if (i == 1 && !(stationKey.matches("[A-Za-z]{6}"))) {
-                    listOfErrors.get().add(stationKey + ": Sector value should be valid");
+                String sectorKey = headerRow.get(j).trim();
+                if (sectorKey == null || sectorKey.trim().isEmpty()) continue;
+
+                // Skip special columns if they appear later in the row
+                if (isSpecialColumn(sectorKey)) {
+                    continue;
+                }
+
+                // Validate sector format ONLY for actual sector columns
+                if (i == 1 && !(sectorKey.matches("[A-Za-z]{6}"))) {
+                    listOfErrors.get().add(sectorKey + ": Sector value should be valid");
                 }
 
                 String value = (j < inputRow.size()) ? inputRow.get(j).trim() : "";
-                String keyVal = dateKey + stationKey;
+                String keyVal = dateKey + sectorKey;
 
-                if (!(stationKey.equals("Date") || stationKey.equals("Mapped Month") || stationKey.equals("Event"))) {
-                    if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+%")))) {
-                        listOfErrors.get().add(dateKey + "_" + stationKey + ": Upsell value must be a valid Integer value followed by %");
-                    }
+                // Validate upsell value format - % symbol is not allowed
+                if (!((value == null) || (value.isEmpty()) || (value.matches("-?\\d+")))) {
+                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value must be a valid Integer value without % symbol");
+                }
+                
+                // Additional validation to explicitly reject % symbol
+                if (value != null && !value.isEmpty() && value.contains("%")) {
+                    listOfErrors.get().add(dateKey + "_" + sectorKey + ": Upsell value cannot contain % symbol. Please provide numeric values only");
                 }
 
                 Map<String, String> map = new HashMap<>();
                 map.put(DATE_COLUMN_NAME, dateKey);
-                map.put(SECTOR_COLUMN_NAME.toLowerCase(), stationKey);
+                map.put(SECTOR_COLUMN_NAME.toLowerCase(), sectorKey);
                 map.put(VALUE_COLUMN_NAME, value);
                 strategyMap.put(keyVal, map);
             }
         }
         return strategyMap;
+    }
+
+    // Helper method to find column index (case-insensitive, handles multiple variations)
+    private int findColumnIndex(List<String> headerRow, String... possibleNames) {
+        for (int i = 0; i < headerRow.size(); i++) {
+            String header = headerRow.get(i).trim();
+            for (String name : possibleNames) {
+                if (header.equalsIgnoreCase(name)) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    // Helper method to check if column is a special column
+    private boolean isSpecialColumn(String columnName) {
+        if (columnName == null) return false;
+        String normalized = columnName.trim().toLowerCase();
+        return normalized.equals("date") ||
+                normalized.equals("dow") ||
+                normalized.equals("mapped month") ||
+                normalized.equals("mappedmonth") ||
+                normalized.equals("event");
+    }
+
+    private Map<String, Document> fetchExistingUpsells(Set<String> dates) {
+        Map<String, Document> existingMap = new HashMap<>();
+
+        if (dates.isEmpty()) {
+            return existingMap;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(
+                    CONFIG_PROFILE_FARE_STATION_UPSELL.toLowerCase()
+            );
+
+            Bson filter = Filters.in(DATE_COLUMN_NAME, dates);
+
+            for (Document doc : collection.find(filter)) {
+                String date = doc.getString(DATE_COLUMN_NAME);
+                String sector = doc.getString(SECTOR_COLUMN_NAME.toLowerCase());
+                String key = date + sector;
+                existingMap.put(key, doc);
+            }
+
+            log.info("Fetched " + existingMap.size() + " existing upsell records");
+        } catch (Exception e) {
+            log.error("Error fetching existing upsells: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return existingMap;
+    }
+
+    private void bulkUpsertDateEvents(List<Map<String, String>> data, List<String> headers) {
+        MongoCollection<Document> collection = database.getCollection(
+                DATE_EVENT_TABLE_NAME.toLowerCase()
+        );
+
+        List<WriteModel<Document>> bulkOps = new ArrayList<>();
+
+        for (Map<String, String> dataMap : data) {
+            String date = dataMap.get(DATE_COLUMN_NAME);
+
+            // Create filter (unique key = date)
+            Bson filter = Filters.eq(DATE_COLUMN_NAME, date);
+
+            // Create document
+            Document doc = new Document();
+            for (String header : headers) {
+                doc.append(header, autoConvert(dataMap.get(header)));
+            }
+
+            // Upsert operation (replace entire document)
+            ReplaceOptions options = new ReplaceOptions().upsert(true);
+            bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
+        }
+
+        if (!bulkOps.isEmpty()) {
+            BulkWriteOptions bulkOptions = new BulkWriteOptions().ordered(false);
+            BulkWriteResult result = collection.bulkWrite(bulkOps, bulkOptions);
+            log.info("Bulk upserted " + result.getInsertedCount() + " inserted, " +
+                    result.getModifiedCount() + " modified date events");
+        }
+    }
+
+    private void bulkUpsertUpsells(Map<String, Map<String, String>> dateEventMap, Map<String, Document> existingUpsells) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(CONFIG_PROFILE_FARE_STATION_UPSELL);
+
+            List<WriteModel<Document>> bulkOps = new ArrayList<>();
+
+            for (Map.Entry<String, Map<String, String>> entry : dateEventMap.entrySet()) {
+                Map<String, String> rowData = entry.getValue();
+
+                String date = rowData.get(DATE_COLUMN_NAME);
+                String sector = rowData.get(SECTOR_COLUMN_NAME.toLowerCase());
+                String newValue = rowData.get(VALUE_COLUMN_NAME);
+
+                // Skip if both date and sector are missing
+                if (date == null || date.trim().isEmpty() || sector == null || sector.trim().isEmpty()) {
+                    continue;
+                }
+
+                // Use the value as-is since % symbol is not allowed
+                String cleanValue = (newValue != null && !newValue.trim().isEmpty())
+                        ? newValue.trim()
+                        : "";  // Empty string if null or empty
+
+                // Create unique key for lookup
+                String lookupKey = date + sector;
+                Document existingDoc = existingUpsells.get(lookupKey);
+
+                // REMOVED: No more deletion logic
+                // Empty value now just sets value to "" with mode "M"
+
+                // Determine mode
+                String mode = "M"; // Default for analyst upload
+                if (existingDoc != null && !cleanValue.isEmpty()) {
+                    // Only preserve mode if value is NOT empty AND value unchanged
+                    String existingValue = existingDoc.getString(VALUE_COLUMN_NAME);
+                    String existingMode = existingDoc.getString("mode");
+
+                    // If value UNCHANGED, preserve existing mode
+                    if (cleanValue.equals(existingValue)) {
+                        mode = (existingMode != null) ? existingMode : "S";
+                    }
+                    // If value CHANGED, mark as Manual (mode = "M")
+                }
+                // If cleanValue is empty, always use mode = "M"
+
+                // Create filter that matches BOTH date AND sector
+                Bson filter = Filters.and(
+                        Filters.eq(DATE_COLUMN_NAME, date),
+                        Filters.eq(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                );
+
+                // Create update document
+                Document updateDoc = new Document()
+                        .append(DATE_COLUMN_NAME, date)
+                        .append(SECTOR_COLUMN_NAME.toLowerCase(), sector)
+                        .append(VALUE_COLUMN_NAME, cleanValue)  // Can be empty string
+                        .append("mode", mode)
+                        .append("updatedAt", new Date())
+                        .append("updatedBy", "ANALYST");
+
+                // Use ReplaceOneModel with upsert=true
+                bulkOps.add(new ReplaceOneModel<>(
+                        filter,
+                        updateDoc,
+                        new ReplaceOptions().upsert(true)
+                ));
+            }
+
+            if (!bulkOps.isEmpty()) {
+                BulkWriteResult result = collection.bulkWrite(bulkOps);
+                log.info("Upsell bulk write completed: {} inserted, {} modified",
+                        result.getInsertedCount(),
+                        result.getModifiedCount());
+            }
+
+        } catch (Exception e) {
+            log.error("Error in bulkUpsertUpsells: " + e.getMessage(), e);
+            throw new RuntimeException(e);
+        }
     }
 
     public void deletePartialSectorValues(Set<String> dates, String sector, String collectionName) {
@@ -3109,6 +3723,8 @@ public class App implements CommandLineRunner {
                     .append("Marketfare_Upsell", toIntOrKeepSame(marketListEntity.getMarketfare_Upsell()))
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
+                    .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
+                    .append("market_origin_mapping", toIntOrKeepSame(marketListEntity.getMarket_origin_mapping()))
                     .append("createdAt", new Date());
 
             collection.insertOne(doc);
@@ -3118,6 +3734,10 @@ public class App implements CommandLineRunner {
     }
     public Object toIntOrKeepSame(String value) {
         if (value == null || value.isEmpty()) {
+            return value;
+        }
+
+        if (value.toLowerCase().contains("e")) {
             return value;
         }
 
@@ -3381,6 +4001,8 @@ public class App implements CommandLineRunner {
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
+                .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
+                .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
                 .analystName(analystName)
                 .build());
     }
@@ -3589,6 +4211,9 @@ public class App implements CommandLineRunner {
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
                 listOfErrors.get().add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");
             }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST))) {
+                listOfErrors.get().add(lineNum + "CanAdjustedForecast has value other than 'Y' or 'N'");
+            }
             if (!listOfStrategies.contains(record.get(CSV_HEADER_FARE_ANCHOR))) {
                 listOfErrors.get().add(lineNum + "Fare Anchor must be one of the valid strategies");
             }
@@ -3612,9 +4237,14 @@ public class App implements CommandLineRunner {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.get().add(lineNum + "PLF Threshold must be a valid number");
                         } else {
+                            Double plflimit = PLFTHRESHOLD_VALUE;
+                            String plf_value = searchResults(PLFTHRESHOLD_VALUE_KEY);
+                            if(!plf_value.isEmpty()){
+                                plflimit = Double.parseDouble(plf_value);
+                            }
                             double value = Double.parseDouble(numericValue);
-                            if (value > PLFTHRESHOLD_VALUE) {
-                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            if (value > plflimit) {
+                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than " + plflimit + " percent");
                             }
                         }
                     }
@@ -3647,9 +4277,14 @@ public class App implements CommandLineRunner {
                         if (!isNumeric(numericValue)) {
                             listOfErrors.get().add(lineNum + "PLF Threshold must be a valid number");
                         } else {
+                            Double plflimit = PLFTHRESHOLD_VALUE;
+                            String plf_value = searchResults(PLFTHRESHOLD_VALUE_KEY);
+                            if(!plf_value.isEmpty()){
+                                plflimit = Double.parseDouble(plf_value);
+                            }
                             double value = Double.parseDouble(numericValue);
-                            if (value > PLFTHRESHOLD_VALUE) {
-                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than 103 percent");
+                            if (value > plflimit) {
+                                listOfErrors.get().add(lineNum + "PLF Threshold must be lesser than " + plflimit + " percent");
                             }
                         }
                     }
@@ -3767,6 +4402,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkOwnFareFlag(record.get(CSV_HEADER_MKT_FARE_FLAG))) {
                 listOfErrors.get().add(lineNum + "Mktfare Flag has value other than 'Y' or 'N'");
+            }
+            if (!checkOwnFareFlag(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING))) {
+                listOfErrors.get().add(lineNum + "Market Origin Mapping Flag has value other than 'Y' or 'N'");
             }
 
             return user;
@@ -4142,4 +4780,451 @@ public class App implements CommandLineRunner {
             e.printStackTrace();
         }
     }
+
+    public void uploadMarketFareAdjustments(Reader file, String tableName, String userName, Object role,
+                                             String obj_id) throws DataMismatchedException {
+        List<MarketListSalesInvEntity> entityList = new ArrayList<>();
+        try {
+//            createTable(tableName, MARKET_LIST_SALESINV_TABLE_NAME);
+
+            String uuid = obj_id;
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<Document> deleteQueries = new ArrayList<>();
+            List<Document> documentsToInsert = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String airlineCode = row.get(1).trim();
+                    String adjustmentStr = row.get(2).trim();
+
+                    // Validate empty fields
+                    if (sector.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": sector cannot be empty");
+                        continue;
+                    }
+
+                    if (airlineCode.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": airline_code cannot be empty");
+                        continue;
+                    }
+
+                    if (adjustmentStr.isEmpty()) {
+                        listOfErrors.get().add("Line " + (i) + ": adjustment cannot be empty");
+                        continue;
+                    }
+
+                    // Validate adjustment value
+                    if (!isValidAdjustment(adjustmentStr)) {
+                        listOfErrors.get().add("Line " + (i + 1) + ": Invalid adjustment value '" + adjustmentStr + "'. Must be a positive or negative number");
+                        continue;
+                    }
+
+                    double adjustment = Double.parseDouble(adjustmentStr);
+
+                    // Create delete query document
+                    Document deleteQuery = new Document()
+                            .append("sector", sector)
+                            .append("airlineCode", airlineCode);
+
+                    deleteQueries.add(deleteQuery);
+
+                    // Create MongoDB document for insertion
+                    Document doc = new Document()
+                            .append("sector", sector)
+                            .append("airlineCode", airlineCode)
+                            .append("adjustment", adjustment)
+                            .append("createdAt", new Date());
+
+                    documentsToInsert.add(doc);
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (NumberFormatException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Invalid number format for adjustment value");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            deleteExistingRecords(deleteQueries, tableName);
+
+            insertDocuments(documentsToInsert, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadForecastDateConfig(Reader file, String tableName, String userName, Object role,
+                                             String obj_id) throws DataMismatchedException {
+        List<MarketListSalesInvEntity> entityList = new ArrayList<>();
+        try {
+//            createTable(tableName, MARKET_LIST_SALESINV_TABLE_NAME);
+
+            String uuid = obj_id;
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String departureDate = row.get(1).trim();
+                    String lastMStartDate = row.get(3).trim();
+                    String lastMEndDate = row.get(4).trim();
+                    String isLastMRolling = row.get(5).trim();
+                    String lastYStartDate = row.get(6).trim();
+                    String lastYEndDate = row.get(7).trim();
+                    String isLastYRolling = row.get(8).trim();
+                    String isManual = row.get(9).trim();
+                    String resetDate = row.get(10).trim();
+
+                    // Validate empty fields
+                    if (sector.isEmpty() || !isLengthEqualTo(sector, 6)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid sector");
+                        continue;
+                    }
+
+                    if (departureDate.isEmpty() || !isValidIsoDate(departureDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Departure Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastMStartDate.isEmpty() || !isValidIsoDate(lastMStartDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month Start Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastMEndDate.isEmpty() || !isValidIsoDate(lastMEndDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month End Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastYStartDate.isEmpty() || !isValidIsoDate(lastYStartDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year Start Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (lastYEndDate.isEmpty() || !isValidIsoDate(lastYEndDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year End Date, required format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (!resetDate.isEmpty() && !isValidIsoDate(resetDate)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Reset Date, either empty or in format YYYY-MM-DD");
+                        continue;
+                    }
+
+                    if (!(isLastMRolling.equals("N") || isLastMRolling.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Month Rolling Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+                    if (!(isLastYRolling.equals("N") || isLastYRolling.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Last Year Rolling Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+                    if (!(isManual.equals("N") || isManual.equals("Y"))) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid Manual Flag, either 'N' or 'Y'");
+                        continue;
+                    }
+
+                    // Composite key filter
+                    Document filter = new Document()
+                            .append("Sector", sector)
+                            .append("DepartureDate", departureDate);
+
+                    // Build update payload (NO _id, NO CreatedAt)
+                    Document updateFields = new Document()
+                            .append("LastMStartDate", lastMStartDate)
+                            .append("LastMEndDate", lastMEndDate)
+                            .append("LastMRolling", isLastMRolling)
+                            .append("LastYStartDate", lastYStartDate)
+                            .append("LastYEndDate", lastYEndDate)
+                            .append("LastYRolling", isLastYRolling)
+                            .append("ManualFlag", isManual)
+                            .append("ResetDate", resetDate.isEmpty() ? null : resetDate)
+                            .append("UpdatedAt", new Date());
+
+                    // Build update document
+                    Document update = new Document("$set", updateFields);
+
+                    // Optional: upsert support
+                    UpdateOptions options = new UpdateOptions().upsert(true);
+
+                    // Add bulk update
+                    bulkUpdates.add(new UpdateOneModel<>(filter, update, options));
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (NumberFormatException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Invalid number format for adjustment value");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadActiveSectors(Reader file, String tableName, String userName, Object role,
+                                         String obj_id) throws DataMismatchedException {
+        try {
+
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector = row.get(0).trim();
+                    String forecastModel = row.get(1).trim();
+
+                    if (sector.isEmpty() || !isLengthEqualTo(sector, 6)) {
+                        listOfErrors.get().add("Line " + (i) + ": invalid sector");
+                        continue;
+                    }
+
+                    Set<String> allowedModels = Set.of("LB", "ML");
+                    if (!(allowedModels.contains(forecastModel))) {
+                        String allowedValues = "'" + String.join("', '", allowedModels) + "'";
+                        listOfErrors.get().add("Line " + (i) + ": invalid Forecast Model, allowed values: " + allowedValues);
+                        continue;
+                    }
+
+                    Document filter = new Document()
+                            .append("sector", sector);
+
+                    Document updateFields = new Document()
+                            .append("forecast_model", forecastModel)
+                            .append("updated_at", new Date());
+
+                    Document update = new Document("$set", updateFields);
+
+                    UpdateOptions options = new UpdateOptions().upsert(true);
+
+                    bulkUpdates.add(new UpdateOneModel<>(filter, update, options));
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + (i) + ": Insufficient columns in CSV");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + (i) + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, tableName);
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) {
+                listOfErrors.get().add("An unexpected error occurred");
+            }
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadFares(Reader file, String tableName, String userName, Object role,
+                                  String objId) throws DataMismatchedException {
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, objId);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
+
+            List<String> headers = Arrays.asList(getColumnHeaders(tableName).split(COMMA));
+            List<Map<String, String>> data = createListOfMap(csvData, headers);
+
+            Validator validate = getValidator(tableName);
+            String val = getAllRBDs();
+            if (validate != null && !validate.isValid(data, val, listOfErrors.get())) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                listOfErrors.get().add(INVALID_DATA_ERROR_MESSAGE);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
+
+            for (int i = 0; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+
+                try {
+                    String sector   = row.get(0).trim();
+                    String org      = row.get(1).trim();
+                    String dst      = row.get(2).trim();
+                    String route    = row.get(3).trim();
+                    String rbd      = row.get(4).trim();
+                    String total = row.get(5).trim();
+                    String currency = row.get(6).trim();
+
+                    Document filter = new Document().append("SECTOR", sector).append("route", route).append("RBD", rbd);
+
+                    Document updateFields = new Document()
+                            .append("Org", org)
+                            .append("Dst", dst)
+                            .append("TOTAL", autoConvert(total))
+                            .append("currency", currency);
+
+                    bulkUpdates.add(new UpdateOneModel<>(filter, new Document("$set", updateFields), new UpdateOptions().upsert(true)));
+
+                } catch (IndexOutOfBoundsException e) {
+                    listOfErrors.get().add("Line " + i + ": Insufficient columns in CSV");
+                } catch (Exception e) {
+                    listOfErrors.get().add("Line " + i + ": Error processing row - " + e.getMessage());
+                }
+            }
+
+            if (!listOfErrors.get().isEmpty()) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            updateRecords(bulkUpdates, "fares");
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, objId);
+            updateAuditStatement(tableName, getCurrentDateTime(), objId);
+
+        } catch (DataMismatchedException e) {
+            throw e;
+        } catch (Exception e) {
+            error_occurred.set(1);
+            if (listOfErrors.get().isEmpty()) listOfErrors.get().add("An unexpected error occurred");
+            addErrorsToTable(listOfErrors.get(), objId);
+            throw new RuntimeException(e);
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    private void deleteExistingRecords(List<Document> deleteQueries, String collectionName) {
+        if (deleteQueries.isEmpty()) {
+            System.out.println("No records to delete");
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            for (Document query : deleteQueries) {
+                collection.deleteMany(query);
+            }
+
+            System.out.println("Deleted existing records for " + deleteQueries.size() + " sector-airline combinations");
+
+        } catch (Exception e) {
+            System.err.println("Error deleting existing records: " + e.getMessage());
+            throw new RuntimeException("Failed to delete existing records", e);
+        }
+    }
+
+    private boolean isValidAdjustment(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            double num = Double.parseDouble(value);
+            // Check if it's a valid number (not NaN or Infinity)
+            return !Double.isNaN(num) && !Double.isInfinite(num);
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private void insertDocuments(List<Document> documents, String collectionName) {
+        if (documents.isEmpty()) {
+            System.out.println("No documents to insert");
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            collection.insertMany(documents);
+
+            System.out.println("Successfully inserted " + documents.size() + " documents into " + collectionName);
+
+        } catch (Exception e) {
+            System.err.println("Error inserting documents: " + e.getMessage());
+            throw new RuntimeException("Failed to insert documents into " + collectionName, e);
+        }
+    }
+
+    private void updateRecords(List<WriteModel<Document>> updates, String collectionName) {
+        if (updates == null || updates.isEmpty()) {
+            return;
+        }
+        MongoCollection<Document> collection = database.getCollection(collectionName);
+        collection.bulkWrite(updates);
+    }
+
 }

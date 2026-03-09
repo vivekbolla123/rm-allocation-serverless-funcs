@@ -26,13 +26,18 @@ from rangeCheck import QCCheck
 from calendarUpdate import CalendarUpdate
 from noShowExtract import ExpectedNoShows
 from schedule30 import ScheduleThirty
-from input_audits import S3CsvCombiner
+from input_audits import S3AuditProcessor
 from navOdsAlert import NavOdsAlert
 from calendarUpsell import CalUpsell
 from defaultMarketlist import defaultMarketlist
 from updateImpForecast import update_imputed_forecast
 from cugReport import CugReport
 from scheduled_run_fail_alert import ScheduledRunFailureAlert
+from heuristicCalc import FareStatisticalAnalysis
+from run_paused_scheduled_runs import Run_Paused_Runs
+from active_sectors import ActiveSectors
+from forecast_date_config import ForecastDateConfig
+from mlForecastScore import MLForecastScore
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -74,6 +79,12 @@ try:
     # Initialize AWS resources
     sqs = boto3.client('sqs')
     s3 = boto3.client("s3")
+    s3_old = boto3.client(
+        's3',
+        aws_access_key_id=configsettings.RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD,
+        aws_secret_access_key=configsettings.RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD,
+        region_name='ap-south-1'
+    )
 
 except Exception as e:
     logger.error(e)
@@ -93,13 +104,18 @@ module_map = {
     "update_calendar": CalendarUpdate,
     "expected_no_shows": ExpectedNoShows,
     "schedule_thirty": ScheduleThirty,
-    "input_audits": S3CsvCombiner,
+    "input_audits": S3AuditProcessor,
     "navods_alert": NavOdsAlert,
     "calendar_upsell": CalUpsell,
     "default_ml": defaultMarketlist,
     "imputed_forecast": update_imputed_forecast,
     "cug_report": CugReport,
-    "schd_run_fail_alert": ScheduledRunFailureAlert
+    "schd_run_fail_alert": ScheduledRunFailureAlert,
+    "calc": FareStatisticalAnalysis,
+    "run_paused_runs": Run_Paused_Runs,
+    "active_sectors": ActiveSectors,
+    "forecast_date_config": ForecastDateConfig,
+    "ml_forecast_score": MLForecastScore
 }
 
 
@@ -137,6 +153,7 @@ def lambda_handler(event, context):
         params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['s3'] = s3
+        params['s3_old'] = s3_old
         params['cache_client'] = cache_client
         params['events'] = events 
         params['constantutils'] = ConstantsUtils(mongo_db)
@@ -190,7 +207,7 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"schd_run_fail_alert\": 1}}"
+#   "body": "{\"modules\":{\"active_sectors\": 1}}"
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

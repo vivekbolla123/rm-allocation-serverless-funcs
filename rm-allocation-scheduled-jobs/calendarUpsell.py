@@ -65,7 +65,7 @@ class CalUpsell:
             "DepartureDateObj": {
                 "$dateFromString": {
                     "dateString": "$DepartureDate",
-                    "format": "%Y-%m-%d",  # adjust if needed
+                    "format": "%Y-%m-%d",
                     "onError": None,
                     "onNull": None
                 }
@@ -150,7 +150,7 @@ class CalUpsell:
     def get_oldest_month_range(self) -> Tuple[Optional[datetime], Optional[datetime]]:
         """Get the date range of the oldest month in the collection."""
         try:
-            # Find the minimum date
+            # Find the minimum date (stored as string)
             result = list(self.mongo_db.calendar_af.find(
                 {},
                 {"DepartureDate": 1, "_id": 0}
@@ -159,7 +159,9 @@ class CalUpsell:
             if not result:
                 return None, None
             
-            min_date = result[0]['DepartureDate']
+            # Parse the string date
+            min_date_str = result[0]['DepartureDate']
+            min_date = datetime.strptime(min_date_str, '%Y-%m-%d')
             
             # Calculate first and last day of that month
             oldest_start = min_date.replace(day=1)
@@ -178,10 +180,14 @@ class CalUpsell:
     def remove_month_data(self, start_date: datetime, end_date: datetime) -> int:
         """Remove data for a specific month range."""
         try:
+            # Convert datetime to string format for comparison
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
             result = self.mongo_db.calendar_af.delete_many({
                 "DepartureDate": {
-                    "$gte": start_date,
-                    "$lte": end_date
+                    "$gte": start_str,
+                    "$lte": end_str
                 }
             })
             
@@ -196,11 +202,15 @@ class CalUpsell:
     def remove_target_month_if_exists(self, start_date: datetime, end_date: datetime) -> int:
         """Remove existing data for the target month to prevent duplicates."""
         try:
+            # Convert datetime to string format for comparison
+            start_str = start_date.strftime('%Y-%m-%d')
+            end_str = end_date.strftime('%Y-%m-%d')
+            
             # Check if target month data exists
             existing_count = self.mongo_db.calendar_af.count_documents({
                 "DepartureDate": {
-                    "$gte": start_date,
-                    "$lte": end_date
+                    "$gte": start_str,
+                    "$lte": end_str
                 }
             })
             
@@ -222,14 +232,16 @@ class CalUpsell:
         SELECT 
             CONCAT(PX.Origin, PX.Destination) AS Sector,
             PX.DepartureDate,
-            SUM(PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE) AS TotalFare,
-            COUNT(CASE WHEN SUBSTRING(PX.FareBasis, 1, 1) != 'S' 
+            SUM(PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS TotalFare,
+            COUNT(CASE WHEN SUBSTRING(PX.FareBasis, 1, 1) != 'S' AND SUBSTRING(PX.FareBasis, 5, 1) not in ('T','G') AND SUBSTRING(PX.FareBasis, 3, 1) not in ('C')
                 THEN PX.PassengerID END) AS PassengerCount
         FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
         WHERE PX.DepartureDate >= %s
         AND PX.DepartureDate < %s
         AND PX.BookingID IS NOT NULL
-        AND SUBSTRING(PX.FareBasis, 5, 1) != 'T'
+        AND SUBSTRING(PX.FareBasis, 5, 1) not in ('T','G')
+        AND SUBSTRING(PX.FareBasis, 3, 1) not in ('C')
+        AND SUBSTRING(PX.FareBasis, 1, 1) != 'S'
         AND PX.FlightNumber < 6000
         GROUP BY PX.Origin, PX.Destination, PX.DepartureDate
         HAVING PassengerCount > 0
@@ -244,6 +256,8 @@ class CalUpsell:
             if not df.empty:
                 df['AverageFare'] = df['TotalFare'] / df['PassengerCount']
                 sectors = df['Sector'].unique().tolist()
+                # Keep DepartureDate as string in yyyy-mm-dd format
+                df['DepartureDate'] = pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d')
                 df = df[['Sector', 'DepartureDate', 'AverageFare']].copy()
             
             return df, sectors
@@ -254,7 +268,7 @@ class CalUpsell:
     def get_existing_sectors(self) -> List[str]:
         """Get existing sectors from current data."""
         try:
-            recent_date = datetime.now() - timedelta(days=90)
+            recent_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
             
             sectors = self.mongo_db.calendar_af.distinct(
                 "Sector",
@@ -288,7 +302,7 @@ class CalUpsell:
                 for date_obj in date_range:
                     records.append({
                         'Sector': str(sector),
-                        'DepartureDate': date_obj.to_pydatetime(),  # Convert to datetime for MongoDB
+                        'DepartureDate': date_obj.strftime('%Y-%m-%d'),  # Store as string in yyyy-mm-dd format
                         'AverageFare': 0.0
                     })
             
@@ -306,12 +320,9 @@ class CalUpsell:
                 try:
                     actual_processed = actual_data.copy()
                     
-                    # Normalize actual data date format to datetime
-                    if not pd.api.types.is_datetime64_dtype(actual_processed['DepartureDate']):
-                        actual_processed['DepartureDate'] = pd.to_datetime(actual_processed['DepartureDate'])
-                    
-                    # Normalize complete_df dates
-                    complete_df['DepartureDate'] = pd.to_datetime(complete_df['DepartureDate'])
+                    # Ensure both DataFrames have string dates in the same format
+                    if pd.api.types.is_datetime64_dtype(actual_processed['DepartureDate']):
+                        actual_processed['DepartureDate'] = actual_processed['DepartureDate'].dt.strftime('%Y-%m-%d')
                     
                     # Simple merge approach
                     complete_df = complete_df.set_index(['Sector', 'DepartureDate'])
@@ -333,9 +344,8 @@ class CalUpsell:
                 self.logger.error("DataFrame became empty after processing")
                 return pd.DataFrame(columns=['Sector', 'DepartureDate', 'AverageFare'])
             
-            # Ensure proper column order and convert dates to datetime for MongoDB
+            # Ensure proper column order and keep dates as strings
             complete_df = complete_df[['Sector', 'DepartureDate', 'AverageFare']].copy()
-            complete_df['DepartureDate'] = pd.to_datetime(complete_df['DepartureDate'])
             
             self.logger.info(f"Returning complete dataset with {len(complete_df)} rows")
             return complete_df
@@ -386,13 +396,12 @@ class CalUpsell:
             # Ensure proper data types
             df_insert['AverageFare'] = pd.to_numeric(df_insert['AverageFare'], errors='coerce')
             
-            # Handle date conversion for MongoDB
-            if not pd.api.types.is_datetime64_dtype(df_insert['DepartureDate']):
-                try:
-                    df_insert['DepartureDate'] = pd.to_datetime(df_insert['DepartureDate'])
-                except Exception as date_error:
-                    self.logger.error(f"Date conversion failed: {date_error}")
-                    raise ValueError("Cannot convert DepartureDate to datetime")
+            # Ensure DepartureDate is stored as string in yyyy-mm-dd format
+            if pd.api.types.is_datetime64_dtype(df_insert['DepartureDate']):
+                df_insert['DepartureDate'] = df_insert['DepartureDate'].dt.strftime('%Y-%m-%d')
+            else:
+                # Ensure consistent string format
+                df_insert['DepartureDate'] = pd.to_datetime(df_insert['DepartureDate']).dt.strftime('%Y-%m-%d')
             
             # Final validation
             if df_insert.isna().any().any():

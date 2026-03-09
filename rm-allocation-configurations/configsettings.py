@@ -54,6 +54,8 @@ param_names = [
     f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-Pass',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
+    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
   
 ]
@@ -94,6 +96,9 @@ if env == 'prod':
     ESB_USER=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-User', '')
     ESB_PASSWORD=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass', '')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
+
+    ML_FORECAST_SCORE_S3_BUCKET_NAME = 'qp-s3-fs'
+    ML_FORECAST_SCORE_S3_FILE_PATH = 'prod'
  
  
     RM_DB_WR_APPUSER_URL = "prod-rm-db.cz6mmsw6mnag.ap-south-1.rds.amazonaws.com"
@@ -120,6 +125,8 @@ if env == 'prod':
     FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
@@ -175,6 +182,9 @@ if env == 'uat':
     ESB_USER=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-User', '')
     ESB_PASSWORD=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass', '')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
+
+    ML_FORECAST_SCORE_S3_BUCKET_NAME = 'uat-qp-s3-fs'
+    ML_FORECAST_SCORE_S3_FILE_PATH = 'test'
     
     RM_DB_WR_APPUSER_URL = "172.24.87.43"
     ESB_DB_WR_APPUSER_URL = "172.24.87.43"
@@ -203,6 +213,8 @@ if env == 'uat':
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
 
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     MONGO_USERNAME = "testuser"

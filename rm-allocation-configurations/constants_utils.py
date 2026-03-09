@@ -77,8 +77,39 @@ class ConstantsUtils:
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
         self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
-        self.UP = UP
-        self.MARKET_FLAG = MARKET_FLAG
+        self.UP_B2C = UP_B2C
+        self.UP_B2B = UP_B2B
+        self.MARKET_FLAG_DOMESTIC = MARKET_FLAG_DOMESTIC
+        self.MARKET_FLAG_INTERNATIONAL = MARKET_FLAG_INTERNATIONAL
+        self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B = MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B
+        self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C = MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C
+        self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B = MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B
+        self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B = MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
+        self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C = MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C
+        self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C = MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+        self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B
+        self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C
+        self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.CURRENCY_ROUND_OFF_LIST = CURRENCY_ROUND_OFF_LIST
+        
+        # Phase 2 Constants
+        self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
+        self.YIELD_FACTOR = YIELD_FACTOR
+        self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
+        self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
+        self.RBD_VALUES = RBD_VALUES
+        self.B2B_RBD_VALUES = B2B_RBD_VALUES
+        self.B2C_RBD_VALUES = B2C_RBD_VALUES
+        self.GROUP_RBD_VALUES = GROUP_RBD_VALUES
+        self.DISTRESS_RBD_VALUES = DISTRESS_RBD_VALUES
+        self.B2B_THRESHOLD = B2B_THRESHOLD
+        self.B2B_THRESHOLD_INTERNATIONAL = B2B_THRESHOLD_INTERNATIONAL
+        self.B2C_DISTINCT_FARES_COUNT = B2C_DISTINCT_FARES_COUNT
+        self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
+        self.ACTIVE_SECTORS_DEFAULT_FIELDS = ACTIVE_SECTORS_DEFAULT_FIELDS
         self.SALE_AU_THRESHOLD_PER_RUN = SALE_AU_THRESHOLD_PER_RUN
         self.SALE_AU_THRESHOLD_OVERALL = SALE_AU_THRESHOLD_OVERALL
         self.SALE_COMPL_REDUCTION_PER = SALE_COMPL_REDUCTION_PER
@@ -90,6 +121,12 @@ class ConstantsUtils:
         self.logger.info("SUCCESS: Connection to RDS MySQL instance succeeded")
         # Generate constants from database values
         self.generateConstantValues()
+
+        # Calculate rbd counts and column lengths based on RBD values
+        self.B2B_RDB_COUNT = len(self.B2B_RBD_VALUES.split(','))
+        self.B2C_RDB_COUNT = len(self.B2C_RBD_VALUES.split(','))
+        self.AU_COLUMN_LENGTH = self.B2B_RDB_COUNT + self.B2C_RDB_COUNT + len(self.GROUP_RBD_VALUES.split(',')) + len(self.DISTRESS_RBD_VALUES.split(',')) + len(self.TBF_RBD.split(',')) + len(self.CUG_RBD.split(',')) + len(json.loads(self.SOFTBLOCK_RBDS))
+        self.AU_COLUMN_LENGTH_CONNECTIONS = self.B2B_RDB_COUNT + self.B2C_RDB_COUNT
 
     def generateConstantValues(self):
         parameterValue = self.get_parameters()
@@ -240,16 +277,88 @@ class ConstantsUtils:
                 self.RM_ALERT_MAIL_ID = parameter_value
             elif parameter_key == CLOSED_RM_ALERT_MAIL_ID_KEY:
                 self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
-            elif parameter_key == UP_KEY:
-                self.UP = int(parameter_value)
-            elif parameter_key == MARKET_FLAG_KEY:
-                self.MARKET_FLAG = parameter_value
+            elif parameter_key == UP_B2C_KEY:
+                self.UP_B2C = int(parameter_value)
+            elif parameter_key == UP_B2B_KEY:
+                self.UP_B2B = int(parameter_value)
+            elif parameter_key == MARKET_FLAG_DOMESTIC_KEY:
+                self.MARKET_FLAG_DOMESTIC = parameter_value
             elif parameter_key == SALE_AU_THRESHOLD_PER_RUN_KEY:
                 self.SALE_AU_THRESHOLD_PER_RUN = parameter_value
             elif parameter_key == SALE_AU_THRESHOLD_OVERALL_KEY:
                 self.SALE_AU_THRESHOLD_OVERALL = parameter_value
             elif parameter_key == SALE_COMPL_REDUCTION_PER_KEY:
                 self.SALE_COMPL_REDUCTION_PER = parameter_value
+            elif parameter_key == MARKET_FLAG_INTERNATIONAL_KEY:
+                self.MARKET_FLAG_INTERNATIONAL = parameter_value
+            elif parameter_key == RBD_VALUES_KEY:
+                self.RBD_VALUES = parameter_value
+            elif parameter_key == B2B_RBD_VALUES_KEY:
+                self.B2B_RBD_VALUES = parameter_value
+            elif parameter_key == B2C_RBD_VALUES_KEY:
+                self.B2C_RBD_VALUES = parameter_value
+            elif parameter_key == GROUP_RBD_VALUES_KEY:
+                self.GROUP_RBD_VALUES = parameter_value
+            elif parameter_key == DISTRESS_RBD_VALUES_KEY:
+                self.DISTRESS_RBD_VALUES = parameter_value
+            elif parameter_key == B2B_THRESHOLD_KEY:
+                self.B2B_THRESHOLD = float(parameter_value)
+            elif parameter_key == B2B_THRESHOLD_INTERNATIONAL_KEY:
+                self.B2B_THRESHOLD_INTERNATIONAL = float(parameter_value)
+            elif parameter_key == B2C_DISTINCT_FARES_COUNT_KEY:
+                self.B2C_DISTINCT_FARES_COUNT = int(parameter_value)
+            elif parameter_key == DIRECT_FLIGHT_UPSELL_PERCENT_KEY:
+                self.DIRECT_FLIGHT_UPSELL_PERCENT = float(parameter_value)
+            elif parameter_key == DIRECT_FLIGHT_UPSELL_AMOUNT_KEY:
+                self.DIRECT_FLIGHT_UPSELL_AMOUNT = float(parameter_value)
+            elif parameter_key == INTERNATIONAL_BOOKLOAD_THRESHOLDS_KEY:
+                self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(parameter_value)
+            elif parameter_key == YIELD_FACTOR_KEY:
+                self.YIELD_FACTOR = float(parameter_value)
+            elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
+                self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
+            elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:
+                self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B = float(parameter_value)
+            elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B_KEY:
+                self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = float(parameter_value)
+            elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C_KEY:
+                self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
+            elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C_KEY:
+                self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
+            elif parameter_key == CURRENCY_ROUND_OFF_LIST_KEY:
+                self.CURRENCY_ROUND_OFF_LIST = json.loads(parameter_value)
+            elif parameter_key == ACTIVE_SECTORS_DEFAULT_FIELDS_KEY:
+                self.ACTIVE_SECTORS_DEFAULT_FIELDS = parameter_value
+                
+    def _parse_intl_thresholds(self, json_str):
+        """Parse international threshold JSON string into dict with (start, end) tuple keys."""
+        try:
+            raw_data = json.loads(json_str)
+            parsed_data = {}
+            for key, value in raw_data.items():
+                start_str, end_str = key.split('-')
+                parsed_data[(int(start_str), int(end_str))] = float(value)
+            return parsed_data
+        except Exception as e:
+            self.logger.error(f"Error parsing international bookload thresholds: {e}")
+            # Return default hardcoded if parsing fails
+            return {(0, 3): 80, (4, 7): 60, (8, 14): 50, (15, 365): 40}
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value
