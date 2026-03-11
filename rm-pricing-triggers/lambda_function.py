@@ -20,11 +20,12 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 ESB_DB = f"mysql+pymysql://{configsettings.ESB_DB_USERNAME}:{configsettings.ESB_DB_PASSWORD}@{configsettings.ESB_DB_WR_APPUSER_URL}/{configsettings.ESB_NAV_SCHEMA_NAME}"
+DW_DB_CONN = f"mysql+pymysql://{configsettings.DW_DB_USER}:{configsettings.DW_DB_PASSWORD}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 try:
 
     rm_rd_esb_conn = create_engine(ESB_DB)
-
+    dw_conn = create_engine(DW_DB_CONN)
 
     NavitaireConnection = pymssql.connect(
             host=configsettings.NAV_DB_HOST,
@@ -88,6 +89,7 @@ def lambda_handler(event, context):
 
     for module_key in modules.keys():
         params["rdEsbConn"] = rm_rd_esb_conn
+        params["dwconn"] = dw_conn
         params["mongo"]=db
         params["mongofares"] = db_fares
         params['navconn'] = NavitaireConnection
@@ -119,7 +121,8 @@ def lambda_handler(event, context):
 #     "overrides": {
 #         "route": "D",
 #         "analyst": "Kenneth Menezes",
-#         "sector": "BOMDEL"
+#         "sector": ["BOMDEL", "NMILKO", "BLRDBR"],
+#         "fare_source_flag": "esb"
 #     },
 #     "modules": {"ladder_gen": 1}
 # }

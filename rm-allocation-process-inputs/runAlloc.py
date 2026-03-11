@@ -479,6 +479,7 @@ class DynAlloc:
 			)
 			self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 			imp_forecast = self.getParsedImputedForecast(variance_full)
+			Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
@@ -897,6 +898,7 @@ class DynAlloc:
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 
 				imp_forecast = self.getParsedImputedForecast(variance_full)
+				Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
@@ -953,7 +955,7 @@ class DynAlloc:
 				current_brd_counter = self.w_rbd_allocation(currRec_fullalloc, current_brd_counter) # Uses final_plf
 
 				# CUG allocation
-				B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
+				B2CRBDs_df_for_cug_gq_tbf = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, [CUG_CHANNEL, GROUP_CHANNEL, TBF_CHANNEL], '', 'L')
 				cug_bookings_dict_local = getattr(self, 'cug_bookings_dict', {}) # Use if it's a class member, else ensure defined
 
 				param_cug_flag = getattr(self.currParams, 'cug_flag', 0) # Default
@@ -1002,19 +1004,19 @@ class DynAlloc:
 
 				# --- GDS RBD Allocation ---
 				# Map B2C RBDs to GDS RBDs and allocate same AU
-				for b2c_rbd, gds_rbd in GDS_MAPPING.items():
-					# Find the B2C RBD in the current allocation
-					b2c_au = None
-					for i in range(1, self.AU_COLUMN_LENGTH + 1):
-						if getattr(currRec_fullalloc, f"class_of_service_{i}", None) == b2c_rbd:
-							b2c_au = getattr(currRec_fullalloc, f"class_au_{i}", None)
-							break
+				# for b2c_rbd, gds_rbd in GDS_MAPPING.items():
+				# 	# Find the B2C RBD in the current allocation
+				# 	b2c_au = None
+				# 	for i in range(1, self.AU_COLUMN_LENGTH + 1):
+				# 		if getattr(currRec_fullalloc, f"class_of_service_{i}", None) == b2c_rbd:
+				# 			b2c_au = getattr(currRec_fullalloc, f"class_au_{i}", None)
+				# 			break
 					
-					if b2c_au is not None:
-						# Allocate GDS RBD
-						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_of_service', gds_rbd)
-						currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_au', b2c_au)
-						current_brd_counter += 1
+				# 	if b2c_au is not None:
+				# 		# Allocate GDS RBD
+				# 		currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_of_service', gds_rbd)
+				# 		currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_au', b2c_au)
+				# 		current_brd_counter += 1
 
 				self.AUFileData.append(currRec_fullalloc)
 				if self.inputSource.isUpdateNavitaire:
@@ -1055,6 +1057,9 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
 			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = imp_forecast
+			self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
+			self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
@@ -1513,7 +1518,7 @@ class DynAlloc:
 		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
 		
 		# Increase AU_COLUMN_LENGTH to accommodate GDS RBDs
-		self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
+		# self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
 
 		if inputData["latestCode"]:
 			code_version = self.rmdatabasehelper.getLatestCodeVersion()
@@ -1705,6 +1710,18 @@ class DynAlloc:
 			IMP_FORECAST_DEDUCTION = float(IMP_FORECAST_DEDUCTION)
 			if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
 				return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
+			return CONST_NA
+		except (ValueError, TypeError):
+			return CONST_NA
+
+	def calculateAfNbAllin(self,imputed_plf,curr_plf):
+		Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
+		ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+		try:
+			imputed_plf = float(imputed_plf)
+			curr_plf = float(curr_plf)
+			if not math.isnan(Af_allin) and not math.isnan(ForecastAF_Allin):
+				return ((ForecastAF_Allin * imputed_plf)-(Af_allin * curr_plf))/(imputed_plf-curr_plf)
 			return CONST_NA
 		except (ValueError, TypeError):
 			return CONST_NA

@@ -3,6 +3,11 @@ from datetime import datetime, timedelta
 from constants_utils import ConstantsUtils
 import pandas as pd
 import configsettings
+import json
+
+# Source type constants
+SOURCE_NAV = 'Nav'
+SOURCE_MANUAL = 'Manual'
 
 class ActiveSectors:
     def __init__(self, logger, params, overrides, context):
@@ -14,6 +19,9 @@ class ActiveSectors:
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_conn = params['navconn']
         self.constants = ConstantsUtils(self.mongo_db)
+        
+        # Default fields to add to new sector documents
+        self.default_sector_fields = json.loads(self.constants.ACTIVE_SECTORS_DEFAULT_FIELDS)
 
     def fetch_existing_sectors(self):
         """Collect active sectors from Navitaire."""
@@ -29,121 +37,107 @@ class ActiveSectors:
             self.logger.error(f"Error collecting active sectors data: {e}")
             raise
     
-    def clear_nav_sectors(self):
-        """Clear only Nav source sectors from the active_sectors collection."""
+    def get_existing_mongo_sectors(self):
+        """Get all existing sectors from MongoDB (both Nav and Manual)."""
         try:
-            result = self.mongo_db.active_sectors.delete_many({'source': 'Nav'})
-            self.logger.info(f"Cleared {result.deleted_count} Nav sectors from active_sectors collection")
-            return result.deleted_count
-        except Exception as e:
-            self.logger.error(f"Error clearing Nav sectors: {str(e)}")
-            raise
-    
-    def get_manual_sectors(self):
-        """Get existing manual sectors to avoid duplicates."""
-        try:
-            manual_sectors = list(self.mongo_db.active_sectors.find(
-                {'source': 'Manual'},
-                {'sector': 1, '_id': 0}
+            all_sectors = list(self.mongo_db.active_sectors.find(
+                {},
+                {'sector': 1, 'source': 1, '_id': 0}
             ))
-            return {doc['sector'] for doc in manual_sectors}
+            
+            nav_sectors = {doc['sector'] for doc in all_sectors if doc.get('source') == SOURCE_NAV}
+            # Manual sectors: source='Manual' OR source is null OR source field doesn't exist
+            manual_sectors = {
+                doc['sector'] for doc in all_sectors 
+                if doc.get('source') in [SOURCE_MANUAL, None] or 'source' not in doc
+            }
+            all_sectors_set = {doc['sector'] for doc in all_sectors}
+            
+            return {
+                'nav': nav_sectors,
+                'manual': manual_sectors,
+                'all': all_sectors_set
+            }
         except Exception as e:
-            self.logger.error(f"Error fetching manual sectors: {str(e)}")
+            self.logger.error(f"Error fetching existing sectors: {str(e)}")
             raise
     
-    def insert_active_sectors(self, sectors):
-        """Insert Nav sectors into the active_sectors collection."""
-        if sectors.empty:
-            self.logger.warning("No sectors to insert")
-            return 0
+    def sync_nav_sectors(self, nav_sectors_df):
+        """Sync Nav sectors with MongoDB - add new, remove obsolete, keep existing."""
+        if nav_sectors_df.empty:
+            self.logger.warning("No Nav sectors to sync")
+            return {'added': 0, 'removed': 0, 'kept': 0, 'manual': 0}
             
         try:
-            # Get existing manual sectors
-            manual_sectors = self.get_manual_sectors()
-            
-            # Create records with timestamp and source
-            current_time = datetime.now()
-            
-            # Convert DataFrame rows to sector strings (e.g., "DEL-BOM")
-            sector_list = [
+            # Convert DataFrame to sector strings
+            nav_sectors_from_db = {
                 f"{row['DepartureStation']}{row['ArrivalStation']}"
-                for _, row in sectors.iterrows()
-            ]
+                for _, row in nav_sectors_df.iterrows()
+            }
             
-            # Filter out sectors that already exist as Manual
-            new_sectors = [s for s in sector_list if s not in manual_sectors]
+            # Get existing sectors from MongoDB
+            mongo_sectors = self.get_existing_mongo_sectors()
             
-            if not new_sectors:
-                self.logger.info("No new Nav sectors to insert (all exist as Manual)")
-                return 0
+            # Determine what to add and remove
+            sectors_to_add = nav_sectors_from_db - mongo_sectors['all']  # New sectors not in MongoDB at all
+            sectors_to_remove = mongo_sectors['nav'] - nav_sectors_from_db  # Nav sectors no longer in Navitaire
+            sectors_kept = mongo_sectors['nav'] & nav_sectors_from_db  # Nav sectors that exist in both
             
-            records = [
-                {
-                    'sector': sector,
-                    'source': 'Nav',
-                    'created_at': current_time,
-                    'updated_at': current_time
-                }
-                for sector in new_sectors
-            ]
+            current_time = datetime.now()
+            added_count = 0
+            removed_count = 0
             
-            result = self.mongo_db.active_sectors.insert_many(records)
-            inserted_count = len(result.inserted_ids)
-            self.logger.info(f"Inserted {inserted_count} Nav sectors into active_sectors collection")
+            # Add new sectors
+            if sectors_to_add:
+                records = [
+                    {
+                        'sector': sector,
+                        'source': SOURCE_NAV,
+                        'created_at': current_time,
+                        'updated_at': current_time,
+                        **self.default_sector_fields  # Add default configurable fields
+                    }
+                    for sector in sectors_to_add
+                ]
+                result = self.mongo_db.active_sectors.insert_many(records)
+                added_count = len(result.inserted_ids)
+                self.logger.info(f"Added {added_count} new Nav sectors with default fields")
             
-            if len(sector_list) != len(new_sectors):
-                skipped = len(sector_list) - len(new_sectors)
-                self.logger.info(f"Skipped {skipped} sectors that already exist as Manual")
+            # Remove obsolete Nav sectors
+            if sectors_to_remove:
+                result = self.mongo_db.active_sectors.delete_many({
+                    'sector': {'$in': list(sectors_to_remove)},
+                    'source': SOURCE_NAV
+                })
+                removed_count = result.deleted_count
+                self.logger.info(f"Removed {removed_count} obsolete Nav sectors")
             
-            return inserted_count
+            return {
+                'added': added_count,
+                'removed': removed_count,
+                'kept': len(sectors_kept),
+                'manual': len(mongo_sectors['manual'])
+            }
             
         except Exception as e:
-            self.logger.error(f"Error inserting sectors: {str(e)}")
+            self.logger.error(f"Error syncing sectors: {str(e)}")
             raise
     
     def run(self):
-        """Main method to update active_sectors collection with unique sectors."""
-        results = {
-            "status": "not_attempted",
-            "sectors_fetched": 0,
-            "nav_sectors_cleared": 0,
-            "nav_sectors_inserted": 0,
-            "manual_sectors_preserved": 0,
-            "timestamp": datetime.now().isoformat()
-        }
+        """Main method to sync active_sectors collection with Navitaire data."""
         
         try:
-            # Get count of manual sectors before operation
-            manual_count = self.mongo_db.active_sectors.count_documents({'source': 'Manual'})
-            results["manual_sectors_preserved"] = manual_count
-            
-            # Fetch unique sectors from Navitaire
+            # Fetch sectors from Navitaire
             sectors = self.fetch_existing_sectors()
-            results["sectors_fetched"] = len(sectors)
             
-            # Clear only Nav sectors
-            cleared_count = self.clear_nav_sectors()
-            results["nav_sectors_cleared"] = cleared_count
+            # Sync Nav sectors with MongoDB
+            sync_results = self.sync_nav_sectors(sectors)
             
-            # Insert new Nav sectors
-            inserted_count = self.insert_active_sectors(sectors)
-            results["nav_sectors_inserted"] = inserted_count
-            
-            # Verify manual sectors are still there
-            manual_count_after = self.mongo_db.active_sectors.count_documents({'source': 'Manual'})
-            if manual_count != manual_count_after:
-                self.logger.warning(f"Manual sector count changed from {manual_count} to {manual_count_after}")
-            
-            results["status"] = "success"
             self.logger.info(
-                f"Successfully updated active_sectors collection: "
-                f"{inserted_count} Nav sectors inserted, "
-                f"{manual_count_after} Manual sectors preserved"
+                f"Successfully synced active_sectors: "
+                f"{sync_results['added']} added, {sync_results['removed']} removed, "
+                f"{sync_results['kept']} kept, {sync_results['manual']} manual preserved"
             )
             
         except Exception as e:
             self.logger.error(f"Error in run method: {str(e)}")
-            results["status"] = "error"
-            results["error"] = str(e)
-        
-        return results
