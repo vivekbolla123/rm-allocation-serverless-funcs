@@ -13,4 +13,5 @@ public class MarketListConnAuditEntity extends MarketListConnectionsEntity {
     private String date;
     private String userName;
     private String changedAt;
+    private boolean newRecord;
 }
