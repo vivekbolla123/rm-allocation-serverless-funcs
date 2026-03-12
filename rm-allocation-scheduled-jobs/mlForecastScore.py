@@ -7,7 +7,7 @@ import pickle
 import configsettings
 
 
-class MLForecastScoreTest:
+class MLForecastScore:
     def __init__(self, logger, params, overrides, context):
         self.logger = logger
         self.params = params
