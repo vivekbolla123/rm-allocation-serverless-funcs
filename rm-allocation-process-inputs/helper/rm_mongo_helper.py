@@ -58,6 +58,7 @@ class MarketFareMongoDB:
                 flightExclusion = currParams.flightExclusionB2C
  
             carr_exclusion_list = carr_exclusion.split('/') if carr_exclusion else []
+            flt_exclusion_list = flightExclusion.split('/') if flightExclusion else []
  
             origin = currParams.origin
             destination = currParams.destin
@@ -90,8 +91,8 @@ class MarketFareMongoDB:
                 "outbound_stop": '0'
             }
             
-            if flightExclusion:
-                base_match_conditions["outbound_flight"] = {"$ne": flightExclusion}
+            if flt_exclusion_list:
+                base_match_conditions["outbound_flight"] = {"$nin": flt_exclusion_list}
  
             # Add time interval condition for non-test data
             if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
