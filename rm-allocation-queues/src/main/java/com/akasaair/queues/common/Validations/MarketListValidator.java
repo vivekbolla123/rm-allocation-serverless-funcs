@@ -34,6 +34,9 @@ public class MarketListValidator {
         if (flightNumbers.endsWith("/")) {
             return false;
         }
+        if (flightNumbers == null || flightNumbers.trim().isEmpty()) {
+            return true;
+        }
         String[] parts = flightNumbers.split("/");
 
         for (String flt : parts) {
