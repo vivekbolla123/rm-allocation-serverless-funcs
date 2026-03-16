@@ -15,7 +15,6 @@ import numpy as np
 from helpers.nav_db_helpers.ladder_nav_helper import LadderNavHelper
 from helpers.pa_db_helpers.ladder_pa_helper import LadderPAHelper
 from helpers.esb_db_helpers.ladder_esb_helper import LadderEsbHelper
-from helpers.dw_db_helpers.ladder_dw_helper import LadderDWHelper
 
 
 class LadderGen:
@@ -35,7 +34,6 @@ class LadderGen:
         self.constants = ConstantsUtils(self.db)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, self.db_fares, logger)
-        self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         self.batch_run_id = overrides.get('batch_run_id', None)
@@ -99,11 +97,13 @@ class LadderGen:
         self.market_fares_data = None
         self.city_pair_data = None
         self.currentVersion = None
-        self.fare_cap_data = None  # Sector-level fare caps (Base Fare + RCS + CUTE)
-        self.fare_cap_value = None  # Effective fare cap value for current sector
+        self.fare_cap_value = None  # Distance-based fare cap for current sector (DOM only)
         # Failure tracking
         self.failure_reason = None
         self.outlier_count = None
+        
+        # Farecap distance config from rm_parameter_values
+        self.FARECAP_DISTANCE_CONFIG = self.constants.FARECAP_DISTANCE_CONFIG
         
         
     def _get_reverse_sector(self, sector):
@@ -111,6 +111,30 @@ class LadderGen:
         if len(sector) != 6:
             return None
         return sector[3:] + sector[:3]
+    
+    def _get_fare_cap_for_distance(self, distance_km):
+        """Get the fare cap value based on sector distance using FARECAP_DISTANCE_CONFIG.
+        
+        Config format: [(0, 500, 7500), (500, 1000, 12000), (1000, 1500, 15000), (1500, inf, 20000)]
+        Returns the cap value for the matching distance range, or None if no match.
+        """
+        try:
+            for min_km, max_km, cap_value in self.FARECAP_DISTANCE_CONFIG:
+                if min_km <= distance_km < max_km:
+                    self.logger.info(f"Distance {distance_km} km falls in range {min_km}-{max_km} km, fare cap = {cap_value}")
+                    return cap_value
+            
+            # If distance exceeds all ranges, use the last (highest) range
+            if self.FARECAP_DISTANCE_CONFIG:
+                last_cap = self.FARECAP_DISTANCE_CONFIG[-1][2]
+                self.logger.warning(f"Distance {distance_km} km exceeds all configured ranges, using max cap = {last_cap}")
+                return last_cap
+            
+            self.logger.warning(f"No fare cap config available for distance {distance_km} km")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error looking up fare cap for distance {distance_km}: {str(e)}")
+            return None
     
     def _setup_currency_conversion(self):
         """Setup currency conversion for the current sector and reverse sector."""
@@ -256,25 +280,57 @@ class LadderGen:
             except Exception as e:
                 self.logger.error(f"City pair data collection failed (non-critical): {str(e)}")
             
-            # Collect fare caps for this sector
+            # Collect distance-based fare cap (DOM only)
             try:
-                reverse_sector = self._get_reverse_sector(self.sector)
-                self.fare_cap_data = self.pa_helper.collect_fare_caps(self.sector, reverse_sector)
-                if self.fare_cap_data:
-                    # Use fare cap from the sector or reverse sector
-                    cap_entry = self.fare_cap_data.get(self.sector) or self.fare_cap_data.get(reverse_sector)
-                    if cap_entry:
-                        self.fare_cap_value = float(cap_entry.get('fare_cap', 0))
-                        self.logger.info(f"Fare cap for {self.sector}: {self.fare_cap_value} "
-                                       f"(Base={cap_entry.get('base_fare_cap')}, RCS={cap_entry.get('rcs')}, CUTE={cap_entry.get('cute')})")
+                if self.route == 'D':
+                    origin = self.sector[:3]
+                    destination = self.sector[3:]
+                    # Get distance from Navitaire CityPair data collected above
+                    sector_distance = None
+                    if self.city_pair_data is not None and not self.city_pair_data.empty:
+                        # Find matching forward sector
+                        match = self.city_pair_data[
+                            (self.city_pair_data['DepartureStation'] == origin) & 
+                            (self.city_pair_data['ArrivalStation'] == destination)
+                        ]
+                        if not match.empty:
+                            sector_distance = float(match.iloc[0]['ActualDistance'])
+                        else:
+                            # Try reverse sector as fallback
+                            reverse_match = self.city_pair_data[
+                                (self.city_pair_data['DepartureStation'] == destination) & 
+                                (self.city_pair_data['ArrivalStation'] == origin)
+                            ]
+                            if not reverse_match.empty:
+                                sector_distance = float(reverse_match.iloc[0]['ActualDistance'])
+                    
+                    if sector_distance is not None:
+                        gross_fare_cap = self._get_fare_cap_for_distance(sector_distance)
+                        # Fare cap includes base fare + RCS + CUTE
+                        # Subtract RCS and CUTE to get effective base fare cap
+                        rcs_value = 0
+                        cute_value = 0
+                        if self.tax_master_dom_data is not None and not self.tax_master_dom_data.empty:
+                            origin_tax = self.tax_master_dom_data[self.tax_master_dom_data['Station'] == origin]
+                            if not origin_tax.empty:
+                                rcs_value = float(origin_tax.iloc[0].get('RCS', 0) or 0)
+                                cute_value = float(origin_tax.iloc[0].get('CUTE', 0) or 0)
+                                self.logger.info(f"Tax deductions for {origin}: RCS={rcs_value}, CUTE={cute_value}")
+                        
+                        self.fare_cap_value = gross_fare_cap - rcs_value - cute_value
+                        self.logger.info(f"Distance-based fare cap for {self.sector}: "
+                                       f"distance={sector_distance} km, gross_cap={gross_fare_cap}, "
+                                       f"RCS={rcs_value}, CUTE={cute_value}, "
+                                       f"effective_base_fare_cap={self.fare_cap_value}")
                     else:
                         self.fare_cap_value = None
-                        self.logger.warning(f"No fare cap entry found for sector {self.sector}")
+                        self.logger.warning(f"No distance found for sector {self.sector}, fare cap not applied")
                 else:
+                    # No fare cap for international routes
                     self.fare_cap_value = None
-                    self.logger.warning(f"No fare caps available for sector {self.sector}")
+                    self.logger.info(f"Fare cap not applied for international route {self.sector}")
             except Exception as e:
-                self.logger.error(f"Fare cap collection failed (non-critical): {str(e)}")
+                self.logger.error(f"Fare cap distance lookup failed (non-critical): {str(e)}")
                 self.fare_cap_value = None
             
             # Check if critical data is missing
@@ -412,23 +468,13 @@ class LadderGen:
     def _apply_fare_cap_to_bookings(self, booking_data, channel):
         """Filter out booking fares that exceed the fare cap.
         
-        Since ESB now returns base fare, we compare directly against the 
-        base_fare_cap component of the fare cap.
+        Uses the distance-based fare cap value directly as the base fare cap.
+        Only applies for domestic routes (fare_cap_value is None for international).
         """
         if booking_data.empty or self.fare_cap_value is None:
             return booking_data
         
-        # Get base fare cap component (fare_cap = base_fare_cap + RCS + CUTE)
-        # For base fare comparison, use base_fare_cap
-        cap_entry = None
-        if self.fare_cap_data:
-            cap_entry = self.fare_cap_data.get(self.sector) or self.fare_cap_data.get(self._get_reverse_sector(self.sector))
-        
-        if cap_entry and cap_entry.get('base_fare_cap'):
-            base_fare_cap = float(cap_entry['base_fare_cap'])
-        else:
-            # If only fare_cap is available, use it as-is for filtering
-            base_fare_cap = self.fare_cap_value
+        base_fare_cap = self.fare_cap_value
         
         original_count = len(booking_data)
         filtered_data = booking_data[booking_data['Fare'] <= base_fare_cap].copy()
@@ -813,15 +859,25 @@ class LadderGen:
             if market_data.empty:
                 return None
             
-            # Apply fare cap filter to market fares
+            # Apply fare cap filter to market fares (convert gross to base fare first)
             filtered_data = market_data.copy()
             if self.fare_cap_value is not None:
                 before_count = len(filtered_data)
-                filtered_data = filtered_data[filtered_data['gross_fare'] <= self.fare_cap_value]
+                # Convert gross fares to base fares for comparison against fare cap
+                if self.route == 'D':
+                    filtered_data['base_fare_calc'] = filtered_data['gross_fare'].apply(
+                        lambda gf: self._calculate_base_domestic_fare(gf, origin, destination)
+                    )
+                else:
+                    filtered_data['base_fare_calc'] = filtered_data['gross_fare'].apply(
+                        lambda gf: self._calculate_base_international_fare(gf, origin, destination)
+                    )
+                filtered_data = filtered_data[filtered_data['base_fare_calc'] <= self.fare_cap_value]
+                filtered_data = filtered_data.drop(columns=['base_fare_calc'])
                 after_count = len(filtered_data)
                 if before_count != after_count:
-                    self.logger.info(f"Fare cap filter on market fares: {before_count - after_count} fares removed "
-                                   f"(cap={self.fare_cap_value:.2f})")
+                    self.logger.info(f"Fare cap filter on market fares (base fare comparison): {before_count - after_count} fares removed "
+                                   f"(base_fare_cap={self.fare_cap_value:.2f})")
             
             if filtered_data.empty:
                 self.logger.warning(f"No market fares remain after fare cap filter")
@@ -1483,7 +1539,6 @@ class LadderGen:
             # Reset failure tracking for each sector
             self.failure_reason = None
             self.outlier_count = None
-            self.fare_cap_data = None
             self.fare_cap_value = None
             
             result = self._run_single_sector(run_id)

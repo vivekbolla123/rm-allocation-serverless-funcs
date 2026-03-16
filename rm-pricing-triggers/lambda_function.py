@@ -137,15 +137,15 @@ def lambda_handler(event, context):
 #     "modules": {"action_sect": 1}
 # }
 
-# messageBody = {
-#     "overrides": {
-#         "route": "D",
-#         "analyst": "Kenneth Menezes",
-#         "sector": ["BOMDEL", "NMILKO", "BLRDBR"],
-#         "fare_source_flag": "esb"
-#     },
-#     "modules": {"ladder_gen": 1}
-# }
+messageBody = {
+    "overrides": {
+        "route": "D",
+        "analyst": "Kenneth Menezes",
+        "sector": ["BOMDEL"],
+        "fare_source_flag": "esb"
+    },
+    "modules": {"ladder_gen": 1}
+}
 
 # messageBody = {
 #     "overrides": {
@@ -162,5 +162,5 @@ def lambda_handler(event, context):
 #     "modules": {"fare_filing": 1}
 # }
  
-# event = {'Records':[{'body':json.dumps(messageBody)}]}
-# lambda_handler(event,None)
+event = {'Records':[{'body':json.dumps(messageBody)}]}
+lambda_handler(event,None)
