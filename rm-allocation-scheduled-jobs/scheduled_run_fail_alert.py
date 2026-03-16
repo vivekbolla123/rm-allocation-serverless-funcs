@@ -23,25 +23,67 @@ class ScheduledRunFailureAlert:
         self.db_reports = self.mongoconn['qp_rm_reports'] 
         self.cache_client = params['cache_client']
         self.constants = ConstantsUtils(self.mongoconn['qp_dw_rmalloc'])
+        self.overrides = overrides or {}
+
+    def _get_simulated_time(self):
+        """Return simulated UTC time if in test mode, otherwise current UTC time."""
+        test_mode = self.overrides.get('test_mode', False)
+        test_hour = self.overrides.get('test_hour')
+        test_date = self.overrides.get('test_date')
+
+        if test_mode and test_hour:
+            try:
+                hour_val, min_val = map(int, test_hour.split(':'))
+                if test_date:
+                    year, month, day = map(int, test_date.split('-'))
+                    return datetime(year, month, day, hour_val, min_val, 0, 0, tzinfo=timezone.utc)
+                else:
+                    return datetime.now(timezone.utc).replace(hour=hour_val, minute=min_val, second=0, microsecond=0)
+            except Exception as e:
+                self.logger.error(f"Invalid test_hour/test_date format. Error: {e}")
+
+        return datetime.now(timezone.utc)
 
     def run(self):
         try:
             self.logger.info("Starting the run method.")
 
+            test_mode = self.overrides.get('test_mode', False)
+            if test_mode:
+                self.logger.info(f"TEST MODE: hour={self.overrides.get('test_hour')}, date={self.overrides.get('test_date', 'today')}")
+
             # ------------------------------------------------------
-            # Get run data from DB (previous_hour_runs already
-            # contains success_percent logic)
+            # Get run data from DB
             # ------------------------------------------------------
             last_hour_runs, previous_hour_runs = self.get_runs_hourly_windows()
 
-            failed_runs = [ doc for doc in previous_hour_runs if doc.get("success_percent") in (None, 0) ]
+            # Check BOTH windows for failures
+            all_recent_runs = last_hour_runs + previous_hour_runs
+
+            self.logger.info(f"Found {len(last_hour_runs)} runs in last hour, {len(previous_hour_runs)} in previous hour")
+            for run in all_recent_runs:
+                self.logger.info(f"Run: {run.get('run_id')} - Type: {run.get('type')}, DTD: {run.get('dtd_start')}-{run.get('dtd_end')}, Success: {run.get('success_percent')}")
+
+            failed_runs = [doc for doc in all_recent_runs if doc.get("success_percent") in (None, 0)]
             missing_runs = []
 
+            self.logger.info(f"Found {len(failed_runs)} failed runs")
+
             # ------------------------------------------------------
-            # Load schedulers + cron hits + extracted input constants
+            # Load schedulers + cron hits
             # ------------------------------------------------------
             schedulers = self.get_scheduler_cron_hits()
-            WINDOW_MINUTES = 10   
+
+            # Add Schedule30 cron hits (runs daily at 10 PM IST / 16:30 UTC)
+            schedule30_hits = self.get_schedule30_cron_hits()
+            schedulers.extend(schedule30_hits)
+
+            self.logger.info(f"Found {len(schedulers)} schedulers with cron hits")
+            for sched in schedulers:
+                self.logger.info(f"Scheduler: {sched.get('schedulerName')} - Type: {sched.get('type')}, DTD: {sched.get('dtd_start')}-{sched.get('dtd_end')}, Hits: {len(sched.get('hits_in_window', []))}")
+
+            WINDOW_MINUTES = 10
+            matched_run_ids = set()
 
             # ------------------------------------------------------
             # Compare cron hits vs DB runs
@@ -60,19 +102,14 @@ class ScheduledRunFailureAlert:
                     matching_found = False
                     window_delta = timedelta(minutes=WINDOW_MINUTES)
 
-                    # Iterate over DB runs directly instead of rounded-index
-                    for db_run in last_hour_runs:
+                    for db_run in all_recent_runs:
                         db_dt = db_run.get("start_dt")
                         if not db_dt:
                             continue
 
-                        # ---------- TIME WINDOW MATCH ----------
-                        # Cron hit = 12:15
-                        # DB start_time = 12:18 → OK if <= 5 min difference
                         if abs(db_dt - hit) > window_delta:
                             continue
 
-                        # ---------- FILTER MATCHES ----------
                         if region and db_run.get("region") != region:
                             continue
 
@@ -88,8 +125,8 @@ class ScheduledRunFailureAlert:
                         if dtd_end and db_run.get("dtd_end") != dtd_end:
                             continue
 
-                        # All matched → valid run found
                         matching_found = True
+                        matched_run_ids.add(db_run.get("run_id"))
                         break
 
                     if not matching_found:
@@ -102,16 +139,24 @@ class ScheduledRunFailureAlert:
                             "type": run_type,
                             "dtd_start": dtd_start,
                             "dtd_end": dtd_end,
-                            "start_dt": db_dt
+                            "start_dt": hit
                         })
 
-            if failed_runs:
-                self.compose_and_send_email("RM Alert: Scheduled Run Not Completed", failed_runs)
+            # Only alert about failed runs that have an enabled scheduler
+            monitored_failed_runs = [
+                run for run in failed_runs
+                if run.get("run_id") in matched_run_ids
+            ]
+
+            self.logger.info(f"Monitored failed runs: {len(monitored_failed_runs)}, Missing runs: {len(missing_runs)}")
+
+            if monitored_failed_runs:
+                self.compose_and_send_email("RM Alert: Scheduled Run Not Completed", monitored_failed_runs)
                 self.logger.info("Sent Alert mail for failed runs")
-            
-            # if missing_runs:
-            #     self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
-            #     self.logger.info("Sent Alert mail for runs that failed to start")
+
+            if missing_runs:
+                self.compose_and_send_email("RM Alert: Scheduled Run Not Started", missing_runs)
+                self.logger.info("Sent Alert mail for runs that failed to start")
 
             self.logger.info("Run method completed.")
 
@@ -122,7 +167,8 @@ class ScheduledRunFailureAlert:
         runs_col = self.db['allocation_run_audit']
         summary_col = self.db_reports['allocation_summary_report']
 
-        now_utc = datetime.now(timezone.utc)
+        now_utc = self._get_simulated_time()
+        self.logger.info(f"Using time: {now_utc}")
 
         # Define hour boundaries
         hour_current = now_utc.replace(minute=0, second=0, microsecond=0)
@@ -137,8 +183,8 @@ class ScheduledRunFailureAlert:
         # Fetch only last 2 hours of runs
         cursor = runs_col.find(
             {
-                'type': {'$in': ["Scheduled", "Scheduled_Connections"]},
-                'start_time': {'$gte': ts_prev2}
+                'type': {'$in': ["Scheduled", "Scheduled_Connections", "Scheduled_Thirty"]},
+                'start_time': {'$gte': ts_prev2, '$lt': ts_current}
             },
             {
                 'run_id': 1,
@@ -170,9 +216,10 @@ class ScheduledRunFailureAlert:
             elif hour_prev2 <= doc["start_dt"] < hour_prev:
                 previous_hour_runs.append(doc)
 
-        # Join summary fields for last hour only
-        if previous_hour_runs:
-            run_ids = [doc["run_id"] for doc in previous_hour_runs]
+        # Join summary fields for ALL runs in both windows
+        all_runs = last_hour_runs + previous_hour_runs
+        if all_runs:
+            run_ids = [doc["run_id"] for doc in all_runs]
 
             summary_docs = list(
                 summary_col.aggregate([
@@ -196,7 +243,7 @@ class ScheduledRunFailureAlert:
                                             {"$eq": ["$failures", None]}
                                         ]
                                     },
-                                    0,  # return 0 if fields missing
+                                    0,
                                     {
                                         "$multiply": [
                                             {
@@ -217,7 +264,7 @@ class ScheduledRunFailureAlert:
 
             summary_map = {d["run_id"]: d for d in summary_docs}
 
-            for doc in previous_hour_runs:
+            for doc in all_runs:
                 rid = doc["run_id"]
                 summary = summary_map.get(rid, {})
                 doc["success_percent"] = summary.get("success_percent")
@@ -239,12 +286,54 @@ class ScheduledRunFailureAlert:
 
         list_obj = list(cursor)
         return list_obj
-    
+
+    def get_schedule30_cron_hits(self):
+        """
+        Generate cron hits for Schedule30 job which runs daily at 10 PM IST (16:30 UTC).
+        This job is triggered via scheduled-jobs Lambda, not fetch-inputs.
+        """
+        now_utc = self._get_simulated_time()
+        hour_current = now_utc.replace(minute=0, second=0, microsecond=0)
+        hour_prev = hour_current - timedelta(hours=1)
+
+        # Schedule30 runs daily at 16:30 UTC (10:00 PM IST)
+        cron_pattern = "30 16 * * ? *"
+
+        cron_hits = []
+
+        try:
+            itr = AwsCroniter(cron_pattern)
+            t = itr.get_prev(hour_current)[0]
+
+            while t >= hour_prev:
+                cron_hits.append(t)
+                t = itr.get_prev(t)[0]
+
+        except AwsCroniterExpressionError as cron_e:
+            self.logger.error(f"Schedule30 cron error: {cron_e}")
+        except Exception as e:
+            self.logger.error(f"Failed to get Schedule30 cron hit time: {e}")
+
+        results = []
+        if cron_hits:
+            results.append({
+                "schedulerName": "Schedule30-Daily-10PM-IST",
+                "cron": f"cron({cron_pattern})",
+                "hits_in_window": cron_hits,
+                "dtd_start": 0,
+                "dtd_end": 365,
+                "updateNavType": "api",
+                "marketListName": "market_list_thirty",
+                "region": "Domestic",
+                "type": "Scheduled_Thirty"
+            })
+
+        return results
+
     def get_scheduler_cron_hits(self):
         """
-        Fetch ALL enabled cron EventBridge rules that target this Lambda,
-        extract input constants (only existing keys), and compute cron hits
-        in the last hour window.
+        Fetch ALL enabled cron EventBridge rules that target fetch-inputs Lambda,
+        extract input constants, and compute cron hits in the last hour window.
         """
 
         events = boto3.client("events")
@@ -253,17 +342,10 @@ class ScheduledRunFailureAlert:
         response = lambda_client.get_function(FunctionName=configsettings.FETCH_INPUTS_LAMBDA)
         lambda_arn = response["Configuration"]["FunctionArn"]
 
-        # ------------------------------------------------------
-        # Time window (UTC)
-        # ------------------------------------------------------
-        now_utc = datetime.now(timezone.utc)
+        now_utc = self._get_simulated_time()
         hour_current = now_utc.replace(minute=0, second=0, microsecond=0)
         hour_prev = hour_current - timedelta(hours=1)
 
-        # ------------------------------------------------------
-        # Find which Lambda function is running this job
-        # ------------------------------------------------------
-        # Get all rule names attached to this Lambda
         rule_names_resp = events.list_rule_names_by_target(TargetArn=lambda_arn)
         rule_names = rule_names_resp.get("RuleNames", [])
 
@@ -271,9 +353,6 @@ class ScheduledRunFailureAlert:
 
         for rule_name in rule_names:
 
-            # ------------------------------------------------------
-            # 1) Describe rule
-            # ------------------------------------------------------
             try:
                 rule = events.describe_rule(Name=rule_name)
             except Exception:
@@ -289,9 +368,7 @@ class ScheduledRunFailureAlert:
 
             cron_pattern = cron_expr[5:-1]
 
-            # ------------------------------------------------------
-            # 2) Get Input JSON
-            # ------------------------------------------------------
+            # Get Input JSON
             input_json_raw = None
             try:
                 trg = events.list_targets_by_rule(Rule=rule_name)
@@ -300,14 +377,14 @@ class ScheduledRunFailureAlert:
             except Exception:
                 input_json_raw = None
 
-            # defaults first
+            # defaults
             extracted = {
                 "dtd_start": 30,
                 "dtd_end": 90,
                 "updateNavType": "api",
                 "marketListName": "market_list",
                 "region": "Domestic",
-                "type": "Adhoc"
+                "type": "Scheduled"
             }
 
             if input_json_raw:
@@ -328,29 +405,23 @@ class ScheduledRunFailureAlert:
                 except Exception:
                     pass
 
-            # ------------------------------------------------------
-            # 3) Compute cron hits in last hour
-            # ------------------------------------------------------
+            # Compute cron hits in last hour
             cron_hits = []
 
             try:
                 itr = AwsCroniter(cron_pattern)
-                
+
                 t = itr.get_prev(hour_current)[0]
-                
-                # Iterate backwards until outside time window
+
                 while t >= hour_prev:
                     cron_hits.append(t)
-                    t = itr.get_prev(t)[0]  
-                    
+                    t = itr.get_prev(t)[0]
+
             except AwsCroniterExpressionError as cron_e:
                 self.logger.error(cron_e)
             except Exception as e:
                 self.logger.error(f"Failed to get cron hit time: {e}")
 
-            # ------------------------------------------------------
-            # Add to results
-            # ------------------------------------------------------
             if cron_hits:
                 results.append({
                     "schedulerName": rule_name,
@@ -360,11 +431,10 @@ class ScheduledRunFailureAlert:
                 })
 
         return results
-    
+
     def compose_and_send_email(self, subject, run_list):
         IST = timezone(timedelta(hours=5, minutes=30))
 
-        # Start HTML table
         html_lines = ["""
         <html>
         <body>
@@ -381,8 +451,7 @@ class ScheduledRunFailureAlert:
                     <th>Region</th>
                 </tr>
         """]
-        
-        # Add rows
+
         for i, record in enumerate(run_list, 1):
             start_time_ist = record['start_dt'].astimezone(IST).strftime('%Y-%m-%d %H:%M:%S')
             html_lines.append(f"""
@@ -398,36 +467,32 @@ class ScheduledRunFailureAlert:
                     <td>{record['region']}</td>
                 </tr>
             """)
-        
-        # Close HTML table
+
         html_lines.append("""
             </table>
         </body>
         </html>
         """)
-        
+
         mail_body = ''.join(html_lines)
-        
+
         self.send_email_alert(subject, mail_body, self.constants.RM_ALERT_MAIL_ID, is_html=True)
         # self.send_email_alert(subject, mail_body, "aarav.dubey@akasaair.com", is_html=True)
 
     def send_email_alert(self, subject, body, recipient, is_html=False):
-        # Create message container
         msg = MIMEMultipart()
         msg['Subject'] = subject
         msg['From'] = configsettings.SENDER_EMAIL
         msg['To'] = recipient
 
-        # Attach body
         if is_html:
             msg.attach(MIMEText(body, 'html'))
         else:
             msg.attach(MIMEText(body, 'plain'))
 
-        # Send the email
         try:
             with smtplib.SMTP(configsettings.SMTP_SERVER, configsettings.SMTP_PORT) as server:
-                server.starttls()  # Enable TLS
+                server.starttls()
                 server.login(configsettings.SENDER_EMAIL, configsettings.SENDER_PASSWORD)
                 server.sendmail(configsettings.SENDER_EMAIL, recipient, msg.as_string())
             self.logger.info(f"Email sent to {recipient} successfully.")
