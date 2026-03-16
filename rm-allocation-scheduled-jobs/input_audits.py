@@ -54,7 +54,7 @@ class S3AuditProcessor:
                     sector VARCHAR(50) NOT NULL,
                     flightNo VARCHAR(50) NOT NULL,
                     departureDate INT NOT NULL,
-                    source TINYINT NOT NULL COMMENT '0=ML, 1=WB',
+                    source TINYINT NOT NULL COMMENT '0=ML Update, 1=WB, 2=ML New Record',
                     changedAtDate INT NOT NULL COMMENT 'YYYYMMDD',
                     changedAtTime INT NOT NULL COMMENT 'HHMM',
                     analystName VARCHAR(100),
@@ -62,7 +62,10 @@ class S3AuditProcessor:
                     value TEXT,
                     INDEX idx_sector_flight (sector, flightNo, departureDate),
                     INDEX idx_changed_date (changedAtDate),
-                    INDEX idx_source (source)
+                    INDEX idx_source (source),
+                    INDEX idx_changed_time (changedAtTime),
+                    UNIQUE KEY uk_audit_record (sector, flightNo, departureDate, source, 
+                                                changedAtDate, colName, analystName)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
                 
@@ -262,9 +265,11 @@ class S3AuditProcessor:
     def get_ml_files(self, first_run: bool) -> List[str]:
         """Get ML audit parquet files - INCLUDING CONNECTIONS"""
         files = []
-        min_date = self.make_timezone_aware(
-            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
-        )
+        
+        # Convert IST to UTC for proper S3 comparison (IST = UTC + 5:30)
+        ist_offset = timedelta(hours=5, minutes=30)
+        target_utc = datetime.combine(self.target_date, datetime.min.time()) - ist_offset
+        min_date = self.make_timezone_aware(target_utc)
         
         # Include both direct AND connections
         for audit_type in ['direct', 'connections']:
@@ -278,6 +283,7 @@ class S3AuditProcessor:
                             if self.file_in_range(obj['Key'], self.window_start, self.window_end):
                                 files.append(obj['Key'])
                         else:
+                            # Only process files modified in the last 24 hours (UTC adjusted)
                             if obj['LastModified'] >= min_date:
                                 files.append(obj['Key'])
         
@@ -287,9 +293,11 @@ class S3AuditProcessor:
     def get_wb_files(self, first_run: bool) -> List[str]:
         """Get Workbench audit CSV files"""
         files = []
-        min_date = self.make_timezone_aware(
-            datetime.combine(self.window_start if first_run else self.target_date, datetime.min.time())
-        )
+        
+        # Convert IST to UTC for proper S3 comparison (IST = UTC + 5:30)
+        ist_offset = timedelta(hours=5, minutes=30)
+        target_utc = datetime.combine(self.target_date, datetime.min.time()) - ist_offset
+        min_date = self.make_timezone_aware(target_utc)
         
         paginator = self.s3_client.get_paginator('list_objects_v2')
         for page in paginator.paginate(Bucket=self.bucket, Prefix=self.wb_prefix):
@@ -299,6 +307,7 @@ class S3AuditProcessor:
                         if self.file_in_range(obj['Key'], self.window_start, self.window_end):
                             files.append(obj['Key'])
                     else:
+                        # Only process files modified in the last 24 hours (UTC adjusted)
                         if obj['LastModified'] >= min_date:
                             files.append(obj['Key'])
         
@@ -307,20 +316,57 @@ class S3AuditProcessor:
 
     # ==================== FILE PROCESSING ====================
     
+    def is_valid_record(self, record: Dict) -> bool:
+        """Validate record has required fields with valid values"""
+        # Must have non-empty sector and flightNo
+        if not record.get('sector') or not record.get('flightNo'):
+            return False
+        
+        # Must have valid departure date (8 digits, > 20000101)
+        dept_date = record.get('departureDate', 0)
+        if dept_date < 20000101 or len(str(dept_date)) != 8:
+            return False
+        
+        # Must have valid changed date (8 digits, > 20000101)
+        changed_date = record.get('changedAtDate', 0)
+        if changed_date < 20000101 or len(str(changed_date)) != 8:
+            return False
+        
+        # Changed date cannot be greater than departure date
+        if changed_date > dept_date:
+            return False
+        
+        # Must have valid changed time (5 digits starting with 1)
+        changed_time = record.get('changedAtTime', 0)
+        if changed_time < 10000 or changed_time > 19999:
+            return False
+        
+        # Must have column name
+        if not record.get('colName'):
+            return False
+        
+        return True
+
     def process_ml_file(self, file_key: str) -> List[Dict]:
-        """Process single ML parquet file - HANDLES CONNECTIONS"""
+        """Process single ML parquet file - HANDLES CONNECTIONS and NEW RECORDS"""
         try:
             response = self.s3_client.get_object(Bucket=self.bucket, Key=file_key)
             df = pd.read_parquet(BytesIO(response['Body'].read()))
             
             records = []
+            skipped = 0
+            
             for _, row in df.iterrows():
                 # Get sector and flight info (could be connections like "619-1528")
-                sector = str(row.get('sector', ''))[:50]
-                flight_no = str(row.get('flightNo', ''))[:50]
+                sector = str(row.get('sector', ''))[:50].strip()
+                flight_no = str(row.get('flightNo', ''))[:50].strip()
                 dept_date = str(row.get('date', ''))  # MM-DD-YYYY format
                 changed_at = row.get('changedAt', '')
-                analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100]
+                analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100].strip()
+                
+                # Check if this is a new record (source=2) or update (source=0)
+                is_new_record = row.get('newRecord', False)
+                source_type = 2 if is_new_record else 0
                 
                 # Normalize date from MM-DD-YYYY to YYYY-MM-DD
                 normalized_date = self.normalize_date(dept_date)
@@ -330,10 +376,10 @@ class S3AuditProcessor:
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
-                # Skip connection-specific metadata fields
+                # Skip connection-specific metadata fields and newRecord flag
                 skip_columns = [
                     'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
-                    'sector1', 'sector2', 'flight1', 'flight2'
+                    'sector1', 'sector2', 'flight1', 'flight2', 'newRecord'
                 ]
                 
                 # Process each column as a potential change
@@ -343,17 +389,26 @@ class S3AuditProcessor:
                     if pd.isna(val):
                         continue
                     
-                    records.append({
+                    record = {
                         'sector': sector,
                         'flightNo': flight_no,
                         'departureDate': dept_date_int,
-                        'source': 0,
+                        'source': source_type,
                         'changedAtDate': changed_at_date_int,
                         'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
                         'colName': col,
                         'value': str(val) if val is not None else ''
-                    })
+                    }
+                    
+                    # Validate before adding
+                    if self.is_valid_record(record):
+                        records.append(record)
+                    else:
+                        skipped += 1
+            
+            if skipped > 0:
+                self.logger.warning(f"Skipped {skipped} invalid records from {file_key}")
             
             return records
             
@@ -381,11 +436,13 @@ class S3AuditProcessor:
             df = pd.read_csv(StringIO(response['Body'].read().decode('utf-8')))
             
             records = []
+            skipped = 0
+            
             for _, row in df.iterrows():
-                csv_sector = str(row.get('sector', sector))[:50]
-                csv_flight = str(row.get('flightNo', flight_no))[:50]
+                csv_sector = str(row.get('sector', sector))[:50].strip()
+                csv_flight = str(row.get('flightNo', flight_no))[:50].strip()
                 csv_date = str(row.get('date', dept_date))  # MM-DD-YYYY format
-                analyst = str(row.get('userName', ''))[:100]
+                analyst = str(row.get('userName', ''))[:100].strip()
                 changed_at = row.get('changedAt', '')
                 
                 # Normalize date from MM-DD-YYYY to YYYY-MM-DD
@@ -402,7 +459,7 @@ class S3AuditProcessor:
                     if pd.isna(val):
                         continue
                     
-                    records.append({
+                    record = {
                         'sector': csv_sector,
                         'flightNo': csv_flight,
                         'departureDate': dept_date_int,
@@ -412,7 +469,16 @@ class S3AuditProcessor:
                         'analystName': analyst,
                         'colName': col,
                         'value': str(val) if val is not None else ''
-                    })
+                    }
+                    
+                    # Validate before adding
+                    if self.is_valid_record(record):
+                        records.append(record)
+                    else:
+                        skipped += 1
+            
+            if skipped > 0:
+                self.logger.warning(f"Skipped {skipped} invalid records from {file_key}")
             
             return records
             
@@ -467,7 +533,7 @@ class S3AuditProcessor:
     # ==================== DATABASE OPERATIONS ====================
     
     def save_records(self, records: List[Dict], replace: bool = False):
-        """Save records to MySQL with batching"""
+        """Save records to MySQL with batching and duplicate handling"""
         try:
             with self.dw_conn.connect() as conn:
                 if replace:
@@ -475,8 +541,9 @@ class S3AuditProcessor:
                     print(f"Cleared {self.audit_table}")
                 
                 if records:
+                    # Use INSERT IGNORE to skip duplicates based on unique key
                     query = text(f"""
-                        INSERT INTO {self.schema}.{self.audit_table}
+                        INSERT IGNORE INTO {self.schema}.{self.audit_table}
                         (sector, flightNo, departureDate, source, changedAtDate, changedAtTime,
                         analystName, colName, value)
                         VALUES (:sector, :flightNo, :departureDate, :source, 
@@ -485,14 +552,18 @@ class S3AuditProcessor:
                     
                     # Batch insert for better performance
                     total_inserted = 0
+                    total_skipped = 0
                     for i in range(0, len(records), self.batch_size):
                         batch = records[i:i + self.batch_size]
-                        conn.execute(query, batch)
-                        total_inserted += len(batch)
+                        result = conn.execute(query, batch)
+                        inserted = result.rowcount
+                        total_inserted += inserted
+                        total_skipped += (len(batch) - inserted)
+                        
                         if total_inserted % (self.batch_size * 5) == 0:
-                            print(f"  Inserted {total_inserted}/{len(records)} records...")
+                            print(f"  Inserted {total_inserted}/{len(records)} records (skipped {total_skipped} duplicates)...")
                     
-                    print(f"Saved {len(records)} records to MySQL")
+                    print(f"Saved {total_inserted} new records, skipped {total_skipped} duplicates")
                 
         except Exception as e:
             self.logger.error(f"Failed to save records: {e}")
@@ -508,27 +579,31 @@ class S3AuditProcessor:
                 total = result.fetchone()[0]
                 
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 0"))
-                ml_count = result.fetchone()[0]
+                ml_update_count = result.fetchone()[0]
+                
+                result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 2"))
+                ml_new_count = result.fetchone()[0]
                 
                 result = conn.execute(text(f"SELECT COUNT(*) FROM {self.schema}.{self.audit_table} WHERE source = 1"))
                 wb_count = result.fetchone()[0]
                 
-                # Count connections vs direct
+                # Count connections vs direct (only for ML updates and new records)
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
-                    WHERE source = 0 AND flightNo LIKE '%-%'
+                    WHERE source IN (0, 2) AND flightNo LIKE '%-%'
                 """))
                 connection_count = result.fetchone()[0]
                 
                 result = conn.execute(text(f"""
                     SELECT COUNT(*) FROM {self.schema}.{self.audit_table} 
-                    WHERE source = 0 AND flightNo NOT LIKE '%-%'
+                    WHERE source IN (0, 2) AND flightNo NOT LIKE '%-%'
                 """))
                 direct_count = result.fetchone()[0]
                 
                 return {
                     'total_records': total,
-                    'ml_records': ml_count,
+                    'ml_updates': ml_update_count,
+                    'ml_new_records': ml_new_count,
                     'ml_direct': direct_count,
                     'ml_connections': connection_count,
                     'wb_records': wb_count,
@@ -545,7 +620,7 @@ class S3AuditProcessor:
         try:
             start_time = datetime.now()
             print("=" * 60)
-            print("S3 AUDIT PROCESSOR (Direct + Connections)")
+            print("S3 AUDIT PROCESSOR (Direct + Connections + New Records)")
             print("=" * 60)
             
             first_run = self.is_first_run()
