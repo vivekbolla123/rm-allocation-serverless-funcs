@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
+from ladergenallin import LadderGenAllIn
 from salesFare import SalesFare
 from fareFile import FareFiling
 
@@ -54,7 +55,7 @@ except Exception as e:
 
 module_map = {
     'action_sect' : ActionSectors,
-    'ladder_gen' : LadderGen,
+    'ladder_gen' : LadderGenAllIn,
     'sales_fare' : SalesFare,
     'fare_filing': FareFiling
 }
@@ -141,7 +142,7 @@ messageBody = {
     "overrides": {
         "route": "D",
         "analyst": "Kenneth Menezes",
-        "sector": ["BOMDEL"],
+        "sector": ["DELBOM"],
         "fare_source_flag": "esb"
     },
     "modules": {"ladder_gen": 1}

@@ -99,6 +99,7 @@ class ConstantsUtils:
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
         self.YIELD_FACTOR = YIELD_FACTOR
+        self.MARKET_FARE_MIN_YIELD = MARKET_FARE_MIN_YIELD
         self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
         self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
         self.RBD_VALUES = RBD_VALUES
@@ -307,6 +308,8 @@ class ConstantsUtils:
                 self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(parameter_value)
             elif parameter_key == YIELD_FACTOR_KEY:
                 self.YIELD_FACTOR = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_YIELD_KEY:
+                self.MARKET_FARE_MIN_YIELD = float(parameter_value)
             elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
                 self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:

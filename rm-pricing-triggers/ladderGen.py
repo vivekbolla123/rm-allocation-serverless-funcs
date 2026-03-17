@@ -104,6 +104,7 @@ class LadderGen:
         
         # Farecap distance config from rm_parameter_values
         self.FARECAP_DISTANCE_CONFIG = self.constants.FARECAP_DISTANCE_CONFIG
+        self.MARKET_FARE_MIN_YIELD = self.constants.MARKET_FARE_MIN_YIELD
         
         
     def _get_reverse_sector(self, sector):
@@ -926,22 +927,22 @@ class LadderGen:
                     base_fare = self._calculate_base_xqp_fare(gross_fare_inr, origin, destination)
                     yield_value = base_fare / distance
                     
-                    # Check yield constraint (1.5 for both domestic and international)
-                    if yield_value >= 1.5:
-                        self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= 1.5")
+                    # Check yield constraint
+                    if yield_value >= self.MARKET_FARE_MIN_YIELD:
+                        self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= {self.MARKET_FARE_MIN_YIELD}")
                         # Return BASE FARE in local currency (not gross_fare)
                         if self.route == 'I' and self.conversion_rate != 1.0:
                             return base_fare * self.conversion_rate
                         return base_fare
                     else:
-                        self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < 1.5")
+                        self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < {self.MARKET_FARE_MIN_YIELD}")
                         
                 except Exception as e:
                     self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
                     continue
             
             route_type = "International" if self.route == 'I' else "Domestic"
-            self.logger.warning(f"No valid {fare_type} market fare found satisfying yield >= 1.5 for {route_type} route")
+            self.logger.warning(f"No valid {fare_type} market fare found satisfying yield >= {self.MARKET_FARE_MIN_YIELD} for {route_type} route")
             return None
             
         except Exception as e:
@@ -1479,6 +1480,21 @@ class LadderGen:
                 margin = b2c_threshold_limit - b2b_min
                 self.logger.info(f"B2B constraint validation: B2B constraint satisfied with margin of {margin:.2f}")
             
+            # Convert the final all-in ladders into base fare ladders
+            origin = self.sector[:3]
+            destination = self.sector[3:]
+            
+            base_ladder_b2c = [
+                self._calculate_base_xqp_fare(fare, origin, destination)
+                for fare in complete_ladder_b2c
+            ]
+            base_ladder_b2b = [
+                self._calculate_base_xqp_fare(fare, origin, destination)
+                for fare in complete_ladder_b2b
+            ]
+            
+            self.logger.info(f"Converted {len(base_ladder_b2c)} B2C fares and {len(base_ladder_b2b)} B2B fares from all-in to base")
+            
             # Determine source label
             fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
             
@@ -1491,8 +1507,8 @@ class LadderGen:
                 'total_booking_records_b2b': len(booking_data_b2b),
                 'distinct_fares_count_b2c': len(booking_data_b2c['Fare'].unique()),
                 'distinct_fares_count_b2b': len(booking_data_b2b['Fare'].unique()),
-                'ladder_fares_b2c': complete_ladder_b2c,
-                'ladder_fares_b2b': complete_ladder_b2b,
+                'ladder_fares_b2c': base_ladder_b2c,
+                'ladder_fares_b2b': base_ladder_b2b,
                 'generation_timestamp': datetime.now()
             }
             
