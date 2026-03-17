@@ -30,11 +30,22 @@ public class MarketListValidator {
         return isValid;
     }
 
-    public static boolean isValidFlightNumber(String flightNumber) {
-        if (flightNumber == null) {
+    public static boolean isValidFlightNumber(String flightNumbers) {
+        if (flightNumbers.endsWith("/")) {
             return false;
         }
-        return flightNumber.matches("^[A-Z0-9]{2,3}-\\d{2,4}$") || flightNumber.trim().isEmpty();
+        if (flightNumbers == null || flightNumbers.trim().isEmpty()) {
+            return true;
+        }
+        String[] parts = flightNumbers.split("/");
+
+        for (String flt : parts) {
+            flt = flt.trim();
+            if (!flt.matches("^[A-Z0-9]{2,3}-\\d{2,4}$")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static boolean checkDOWDigits(String value) {

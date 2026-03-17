@@ -1019,6 +1019,7 @@ class RMDatabaseHelper:
                 flightExclusion = currParams.flightExclusionB2C
  
             carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
+            flight_exclusion_list = flightExclusion.split('/') if isinstance(flightExclusion, str) and flightExclusion else []
  
             # Log the search parameters
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
@@ -1043,8 +1044,8 @@ class RMDatabaseHelper:
                 "outbound_stop": '0'
             }
             
-            if flightExclusion:
-                base_match_conditions["outbound_flight"] = {"$ne": flightExclusion}
+            if flight_exclusion_list:
+                base_match_conditions["outbound_flight"] = {"$nin": flight_exclusion_list}
  
             # Add time interval condition for non-test data
             if hasattr(self, 'inputSource') and self.inputSource.input_source.get(CONST_MARKET_FARES) != TEST_DATA:
