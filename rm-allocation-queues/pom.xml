@@ -32,7 +32,8 @@
         <json.version>20251224</json.version>
         <!-- Spring Boot 3.5.10 manages these versions automatically -->
         <!-- snakeyaml: 2.2 (managed by Spring Boot 3.5.10) -->
-        <!-- jackson: 2.18.2 (managed by Spring Boot 3.5.10) -->
+        <!-- jackson: 2.21.1 (overridden for security - GHSA-72hv-8253-57qq DoS via async parser) -->
+        <jackson-bom.version>2.21.1</jackson-bom.version>
         <!-- Updated for security - fixes MadeYouReset DDoS, CRLF injection, SSL verification CVEs -->
         <netty.version>4.1.129.Final</netty.version>
         <spark.version>3.4.4</spark.version>
@@ -40,8 +41,8 @@
         <protobuf.version>3.25.5</protobuf.version>
         <snappy.version>1.1.10.4</snappy.version>
         <commons-io.version>2.14.0</commons-io.version>
-        <!-- Updated for security - fixes information disclosure (CVE-2024-23944) -->
-        <zookeeper.version>3.8.4</zookeeper.version>
+        <!-- Updated for security - fixes CVE-2024-23944, CVE-2026-24281, CVE-2026-24308 -->
+        <zookeeper.version>3.8.6</zookeeper.version>
         <!-- Hadoop version - updated for security (CVE-2022-26612 path traversal) -->
         <!-- Requires Spark 3.4.x for compatibility -->
         <hadoop.version>3.3.6</hadoop.version>

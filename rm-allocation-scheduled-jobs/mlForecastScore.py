@@ -219,14 +219,20 @@ class MLForecastScore:
         # Load Model
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.model_key)
         model = pickle.loads(response['Body'].read())
+        if not hasattr(model, 'predict'):
+            raise TypeError(f"Expected a model object with 'predict', got {type(model).__name__}")
 
         # Load Sector Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.sector_mapping_key)
         sector_mapping = pickle.loads(response['Body'].read())
+        if not isinstance(sector_mapping, dict):
+            raise TypeError(f"Expected dict for sector_mapping, got {type(sector_mapping).__name__}")
 
         # Load Day Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.day_mapping_key)
         day_mapping = pickle.loads(response['Body'].read())
+        if not isinstance(day_mapping, dict):
+            raise TypeError(f"Expected dict for day_mapping, got {type(day_mapping).__name__}")
 
         return model, sector_mapping, day_mapping
 
