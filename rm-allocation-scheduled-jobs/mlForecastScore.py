@@ -4,7 +4,42 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import pickle
+import io
 import configsettings
+
+
+# CWE-843 / CWE-502: Restricted unpickler to prevent arbitrary code execution
+# Only allows known safe types during deserialization of ML artifacts
+class RestrictedUnpickler(pickle.Unpickler):
+    """Restricts pickle deserialization to a whitelist of safe modules/classes."""
+    ALLOWED_MODULES = {
+        'builtins': {'dict', 'list', 'tuple', 'set', 'frozenset', 'str', 'int', 'float', 'bool', 'bytes', 'complex', 'type', 'slice', 'range'},
+        'collections': {'OrderedDict', 'defaultdict'},
+        'numpy': {'ndarray', 'dtype', 'float64', 'float32', 'int64', 'int32', 'bool_', 'array', 'nan'},
+        'numpy.core.multiarray': {'scalar', '_reconstruct'},
+        'numpy.core.numeric': {'*'},
+        'numpy.random': {'*'},
+        'xgboost.core': {'Booster'},
+        'xgboost.sklearn': {'XGBRegressor', 'XGBClassifier'},
+        'sklearn.base': {'*'},
+        'sklearn.utils._tags': {'*'},
+        'copy_reg': {'*'},
+        'copyreg': {'*'},
+        '_codecs': {'encode'},
+    }
+
+    def find_class(self, module, name):
+        allowed = self.ALLOWED_MODULES.get(module)
+        if allowed is not None and ('*' in allowed or name in allowed):
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(
+            f"Restricted unpickler blocked: {module}.{name}"
+        )
+
+
+def restricted_loads(data: bytes):
+    """Safe alternative to pickle.loads using RestrictedUnpickler."""
+    return RestrictedUnpickler(io.BytesIO(data)).load()
 
 
 class MLForecastScore:
@@ -218,19 +253,19 @@ class MLForecastScore:
     def load_artifacts(self):
         # Load Model
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.model_key)
-        model = pickle.loads(response['Body'].read())
+        model = restricted_loads(response['Body'].read())
         if not hasattr(model, 'predict'):
             raise TypeError(f"Expected a model object with 'predict', got {type(model).__name__}")
 
         # Load Sector Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.sector_mapping_key)
-        sector_mapping = pickle.loads(response['Body'].read())
+        sector_mapping = restricted_loads(response['Body'].read())
         if not isinstance(sector_mapping, dict):
             raise TypeError(f"Expected dict for sector_mapping, got {type(sector_mapping).__name__}")
 
         # Load Day Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.day_mapping_key)
-        day_mapping = pickle.loads(response['Body'].read())
+        day_mapping = restricted_loads(response['Body'].read())
         if not isinstance(day_mapping, dict):
             raise TypeError(f"Expected dict for day_mapping, got {type(day_mapping).__name__}")
 
