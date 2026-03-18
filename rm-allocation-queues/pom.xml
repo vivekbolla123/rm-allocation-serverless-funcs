@@ -36,7 +36,8 @@
         <jackson-bom.version>2.21.1</jackson-bom.version>
         <!-- Updated for security - fixes MadeYouReset DDoS, CRLF injection, SSL verification CVEs -->
         <netty.version>4.1.129.Final</netty.version>
-        <spark.version>3.4.4</spark.version>
+        <!-- Updated for security - fixes GHSA-jwp6-cvj8-fw65 (History Server RCE) -->
+        <spark.version>3.5.7</spark.version>
         <avro.version>1.11.4</avro.version>
         <protobuf.version>3.25.5</protobuf.version>
         <snappy.version>1.1.10.4</snappy.version>
@@ -152,11 +153,11 @@
                 <artifactId>commons-net</artifactId>
                 <version>${commons-net.version}</version>
             </dependency>
-            <!-- Security: Force transitive old aircompressor to fixed version 0.27 -->
+            <!-- Security: Force aircompressor to 2.0.3 - fixes GHSA-vx9q-rhv9-3jvg (Snappy/LZ4 info leak) -->
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>aircompressor</artifactId>
-                <version>0.27</version>
+                <version>2.0.3</version>
             </dependency>
 
             <!-- lz4-java - upgraded to secure fork (fixes CVE-2025-12183, CVE-2025-66566) -->
@@ -392,11 +393,12 @@
             </exclusions>
         </dependency>
 
-        <!-- Delta Lake -->
+        <!-- Delta Lake - Upgraded to 3.2.1 for Spark 3.5.x compatibility -->
+        <!-- Note: artifact changed from delta-core to delta-spark in 3.x -->
         <dependency>
             <groupId>io.delta</groupId>
-            <artifactId>delta-core_2.12</artifactId>
-            <version>2.4.0</version>
+            <artifactId>delta-spark_2.12</artifactId>
+            <version>3.2.1</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>
