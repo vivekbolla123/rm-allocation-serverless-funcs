@@ -641,7 +641,7 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],
@@ -690,7 +690,7 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],

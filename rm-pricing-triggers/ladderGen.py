@@ -15,6 +15,7 @@ import numpy as np
 from helpers.nav_db_helpers.ladder_nav_helper import LadderNavHelper
 from helpers.pa_db_helpers.ladder_pa_helper import LadderPAHelper
 from helpers.esb_db_helpers.ladder_esb_helper import LadderEsbHelper
+from helpers.dw_db_helpers.ladder_dw_helper import LadderDWHelper
 
 
 class LadderGen:
@@ -34,6 +35,7 @@ class LadderGen:
         self.constants = ConstantsUtils(self.db)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, self.db_fares, logger)
+        self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         self.batch_run_id = overrides.get('batch_run_id', None)
@@ -308,20 +310,28 @@ class LadderGen:
                     if sector_distance is not None:
                         gross_fare_cap = self._get_fare_cap_for_distance(sector_distance)
                         # Fare cap includes base fare + RCS + CUTE
-                        # Subtract RCS and CUTE to get effective base fare cap
-                        rcs_value = 0
-                        cute_value = 0
+                        # For bidirectional consistency, average both origins' RCS/CUTE
+                        rcs_fwd = cute_fwd = rcs_rev = cute_rev = 0
                         if self.tax_master_dom_data is not None and not self.tax_master_dom_data.empty:
-                            origin_tax = self.tax_master_dom_data[self.tax_master_dom_data['Station'] == origin]
-                            if not origin_tax.empty:
-                                rcs_value = float(origin_tax.iloc[0].get('RCS', 0) or 0)
-                                cute_value = float(origin_tax.iloc[0].get('CUTE', 0) or 0)
-                                self.logger.info(f"Tax deductions for {origin}: RCS={rcs_value}, CUTE={cute_value}")
+                            # Forward origin taxes
+                            fwd_tax = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
+                            if not fwd_tax.empty:
+                                rcs_fwd = float(fwd_tax.iloc[0].get('RCS', 0) or 0)
+                                cute_fwd = float(fwd_tax.iloc[0].get('CUTE', 0) or 0)
+                            # Reverse origin taxes
+                            rev_tax = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == destination]
+                            if not rev_tax.empty:
+                                rcs_rev = float(rev_tax.iloc[0].get('RCS', 0) or 0)
+                                cute_rev = float(rev_tax.iloc[0].get('CUTE', 0) or 0)
+                            self.logger.info(f"Tax deductions - {origin}: RCS={rcs_fwd}, CUTE={cute_fwd}; {destination}: RCS={rcs_rev}, CUTE={cute_rev}")
                         
-                        self.fare_cap_value = gross_fare_cap - rcs_value - cute_value
+                        # Average both origins for bidirectional consistency
+                        avg_rcs = (rcs_fwd + rcs_rev) / 2
+                        avg_cute = (cute_fwd + cute_rev) / 2
+                        self.fare_cap_value = gross_fare_cap - avg_rcs - avg_cute
                         self.logger.info(f"Distance-based fare cap for {self.sector}: "
                                        f"distance={sector_distance} km, gross_cap={gross_fare_cap}, "
-                                       f"RCS={rcs_value}, CUTE={cute_value}, "
+                                       f"avg_RCS={avg_rcs}, avg_CUTE={avg_cute}, "
                                        f"effective_base_fare_cap={self.fare_cap_value}")
                     else:
                         self.fare_cap_value = None
@@ -526,11 +536,26 @@ class LadderGen:
             max_fare = self.MAX_MARKETFARES_THRESHOLD_B2C if channel == self.B2C_CHANNEL else self.MAX_MARKETFARES_THRESHOLD_B2B
             
             # For Market Fares, looking forwards
-            return self.esb_helper.collect_combined_market_fare_data_bidirectional(
+            combined_df = self.esb_helper.collect_combined_market_fare_data_bidirectional(
                 ndo, self.sector, reverse_sector, channel,
                 max_fare_threshold=max_fare,
                 conversion_rate=self.reverse_conversion_rate
             )
+            
+            # Convert gross/all-in fares to base fares immediately
+            # Each fare is converted using its own origin/destination taxes,
+            # so both directions produce correct base fares before being pooled together
+            if not combined_df.empty:
+                combined_df['Fare'] = combined_df.apply(
+                    lambda row: self._calculate_base_xqp_fare(
+                        row['Fare'], row['source_airport'], row['destination_airport']
+                    ), axis=1
+                )
+                combined_df = combined_df.dropna(subset=['Fare'])
+                combined_df = combined_df.sort_values('Fare', ascending=True).reset_index(drop=True)
+                self.logger.info(f"Converted {len(combined_df)} market fares from gross to base fare")
+            
+            return combined_df
 
     def create_fare_bins(self, booking_data, channel):
         """Create fare bins and apply currency conversion if needed."""
@@ -645,6 +670,20 @@ class LadderGen:
         except Exception:
             return 0
 
+    def _get_yq_for_distance(self, distance):
+        """Get YQ based on distance (km) for domestic routes from config."""
+        if distance <= 0:
+            return 0
+            
+        try:
+            for min_dist, max_dist, yq_val in self.constants.YQ_DISTANCE_CONFIG:
+                if min_dist < distance <= max_dist:
+                    return float(yq_val)
+        except AttributeError:
+            self.logger.warning("YQ_DISTANCE_CONFIG not found in constants.")
+            
+        return 0
+
     def _calculate_taxes_domestic(self, base_fare, origin, destination):
         """Calculate all taxes for domestic fare to get all-in fare."""
         try:
@@ -678,7 +717,11 @@ class LadderGen:
             else:
                 gst = gst_rate * (base_fare + rcs + cute)
             
-            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf
+            # Calculate YQ based on distance
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
+            
+            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq
             return total_taxes
             
         except Exception:
@@ -787,12 +830,16 @@ class LadderGen:
                 duf_value = float(self.constants.PRICING_DUF_SECTORS[destination])
                 adjusted_gross_fare -= duf_value
                 
+            # Calculate YQ based on distance
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
+                
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                other_taxes = asf + psf + udf_df + rcs + cute
+                other_taxes = asf + psf + udf_df + rcs + cute + yq
                 base_fare = adjusted_gross_fare - other_taxes
             else:
                 gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes = asf + psf + udf_df + cute
+                other_taxes = asf + psf + udf_df + cute + yq
                 base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
             
             return base_fare
@@ -860,19 +907,16 @@ class LadderGen:
             if market_data.empty:
                 return None
             
-            # Apply fare cap filter to market fares (convert gross to base fare first)
+            # Apply fare cap filter to market fares (convert gross to base fare per-row)
             filtered_data = market_data.copy()
             if self.fare_cap_value is not None:
                 before_count = len(filtered_data)
-                # Convert gross fares to base fares for comparison against fare cap
-                if self.route == 'D':
-                    filtered_data['base_fare_calc'] = filtered_data['gross_fare'].apply(
-                        lambda gf: self._calculate_base_domestic_fare(gf, origin, destination)
-                    )
-                else:
-                    filtered_data['base_fare_calc'] = filtered_data['gross_fare'].apply(
-                        lambda gf: self._calculate_base_international_fare(gf, origin, destination)
-                    )
+                # Convert gross fares to base fares using each row's own source/destination
+                filtered_data['base_fare_calc'] = filtered_data.apply(
+                    lambda row: self._calculate_base_xqp_fare(
+                        row['gross_fare'], row['source_airport'], row['destination_airport']
+                    ), axis=1
+                )
                 filtered_data = filtered_data[filtered_data['base_fare_calc'] <= self.fare_cap_value]
                 filtered_data = filtered_data.drop(columns=['base_fare_calc'])
                 after_count = len(filtered_data)
@@ -896,22 +940,24 @@ class LadderGen:
                 self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
                 # Return base fare without yield check if distance not available
                 if not sorted_data.empty:
-                    gross_fare = sorted_data.iloc[0]['gross_fare']
+                    first_row = sorted_data.iloc[0]
+                    gross_fare = first_row['gross_fare']
+                    row_origin = first_row['source_airport']
+                    row_dest = first_row['destination_airport']
                     # For international routes with currency conversion, convert to INR first
                     if self.route == 'I' and self.conversion_rate != 1.0:
                         gross_fare_inr = self._convert_fare_to_inr(gross_fare)
                     else:
                         gross_fare_inr = gross_fare
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, origin, destination)
-                    # Convert base fare to local currency if needed
-                    if self.route == 'I' and self.conversion_rate != 1.0:
-                        base_fare = base_fare * self.conversion_rate
+                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
                     return base_fare
                 return None
             
             # Perform yield check for both domestic and international
             for _, row in sorted_data.iterrows():
                 gross_fare = row['gross_fare']
+                row_origin = row['source_airport']
+                row_dest = row['destination_airport']
                 
                 try:
                     # For international routes with currency conversion, convert fare to INR for yield calculation
@@ -923,16 +969,14 @@ class LadderGen:
                         # Domestic or international without conversion - already in INR
                         gross_fare_inr = gross_fare
                     
-                    # Calculate base fare and yield using INR fare
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, origin, destination)
+                    # Calculate base fare and yield using each row's own origin/destination
+                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
                     yield_value = base_fare / distance
                     
                     # Check yield constraint
                     if yield_value >= self.MARKET_FARE_MIN_YIELD:
                         self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= {self.MARKET_FARE_MIN_YIELD}")
-                        # Return BASE FARE in local currency (not gross_fare)
-                        if self.route == 'I' and self.conversion_rate != 1.0:
-                            return base_fare * self.conversion_rate
+                        # Return BASE FARE in INR
                         return base_fare
                     else:
                         self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < {self.MARKET_FARE_MIN_YIELD}")
@@ -979,18 +1023,9 @@ class LadderGen:
             f4 = core_fares[0]
             f61 = core_fares[-1]
             
-            # Get min/max booking fares (in INR from ESB)
-            min_booking_fare_inr = float(booking_data['Fare'].min())
-            max_booking_fare_inr = float(booking_data['Fare'].max())
-            
-            # Convert booking fares to local currency if needed
-            min_booking_fare = min_booking_fare_inr * self.conversion_rate
-            max_booking_fare = max_booking_fare_inr * self.conversion_rate
-            
-            if self.conversion_rate != 1.0:
-                self.logger.info(f"Converted booking fares to {self.sector_currency}:")
-                self.logger.info(f"  Min: {min_booking_fare_inr:.2f} INR -> {min_booking_fare:.2f} {self.sector_currency}")
-                self.logger.info(f"  Max: {max_booking_fare_inr:.2f} INR -> {max_booking_fare:.2f} {self.sector_currency}")
+            # Get min/max booking fares (already in base INR)
+            min_booking_fare = float(booking_data['Fare'].min())
+            max_booking_fare = float(booking_data['Fare'].max())
             
             # Find valid market fares
             valid_min_market_fare = self._find_valid_market_fare(b2c_data, 'min', origin, destination)
@@ -1089,6 +1124,7 @@ class LadderGen:
             adjustments_made = 0
             adjustments_detail = []
             
+            # Forward pass: apply minimum threshold adjustments
             for i in range(len(complete_ladder) - 1):
                 current_fare = complete_ladder[i]
                 next_fare = complete_ladder[i + 1]
@@ -1097,18 +1133,45 @@ class LadderGen:
                 if next_fare - current_fare < min_threshold:
                     old_value = next_fare
                     complete_ladder[i + 1] = current_fare + min_threshold
-                    fare_num_current = i + 1
-                    fare_num_next = i + 2
                     adjustments_made += 1
                     
-                    adjustment_info = f"f{fare_num_current}→f{fare_num_next}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
+                    adjustment_info = f"f{i+1}→f{i+2}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
                     adjustments_detail.append(adjustment_info)
                     
-                    # Log significant adjustments (in UP range or large changes)
                     if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
                         self.logger.info(f"  {adjustment_info}")
             
-            self.logger.info(f"Threshold adjustments completed: {adjustments_made} adjustments made")
+            self.logger.info(f"Forward pass: {adjustments_made} threshold adjustments made")
+            
+            # Enforce fare cap: distribute fares exceeding cap evenly below it
+            if self.fare_cap_value is not None:
+                # Find the first fare that exceeds the cap
+                first_capped_idx = None
+                for i in range(len(complete_ladder)):
+                    if complete_ladder[i] > self.fare_cap_value:
+                        first_capped_idx = i
+                        break
+                
+                if first_capped_idx is not None:
+                    # Anchor = the fare just before the first capped fare
+                    if first_capped_idx > 0:
+                        anchor_fare = complete_ladder[first_capped_idx - 1]
+                    else:
+                        anchor_fare = 0
+                    
+                    num_fares_to_distribute = len(complete_ladder) - first_capped_idx
+                    # Distribute evenly between anchor and fare_cap_value
+                    # num_fares_to_distribute fares in (anchor, fare_cap_value] range
+                    step = (self.fare_cap_value - anchor_fare) / (num_fares_to_distribute + 1)
+                    
+                    self.logger.info(f"Fare cap distribution: {num_fares_to_distribute} fares from f{first_capped_idx+1} to f{len(complete_ladder)}")
+                    self.logger.info(f"  Anchor (f{first_capped_idx}): {anchor_fare:.2f}, Cap: {self.fare_cap_value:.2f}, Step: {step:.2f}")
+                    
+                    for i in range(num_fares_to_distribute):
+                        idx = first_capped_idx + i
+                        old_value = complete_ladder[idx]
+                        complete_ladder[idx] = anchor_fare + step * (i + 1)
+                        self.logger.info(f"  f{idx+1}: {old_value:.2f} -> {complete_ladder[idx]:.2f}")
             
             # Log final ladder summary
             self.logger.info(f"Final B2C ladder summary:")
@@ -1133,15 +1196,18 @@ class LadderGen:
                     self.failure_reason = "Ladder has non-increasing fares"
                     return []
             
-            # Validate minimum threshold compliance
+            # Validate minimum threshold compliance (skip for fares in cap distribution zone)
             threshold_violations = 0
             for i in range(len(complete_ladder) - 1):
                 current_fare = complete_ladder[i]
                 next_fare = complete_ladder[i + 1]
+                # Skip threshold check for fares that were redistributed near the cap
+                if self.fare_cap_value is not None and i >= (first_capped_idx - 1 if first_capped_idx is not None else len(complete_ladder)):
+                    continue
                 min_threshold = threshold_func(current_fare)
                 actual_diff = next_fare - current_fare
                 
-                if actual_diff < min_threshold - 0.01:  # Allow small rounding errors
+                if actual_diff < min_threshold - 0.01:
                     self.logger.error(f"Threshold violation: f{i+1}→f{i+2}: diff={actual_diff:.2f} < threshold={min_threshold:.2f}")
                     threshold_violations += 1
             
@@ -1188,18 +1254,9 @@ class LadderGen:
             f3 = core_fares[0]
             # f18 = core_fares[-1]
             
-            # Get min/max booking fares (in INR from ESB)
-            min_booking_fare_inr = float(booking_data['Fare'].min())
-            max_booking_fare_inr = float(booking_data['Fare'].max())
-            
-            # Convert booking fares to local currency if needed
-            min_booking_fare = min_booking_fare_inr * self.conversion_rate
-            max_booking_fare = max_booking_fare_inr * self.conversion_rate
-            
-            if self.conversion_rate != 1.0:
-                self.logger.info(f"Converted booking fares to {self.sector_currency}:")
-                self.logger.info(f"  Min: {min_booking_fare_inr:.2f} INR -> {min_booking_fare:.2f} {self.sector_currency}")
-                self.logger.info(f"  Max: {max_booking_fare_inr:.2f} INR -> {max_booking_fare:.2f} {self.sector_currency}")
+            # Get min/max booking fares (already in base INR)
+            min_booking_fare = float(booking_data['Fare'].min())
+            max_booking_fare = float(booking_data['Fare'].max())
             
             # Find valid B2B market fares
             valid_min_market_fare = self._find_valid_market_fare(b2b_data, 'min', origin, destination)
@@ -1212,7 +1269,6 @@ class LadderGen:
             self.logger.info(f"  B2C_min (for constraint): {b2c_min:.2f}")
             
             # ===== LOWER BUFFER FARES (f1, f2) =====
-            self.B2B_THRESHOLD = self.B2B_THRESHOLD * self.conversion_rate
             b2c_threshold_limit = b2c_min - self.B2B_THRESHOLD
             
             self.logger.info(f"B2B constraint analysis:")
@@ -1328,6 +1384,7 @@ class LadderGen:
             adjustments_made = 0
             adjustments_detail = []
             
+            # Forward pass: apply minimum threshold adjustments
             for i in range(len(complete_ladder) - 1):
                 current_fare = complete_ladder[i]
                 next_fare = complete_ladder[i + 1]
@@ -1336,18 +1393,44 @@ class LadderGen:
                 if next_fare - current_fare < min_threshold:
                     old_value = next_fare
                     complete_ladder[i + 1] = current_fare + min_threshold
-                    fare_num_current = i + 1
-                    fare_num_next = i + 2
                     adjustments_made += 1
                     
-                    adjustment_info = f"f{fare_num_current}→f{fare_num_next}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
+                    adjustment_info = f"f{i+1}→f{i+2}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
                     adjustments_detail.append(adjustment_info)
                     
-                    # Log significant adjustments (in UP range or large changes)
                     if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
                         self.logger.info(f"  {adjustment_info}")
             
-            self.logger.info(f"Threshold adjustments completed: {adjustments_made} adjustments made")
+            self.logger.info(f"Forward pass: {adjustments_made} threshold adjustments made")
+            
+            # Enforce fare cap: distribute fares exceeding cap evenly below it
+            if self.fare_cap_value is not None:
+                # Find the first fare that exceeds the cap
+                first_capped_idx = None
+                for i in range(len(complete_ladder)):
+                    if complete_ladder[i] > self.fare_cap_value:
+                        first_capped_idx = i
+                        break
+                
+                if first_capped_idx is not None:
+                    # Anchor = the fare just before the first capped fare
+                    if first_capped_idx > 0:
+                        anchor_fare = complete_ladder[first_capped_idx - 1]
+                    else:
+                        anchor_fare = 0
+                    
+                    num_fares_to_distribute = len(complete_ladder) - first_capped_idx
+                    # Distribute evenly between anchor and fare_cap_value
+                    step = (self.fare_cap_value - anchor_fare) / (num_fares_to_distribute + 1)
+                    
+                    self.logger.info(f"Fare cap distribution: {num_fares_to_distribute} fares from f{first_capped_idx+1} to f{len(complete_ladder)}")
+                    self.logger.info(f"  Anchor (f{first_capped_idx}): {anchor_fare:.2f}, Cap: {self.fare_cap_value:.2f}, Step: {step:.2f}")
+                    
+                    for i in range(num_fares_to_distribute):
+                        idx = first_capped_idx + i
+                        old_value = complete_ladder[idx]
+                        complete_ladder[idx] = anchor_fare + step * (i + 1)
+                        self.logger.info(f"  f{idx+1}: {old_value:.2f} -> {complete_ladder[idx]:.2f}")
             
             # Log final ladder summary
             self.logger.info(f"Final B2B ladder summary:")
@@ -1372,15 +1455,18 @@ class LadderGen:
                     self.failure_reason = "B2B ladder has non-increasing fares"
                     return []
             
-            # Validate minimum threshold compliance
+            # Validate minimum threshold compliance (skip for fares in cap distribution zone)
             threshold_violations = 0
             for i in range(len(complete_ladder) - 1):
                 current_fare = complete_ladder[i]
                 next_fare = complete_ladder[i + 1]
+                # Skip threshold check for fares that were redistributed near the cap
+                if self.fare_cap_value is not None and i >= (first_capped_idx - 1 if first_capped_idx is not None else len(complete_ladder)):
+                    continue
                 min_threshold = threshold_func(current_fare)
                 actual_diff = next_fare - current_fare
                 
-                if actual_diff < min_threshold - 0.01:  # Allow small rounding errors
+                if actual_diff < min_threshold - 0.01:
                     self.logger.error(f"Threshold violation: f{i+1}→f{i+2}: diff={actual_diff:.2f} < threshold={min_threshold:.2f}")
                     threshold_violations += 1
             
@@ -1422,6 +1508,11 @@ class LadderGen:
         try:
             booking_data_b2c, data_period = self.get_historical_booking_data(self.B2C_CHANNEL)
             booking_data_b2b, data_period = self.get_historical_booking_data(self.B2B_CHANNEL)
+            
+            # Apply fare cap to booking data before binning
+            booking_data_b2c = self._apply_fare_cap_to_bookings(booking_data_b2c, self.B2C_CHANNEL)
+            booking_data_b2b = self._apply_fare_cap_to_bookings(booking_data_b2b, self.B2B_CHANNEL)
+            
             if booking_data_b2c.empty or booking_data_b2b.empty:
                 if not self.failure_reason:
                     self.failure_reason = "No booking data available for ladder generation"
@@ -1480,20 +1571,39 @@ class LadderGen:
                 margin = b2c_threshold_limit - b2b_min
                 self.logger.info(f"B2B constraint validation: B2B constraint satisfied with margin of {margin:.2f}")
             
-            # Convert the final all-in ladders into base fare ladders
-            origin = self.sector[:3]
-            destination = self.sector[3:]
+            # Fares are already in base form for both sources:
+            # - ESB returns DiscountedBaseFare_Pro (base fares)
+            # - Market fares are converted from gross to base upfront in _fetch_booking_data_by_ndo
+            base_ladder_b2c = list(complete_ladder_b2c)
+            base_ladder_b2b = list(complete_ladder_b2b)
+            self.logger.info(f"Ladder fares already in base form (source: {self.fare_source_flag})")
             
-            base_ladder_b2c = [
-                self._calculate_base_xqp_fare(fare, origin, destination)
-                for fare in complete_ladder_b2c
-            ]
-            base_ladder_b2b = [
-                self._calculate_base_xqp_fare(fare, origin, destination)
-                for fare in complete_ladder_b2b
-            ]
+            # Enforce fare cap on final base ladder (DOM only)
+            if self.fare_cap_value is not None:
+                capped_b2c = 0
+                for i in range(len(base_ladder_b2c)):
+                    if base_ladder_b2c[i] > self.fare_cap_value:
+                        self.logger.info(f"B2C fare {i+1} capped: {base_ladder_b2c[i]:.2f} -> {self.fare_cap_value:.2f}")
+                        base_ladder_b2c[i] = self.fare_cap_value
+                        capped_b2c += 1
+                
+                capped_b2b = 0
+                for i in range(len(base_ladder_b2b)):
+                    if base_ladder_b2b[i] > self.fare_cap_value:
+                        self.logger.info(f"B2B fare {i+1} capped: {base_ladder_b2b[i]:.2f} -> {self.fare_cap_value:.2f}")
+                        base_ladder_b2b[i] = self.fare_cap_value
+                        capped_b2b += 1
+                
+                if capped_b2c > 0 or capped_b2b > 0:
+                    self.logger.info(f"Fare cap enforcement: capped {capped_b2c} B2C and {capped_b2b} B2B base fares to {self.fare_cap_value:.2f}")
             
-            self.logger.info(f"Converted {len(base_ladder_b2c)} B2C fares and {len(base_ladder_b2b)} B2B fares from all-in to base")
+            # Convert final base INR ladder to sector's local currency for international routes
+            if self.conversion_rate != 1.0:
+                base_ladder_b2c = [fare * self.conversion_rate for fare in base_ladder_b2c]
+                base_ladder_b2b = [fare * self.conversion_rate for fare in base_ladder_b2b]
+                self.logger.info(f"Converted final ladder from base INR to {self.sector_currency} (rate: {self.conversion_rate})")
+                self.logger.info(f"  B2C range: {min(base_ladder_b2c):.2f} - {max(base_ladder_b2c):.2f} {self.sector_currency}")
+                self.logger.info(f"  B2B range: {min(base_ladder_b2b):.2f} - {max(base_ladder_b2b):.2f} {self.sector_currency}")
             
             # Determine source label
             fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'

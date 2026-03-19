@@ -5,7 +5,6 @@ import pymssql
 import configsettings
 import sys
 import json
-import uuid
 
 from redis import Redis
 from datetime import datetime
@@ -13,7 +12,6 @@ from sqlalchemy import create_engine
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
-from ladergenallin import LadderGenAllIn
 from salesFare import SalesFare
 from fareFile import FareFiling
 
@@ -55,7 +53,7 @@ except Exception as e:
 
 module_map = {
     'action_sect' : ActionSectors,
-    'ladder_gen' : LadderGenAllIn,
+    'ladder_gen' : LadderGen,
     'sales_fare' : SalesFare,
     'fare_filing': FareFiling
 }
@@ -101,25 +99,6 @@ def lambda_handler(event, context):
         params['constantutils'] = ConstantsUtils(db)
         
         Module = module_map[module_key]
-
-        # Multi-sector dispatch: each sector gets its own Lambda invocation via SQS
-        if module_key == 'ladder_gen' and 'sector' in overrides:
-            sectors = overrides['sector'] if isinstance(overrides['sector'], list) else [overrides['sector']]
-            if len(sectors) > 1:
-                batch_run_id = str(uuid.uuid4())
-                queue_url = configsettings.PRICING_TRIGGERS_QUEUE_URL
-                for sector in sectors:
-                    sector_overrides = {**overrides, 'sector': [sector],
-                                        'batch_run_id': batch_run_id,
-                                        'batch_total': len(sectors)}
-                    sqs_message = json.dumps({'modules': {'ladder_gen': 1},
-                                              'overrides': sector_overrides})
-                    sqs.send_message(QueueUrl=queue_url, MessageBody=sqs_message)
-                logger.info(f"Dispatched {len(sectors)} sectors as separate SQS messages (batch_run_id={batch_run_id})")
-                return {'statusCode': 202,
-                        'body': json.dumps({'message': f'Dispatched {len(sectors)} sectors',
-                                            'batch_run_id': batch_run_id})}
-
         Module_obj = Module(logger, params, overrides, context)
         Module_obj.run()
 
@@ -138,15 +117,15 @@ def lambda_handler(event, context):
 #     "modules": {"action_sect": 1}
 # }
 
-messageBody = {
-    "overrides": {
-        "route": "D",
-        "analyst": "Kenneth Menezes",
-        "sector": ["DELBOM"],
-        "fare_source_flag": "esb"
-    },
-    "modules": {"ladder_gen": 1}
-}
+# messageBody = {
+#     "overrides": {
+#         "route": "D",
+#         "analyst": "Kenneth Menezes",
+#         "sector": ["BOMDEL", "NMILKO", "BLRDBR"],
+#         "fare_source_flag": "esb"
+#     },
+#     "modules": {"ladder_gen": 1}
+# }
 
 # messageBody = {
 #     "overrides": {
@@ -163,5 +142,5 @@ messageBody = {
 #     "modules": {"fare_filing": 1}
 # }
  
-event = {'Records':[{'body':json.dumps(messageBody)}]}
-lambda_handler(event,None)
+# event = {'Records':[{'body':json.dumps(messageBody)}]}
+# lambda_handler(event,None)
