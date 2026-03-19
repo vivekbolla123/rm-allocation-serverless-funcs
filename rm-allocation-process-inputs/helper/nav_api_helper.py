@@ -34,7 +34,7 @@ class NavAPIHelper:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
             
         else:
-            self.logger.info("Failed to get token:"+ response.text)
+            self.logger.info("Failed to get token")
 
     def get_leg_nest_details(self,  dep_date, carrier_code, identifier, origin, destin ):
         dep_date=datetime.strptime(str(dep_date), DATE_FORMAT).date().strftime(DATE_FORMAT_2)

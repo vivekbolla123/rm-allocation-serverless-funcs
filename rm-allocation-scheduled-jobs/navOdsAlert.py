@@ -139,4 +139,4 @@ class NavOdsAlert:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
             
         else:
-            self.logger.error("Failed to get token:"+ response.text)
+            self.logger.error("Failed to get token")
