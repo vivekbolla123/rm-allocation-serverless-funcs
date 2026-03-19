@@ -124,7 +124,7 @@ class LadderGen:
         try:
             for min_km, max_km, cap_value in self.FARECAP_DISTANCE_CONFIG:
                 if min_km <= distance_km < max_km:
-                    self.logger.info(f"Distance {distance_km} km falls in range {min_km}-{max_km} km, fare cap = {cap_value}")
+                    # self.logger.info(f"Distance {distance_km} km falls in range {min_km}-{max_km} km, fare cap = {cap_value}")
                     return cap_value
             
             # If distance exceeds all ranges, use the last (highest) range
@@ -192,12 +192,7 @@ class LadderGen:
             
             converted_fares = [fare * self.conversion_rate for fare in fare_points]
             
-            self.logger.info(f"Currency Conversion Applied:")
-            self.logger.info(f"  Currency: INR -> {self.sector_currency}")
-            self.logger.info(f"  Conversion Rate: {self.conversion_rate}")
-            self.logger.info(f"  Sample conversions:")
-            for i in range(min(3, len(fare_points))):
-                self.logger.info(f"    Fare {i+1}: {fare_points[i]:.2f} INR -> {converted_fares[i]:.2f} {self.sector_currency}")
+            self.logger.info(f"Currency Conversion Applied: INR -> {self.sector_currency} at rate {self.conversion_rate}")
             
             return converted_fares
             
@@ -645,7 +640,6 @@ class LadderGen:
                 if next_fare - current_fare < min_threshold:
                     adjusted_fares[i + 1] = current_fare + min_threshold
                     adjustments_made += 1
-                    self.logger.debug(f"  Adjusted fare {i+1}: {next_fare:.2f} -> {adjusted_fares[i + 1]:.2f}")
             
             self.logger.info(f"  Core threshold adjustments made: {adjustments_made}")
             
@@ -721,7 +715,7 @@ class LadderGen:
             distance = self._get_distance(origin, destination)
             yq = self._get_yq_for_distance(distance)
             
-            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq
+            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq + (yq*gst)
             return total_taxes
             
         except Exception:
@@ -835,11 +829,11 @@ class LadderGen:
             yq = self._get_yq_for_distance(distance)
                 
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                other_taxes = asf + psf + udf_df + rcs + cute + yq
+                other_taxes = asf + psf + udf_df + rcs + cute + yq + (yq*gst)
                 base_fare = adjusted_gross_fare - other_taxes
             else:
                 gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes = asf + psf + udf_df + cute + yq
+                other_taxes = asf + psf + udf_df + cute + yq + (yq*gst)
                 base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
             
             return base_fare
@@ -964,7 +958,6 @@ class LadderGen:
                     if self.route == 'I' and self.conversion_rate != 1.0:
                         # Market fare is in local currency, convert to INR for yield check
                         gross_fare_inr = self._convert_fare_to_inr(gross_fare)
-                        self.logger.debug(f"Converted market fare for yield check: {gross_fare:.2f} {self.sector_currency} -> {gross_fare_inr:.2f} INR")
                     else:
                         # Domestic or international without conversion - already in INR
                         gross_fare_inr = gross_fare
@@ -975,11 +968,8 @@ class LadderGen:
                     
                     # Check yield constraint
                     if yield_value >= self.MARKET_FARE_MIN_YIELD:
-                        self.logger.debug(f"Market fare {gross_fare:.2f} passed yield check: {yield_value:.2f} >= {self.MARKET_FARE_MIN_YIELD}")
                         # Return BASE FARE in INR
                         return base_fare
-                    else:
-                        self.logger.debug(f"Market fare {gross_fare:.2f} failed yield check: {yield_value:.2f} < {self.MARKET_FARE_MIN_YIELD}")
                         
                 except Exception as e:
                     self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
@@ -1099,12 +1089,10 @@ class LadderGen:
             recalculated_fares = []
             current_fare = start_fare
             
-            self.logger.info(f"  Generating {self.UP_B2C} UP fares:")
+            self.logger.info(f"  Generating {self.UP_B2C} UP fares")
             for i in range(self.UP_B2C):
                 current_fare = current_fare * (1 + upsell_factor)
-                fare_number = (self.TOTAL_B2C_FARES - self.UP_B2C) + i + 1
                 recalculated_fares.append(current_fare)
-                self.logger.info(f"    f{fare_number} = {current_fare:.2f}")
             
             # Build complete ladder (before final threshold adjustment)
             num_fares_to_keep = self.TOTAL_B2C_FARES - self.UP_B2C
@@ -1137,9 +1125,6 @@ class LadderGen:
                     
                     adjustment_info = f"f{i+1}→f{i+2}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
                     adjustments_detail.append(adjustment_info)
-                    
-                    if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
-                        self.logger.info(f"  {adjustment_info}")
             
             self.logger.info(f"Forward pass: {adjustments_made} threshold adjustments made")
             
@@ -1169,19 +1154,10 @@ class LadderGen:
                     
                     for i in range(num_fares_to_distribute):
                         idx = first_capped_idx + i
-                        old_value = complete_ladder[idx]
                         complete_ladder[idx] = anchor_fare + step * (i + 1)
-                        self.logger.info(f"  f{idx+1}: {old_value:.2f} -> {complete_ladder[idx]:.2f}")
             
             # Log final ladder summary
-            self.logger.info(f"Final B2C ladder summary:")
-            self.logger.info(f"  Total fares: {len(complete_ladder)}")
-            self.logger.info(f"  Min fare (f1): {complete_ladder[0]:.2f}")
-            self.logger.info(f"  Max fare (fmax): {complete_ladder[-1]:.2f}")
-            self.logger.info(f"  Last 5 fares:")
-            for i in range(len(complete_ladder) - 5, len(complete_ladder)):
-                fare_num = i + 1
-                self.logger.info(f"    f{fare_num} = {complete_ladder[i]:.2f}")
+            self.logger.info(f"Final B2C ladder summary: Total={len(complete_ladder)}, Min={complete_ladder[0]:.2f}, Max={complete_ladder[-1]:.2f}")
             
             # Validate exactly self.TOTAL_B2C_FARES fares
             if len(complete_ladder) != self.TOTAL_B2C_FARES:
@@ -1359,12 +1335,10 @@ class LadderGen:
             recalculated_fares = []
             current_fare = start_fare
             
-            self.logger.info(f"  Generating {self.UP_B2B} UP fares:")
+            self.logger.info(f"  Generating {self.UP_B2B} UP fares")
             for i in range(self.UP_B2B):
                 current_fare = current_fare * (1 + upsell_factor)
-                fare_number = (self.TOTAL_B2B_FARES - self.UP_B2B) + i + 1
                 recalculated_fares.append(current_fare)
-                self.logger.info(f"    f{fare_number} = {current_fare:.2f}")
             
             # Build complete ladder (before final threshold adjustment)
             num_fares_to_keep = self.TOTAL_B2B_FARES - self.UP_B2B
@@ -1397,9 +1371,6 @@ class LadderGen:
                     
                     adjustment_info = f"f{i+1}→f{i+2}: {old_value:.2f} → {complete_ladder[i + 1]:.2f} (threshold: {min_threshold:.2f})"
                     adjustments_detail.append(adjustment_info)
-                    
-                    if i >= num_fares_to_keep - 1 or (complete_ladder[i + 1] - old_value) > 100:
-                        self.logger.info(f"  {adjustment_info}")
             
             self.logger.info(f"Forward pass: {adjustments_made} threshold adjustments made")
             
@@ -1428,19 +1399,10 @@ class LadderGen:
                     
                     for i in range(num_fares_to_distribute):
                         idx = first_capped_idx + i
-                        old_value = complete_ladder[idx]
                         complete_ladder[idx] = anchor_fare + step * (i + 1)
-                        self.logger.info(f"  f{idx+1}: {old_value:.2f} -> {complete_ladder[idx]:.2f}")
             
             # Log final ladder summary
-            self.logger.info(f"Final B2B ladder summary:")
-            self.logger.info(f"  Total fares: {len(complete_ladder)}")
-            self.logger.info(f"  Min fare (f1): {complete_ladder[0]:.2f}")
-            self.logger.info(f"  Max fare (fmax_b2b): {complete_ladder[-1]:.2f}")
-            self.logger.info(f"  All fares:")
-            for i, fare in enumerate(complete_ladder):
-                fare_num = i + 1
-                self.logger.info(f"    f{fare_num} = {fare:.2f}")
+            self.logger.info(f"Final B2B ladder summary: Total={len(complete_ladder)}, Min={complete_ladder[0]:.2f}, Max={complete_ladder[-1]:.2f}")
             
             # Validate exactly self.TOTAL_B2B_FARES fares
             if len(complete_ladder) != self.TOTAL_B2B_FARES:
@@ -1583,14 +1545,12 @@ class LadderGen:
                 capped_b2c = 0
                 for i in range(len(base_ladder_b2c)):
                     if base_ladder_b2c[i] > self.fare_cap_value:
-                        self.logger.info(f"B2C fare {i+1} capped: {base_ladder_b2c[i]:.2f} -> {self.fare_cap_value:.2f}")
                         base_ladder_b2c[i] = self.fare_cap_value
                         capped_b2c += 1
                 
                 capped_b2b = 0
                 for i in range(len(base_ladder_b2b)):
                     if base_ladder_b2b[i] > self.fare_cap_value:
-                        self.logger.info(f"B2B fare {i+1} capped: {base_ladder_b2b[i]:.2f} -> {self.fare_cap_value:.2f}")
                         base_ladder_b2b[i] = self.fare_cap_value
                         capped_b2b += 1
                 
