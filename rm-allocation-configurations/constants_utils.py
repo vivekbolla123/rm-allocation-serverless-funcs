@@ -93,12 +93,15 @@ class ConstantsUtils:
         self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C
         self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.FARECAP_DISTANCE_CONFIG = self._parse_farecap_distance_config(FARECAP_DISTANCE_CONFIG)
+        self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(YQ_DISTANCE_CONFIG)
         self.CURRENCY_ROUND_OFF_LIST = CURRENCY_ROUND_OFF_LIST
         self.GDS_RBD_VALUES = GDS_RBD_VALUES
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
         self.YIELD_FACTOR = YIELD_FACTOR
+        self.MARKET_FARE_MIN_YIELD = MARKET_FARE_MIN_YIELD
         self.DIRECT_FLIGHT_UPSELL_PERCENT = DIRECT_FLIGHT_UPSELL_PERCENT
         self.DIRECT_FLIGHT_UPSELL_AMOUNT = DIRECT_FLIGHT_UPSELL_AMOUNT
         self.RBD_VALUES = RBD_VALUES
@@ -307,6 +310,8 @@ class ConstantsUtils:
                 self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(parameter_value)
             elif parameter_key == YIELD_FACTOR_KEY:
                 self.YIELD_FACTOR = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_YIELD_KEY:
+                self.MARKET_FARE_MIN_YIELD = float(parameter_value)
             elif parameter_key == MARKET_FARE_FORECAST_THRESHOLD_KEY:
                 self.MARKET_FARE_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:
@@ -337,6 +342,10 @@ class ConstantsUtils:
                 self.CURRENCY_ROUND_OFF_LIST = json.loads(parameter_value)
             elif parameter_key == ACTIVE_SECTORS_DEFAULT_FIELDS_KEY:
                 self.ACTIVE_SECTORS_DEFAULT_FIELDS = parameter_value
+            elif parameter_key == FARECAP_DISTANCE_CONFIG_KEY:
+                self.FARECAP_DISTANCE_CONFIG = self._parse_farecap_distance_config(parameter_value)
+            elif parameter_key == YQ_DISTANCE_CONFIG_KEY:
+                self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(parameter_value)
             elif parameter_key == GDS_RBD_VALUES_KEY:
                 self.GDS_RBD_VALUES = parameter_value
                 
@@ -353,6 +362,28 @@ class ConstantsUtils:
             self.logger.error(f"Error parsing international bookload thresholds: {e}")
             # Return default hardcoded if parsing fails
             return {(0, 3): 80, (4, 7): 60, (8, 14): 50, (15, 365): 40}
+    
+    def _parse_farecap_distance_config(self, json_str):
+        """Parse farecap distance config JSON into sorted list of (min_km, max_km, cap_value) tuples.
+        
+        Input format: {"0-500": 7500, "500-1000": 12000, "1000-1500": 15000, "1500+": 20000}
+        Output: [(0, 500, 7500), (500, 1000, 12000), (1000, 1500, 15000), (1500, inf, 20000)]
+        """
+        try:
+            raw_data = json.loads(json_str)
+            parsed = []
+            for key, value in raw_data.items():
+                if '+' in key:
+                    start = float(key.replace('+', ''))
+                    parsed.append((start, float('inf'), float(value)))
+                else:
+                    parts = key.split('-')
+                    parsed.append((float(parts[0]), float(parts[1]), float(value)))
+            parsed.sort(key=lambda x: x[0])
+            return parsed
+        except Exception as e:
+            self.logger.error(f"Error parsing farecap distance config: {e}")
+            return [(0, 500, 7500), (500, 1000, 12000), (1000, 1500, 15000), (1500, float('inf'), 20000)]
                 
     def get_parameters(self):
         parameterValue = None  # Initialize with a default value

@@ -24,6 +24,7 @@ class ActionSectors:
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
         self.constants = ConstantsUtils(self.db)
+        self.MARKET_FARE_MIN_YIELD = self.constants.MARKET_FARE_MIN_YIELD
         self.pa_helper = ActionPAHelper(self.db, self.db_fares, logger)
         self.nav_helper = ActionNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.route = overrides['route']
@@ -225,7 +226,7 @@ class ActionSectors:
                 'Action_required': action_type,
                 'Req_Min_Instances': 2,
                 'Req_Min_FD': 1,
-                'Req_Min_Yield': 1.5 if self.route == 'D' else None,
+                'Req_Min_Yield': self.MARKET_FARE_MIN_YIELD if self.route == 'D' else None,
                 'Req_Discared_Carrier': '[9I, IC, S9, S5]',
                 'Req_Forward_PLF': 0.5,
                 'Constraint': 'Satisfied' if constraints_satisfied else 'Will not be satisfied'
@@ -540,7 +541,7 @@ class ActionSectors:
             
             if self.route == 'D':
                 # Domestic: include yield constraint
-                min_yield_ok = yield_value >= 1.5
+                min_yield_ok = yield_value >= self.MARKET_FARE_MIN_YIELD
                 all_satisfied = (min_instances_ok and min_fare_diff_ok and 
                                min_yield_ok and forward_plf_ok and carrier_ok)
                 
