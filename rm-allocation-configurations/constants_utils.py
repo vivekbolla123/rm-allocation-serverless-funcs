@@ -72,6 +72,14 @@ class ConstantsUtils:
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
         self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
+        self.AF_PLF_FORECAST_CAP = AF_PLF_FORECAST_CAP
+        self.AF_PLF_GAIN_MAX_ZERO = AF_PLF_GAIN_MAX_ZERO
+        self.AF_CONSTANT_BAND_2 = AF_CONSTANT_BAND_2
+        self.AF_CONSTANT_BAND_3 = AF_CONSTANT_BAND_3
+        self.AF_PROFILE_FARE_PLF_THRESHOLD = AF_PROFILE_FARE_PLF_THRESHOLD
+        self.AF_PROFILE_FARE_MULTIPLIER = AF_PROFILE_FARE_MULTIPLIER
+        self.AF_BAND_1_MULTIPLIERS = json.loads(AF_BAND_1_MULTIPLIERS)
+        self.AF_BAND_2_MULTIPLIERS = json.loads(AF_BAND_2_MULTIPLIERS)
         self.DEFAULT_D3_VALUE = DEFAULT_D3_VALUE
         self.D3_MIN_RULES = json.loads(D3_MIN_RULES)
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
@@ -339,6 +347,22 @@ class ConstantsUtils:
                 self.ACTIVE_SECTORS_DEFAULT_FIELDS = parameter_value
             elif parameter_key == GDS_RBD_VALUES_KEY:
                 self.GDS_RBD_VALUES = parameter_value
+            elif parameter_key == AF_PLF_FORECAST_CAP_KEY:
+                self.AF_PLF_FORECAST_CAP = float(parameter_value)
+            elif parameter_key == AF_PLF_GAIN_MAX_ZERO_KEY:
+                self.AF_PLF_GAIN_MAX_ZERO = float(parameter_value)
+            elif parameter_key == AF_CONSTANT_BAND_2_KEY:
+                self.AF_CONSTANT_BAND_2 = float(parameter_value)
+            elif parameter_key == AF_CONSTANT_BAND_3_KEY:
+                self.AF_CONSTANT_BAND_3 = float(parameter_value)
+            elif parameter_key == AF_PROFILE_FARE_PLF_THRESHOLD_KEY:
+                self.AF_PROFILE_FARE_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == AF_PROFILE_FARE_MULTIPLIER_KEY:
+                self.AF_PROFILE_FARE_MULTIPLIER = float(parameter_value)
+            elif parameter_key == AF_BAND_1_MULTIPLIERS_KEY:
+                self.AF_BAND_1_MULTIPLIERS = json.loads(parameter_value)
+            elif parameter_key == AF_BAND_2_MULTIPLIERS_KEY:
+                self.AF_BAND_2_MULTIPLIERS = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

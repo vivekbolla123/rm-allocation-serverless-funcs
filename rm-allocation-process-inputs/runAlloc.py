@@ -481,9 +481,11 @@ class DynAlloc:
 
 			# Use forecast data only if within 30 NDOs
 			imp_forecast = CONST_NA
+			PLF_Gain = CONST_NA
 			if ndocounter <= 30:
 				imp_forecast = self.getParsedImputedForecast(variance_full)
 			Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
+			PLF_Gain = (imp_forecast - str(round(final_plf,2)))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
@@ -497,6 +499,10 @@ class DynAlloc:
 			imp_forecast_band = CONST_NA
 			if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
 				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
+
+			af_forecast_band = CONST_NA
+			if Af_Nb_Allin != CONST_NA and not pd.isna(Af_Nb_Allin):
+				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(Af_Nb_Allin)
 
 			ml_b2b_factor = self.currParams.b2b_factor
 			b2b_strategy = self.currParams.b2bStrategy
@@ -763,7 +769,7 @@ class DynAlloc:
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 												overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val, 
-												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria
+												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
 											)
 
 				# Get B2C Opening Price for potential B2B derivation
@@ -834,7 +840,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
 						)
 					
 				# Removed last_seven_avg_val from B2B Strategy Fare Calculation

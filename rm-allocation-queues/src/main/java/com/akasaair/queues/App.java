@@ -3722,6 +3722,7 @@ public class App implements CommandLineRunner {
                     .append("Outbound_Stop", toIntOrKeepSame(marketListEntity.getB2bOutbound_Stop()))
                     .append("Marketfare_Upsell", toIntOrKeepSame(marketListEntity.getMarketfare_Upsell()))
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
                     .append("market_origin_mapping", toIntOrKeepSame(marketListEntity.getMarket_origin_mapping()))
@@ -4000,6 +4001,7 @@ public class App implements CommandLineRunner {
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
+                .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
                 .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
@@ -4207,6 +4209,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
+                listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
                 listOfErrors.get().add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");

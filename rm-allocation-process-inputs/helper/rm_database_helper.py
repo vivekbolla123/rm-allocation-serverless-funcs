@@ -858,6 +858,17 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return CONST_NA
+    
+    def get_af_forecast_band(self, af_forecast):
+        rounded_af_fcst = round(af_forecast)
+        try:
+            result = self.db.imputed_forecast_bands.find_one(
+                {"start_af": {"$lte": rounded_af_fcst}, "end_af": {"$gte": rounded_af_fcst}}
+            )
+            return int(result['band']) if result else CONST_NA
+        except Exception as e:
+            self.logger.error(e)
+            return CONST_NA
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
