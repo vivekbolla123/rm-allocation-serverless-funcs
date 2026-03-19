@@ -1,0 +1,4 @@
+DepartureDate,Origin,Destination,FlightNumber,ForecastPLF
+2023-08-05,JAI,BOM,6216,90
+2023-08-05,DEL,BOM,6216,75
+2023-08-01,AMD,AUH,780,80

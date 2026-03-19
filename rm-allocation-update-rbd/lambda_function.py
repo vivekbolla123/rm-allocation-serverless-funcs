@@ -110,12 +110,14 @@ def get_nav_dcs_inventory_api(leg_key):
     return response.json()
 
 
-def patch_nav_dcs_inventory_api(args):
+def patch_nav_dcs_inventory_api(args, send_avs_messages=False):
     """
         desc
     """
     req_body = {}
-
+    if send_avs_messages:
+        req_body = {'sendAvsMessages': True}
+    
     for leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions in args:
         nests = req_body.setdefault('Nests', {})
 
@@ -198,12 +200,19 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
         desc
     """
     allocation_result = {}
+    is_updated = False
+    is_gds_updated = False
     log_time.start()
+    GDS_RBD_LIST = [rbd.strip() for rbd in constantsutils.GDS_RBD_VALUES.split(",")]
+
     for leg_key, inventory_nests in inventory_dict.items():
         for inventory_nest in inventory_nests:
             nest_key = inventory_nest["nestKey"]
             classes = inventory_nest["classes"]
             args = []
+            gds_args = []
+            is_updated = True
+            is_gds_updated = True
             for _class in classes:
                 class_key = _class["classKey"]
                 class_of_service = _class["classOfService"]
@@ -217,11 +226,18 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
 
                     if (target_authorised_units != curr_authorised_units and target_authorised_units > -1) or (target_ap_restrictions != curr_ap_restrictions and target_ap_restrictions > -1):
                         # update nav class with target AU
-                        args.append(
+                        if class_of_service in GDS_RBD_LIST:
+                            gds_args.append(
+                                [leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions])
+                            print(
+                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}, sendAVSMessages: True"
+                            )
+                        else:
+                            args.append(
                             [leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions])
-                        print(
-                            f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}"
-                        )
+                            print(
+                                f"leg_key: {leg_key}, nest_key: {nest_key}, class_key: {class_key}, target_authorised_units: {target_authorised_units},current_authorised_units:{curr_authorised_units}"
+                            )
                     else:
                         print(
                             f"skipping {class_of_service} : {target_authorised_units} : {curr_authorised_units}")
@@ -235,8 +251,12 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
                 if not is_updated: 
                     for _, _, _, _, class_of_service,_,_ in args:
                         allocation_result[class_of_service] = -3
+
+            if gds_args:
+                is_gds_updated = patch_nav_dcs_inventory_api(gds_args, send_avs_messages=True)
+
     log_time.end("update_au_in_navitaire")
-    return allocation_result
+    return allocation_result, is_updated, is_gds_updated
 
 
 logger = logging.getLogger()
@@ -306,7 +326,7 @@ def lambda_handler(event, context):
         end_date_f = format_date(end_date)
         log_time.update_run_id(run_id)
         countOfFailures = 0
-        countOfTotal = 0
+        countOfTotal = 2
         inventory_dict = {}
         try:
         # First fetch the legKey for the market using tripInfo API
@@ -318,16 +338,14 @@ def lambda_handler(event, context):
             
         except Exception as e:
             logger.error(e)
-            countOfFailures = len(au_classes)
-            countOfTotal = len(au_classes)
 
         # Now we have all the data needed to update the AUs. For fetched inventory classes, set the allotted units
-        allocation_result = update_au_in_navitaire(inventory_dict, au_classes, run_id)
+        allocation_result, is_nav_updated, is_gds_updated = update_au_in_navitaire(inventory_dict, au_classes, run_id)
 
-        for _, v in allocation_result.items():
-            if(v==-3):
-                countOfFailures+=1
-            countOfTotal+=1
+        if not is_nav_updated:
+            countOfFailures += 1
+        if not is_gds_updated:
+            countOfFailures += 1
         
         allocationEndTime = datetime.now()
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
