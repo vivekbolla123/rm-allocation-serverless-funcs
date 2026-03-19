@@ -715,7 +715,7 @@ class LadderGen:
             distance = self._get_distance(origin, destination)
             yq = self._get_yq_for_distance(distance)
             
-            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq + (yq*gst)
+            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq + (yq*gst_rate)
             return total_taxes
             
         except Exception:
@@ -829,11 +829,11 @@ class LadderGen:
             yq = self._get_yq_for_distance(distance)
                 
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
-                other_taxes = asf + psf + udf_df + rcs + cute + yq + (yq*gst)
+                other_taxes = asf + psf + udf_df + rcs + cute + yq + (yq*gst_rate)
                 base_fare = adjusted_gross_fare - other_taxes
             else:
                 gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes = asf + psf + udf_df + cute + yq + (yq*gst)
+                other_taxes = asf + psf + udf_df + cute + yq + (yq*gst_rate)
                 base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
             
             return base_fare
