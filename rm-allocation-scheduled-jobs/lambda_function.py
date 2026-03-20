@@ -38,9 +38,17 @@ from run_paused_scheduled_runs import Run_Paused_Runs
 from active_sectors import ActiveSectors
 from forecast_date_config import ForecastDateConfig
 from mlForecastScore import MLForecastScore
+from saleinv_baseload_calc import SaleInvBaseloadCalc
+from saleinv_rbl_calc import SaleInvRBLCalc
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+def create_logger():
+    logger = logging.getLogger()
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.INFO)
+    logger.addHandler(handler)
+    return logger
+
+logger = create_logger()
 
 
 # Keep ESB and DW connections if still needed
@@ -115,7 +123,9 @@ module_map = {
     "run_paused_runs": Run_Paused_Runs,
     "active_sectors": ActiveSectors,
     "forecast_date_config": ForecastDateConfig,
-    "ml_forecast_score": MLForecastScore
+    "ml_forecast_score": MLForecastScore,
+    "saleinv_baseload": SaleInvBaseloadCalc,
+    "saleinv_rbl": SaleInvRBLCalc
 }
 
 
@@ -207,8 +217,12 @@ def lambda_handler(event, context):
 
 
 # messageBody = {
-#   "body": "{\"modules\":{\"active_sectors\": 1}}"
+#     "overrides": {"month": "2026-03", "run_id":"9cb00d7f-35dd-4e03-9ad9-853a939ef75f"},
+#     "modules": {"saleinv_rbl": 1}
+# }
+# messageBody = {
+#     "modules": {"saleinv_baseload": 1}
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
-# lambda_handler(messageBody,None)
+# lambda_handler(event,None)
