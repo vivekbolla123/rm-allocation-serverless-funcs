@@ -97,6 +97,8 @@ class ConstantsUtils:
         self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(YQ_DISTANCE_CONFIG)
         self.CURRENCY_ROUND_OFF_LIST = CURRENCY_ROUND_OFF_LIST
         self.GDS_RBD_VALUES = GDS_RBD_VALUES
+        self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
+        self.WINDOW_MINUTES = WINDOW_MINUTES
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -348,6 +350,10 @@ class ConstantsUtils:
                 self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(parameter_value)
             elif parameter_key == GDS_RBD_VALUES_KEY:
                 self.GDS_RBD_VALUES = parameter_value
+            elif parameter_key == GRACE_PERIOD_MINUTES_KEY:
+                self.GRACE_PERIOD_MINUTES = parameter_value
+            elif parameter_key == WINDOW_MINUTES_KEY:
+                self.WINDOW_MINUTES = parameter_value
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
