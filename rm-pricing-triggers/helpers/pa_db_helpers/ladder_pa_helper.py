@@ -103,7 +103,7 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
 
-            route_filter = {'outbound_stop': "1"} if layer_type == 'connection' else {'outbound_stop': "0"}
+            route_filter = {'outbound_stop': {'$in': ["0", "1"]}} if layer_type == 'connection' else {'outbound_stop': "0"}
 
             if route == 'D':
                 match_stage = {
@@ -233,7 +233,7 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=72)}
             }
 
-            route_filter = {'outbound_stop': "1"} if layer_type == 'connection' else {'outbound_stop': "0"}
+            route_filter = {'outbound_stop': {'$in': ["0", "1"]}} if layer_type == 'connection' else {'outbound_stop': "0"}
 
             sector_expr = {
                 '$or': [

@@ -41,7 +41,7 @@ class LadderEsbHelper:
                     "$gte": today,
                     "$lte": end_date
                 },
-                "outbound_stop": "1" if layer_type == 'connection' else "0",
+                "outbound_stop": {"$in": ["0", "1"]} if layer_type == 'connection' else "0",
                 "outbound_airline_code": {
                     "$in": carrier_inclusion if (layer_type == 'connection' and carrier_inclusion) else ["6E", "AI", "IX", "XY", "FZ", "GF", "J9", "KU", "FD", "SG", "TG", "WY", "VZ", "SV", "F3"]
                 }
