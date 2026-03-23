@@ -79,6 +79,7 @@ if env == 'prod':
     NAV_DB_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD', '')
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds"
+    PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-pricing-triggers"
     NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     NAV_DB_USER = "0KODSUSER2"
@@ -165,6 +166,7 @@ if env == 'uat':
     # NAV_DB_PASSWORD = credentials.get('/rm/prod/rm-allocation/NAV_DB_PASSWORD', '')
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds"
+    PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-pricing-triggers"
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
@@ -243,6 +245,7 @@ if env == 'preprod':
     NAV_DB_PASSWORD = credentials.get('/rm/' + credenv + '/rm-allocation/NAV_DB_PASSWORD', '')
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-allocation-rbds"
+    PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-pricing-triggers"
     NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     NAV_DB_USER = "0KODSUSER2"
