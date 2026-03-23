@@ -21,6 +21,7 @@ class LadderPAHelper:
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
+        self.ladder_gen = ladder_gen
         self.B2B_RBD_LIST = ladder_gen.B2B_RBD_LIST
         self.B2C_RBD_LIST = ladder_gen.B2C_RBD_LIST
         self.TOTAL_B2C_FARES = ladder_gen.TOTAL_B2C_FARES
