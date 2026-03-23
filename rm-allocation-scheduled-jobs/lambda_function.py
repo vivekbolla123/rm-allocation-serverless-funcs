@@ -38,6 +38,7 @@ from run_paused_scheduled_runs import Run_Paused_Runs
 from active_sectors import ActiveSectors
 from forecast_date_config import ForecastDateConfig
 from mlForecastScore import MLForecastScore
+from mkt_cleanup import MarketListCleanup
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -115,7 +116,8 @@ module_map = {
     "run_paused_runs": Run_Paused_Runs,
     "active_sectors": ActiveSectors,
     "forecast_date_config": ForecastDateConfig,
-    "ml_forecast_score": MLForecastScore
+    "ml_forecast_score": MLForecastScore,
+    "mkt_cleanup": MarketListCleanup
 }
 
 
