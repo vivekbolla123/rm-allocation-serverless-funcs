@@ -6,6 +6,7 @@ import os
 import configsettings
 from constants_utils import ConstantsUtils
 from datetime import datetime, timedelta, date
+import pymssql
 import traceback
 import uuid
 import pytz
@@ -22,6 +23,10 @@ class FareFiling:
         self.type = overrides['type']
         self.route = overrides['route']
         self.analystName = overrides['analyst']
+        
+        # Nav DB connection for city pair distance lookup
+        self.nav_conn = params.get('navconn', None)
+        self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
                 
         # Initialize data containers
         self.qp_fares_data = None
@@ -33,6 +38,7 @@ class FareFiling:
         self.saver_data = None
         self.currentVersion = None
         self.isSaver = True if self.type == "Saver" else False
+        self.city_pair_data = None
         self.B2B_RBD_LIST = self.constants.B2B_RBD_VALUES.split(',')
         self.B2C_RBD_LIST = self.constants.B2C_RBD_VALUES.split(',')
         self.TOTAL_B2C_FARES = len(self.B2C_RBD_LIST)
@@ -192,6 +198,21 @@ class FareFiling:
             # For international routes, build currency mapping
             if self.route == 'I':
                 self._build_currency_map()
+            
+            # Collect city pair data for distance-based YQ lookup
+            try:
+                if self.nav_conn is not None:
+                    query = f"""
+                    SELECT 
+                        CityPairID, CityPair, CityPairGroup, DepartureStation, ArrivalStation, ActualDistance
+                    FROM {self.nav_db_dw_name}dw.CityPair
+                    """
+                    self.city_pair_data = pd.read_sql(query, self.nav_conn)
+                    self.logger.info(f"Collected {len(self.city_pair_data)} city pair records for YQ distance lookup")
+                else:
+                    self.logger.warning("No nav connection available for city pair data")
+            except Exception as e:
+                self.logger.warning(f"City pair data collection failed (non-critical): {str(e)}")
             
             return True
             
@@ -398,7 +419,7 @@ class FareFiling:
             else:
                 # Base Fare=Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]/ (1+GST) 
                 # Base Fare={Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]}/ (1+GST)
-                total_taxes = (base_fare - ((gst_rate * (rcs + cute)) + rcs + cute + duf + asf + psf + udf_df))/(1+gst_rate)
+                total_taxes = (base_fare - ((gst_rate * (rcs + cute)) + rcs + cute + duf + asf + psf + udf_df + yq + (yq*gst_rate)))/(1+gst_rate)
                 
             return total_taxes
             
@@ -447,6 +468,33 @@ class FareFiling:
             
         except Exception as e:
             self.logger.error(f"Error calculating base international fare: {str(e)}")
+
+    def _get_distance(self, origin, destination):
+        """Get distance for sector from city pair data."""
+        try:
+            if self.city_pair_data is None or self.city_pair_data.empty:
+                return 0
+            distance_data = self.city_pair_data[
+                (self.city_pair_data['DepartureStation'] == origin) &
+                (self.city_pair_data['ArrivalStation'] == destination)
+            ]
+            return float(distance_data.iloc[0]['ActualDistance']) if not distance_data.empty else 0
+        except Exception:
+            return 0
+
+    def _get_yq_for_distance(self, distance):
+        """Get YQ based on distance (km) for domestic routes from config."""
+        if distance <= 0:
+            return 0
+            
+        try:
+            for min_dist, max_dist, yq_val in self.constants.YQ_DISTANCE_CONFIG:
+                if min_dist < distance <= max_dist:
+                    return float(yq_val)
+        except AttributeError:
+            self.logger.warning("YQ_DISTANCE_CONFIG not found in constants.")
+            
+        return 0
 
     def apply_upsell(self, base_value, upsell_type, upsell_value, min_value, max_value):
         """Apply upsell to base value with min/max constraints on upsell amount."""
