@@ -45,21 +45,26 @@ class MarketFareService:
 
         # If feature flag is enabled and no market fare sector rerouting is present and imputed forecast is available
         try:
-            if int(currParams.market_origin_mapping) == 1 and routedSector.empty and imp_forecast != CONST_NA:
+            if int(currParams.market_station_mapping) == 1 and routedSector.empty and imp_forecast != CONST_NA:
                 # Check for mapped origin and get fares from mapped sector
                 MARKET_FARE_FORECAST_THRESHOLD = self.constantsutils.MARKET_FARE_FORECAST_THRESHOLD
-                origin2 = self.rmdatabasehelper.getMappedOriginStation(currParams.origin)
                 mapped_mktFareRange = pd.DataFrame()
                 mapped_mktFareRange_minomaxo = pd.DataFrame()
-                
-                if origin2 is not None and origin2 != currParams.origin:
-                    # Fetch market fares for the mapped sector (with routing applied)
+
+                # First check if origin has a mapped station
+                mapped_origin = self.rmdatabasehelper.getMappedStation(currParams.origin)
+                if mapped_origin is not None and mapped_origin != currParams.origin:
                     _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
-                        currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin2, destin
+                        currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, mapped_origin, destin
                     )
-                    
-                    if mapped_mktFareRange.empty:
-                        self.logger.info(f"No Market fares found for mapped sector {origin2}{destin}")
+
+                # If origin mapping didn't yield fares, check if destination has a mapped station
+                if mapped_mktFareRange.empty:
+                    mapped_destin = self.rmdatabasehelper.getMappedStation(currParams.destin)
+                    if mapped_destin is not None and mapped_destin != currParams.destin:
+                        _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
+                            currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, mapped_destin
+                        )
 
 
                 if mktFareRange.empty or mapped_mktFareRange.empty:
