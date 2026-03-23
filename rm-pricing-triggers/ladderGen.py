@@ -41,6 +41,11 @@ class LadderGen:
         self.batch_run_id = overrides.get('batch_run_id', None)
         self.batch_total = overrides.get('batch_total', None)
         self.fare_source_flag = overrides.get('fare_source_flag', 'market')
+        self.type = overrides.get('type', 'direct')
+        self.carrier_inclusion = self.constants.CONNECTION_CARRIER_INCLUSION
+        
+        if self.type == 'connection' and self.route != 'I':
+            raise ValueError("Connections are only supported for International route (route='I')")
         
         # Sector is always expected as a list (single or multiple)
         if 'sector' not in overrides:
@@ -82,10 +87,17 @@ class LadderGen:
         self.MARKET_FLAG = self.constants.MARKET_FLAG_DOMESTIC if self.route == 'D' else self.constants.MARKET_FLAG_INTERNATIONAL
         self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD if self.route == 'D' else self.constants.B2B_THRESHOLD_INTERNATIONAL
         # Market fare thresholds (used when fare_source_flag == 'market')
-        self.MAX_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
-        self.MAX_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
-        self.MIN_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
-        self.MIN_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+        if self.type == 'connection':
+            self.MAX_MARKETFARES_THRESHOLD_B2B = getattr(self.constants, 'MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B', self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B)
+            self.MAX_MARKETFARES_THRESHOLD_B2C = getattr(self.constants, 'MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C', self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C)
+            self.MIN_MARKETFARES_THRESHOLD_B2B = getattr(self.constants, 'MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B', self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B)
+            self.MIN_MARKETFARES_THRESHOLD_B2C = getattr(self.constants, 'MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C', self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C)
+        else:
+            self.MAX_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+            self.MAX_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+            self.MIN_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
+            self.MIN_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+
         # ESB fare thresholds (used when fare_source_flag == 'esb')
         self.MAX_ESBFARES_THRESHOLD_B2B = self.constants.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.MAX_ESBFARES_THRESHOLD_B2C = self.constants.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
@@ -233,7 +245,7 @@ class LadderGen:
                 # Collect market fares for both directions
                 reverse_sector = self._get_reverse_sector(self.sector)
                 self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares_bidirectional(
-                    self.route, self.sector, reverse_sector, self.MAX_MARKETFARES_THRESHOLD_B2B, self.MAX_MARKETFARES_THRESHOLD_B2C
+                    self.route, self.sector, reverse_sector, self.MAX_MARKETFARES_THRESHOLD_B2B, self.MAX_MARKETFARES_THRESHOLD_B2C, layer_type=self.type, carrier_inclusion=self.carrier_inclusion
                 )
                 if failure_reason:
                     self.failure_reason = failure_reason

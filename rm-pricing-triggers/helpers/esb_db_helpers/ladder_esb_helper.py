@@ -10,7 +10,7 @@ class LadderEsbHelper:
         self.logger = logger
         self.failure_reason = None
 
-    def collect_combined_market_fare_data(self, ndo, sector, channel, max_fare_threshold=None):
+    def collect_combined_market_fare_data(self, ndo, sector, channel, max_fare_threshold=None, layer_type='direct', carrier_inclusion=None):
         """Query market_fares_rg and market_fares_ag for fare data within NDO days from today.
         
         Args:
@@ -23,6 +23,8 @@ class LadderEsbHelper:
             DataFrame with columns: Fare, departure_date, source_airport, destination_airport, data_source
             sorted by Fare ascending.
         """
+        if carrier_inclusion is None:
+            carrier_inclusion = []
         try:
             origin = sector[:3]
             destination = sector[3:]
@@ -39,9 +41,9 @@ class LadderEsbHelper:
                     "$gte": today,
                     "$lte": end_date
                 },
-                "outbound_stop": "0",
+                "outbound_stop": "1" if layer_type == 'connection' else "0",
                 "outbound_airline_code": {
-                    "$in": ["6E", "AI", "IX", "XY", "FZ", "GF", "J9", "KU", "FD", "SG", "TG", "WY", "VZ", "SV", "F3"]
+                    "$in": carrier_inclusion if (layer_type == 'connection' and carrier_inclusion) else ["6E", "AI", "IX", "XY", "FZ", "GF", "J9", "KU", "FD", "SG", "TG", "WY", "VZ", "SV", "F3"]
                 }
             }
 
@@ -151,7 +153,7 @@ class LadderEsbHelper:
             self.failure_reason = f"Market fare data collection failed: {str(e)}"
             raise
 
-    def collect_combined_market_fare_data_bidirectional(self, ndo, sector, reverse_sector, channel, max_fare_threshold=None, conversion_rate=1.0):
+    def collect_combined_market_fare_data_bidirectional(self, ndo, sector, reverse_sector, channel, max_fare_threshold=None, conversion_rate=1.0, layer_type='direct', carrier_inclusion=None):
         """Fetch fares for both sector directions and normalize all to INR.
         
         Args:
@@ -169,12 +171,12 @@ class LadderEsbHelper:
         try:
             # 1. Forward sector fares (already in INR) — no threshold at query level,
             #    we apply it after since forward fares are already in INR
-            forward_df = self.collect_combined_market_fare_data(ndo, sector, channel)
+            forward_df = self.collect_combined_market_fare_data(ndo, sector, channel, layer_type=layer_type, carrier_inclusion=carrier_inclusion)
             forward_count = len(forward_df) if not forward_df.empty else 0
             self.logger.info(f"Forward sector {sector}: {forward_count} records")
 
             # 2. Reverse sector fares (in foreign currency)
-            reverse_df = self.collect_combined_market_fare_data(ndo, reverse_sector, channel)
+            reverse_df = self.collect_combined_market_fare_data(ndo, reverse_sector, channel, layer_type=layer_type, carrier_inclusion=carrier_inclusion)
             reverse_count = len(reverse_df) if not reverse_df.empty else 0
             self.logger.info(f"Reverse sector {reverse_sector}: {reverse_count} records")
 
