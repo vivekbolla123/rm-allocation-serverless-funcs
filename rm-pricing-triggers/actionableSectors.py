@@ -384,6 +384,10 @@ class ActionSectors:
                 tax4 = float(tax_row['Tax4']) if pd.notna(tax_row['Tax4']) else 0.0
                 tax5 = float(tax_row['Tax5']) if pd.notna(tax_row['Tax5']) else 0.0
                 
+                # YQ and YQ_GST from tax master international
+                yq = float(tax_row['YQ']) if pd.notna(tax_row['YQ']) else 0.0
+                yq_gst_rate = float(tax_row['YQ_GST']) / 100 if pd.notna(tax_row['YQ_GST']) else 0.0
+                
             except (KeyError, ValueError, TypeError) as e:
                 self.logger.error(f"Error extracting international tax values for {sector_key}: {str(e)}")
             
@@ -393,11 +397,11 @@ class ActionSectors:
                 self.logger.debug(f"International GST exempt sector detected: {origin}-{destination}, setting GST to 0 for gross fare calculation")
                 gst_rate = 0.0
             
-            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes
+            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + YQ×GST
             component1 = base_fare                                                                      # Base Fare
             component2 = base_fare * gst_rate                                                          # Base Fare × GST (0 if GST exempt)
             component3 = gst_rate * (rcs + cute)                                                       # GST × (RCS + CUTE) (0 if GST exempt)
-            component4 = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + tax1 + tax2 + tax3 + tax4 + tax5  # Other Taxes
+            component4 = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)  # Other Taxes + YQ + YQ×GST
             
             gross_fare = component1 + component2 + component3 + component4
             

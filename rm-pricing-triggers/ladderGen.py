@@ -751,10 +751,14 @@ class LadderGen:
             tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
+            # YQ and YQ_GST from tax master international
+            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
+            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
+            
             # Calculate GST
             gst = gst_rate * (base_fare + rcs + cute + rcs_cute)
             
-            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
+            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
             return total_taxes
             
         except Exception:
@@ -871,6 +875,10 @@ class LadderGen:
             tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
+            # YQ and YQ_GST from tax master international
+            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
+            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
+            
             # Apply same special handling for RCS sectors - set RCS to 0
             if destination in self.constants.PRICING_RCS_SECTORS:
                 rcs = 0
@@ -879,7 +887,7 @@ class LadderGen:
             adjusted_gross_fare = gross_fare
             
             gst_on_taxes = gst_rate * (rcs + cute + rcs_cute)
-            other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5
+            other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
             base_fare    = (
                 adjusted_gross_fare - rcs - cute - rcs_cute - gst_on_taxes - other_taxes
             ) / (1 + gst_rate)

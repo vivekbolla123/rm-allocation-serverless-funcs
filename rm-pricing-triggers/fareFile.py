@@ -456,12 +456,16 @@ class FareFiling:
             tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
+            # YQ and YQ_GST from tax master international
+            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
+            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
+            
             if(ftype == 'base'):
                  gst = gst_rate * (gross_fare + rcs + cute)
-                 total_taxes = gross_fare + asf + psf_adf + udf + psc_pz + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
+                 total_taxes = gross_fare + asf + psf_adf + udf + psc_pz + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
             else:
                 gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5
+                other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
                 total_taxes  = (gross_fare - (rcs + cute + gst_on_taxes + other_taxes)) / (1 + gst_rate)
                 
             return total_taxes
