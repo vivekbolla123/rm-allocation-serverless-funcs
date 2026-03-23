@@ -252,7 +252,7 @@ def update_au_in_navitaire(inventory_dict, au_classes, run_id):
                     for _, _, _, _, class_of_service,_,_ in args:
                         allocation_result[class_of_service] = -3
 
-            if gds_args:
+            if gds_args and is_updated:
                 is_gds_updated = patch_nav_dcs_inventory_api(gds_args, send_avs_messages=True)
 
     log_time.end("update_au_in_navitaire")
