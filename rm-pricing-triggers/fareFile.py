@@ -394,7 +394,8 @@ class FareFiling:
             tax_data = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
             if tax_data.empty:
                 return 0
-            
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
             tax_row = tax_data.iloc[0]
             gst_rate = float(tax_row.get('GST', 0)) / 100
             rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
