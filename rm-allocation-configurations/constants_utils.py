@@ -64,6 +64,7 @@ class ConstantsUtils:
         self.PRICING_DUF_SECTORS = PRICING_DUF_SECTORS
         self.PRICING_RCS_SECTORS = PRICING_RCS_SECTORS
         self.PRICING_CARR_EXCL = PRICING_CARR_EXCL
+        self.CONNECTION_CARRIER_INCLUSION = json.loads(CONNECTION_CARRIER_INCLUSION)
         self.PRICING_GST_SECTORS = PRICING_GST_SECTORS
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
@@ -89,6 +90,10 @@ class ConstantsUtils:
         self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B = MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
         self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C = MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C
         self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C = MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
+        self.MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B = MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B
+        self.MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C = MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C
+        self.MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B = MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B
+        self.MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C = MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C
         self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B
         self.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B = BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C = BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C
@@ -97,6 +102,8 @@ class ConstantsUtils:
         self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(YQ_DISTANCE_CONFIG)
         self.CURRENCY_ROUND_OFF_LIST = CURRENCY_ROUND_OFF_LIST
         self.GDS_RBD_VALUES = GDS_RBD_VALUES
+        self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
+        self.WINDOW_MINUTES = WINDOW_MINUTES
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -256,6 +263,8 @@ class ConstantsUtils:
                 self.PRICING_CARR_EXCL = parameter_value
             elif parameter_key == PRICING_GST_SECTORS_KEY:
                 self.PRICING_GST_SECTORS = json.loads(parameter_value)
+            elif parameter_key == CONNECTION_CARRIER_INCLUSION_KEY:
+                self.CONNECTION_CARRIER_INCLUSION = json.loads(parameter_value)
             elif parameter_key == DOMESTIC_PLF_THRESHOLD_KEY:
                 self.DOMESTIC_PLF_THRESHOLD = int(parameter_value)
             elif parameter_key == INTERNATIONAL_PLF_THRESHOLD_KEY:
@@ -330,6 +339,14 @@ class ConstantsUtils:
                 self.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C = float(parameter_value)
             elif parameter_key == MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C_KEY:
                 self.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C_KEY:
+                self.MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B = float(parameter_value)
+            elif parameter_key == MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C_KEY:
+                self.MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C = float(parameter_value)
             elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B_KEY:
                 self.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B = float(parameter_value)
             elif parameter_key == BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B_KEY:
@@ -348,6 +365,10 @@ class ConstantsUtils:
                 self.YQ_DISTANCE_CONFIG = self._parse_farecap_distance_config(parameter_value)
             elif parameter_key == GDS_RBD_VALUES_KEY:
                 self.GDS_RBD_VALUES = parameter_value
+            elif parameter_key == GRACE_PERIOD_MINUTES_KEY:
+                self.GRACE_PERIOD_MINUTES = int(parameter_value)
+            elif parameter_key == WINDOW_MINUTES_KEY:
+                self.WINDOW_MINUTES = int(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

@@ -564,7 +564,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
@@ -669,7 +669,9 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
-    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
+    mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
+
+    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
     return mkt
 
 def quick_optimize(mkt_list, navapihelper):
@@ -1241,6 +1243,27 @@ def lambda_handler(event, context):
         forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
         sector_forecast_model_map = get_sector_forecast_model_map()
 
+        # Filter out market list rows that don't exist in Navitaire
+        pre_filter_count = len(mkt_list)
+        nav_flight_keys = set(
+            zip(
+                pd.to_datetime(booked_loads['DepartureDate']).dt.normalize(),
+                booked_loads['FlightNumber'].astype('int64'),
+                booked_loads['Origin'].str.strip(),
+                booked_loads['Destination'].str.strip()
+            )
+        )
+        mkt_list['_nav_key'] = list(zip(
+            pd.to_datetime(mkt_list['DepartureDate']).dt.normalize() if not pd.api.types.is_datetime64_any_dtype(mkt_list['DepartureDate']) else pd.to_datetime(mkt_list['DepartureDate']),
+            mkt_list['FlightNumber'].astype('int64'),
+            mkt_list['Origin'].str.strip(),
+            mkt_list['Destin'].str.strip()
+        ))
+        mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
+        mkt_list = mkt_list.reset_index(drop=True)
+        logger.info(f"Navitaire existence filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)} flights not in Navitaire)")
+        markets_count = mkt_list.shape[0]
+
         mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map)
         print(len(mkt_list), " forecast_plf_list")
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
@@ -1316,17 +1339,21 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
 
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
             'forecastPLF1'
         ] = mkt_list['forecastPLF_ml1']
+
+        mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['adjustedPLF_ml1'].notna()) & (mkt_list['adjustedPLF_ml1'].astype(str).str.strip() != ''),
+            'adjustedPLF1'
+        ] = mkt_list['adjustedPLF_ml1']
 
         mkt_list = mkt_list.merge(
             sector_forecast_model_map[['Origin', 'Destination', 'forecast_model']],
@@ -1337,19 +1364,23 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
         mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),
             'forecastPLF2'
         ] = mkt_list['forecastPLF_ml2']
 
-        mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1','forecast_model2', 'forecastPLF_ml2'], inplace=True, errors='ignore')
+        mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['adjustedPLF_ml2'].notna()) & (mkt_list['adjustedPLF_ml2'].astype(str).str.strip() != ''),
+            'adjustedPLF2'
+        ] = mkt_list['adjustedPLF_ml2']
+
+        mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1', 'adjustedPLF_ml1', 'forecast_model2', 'forecastPLF_ml2', 'adjustedPLF_ml2'], inplace=True, errors='ignore')
         
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
