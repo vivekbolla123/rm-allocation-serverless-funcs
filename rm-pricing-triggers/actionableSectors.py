@@ -317,11 +317,15 @@ class ActionSectors:
                 self.logger.debug(f"GST exempt sector detected: {origin}-{destination}, setting GST to 0 for gross fare calculation")
                 gst_rate = 0.0
             
-            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes
+            # Calculate YQ based on distance
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
+            
+            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + (YQ×GST)
             component1 = base_fare                           # Base Fare
             component2 = base_fare * gst_rate               # Base Fare × GST (0 if GST exempt)
             component3 = gst_rate * (rcs + cute)           # GST × (RCS + CUTE) (0 if GST exempt)
-            component4 = asf + psf + udf_df + rcs + cute   # Other Taxes (includes RCS and CUTE directly)
+            component4 = asf + psf + udf_df + rcs + cute + yq + (yq * gst_rate)  # Other Taxes + YQ + YQ×GST
             
             gross_fare = component1 + component2 + component3 + component4
             
@@ -380,6 +384,10 @@ class ActionSectors:
                 tax4 = float(tax_row['Tax4']) if pd.notna(tax_row['Tax4']) else 0.0
                 tax5 = float(tax_row['Tax5']) if pd.notna(tax_row['Tax5']) else 0.0
                 
+                # YQ and YQ_GST from tax master international
+                yq = float(tax_row['YQ']) if pd.notna(tax_row['YQ']) else 0.0
+                yq_gst_rate = float(tax_row['YQ_GST']) / 100 if pd.notna(tax_row['YQ_GST']) else 0.0
+                
             except (KeyError, ValueError, TypeError) as e:
                 self.logger.error(f"Error extracting international tax values for {sector_key}: {str(e)}")
             
@@ -389,11 +397,11 @@ class ActionSectors:
                 self.logger.debug(f"International GST exempt sector detected: {origin}-{destination}, setting GST to 0 for gross fare calculation")
                 gst_rate = 0.0
             
-            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes
+            # Calculate using the formula: Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + YQ×GST
             component1 = base_fare                                                                      # Base Fare
             component2 = base_fare * gst_rate                                                          # Base Fare × GST (0 if GST exempt)
             component3 = gst_rate * (rcs + cute)                                                       # GST × (RCS + CUTE) (0 if GST exempt)
-            component4 = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + tax1 + tax2 + tax3 + tax4 + tax5  # Other Taxes
+            component4 = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)  # Other Taxes + YQ + YQ×GST
             
             gross_fare = component1 + component2 + component3 + component4
             
@@ -494,17 +502,21 @@ class ActionSectors:
             # This is because we need to reverse the original gross fare calculation which might have used 0 GST
             # But for base fare calculation, we use the original GST rate from tax master
             
+            # Calculate YQ based on distance
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
+            
             # Check if this was a GST exempt sector in gross fare calculation
             if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
                 # For GST exempt sectors, the gross fare was calculated with GST=0
                 # So reverse calculation: Base Fare = (Gross Fare - DUF - Other Taxes) / 1
                 # Since GST components were 0 in gross fare calculation
-                other_taxes = asf + psf + udf_df + rcs + cute
+                other_taxes = asf + psf + udf_df + rcs + cute + yq + (yq * gst_rate)
                 base_fare = adjusted_gross_fare - other_taxes
             else:
                 # Standard reverse calculation: Base Fare = [Gross Fare - GST×(RCS+CUTE) - RCS - Other Taxes] / (1 + GST)
                 gst_on_taxes = gst_rate * (rcs + cute)
-                other_taxes = asf + psf + udf_df + cute
+                other_taxes = asf + psf + udf_df + cute + yq + (yq * gst_rate)
                 base_fare = (adjusted_gross_fare - gst_on_taxes - rcs - other_taxes) / (1 + gst_rate)
             
             return base_fare
@@ -528,6 +540,19 @@ class ActionSectors:
         except Exception as e:
             self.logger.error(f"Error getting distance: {str(e)}")
 
+    def _get_yq_for_distance(self, distance):
+        """Get YQ based on distance (km) for domestic routes from config."""
+        if distance <= 0:
+            return 0
+            
+        try:
+            for min_dist, max_dist, yq_val in self.constants.YQ_DISTANCE_CONFIG:
+                if min_dist < distance <= max_dist:
+                    return float(yq_val)
+        except AttributeError:
+            self.logger.warning("YQ_DISTANCE_CONFIG not found in constants.")
+            
+        return 0
 
     def _check_all_constraints(self, instances, fare_diff, yield_value, plf, carrier):
         """Check all constraints and return True if all satisfied. Yield constraint not applicable for international routes."""
