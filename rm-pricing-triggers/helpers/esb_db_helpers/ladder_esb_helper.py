@@ -229,7 +229,7 @@ class LadderEsbHelper:
             SELECT Fare, FareBasis, BookingDate, Origin, Destination, data_source
             FROM (
                 SELECT
-                    (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS Fare,
+                    PX.DiscountedBaseFare_Pro AS Fare,
                     PX.FareBasis, PX.BookingDate, PX.Origin, PX.Destination, 'FLOWN' as data_source
                 FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID
@@ -238,7 +238,7 @@ class LadderEsbHelper:
                 UNION ALL
                 
                 SELECT
-                    (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS Fare,
+                    PX.DiscountedBaseFare_Pro AS Fare,
                     PX.FareBasis, PX.BookingDate, PX.Origin, PX.Destination, 'BOOKED' as data_source
                 FROM QP_DL_NAVDATA.QP_DL_BOOKEDDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID
@@ -277,7 +277,7 @@ class LadderEsbHelper:
             SELECT Fare, FareBasis, BookingDate, Origin, Destination, data_source
             FROM (
                 SELECT
-                    (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS Fare,
+                    PX.DiscountedBaseFare_Pro AS Fare,
                     PX.FareBasis, PX.BookingDate, PX.Origin, PX.Destination, 'FLOWN' as data_source
                 FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID
@@ -286,7 +286,7 @@ class LadderEsbHelper:
                 UNION ALL
                 
                 SELECT
-                    (PX.DiscountedBaseFare_Pro + PX.YQ_Pro + PX.RCS + PX.CUTE + PX.SGST + PX.UGST + PX.IGST + PX.CGST + PX.AirportCharges + PX.DUDF) AS Fare,
+                    PX.DiscountedBaseFare_Pro AS Fare,
                     PX.FareBasis, PX.BookingDate, PX.Origin, PX.Destination, 'BOOKED' as data_source
                 FROM QP_DL_NAVDATA.QP_DL_BOOKEDDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID

@@ -8,6 +8,8 @@ import traceback
 import requests
 import numpy as np
 import warnings
+from sqlalchemy.exc import OperationalError as SQLAlchemyOperationalError
+from pymongo.errors import ConnectionFailure, OperationFailure
 warnings.filterwarnings('ignore')
 
 
@@ -47,10 +49,16 @@ class update_imputed_forecast:
             self.logger.info("Starting the run method.")
 
             # Keep this as SQL (dw_conn)
-            forecast_list = self.get_forecast()
+            try:
+                forecast_list = self.get_forecast()
+            except SQLAlchemyOperationalError as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Could not fetch forecast results — "
+                    f"Database connectivity issue with DW DB: {e}"
+                ) from e
 
             if forecast_list.empty:
-                raise ValueError("No flights found in Marketlist")
+                raise ValueError("[Imputed Forecast Redis Failed] No flights found in Marketlist")
 
             min_date = min(forecast_list['DepartureDate'])
             max_date = max(forecast_list['DepartureDate'])
@@ -59,44 +67,72 @@ class update_imputed_forecast:
             market_list = self.getMarketList(min_date, max_date)
 
             # Keep as SQL (navconn)
-            booked_loads = self.getCurrentBookedLoads(min_date, max_date)
+            try:
+                booked_loads = self.getCurrentBookedLoads(min_date, max_date)
+            except SQLAlchemyOperationalError as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Could not fetch booked loads — "
+                    f"Database connectivity issue with Navitaire DB: {e}"
+                ) from e
 
             if market_list.empty:
-                raise ValueError("No market data found for the given date range")
+                raise ValueError("[Imputed Forecast Redis Failed] No market data found for the given date range")
             if booked_loads.empty:
-                raise ValueError("No booked load data found for the given date range")
+                raise ValueError("[Imputed Forecast Redis Failed] No booked load data found for the given date range")
 
-            merge_list = self.left_join(forecast_list, market_list)
-            merge_list = self.left_join(merge_list, booked_loads)
+            try:
+                merge_list = self.left_join(forecast_list, market_list)
+                merge_list = self.left_join(merge_list, booked_loads)
+            except Exception as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Failed to merge forecast, market, and booked load data — "
+                    f"Unexpected error: {e}"
+                ) from e
 
             columns_to_check = ['CurveID', 'adjustedCapacity', 'bookedPax', 'DepartureTime']
             missing_columns = [col for col in columns_to_check if col not in merge_list.columns]
             if missing_columns:
-                raise ValueError(f"Missing required columns: {missing_columns}")
+                raise ValueError(
+                    f"[Imputed Forecast Redis Failed] Missing required columns after merge: {missing_columns}"
+                )
             merge_list = merge_list.dropna(subset=columns_to_check)
 
-            self.get_curve_ids(merge_list)
+            try:
+                self.get_curve_ids(merge_list)
+            except Exception as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Could not fetch curve data — "
+                    f"Unexpected error: {e}"
+                ) from e
 
             merge_list['NDO_Curr'] = (merge_list['DepartureDate'] - datetime.now().date()).dt.days
 
             merge_list['PLF'] = np.where(merge_list['adjustedCapacity'] > 0, 
                                         (merge_list['bookedPax'] * 100.0 / merge_list['adjustedCapacity']), 0)
 
-            merge_list = self.calculate_expected_plf_vectorized(merge_list)
+            try:
+                merge_list = self.calculate_expected_plf_vectorized(merge_list)
+            except Exception as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Expected PLF calculation failed — "
+                    f"Unexpected error: {e}"
+                ) from e
            
             merge_list['Variance'] = merge_list['PLF'] - merge_list['Expected_PLF']
-
             merge_list['ImputedForecastPLF'] = merge_list['forecastPLF'] + merge_list['Variance'] - merge_list['forecast_variance'] - self.DEDUCTION_PER
-
             merge_list['ImputedForecastPLF'] = merge_list['ImputedForecastPLF'].round(2)
 
             updated_count = self.update_redis_forecast(merge_list)
 
             self.logger.info(f'Updated {updated_count}/{len(merge_list)} flights')
-            
             self.logger.info("Run method completed.")
+
+        except (ValueError, RuntimeError) as e:
+            self.logger.error(f"[Imputed Forecast Redis Failed] {e}")
         except Exception as e:
-            self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Unexpected error in run method: {traceback.format_exc()}"
+            )
    
     def update_redis_forecast(self, merge_list: pd.DataFrame, batch_size: int = 1000):
         updated_count = 0
@@ -117,8 +153,15 @@ class update_imputed_forecast:
            
             try:
                 # Get all existing values at once using mget
-                existing_values = self.cache_client.mget(batch_keys)
-               
+                try:
+                    existing_values = self.cache_client.mget(batch_keys)
+                except Exception as e:
+                    self.logger.error(
+                        f"[Imputed Forecast Redis Failed] Could not fetch batch {i}-{i+batch_size} from Redis — "
+                        f"Redis connectivity issue: {e}"
+                    )
+                    continue
+
                 # Build the update dictionary
                 updates = {}
                
@@ -132,7 +175,9 @@ class update_imputed_forecast:
                         try:
                             existing_plf_list = json.loads(existing_json) if existing_json else []
                         except (json.JSONDecodeError, TypeError) as e:
-                            self.logger.error(f"Invalid JSON in Redis for key {redis_key}: {e}")
+                            self.logger.error(
+                                f"[Imputed Forecast Redis Failed] Invalid JSON in Redis for key {redis_key}: {e}"
+                            )
                             existing_plf_list = []
                        
                         # Build new PLF list with timestamps
@@ -143,12 +188,13 @@ class update_imputed_forecast:
                         updates[redis_key] = json.dumps(plf_history_list)
                        
                     except Exception as e:
-                        self.logger.error(f'Error processing key {redis_key}: {e}')
+                        self.logger.error(
+                            f"[Imputed Forecast Redis Failed] Error processing key {redis_key}: {e}"
+                        )
                
                 # Set all values at once using mset
                 if updates:
                     try:
-                        # Use pipeline for mset + expire operations
                         pipe = self.cache_client.pipeline()
                         pipe.mset(updates)
                        
@@ -160,64 +206,89 @@ class update_imputed_forecast:
                         updated_count += len(updates)
                        
                     except Exception as e:
-                        self.logger.error(f"Error setting batch in Redis: {e}")
+                        self.logger.error(
+                            f"[Imputed Forecast Redis Failed] Could not write batch {i}-{i+batch_size} to Redis — "
+                            f"Redis pipeline error: {e}"
+                        )
                        
             except Exception as e:
-                self.logger.error(f'Error processing batch {i}-{i+batch_size}: {e}')
+                self.logger.error(
+                    f"[Imputed Forecast Redis Failed] Unexpected error processing batch {i}-{i+batch_size}: {e}"
+                )
        
         return updated_count
  
     def build_plf_list_with_timestamps(self, existing_plf_list, current_time, current_plf):
-        cutoff_time = current_time - timedelta(hours=7)
-        
-        filtered_plf_list = []
-        for record in existing_plf_list:
-            if record is not None and 'timestamp' in record:
-                try:
-                    record_time = datetime.fromisoformat(record['timestamp'])
-                    if record_time >= cutoff_time:
-                        filtered_plf_list.append(record)
-                except ValueError:
-                    continue
-        
-        new_record = {
-            'value': current_plf,
-            'timestamp': current_time.isoformat()
-        }
-        
-        filtered_plf_list.append(new_record)
-        
         try:
-            filtered_plf_list.sort(key=lambda x: datetime.fromisoformat(x['timestamp']))
-        except (ValueError, KeyError) as e:
-            self.logger.warning(f"Error sorting PLF records by timestamp: {e}")
+            cutoff_time = current_time - timedelta(hours=7)
+            
+            filtered_plf_list = []
+            for record in existing_plf_list:
+                if record is not None and 'timestamp' in record:
+                    try:
+                        record_time = datetime.fromisoformat(record['timestamp'])
+                        if record_time >= cutoff_time:
+                            filtered_plf_list.append(record)
+                    except ValueError:
+                        continue
+            
+            new_record = {
+                'value': current_plf,
+                'timestamp': current_time.isoformat()
+            }
+            
+            filtered_plf_list.append(new_record)
+            
+            try:
+                filtered_plf_list.sort(key=lambda x: datetime.fromisoformat(x['timestamp']))
+            except (ValueError, KeyError) as e:
+                self.logger.warning(
+                    f"[Imputed Forecast Redis Failed] Error sorting PLF records by timestamp: {e}"
+                )
+                return filtered_plf_list
+           
             return filtered_plf_list
-       
-        return filtered_plf_list
+
+        except Exception as e:
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not build PLF history list — "
+                f"Unexpected error: {e}"
+            )
+            return [{'value': current_plf, 'timestamp': current_time.isoformat()}]
    
     def get_forecast(self):
         """
         KEPT AS SQL - Using dw_conn (Data Warehouse)
         """
-        query = """
-        SELECT forecastPLF, Variance as forecast_variance, Origin, Destination, FlightNumber, DepartureDate
-        FROM RM_DW_DATA.forecast_results
-        WHERE DepartureDate >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
-          AND forecastPLF IS NOT NULL AND Variance IS NOT NULL
-        """
-        forecast_list = pd.read_sql(query, self.dw_conn)
-        return forecast_list
+        try:
+            query = """
+            SELECT forecastPLF, Variance as forecast_variance, Origin, Destination, FlightNumber, DepartureDate
+            FROM RM_DW_DATA.forecast_results
+            WHERE DepartureDate >= DATE(CONVERT_TZ(NOW(), 'UTC', 'Asia/Kolkata'))
+              AND forecastPLF IS NOT NULL AND Variance IS NOT NULL
+            """
+            forecast_list = pd.read_sql(query, self.dw_conn)
+            return forecast_list
+        except SQLAlchemyOperationalError as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] Could not fetch forecast results — "
+                f"Database connectivity issue with DW DB: {e}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] Could not fetch forecast results — "
+                f"Unexpected error: {e}"
+            ) from e
     
     def getMarketList(self, min_date, max_date):
         """
         CONVERTED TO MONGODB - Replaces rdconn query
         """
         try:
-            # Query for domestic market list
             if isinstance(min_date, date) and not isinstance(min_date, datetime):
                 min_date = datetime.combine(min_date, datetime.min.time())
             if isinstance(max_date, date) and not isinstance(max_date, datetime):
-                max_date = datetime.combine(max_date, datetime.max.time())  # Changed to max.time()
+                max_date = datetime.combine(max_date, datetime.max.time())
 
             query = {
                 '$expr': {
@@ -253,44 +324,47 @@ class update_imputed_forecast:
                 'CurveID': 1
             }
            
-            # Fetch domestic data
-            domestic_cursor = self.market_list_collection.find(query, projection)
-            domestic_df = pd.DataFrame(list(domestic_cursor))
+            try:
+                domestic_cursor = self.market_list_collection.find(query, projection)
+                domestic_df = pd.DataFrame(list(domestic_cursor))
+            except (ConnectionFailure, OperationFailure) as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Could not fetch domestic market list — "
+                    f"MongoDB connectivity/operation failure: {e}"
+                ) from e
+
+            try:
+                intl_cursor = self.market_list_intl_collection.find(query, projection)
+                intl_df = pd.DataFrame(list(intl_cursor))
+            except (ConnectionFailure, OperationFailure) as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] Could not fetch international market list — "
+                    f"MongoDB connectivity/operation failure: {e}"
+                ) from e
            
-            # Fetch international data
-            intl_cursor = self.market_list_intl_collection.find(query, projection)
-            intl_df = pd.DataFrame(list(intl_cursor))
-           
-            # Combine both datasets
             market_list = pd.concat([domestic_df, intl_df], ignore_index=True)
            
             if not market_list.empty:
-                # Rename Destin to Destination
                 market_list.rename(columns={'Destin': 'Destination'}, inplace=True)
-               
-                # Ensure PerStart is string before converting to datetime
                 market_list['PerStart'] = market_list['PerStart'].astype(str)
-               
-                # Convert PerStart to date
                 market_list['DepartureDate'] = pd.to_datetime(
                     market_list['PerStart'],
                     format='%m/%d/%Y',
-                    errors='coerce'  # Handle any bad dates gracefully
+                    errors='coerce'
                 ).dt.date
-               
-                # Clean FlightNumber - FIXED: Convert to string first
                 market_list['FlightNumber'] = market_list['FlightNumber'].astype(str).str.strip()
-               
-                # Drop the original PerStart column
                 market_list.drop('PerStart', axis=1, inplace=True)
-               
-                # Optional: Remove rows where date conversion failed
                 market_list = market_list.dropna(subset=['DepartureDate'])
            
             return market_list
            
+        except RuntimeError:
+            raise  # Already wrapped, propagate as-is
         except Exception as e:
-            self.logger.error(f"Error fetching market list from MongoDB: {e}")
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not fetch market list — "
+                f"Unexpected error: {e}"
+            )
             return pd.DataFrame()
    
     def get_curve_ids(self, market_list):
@@ -301,7 +375,6 @@ class update_imputed_forecast:
             curve_ids = market_list['CurveID'].unique().tolist()
            
             if curve_ids:
-                # MongoDB query
                 query = {
                     'CurveID': {'$in': curve_ids},
                     'NDO': {'$ne': None, '$exists': True},
@@ -314,118 +387,150 @@ class update_imputed_forecast:
                     'CurveID': 1,
                     'LF': 1
                 }
-               
-                cursor = self.curves_collection.find(query, projection)
-                df_curves = pd.DataFrame(list(cursor))
+
+                try:
+                    cursor = self.curves_collection.find(query, projection)
+                    df_curves = pd.DataFrame(list(cursor))
+                except (ConnectionFailure, OperationFailure) as e:
+                    raise RuntimeError(
+                        f"[Imputed Forecast Redis Failed] Could not fetch curves data — "
+                        f"MongoDB connectivity/operation failure: {e}"
+                    ) from e
                
                 if df_curves.empty:
-                    self.logger.warning("No curves data found for the market CurveIDs.")
+                    self.logger.warning(
+                        "[Imputed Forecast Redis Failed] No curves data found for the market CurveIDs."
+                    )
                     self._curves = pd.DataFrame()
                 else:
-                    # Rename LF to LoadFactor
                     df_curves.rename(columns={'LF': 'LoadFactor'}, inplace=True)
-                   
-                    # Convert to numeric
                     df_curves['NDO'] = pd.to_numeric(df_curves['NDO'], errors='coerce')
                     df_curves['LoadFactor'] = pd.to_numeric(df_curves['LoadFactor'], errors='coerce')
                     df_curves = df_curves.dropna(subset=['NDO', 'LoadFactor'])
-                   
                     self.logger.info(f"Fetched {len(df_curves)} curves records.")
                     self._curves = df_curves
             else:
-                self.logger.warning("No valid CurveIDs found in market_list.")
+                self.logger.warning(
+                    "[Imputed Forecast Redis Failed] No valid CurveIDs found in market_list."
+                )
                 self._curves = pd.DataFrame()
-               
+
+        except RuntimeError:
+            raise  # Already wrapped, propagate as-is
         except Exception as e:
-            self.logger.error(f"Error fetching curves data from MongoDB: {e}")
-            self.logger.error(traceback.format_exc())
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not fetch curves data — "
+                f"Unexpected error: {traceback.format_exc()}"
+            )
             self._curves = pd.DataFrame()
    
     def getCurrentBookedLoads(self, startDate, endDate):
         """
         KEPT AS SQL - Using navconn (Navitaire database)
         """
-        NavitaireQuery = f""" EXEC {configsettings.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
-                                @DepartureDate_from = N'{str(startDate)}',
-                                @DepartureDate_to = N'{str(endDate)}'
-                            """
-        bookedData = pd.read_sql(NavitaireQuery, self.navconn)
-        return bookedData
+        try:
+            NavitaireQuery = f""" EXEC {configsettings.NAV_DB_WB_NAME}[dbo].[SP_Bookeddata]
+                                    @DepartureDate_from = N'{str(startDate)}',
+                                    @DepartureDate_to = N'{str(endDate)}'
+                                """
+            bookedData = pd.read_sql(NavitaireQuery, self.navconn)
+            return bookedData
+        except SQLAlchemyOperationalError as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] Could not fetch booked loads — "
+                f"Database connectivity issue with Navitaire DB: {e}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] Could not fetch booked loads — "
+                f"Unexpected error: {e}"
+            ) from e
    
     def left_join(self, left_df, right_df):
-        right_df_copy = right_df.copy()
-        for df in [left_df, right_df_copy]:
-            df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
-            df['Origin'] = df['Origin'].astype(str).str.strip().str.upper()
-            df['Destination'] = df['Destination'].astype(str).str.strip().str.upper()
-            df['DepartureDate'] = pd.to_datetime(df['DepartureDate']).dt.date
- 
-        return left_df.merge(
-            right_df_copy,
-            how='left',
-            left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
-            right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
-        )
+        try:
+            right_df_copy = right_df.copy()
+            for df in [left_df, right_df_copy]:
+                df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
+                df['Origin'] = df['Origin'].astype(str).str.strip().str.upper()
+                df['Destination'] = df['Destination'].astype(str).str.strip().str.upper()
+                df['DepartureDate'] = pd.to_datetime(df['DepartureDate']).dt.date
+     
+            return left_df.merge(
+                right_df_copy,
+                how='left',
+                left_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
+                right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination']
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] DataFrame merge failed — "
+                f"Unexpected error: {e}"
+            ) from e
    
     def calculate_expected_plf_vectorized(self, merge_list):
         """Vectorized version of expected PLF calculation"""
+        try:
+            high_ndo_mask = merge_list['NDO_Curr'] >= 22
+            merge_list['lookup_ndo'] = merge_list['NDO_Curr'] + 1
 
-        # Pre-merge curves data with market list for NDO >= 22
-        high_ndo_mask = merge_list['NDO_Curr'] >= 22
+            try:
+                high_ndo_data = merge_list[high_ndo_mask].merge(
+                    self._curves[['CurveID', 'NDO', 'LoadFactor']],
+                    left_on=['CurveID', 'lookup_ndo'],
+                    right_on=['CurveID', 'NDO'],
+                    how='left',
+                    suffixes=('', '_curve')
+                )
+            except Exception as e:
+                raise RuntimeError(
+                    f"[Imputed Forecast Redis Failed] High-NDO curve merge failed — "
+                    f"Unexpected error: {e}"
+                ) from e
 
-        # Create lookup NDO column
-        merge_list['lookup_ndo'] = merge_list['NDO_Curr'] + 1
+            missing_mask = high_ndo_data['LoadFactor'].isna()
+            if missing_mask.any():
+                curves_grouped = self._curves.groupby('CurveID')
 
-        # Merge with curves for high NDO cases
-        high_ndo_data = merge_list[high_ndo_mask].merge(
-            self._curves[['CurveID', 'NDO', 'LoadFactor']],
-            left_on=['CurveID', 'lookup_ndo'],
-            right_on=['CurveID', 'NDO'],
-            how='left',
-            suffixes=('', '_curve')
-        )
+                for curve_id in high_ndo_data[missing_mask]['CurveID'].unique():
+                    if pd.isna(curve_id):
+                        continue
+                    curve_data = curves_grouped.get_group(curve_id) if curve_id in curves_grouped.groups else pd.DataFrame()
+                    if curve_data.empty:
+                        continue
 
-        # For missing matches, find closest NDO
-        missing_mask = high_ndo_data['LoadFactor'].isna()
-        if missing_mask.any():
-            # Group curves by CurveID for vectorized closest match
-            curves_grouped = self._curves.groupby('CurveID')
+                    mask = (high_ndo_data['CurveID'] == curve_id) & missing_mask
+                    lookup_ndos = high_ndo_data.loc[mask, 'lookup_ndo']
 
-            for curve_id in high_ndo_data[missing_mask]['CurveID'].unique():
-                if pd.isna(curve_id):
-                    continue
-                curve_data = curves_grouped.get_group(curve_id) if curve_id in curves_grouped.groups else pd.DataFrame()
-                if curve_data.empty:
-                    continue
+                    for idx, lookup_ndo in lookup_ndos.items():
+                        closest_idx = (curve_data['NDO'] - lookup_ndo).abs().idxmin()
+                        high_ndo_data.loc[idx, 'LoadFactor'] = curve_data.loc[closest_idx, 'LoadFactor']
 
-                mask = (high_ndo_data['CurveID'] == curve_id) & missing_mask
-                lookup_ndos = high_ndo_data.loc[mask, 'lookup_ndo']
+            merge_list.loc[high_ndo_mask, 'Expected_PLF'] = high_ndo_data['LoadFactor'] * 100
 
-                for idx, lookup_ndo in lookup_ndos.items():
-                    closest_idx = (curve_data['NDO'] - lookup_ndo).abs().idxmin()
-                    high_ndo_data.loc[idx, 'LoadFactor'] = curve_data.loc[closest_idx, 'LoadFactor']
+            low_ndo_mask = (merge_list['NDO_Curr'] >= 1) & (merge_list['NDO_Curr'] <= 21)
+            same_day_mask = merge_list['NDO_Curr'] < 1
 
-        merge_list.loc[high_ndo_mask, 'Expected_PLF'] = high_ndo_data['LoadFactor'] * 100
+            for idx in merge_list[low_ndo_mask].index:
+                row = merge_list.loc[idx]
+                merge_list.loc[idx, 'Expected_PLF'] = self._calculate_area_based_expected_plf(
+                    row, row['CurveID'], row['adjustedCapacity'], int(row['NDO_Curr'])
+                )
 
-        # For NDO 1-21 and < 1, still need row-by-row (complex time-based logic)
-        # But pre-filter to reduce iterations
-        low_ndo_mask = (merge_list['NDO_Curr'] >= 1) & (merge_list['NDO_Curr'] <= 21)
-        same_day_mask = merge_list['NDO_Curr'] < 1
+            for idx in merge_list[same_day_mask].index:
+                row = merge_list.loc[idx]
+                merge_list.loc[idx, 'Expected_PLF'] = self._calculate_same_day_expected_plf(
+                    row, row['CurveID'], row['adjustedCapacity'], row['DepartureTime']
+                )
 
-        # Only iterate over rows that need complex calculation
-        for idx in merge_list[low_ndo_mask].index:
-            row = merge_list.loc[idx]
-            merge_list.loc[idx, 'Expected_PLF'] = self._calculate_area_based_expected_plf(
-                row, row['CurveID'], row['adjustedCapacity'], int(row['NDO_Curr'])
-            )
+            return merge_list
 
-        for idx in merge_list[same_day_mask].index:
-            row = merge_list.loc[idx]
-            merge_list.loc[idx, 'Expected_PLF'] = self._calculate_same_day_expected_plf(
-                row, row['CurveID'], row['adjustedCapacity'], row['DepartureTime']
-            )
-
-        return merge_list
+        except RuntimeError:
+            raise  # Already wrapped, propagate as-is
+        except Exception as e:
+            raise RuntimeError(
+                f"[Imputed Forecast Redis Failed] Expected PLF vectorized calculation failed — "
+                f"Unexpected error: {e}"
+            ) from e
  
     def _calculate_area_based_expected_plf(self, row, curve_id, capacity, ndo_curr):
         """
@@ -469,7 +574,10 @@ class update_imputed_forecast:
             return min(expected_plf, 100)
            
         except Exception as e:
-            self.logger.debug(f"Error calculating area-based expected PLF for NDO {ndo_curr}: {e}")
+            self.logger.debug(
+                f"[Imputed Forecast Redis Failed] Area-based expected PLF calculation failed for NDO {ndo_curr} — "
+                f"Unexpected error: {e}"
+            )
             return np.nan
  
     def _calculate_same_day_expected_plf(self, row, curve_id, capacity, std_time):
@@ -532,13 +640,23 @@ class update_imputed_forecast:
             return min(expected_plf, 100)
            
         except Exception as e:
-            self.logger.debug(f"Error calculating same day expected PLF: {e}")
+            self.logger.debug(
+                f"[Imputed Forecast Redis Failed] Same-day expected PLF calculation failed — "
+                f"Unexpected error: {e}"
+            )
             return np.nan
  
     def get_current_ist_time(self):
         """Get current time in IST timezone"""
-        ist = pytz.timezone('Asia/Kolkata')
-        return datetime.now(ist)
+        try:
+            ist = pytz.timezone('Asia/Kolkata')
+            return datetime.now(ist)
+        except Exception as e:
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not get current IST time — "
+                f"Unexpected error: {e}"
+            )
+            return datetime.now()
  
     def _parse_departure_time(self, std_time, departure_date):
         """
@@ -565,7 +683,10 @@ class update_imputed_forecast:
             return datetime.combine(date_part, time_part)
            
         except Exception as e:
-            self.logger.debug(f"Error parsing departure time: {e}")
+            self.logger.debug(
+                f"[Imputed Forecast Redis Failed] Could not parse departure time '{std_time}' — "
+                f"Unexpected error: {e}"
+            )
             return None
    
     def get_share_of_booking(self):
@@ -573,8 +694,17 @@ class update_imputed_forecast:
             cursor = self.share_of_booking_collection.find({}, {'_id': 0, 'hours': 1, 'shareOfBooking': 1})
             df = pd.DataFrame(list(cursor))
             return df
+        except (ConnectionFailure, OperationFailure) as e:
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not fetch share of booking — "
+                f"MongoDB connectivity/operation failure: {e}"
+            )
+            return pd.DataFrame()
         except Exception as e:
-            self.logger.error(f"Error fetching share of booking from MongoDB: {e}")
+            self.logger.error(
+                f"[Imputed Forecast Redis Failed] Could not fetch share of booking — "
+                f"Unexpected error: {e}"
+            )
             return pd.DataFrame()
  
     def _get_area_for_hour(self, hour):
@@ -582,12 +712,15 @@ class update_imputed_forecast:
         CONVERTED TO MONGODB - Replaces rdconn query
         """
         try:
-            sum = self.share_of_booking[self.share_of_booking['hours'] <= hour]['shareOfBooking'].sum()
-            if sum:
-                return round(sum / 100, 2)
+            total = self.share_of_booking[self.share_of_booking['hours'] <= hour]['shareOfBooking'].sum()
+            if total:
+                return round(total / 100, 2)
             else:
                 return 1.0
                
         except Exception as e:
-            self.logger.debug(f"Error getting area for hour {hour}: {e}")
+            self.logger.debug(
+                f"[Imputed Forecast Redis Failed] Could not calculate area for hour {hour} — "
+                f"Unexpected error: {e}"
+            )
             return 1.0

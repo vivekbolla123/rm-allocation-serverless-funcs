@@ -86,6 +86,8 @@ class LadderPAHelper:
             self.failure_reason = f"Tax master data collection failed: {str(e)}"
             return None, None, self.failure_reason
     
+    
+    
     def collect_market_fares(self, route, sector, max_market_b2b, max_market_b2c):
         """Collect market fares for both B2B and B2C channels. Optimized for large datasets."""
         try:
@@ -639,7 +641,7 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],
@@ -649,8 +651,8 @@ class LadderPAHelper:
                         'rbd_name': rbd_names_b2b[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in , 2),
-                        'new_all_in_ladder_fare': round( new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -688,7 +690,7 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],
@@ -698,8 +700,8 @@ class LadderPAHelper:
                         'rbd_name': rbd_names_b2c[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in, 2),
-                        'new_all_in_ladder_fare': round(new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),

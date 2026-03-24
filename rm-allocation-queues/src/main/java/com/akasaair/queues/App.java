@@ -364,16 +364,18 @@ public class App implements CommandLineRunner {
         int rNum = numOfRows.get();
         String formattedDuration = "00:00:00";
         LocalDateTime endTime = LocalDateTime.now();
-        try {
-            Duration duration = Duration.between(startTime, endTime);
-            long seconds = duration.getSeconds();
-            long hours = seconds / 3600;
-            long minutes = (seconds % 3600) / 60;
-            long secs = seconds % 60;
-            formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
-        } catch (Exception e) {
-            log.info("Error calculating duration: " + e.getMessage());
-            e.printStackTrace();
+        if (startTime != null) {
+            try {
+                Duration duration = Duration.between(startTime, endTime);
+                long seconds = duration.getSeconds();
+                long hours = seconds / 3600;
+                long minutes = (seconds % 3600) / 60;
+                long secs = seconds % 60;
+                formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
+            } catch (Exception e) {
+                log.info("Error calculating duration: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
         log.info("Status--->" + status);
 
@@ -399,7 +401,13 @@ public class App implements CommandLineRunner {
     }
 
     private void deleteS3Object(String finalKey) {
-        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
+        if (finalKey == null || finalKey.length() < 20 || S3_FILE_PATH_NAME == null || S3_FILE_PATH_NAME.length() > finalKey.length()) {
+            log.warn("Invalid key or path for S3 deletion: {}", finalKey);
+            return;
+        }
+        // CWE-476/CWE-125: Ensure substring end index does not exceed key length
+        int substringEnd = Math.min(S3_FILE_PATH_NAME.length() + 6, finalKey.length());
+        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), substringEnd).equalsIgnoreCase("locals")) {
             s3Client.deleteObject(DeleteObjectRequest.builder()
                     .bucket(S3_BUCKET_NAME)
                     .key(finalKey)
@@ -410,6 +418,12 @@ public class App implements CommandLineRunner {
     private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName,
                                                      String table, Object role_obj, String userName, String adhocUsername,
                                                     String routeString, String status) throws Exception {
+        if (tableName == null) {
+            error_occurred.set(1);
+            listOfErrors.get().add("Table name is null. Cannot process file.");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            return;
+        }
         try {
             switch (tableName) {
                 case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME,
@@ -509,7 +523,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadStrategyGridFile(reader, userName, obj_id);
@@ -549,7 +563,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadProfileFaresFile(reader, userName, obj_id);
@@ -589,7 +603,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadAutoB2BGridFile(reader, userName, obj_id);
@@ -628,7 +642,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadPartialDateEvent(reader, userName, obj_id);
@@ -668,7 +682,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadDateEventFile(reader, userName, obj_id, UploadFileType.DISTRESS);
@@ -1109,7 +1123,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadFile(reader, table, userName, obj_id);
@@ -1535,6 +1549,10 @@ public class App implements CommandLineRunner {
 
         for (int rowIndex = 1; rowIndex < csvData.size(); rowIndex++) {
             List<String> row = csvData.get(rowIndex);
+            if (row.size() < 6) {
+                listOfErrors.get().add("Line " + (rowIndex + 1) + ": Insufficient columns (expected at least 6, found " + row.size() + ")");
+                continue;
+            }
             LocalDate startDate = LocalDate.parse(row.get(3), DATE_FORMATTER);
             LocalDate endDate = LocalDate.parse(row.get(4), DATE_FORMATTER);
             String dowPattern = row.get(5);
@@ -1573,6 +1591,10 @@ public class App implements CommandLineRunner {
 
     private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,
                                                  int rowIndex) {
+        if (row.size() < 4) {
+            listOfErrors.get().add("Line " + (rowIndex + 1) + ": Insufficient columns for duplicate check (expected at least 4, found " + row.size() + ")");
+            return;
+        }
         String key = row.get(0) + "|" + row.get(1) + "|" + row.get(2) + "|" + row.get(3);
         if (!uniqueKeys.add(key)) {
             listOfErrors.get().add("Duplicate record found at Line" + (rowIndex + 1) + ": " + key);
@@ -2426,7 +2448,7 @@ public class App implements CommandLineRunner {
         List<Map<String, String>> data = new ArrayList<>();
         for (List<String> singleCsvData : csvData) {
             Map<String, String> map = new HashMap<>();
-            for (int i = 0; i < headers.size(); i++) {
+            for (int i = 0; i < headers.size() && i < singleCsvData.size(); i++) {
                 map.put(headers.get(i), singleCsvData.get(i));
             }
             data.add(map);
@@ -2435,18 +2457,25 @@ public class App implements CommandLineRunner {
     }
 
     private List<Map<String, String>> createListOfMapSeriesBlock(List<List<String>> csvData) {
+        if (csvData == null || csvData.isEmpty()) {
+            return new ArrayList<>();
+        }
         List<String> headers = csvData.get(0);
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
         DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
         DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (List<String> singleCsvData : csvData) {
+            // CWE-125: Bounds check before accessing index 0
+            if (singleCsvData.isEmpty()) {
+                continue;
+            }
             String inputDate = singleCsvData.get(0);
 
             LocalDate date = LocalDate.parse(inputDate, inputFormatter);
             String departureDate = date.format(outputFormatter);
 
-            for (int i = 1; i < singleCsvData.size(); i++) {
+            for (int i = 1; i < singleCsvData.size() && i < headers.size(); i++) {
                 Map<String, String> map = new HashMap<>();
                 map.put("DepartureDate", departureDate);
                 map.put("OrgCode", headers.get(i));
@@ -3214,13 +3243,19 @@ public class App implements CommandLineRunner {
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
         for (List<String> singleCsvData : csvData) {
+            if (singleCsvData.isEmpty()) {
+                continue;
+            }
             String date = singleCsvData.get(0).trim();
-            String dayOfWeek = getAbbreviatedDayOfWeek(parseDate(date));
+            Date parsedDate = parseDate(date);
+            // CWE-476: parseDate can return null, already handled by ternary
+            String dayOfWeek = (parsedDate != null) ? getAbbreviatedDayOfWeek(parsedDate) : "";
 
             singleCsvData.add(1, dayOfWeek);
 
             Map<String, String> map = new HashMap<>();
-            for (int i = 0; i < headers.size(); i++) {
+            for (int i = 0; i < headers.size() && i < singleCsvData.size(); i++) {
+                // CWE-125: bounds already guarded by loop condition
                 map.put(headers.get(i), singleCsvData.get(i).trim());
             }
             data.add(map);
@@ -3237,6 +3272,9 @@ public class App implements CommandLineRunner {
     }
 
     public static String getAbbreviatedDayOfWeek(Date date) {
+        if (date == null) {
+            return "";
+        }
         return SIMPLE_DAY_FORMATTER.format(date);
     }
 
@@ -3561,6 +3599,9 @@ public class App implements CommandLineRunner {
     }
 
     public boolean validationForStrategyGrid(String decision, String value) {
+        if (decision == null || value == null) {
+            return false;
+        }
         if (decision.equalsIgnoreCase(CSV_HEADER_TIME)) {
             return getListOfTimeRange().contains(value);
         }
@@ -3568,7 +3609,12 @@ public class App implements CommandLineRunner {
             return getListOfCriteria().contains(value);
         }
         if (decision.equalsIgnoreCase(CSV_HEADER_OFFSET)) {
-            return getListOfOffset().contains(Integer.parseInt(value));
+            // CWE-190: Safe parseInt with NumberFormatException handling
+            try {
+                return getListOfOffset().contains(Integer.parseInt(value));
+            } catch (NumberFormatException e) {
+                return false;
+            }
         }
         return false;
     }
@@ -3863,7 +3909,11 @@ public class App implements CommandLineRunner {
         for (MarketListEntity marketEntity : marketListEntityList) {
             List<Map<String, Object>> listOfResult = searchMarketList(marketEntity, tableName);
             for (Map<String, Object> mapOfResult : listOfResult) {
-                uuid.add(mapOfResult.get(UUID_COLUMN_NAME).toString());
+                // CWE-476: Null check before toString
+                Object uuidVal = mapOfResult.get(UUID_COLUMN_NAME);
+                if (uuidVal != null) {
+                    uuid.add(uuidVal.toString());
+                }
             }
         }
         deleteValues(uuid, tableName, UUID_COLUMN_NAME);
@@ -3874,12 +3924,19 @@ public class App implements CommandLineRunner {
 
         try {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            // CWE-190: Safe parse with fallback to string for FlightNumber
+            Object flightNumber;
+            try {
+                flightNumber = Integer.parseInt(marketListEntity.getFlightNo());
+            } catch (NumberFormatException e) {
+                flightNumber = marketListEntity.getFlightNo();
+            }
             Bson filter = and(
                     eq("Origin", marketListEntity.getOrigin()),
                     eq("Destin", marketListEntity.getDestination()),
                     eq("analystName", marketListEntity.getAnalystName()),
                     eq("PerStart", marketListEntity.getStartDate()),
-                    eq("FlightNumber", Integer.parseInt(marketListEntity.getFlightNo()))
+                    eq("FlightNumber", flightNumber)
             );
 
             try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
@@ -3906,11 +3963,16 @@ public class App implements CommandLineRunner {
 
     public List<String> getRoleAccess(Object role) {
         List<String> permissions = new ArrayList<>();
-        role = role.toString().replaceAll("\\[", "").replaceAll("\\]", "");
+        if (role == null) {
+            log.error("Role is null, returning empty permissions");
+            return permissions;
+        }
+        // CWE-476: Safe toString with null check already done above
+        String roleStr = role.toString().replaceAll("\\[", "").replaceAll("\\]", "");
 
         try {
             MongoCollection<Document> collection = database.getCollection("role_permissions");
-            Bson filter = eq("role", role);
+            Bson filter = eq("role", roleStr);
 
             try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
                 while (cursor.hasNext()) {
@@ -4122,12 +4184,21 @@ public class App implements CommandLineRunner {
                                                List<Object> listOfStrategies, List<Object> listOfB2BStrategies, List<Object> listOfCriteria) throws Exception {
         try {
             JSONArray roles = new JSONArray();
+            // CWE-843: Safe type handling for role object
             if (role instanceof String roleStr) {
-                roleStr = roleStr.substring(1, roleStr.length() - 1);
-                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                if (roleStr.length() >= 2) {
+                    roleStr = roleStr.substring(1, roleStr.length() - 1);
+                }
+                if (roleStr.length() >= 2) {
+                    roleStr = roleStr.substring(1, roleStr.length() - 1);
+                }
                 roles.add(roleStr);
+            } else if (role instanceof ArrayList) {
+                ((ArrayList<?>) role).forEach(r -> roles.add(r.toString()));
+            } else if (role != null) {
+                log.error("The 'role' object is of unexpected type: {}", role.getClass().getName());
             } else {
-                log.error("The 'role' object is not a string.");
+                log.error("The 'role' object is null.");
             }
 
             String routeSymbol = "";
@@ -4465,12 +4536,21 @@ public class App implements CommandLineRunner {
     private String validationForMarketListConnectionsFile(List<String> record, int rowCountInProcessedCsv, List<String> permissions,
                                                           Object role, String userName, List<String> errorsFound) {
         JSONArray roles = new JSONArray();
+        // CWE-843: Safe type handling for role object
         if (role instanceof String roleStr) {
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
+            if (roleStr.length() >= 2) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+            }
+            if (roleStr.length() >= 2) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+            }
             roles.add(roleStr);
         } else if (role instanceof ArrayList) {
             ((ArrayList<?>) role).forEach(r -> roles.add(r.toString()));
+        } else if (role != null) {
+            log.error("The 'role' object is of unexpected type: {}", role.getClass().getName());
+        } else {
+            log.error("The 'role' object is null.");
         }
 
 
@@ -4807,13 +4887,27 @@ public class App implements CommandLineRunner {
         try {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
+            // CWE-190: Safe parseLong with fallback to string
+            Object flightNumber;
+            try {
+                flightNumber = Long.parseLong(entity.getFlightNumber());
+            } catch (NumberFormatException e) {
+                flightNumber = entity.getFlightNumber();
+            }
+            Object dow;
+            try {
+                dow = Long.parseLong(entity.getDow());
+            } catch (NumberFormatException e) {
+                dow = entity.getDow();
+            }
+
             Document doc = new Document()
                     .append("Origin", entity.getOrigin())
                     .append("Destin", entity.getDestin())
-                    .append("FlightNumber", Long.parseLong(entity.getFlightNumber()))
+                    .append("FlightNumber", flightNumber)
                     .append("PerStart", entity.getPerStart())
                     .append("PerEnd", entity.getPerEnd())
-                    .append("DOW", Long.parseLong(entity.getDow()))
+                    .append("DOW", dow)
                     .append("CurveID", entity.getCurveId())
                     .append("saleflag", entity.getSaleFlag())
                     .append("createdAt", new Date());
@@ -4849,6 +4943,10 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    if (row.size() < 3) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 3, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String airlineCode = row.get(1).trim();
                     String adjustmentStr = row.get(2).trim();
@@ -4946,6 +5044,10 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    if (row.size() < 11) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 11, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String departureDate = row.get(1).trim();
                     String lastMStartDate = row.get(3).trim();
@@ -5080,6 +5182,11 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    // CWE-125: Bounds check before accessing row elements
+                    if (row.size() < 2) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 2, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String forecastModel = row.get(1).trim();
 
@@ -5165,6 +5272,11 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    // CWE-125: Bounds check before accessing row elements
+                    if (row.size() < 7) {
+                        listOfErrors.get().add("Line " + i + ": Insufficient columns (expected at least 7, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector   = row.get(0).trim();
                     String org      = row.get(1).trim();
                     String dst      = row.get(2).trim();
