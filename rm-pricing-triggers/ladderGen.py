@@ -546,7 +546,9 @@ class LadderGen:
             combined_df = self.esb_helper.collect_combined_market_fare_data_bidirectional(
                 ndo, self.sector, reverse_sector, channel,
                 max_fare_threshold=max_fare,
-                conversion_rate=self.reverse_conversion_rate
+                conversion_rate=self.reverse_conversion_rate,
+                layer_type=self.type,
+                carrier_inclusion=self.carrier_inclusion
             )
             
             # Convert gross/all-in fares to base fares immediately
