@@ -41,11 +41,6 @@ class LadderGen:
         self.batch_run_id = overrides.get('batch_run_id', None)
         self.batch_total = overrides.get('batch_total', None)
         self.fare_source_flag = overrides.get('fare_source_flag', 'market')
-        self.type = overrides.get('type', 'direct')
-        self.carrier_inclusion = self.constants.CONNECTION_CARRIER_INCLUSION
-        
-        if self.type == 'connection' and self.route != 'I':
-            raise ValueError("Connections are only supported for International route (route='I')")
         
         # Sector is always expected as a list (single or multiple)
         if 'sector' not in overrides:
@@ -87,17 +82,10 @@ class LadderGen:
         self.MARKET_FLAG = self.constants.MARKET_FLAG_DOMESTIC if self.route == 'D' else self.constants.MARKET_FLAG_INTERNATIONAL
         self.B2B_THRESHOLD = self.constants.B2B_THRESHOLD if self.route == 'D' else self.constants.B2B_THRESHOLD_INTERNATIONAL
         # Market fare thresholds (used when fare_source_flag == 'market')
-        if self.type == 'connection':
-            self.MAX_MARKETFARES_THRESHOLD_B2B = getattr(self.constants, 'MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2B', self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B)
-            self.MAX_MARKETFARES_THRESHOLD_B2C = getattr(self.constants, 'MARKET_FARE_MAX_THRESHOLD_CONNECTION_B2C', self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C)
-            self.MIN_MARKETFARES_THRESHOLD_B2B = getattr(self.constants, 'MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2B', self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B)
-            self.MIN_MARKETFARES_THRESHOLD_B2C = getattr(self.constants, 'MARKET_FARE_MIN_THRESHOLD_CONNECTION_B2C', self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C)
-        else:
-            self.MAX_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
-            self.MAX_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
-            self.MIN_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
-            self.MIN_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
-
+        self.MAX_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
+        self.MAX_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
+        self.MIN_MARKETFARES_THRESHOLD_B2B = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2B
+        self.MIN_MARKETFARES_THRESHOLD_B2C = self.constants.MARKET_FARE_MIN_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.MARKET_FARE_MIN_THRESHOLD_INTERNATIONAL_B2C
         # ESB fare thresholds (used when fare_source_flag == 'esb')
         self.MAX_ESBFARES_THRESHOLD_B2B = self.constants.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2B if self.route == 'D' else self.constants.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2B
         self.MAX_ESBFARES_THRESHOLD_B2C = self.constants.BOOKINGS_FARE_MAX_THRESHOLD_DOMESTIC_B2C if self.route == 'D' else self.constants.BOOKINGS_FARE_MAX_THRESHOLD_INTERNATIONAL_B2C
@@ -245,7 +233,7 @@ class LadderGen:
                 # Collect market fares for both directions
                 reverse_sector = self._get_reverse_sector(self.sector)
                 self.market_fares_data, failure_reason = self.pa_helper.collect_market_fares_bidirectional(
-                    self.route, self.sector, reverse_sector, self.MAX_MARKETFARES_THRESHOLD_B2B, self.MAX_MARKETFARES_THRESHOLD_B2C, layer_type=self.type, carrier_inclusion=self.carrier_inclusion
+                    self.route, self.sector, reverse_sector, self.MAX_MARKETFARES_THRESHOLD_B2B, self.MAX_MARKETFARES_THRESHOLD_B2C
                 )
                 if failure_reason:
                     self.failure_reason = failure_reason
@@ -546,9 +534,7 @@ class LadderGen:
             combined_df = self.esb_helper.collect_combined_market_fare_data_bidirectional(
                 ndo, self.sector, reverse_sector, channel,
                 max_fare_threshold=max_fare,
-                conversion_rate=self.reverse_conversion_rate,
-                layer_type=self.type,
-                carrier_inclusion=self.carrier_inclusion
+                conversion_rate=self.reverse_conversion_rate
             )
             
             # Convert gross/all-in fares to base fares immediately
@@ -765,14 +751,10 @@ class LadderGen:
             tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
-            # YQ and YQ_GST from tax master international
-            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
-            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
-            
             # Calculate GST
             gst = gst_rate * (base_fare + rcs + cute + rcs_cute)
             
-            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
+            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5
             return total_taxes
             
         except Exception:
@@ -889,10 +871,6 @@ class LadderGen:
             tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
             tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
             
-            # YQ and YQ_GST from tax master international
-            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
-            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
-            
             # Apply same special handling for RCS sectors - set RCS to 0
             if destination in self.constants.PRICING_RCS_SECTORS:
                 rcs = 0
@@ -901,7 +879,7 @@ class LadderGen:
             adjusted_gross_fare = gross_fare
             
             gst_on_taxes = gst_rate * (rcs + cute + rcs_cute)
-            other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
+            other_taxes  = asf + psf_adf + udf + psc_pz + tax1 + tax2 + tax3 + tax4 + tax5
             base_fare    = (
                 adjusted_gross_fare - rcs - cute - rcs_cute - gst_on_taxes - other_taxes
             ) / (1 + gst_rate)
