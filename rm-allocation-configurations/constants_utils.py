@@ -366,9 +366,9 @@ class ConstantsUtils:
             elif parameter_key == GDS_RBD_VALUES_KEY:
                 self.GDS_RBD_VALUES = parameter_value
             elif parameter_key == GRACE_PERIOD_MINUTES_KEY:
-                self.GRACE_PERIOD_MINUTES = parameter_value
+                self.GRACE_PERIOD_MINUTES = int(parameter_value)
             elif parameter_key == WINDOW_MINUTES_KEY:
-                self.WINDOW_MINUTES = parameter_value
+                self.WINDOW_MINUTES = int(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
