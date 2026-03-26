@@ -1373,7 +1373,7 @@ def lambda_handler(event, context):
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
         ).rename(columns={'forecast_variance': 'forecast_variance2'}).drop(
