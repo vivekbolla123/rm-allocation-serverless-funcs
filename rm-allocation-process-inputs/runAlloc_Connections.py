@@ -238,6 +238,21 @@ class DynAllocConnections:
                     else:
                         tgtBookedLoad1 = float(tgtBookedLoad1['LF'][0])
                         tgtBookedLoad2 = float(tgtBookedLoad2['LF'][0])
+                        
+                        # Fetch start-of-day LFs (ndocounter+1) for intraday variance adjustment
+                        ndo2 = (date2-currDate).days
+                        startOfDayTgt1 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
+                            ndocounter + 1, CurveId1)
+                        if len(startOfDayTgt1) == 0:
+                            startOfDayTgt1 = tgtBookedLoad1
+                        else:
+                            startOfDayTgt1 = float(startOfDayTgt1['LF'][0])
+                        startOfDayTgt2 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
+                            ndo2 + 1, CurveId2)
+                        if len(startOfDayTgt2) == 0:
+                            startOfDayTgt2 = tgtBookedLoad2
+                        else:
+                            startOfDayTgt2 = float(startOfDayTgt2['LF'][0])
 
                 bookedLoadSingleRowSector2 = bookedLoad_sector2
 
@@ -276,7 +291,7 @@ class DynAllocConnections:
                     break
                 else:
                     self.allocateAUforflights(
-                        tgtDate,tgdDate2 ,bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2)
+                        tgtDate,tgdDate2 ,bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2, startOfDayTgt1, startOfDayTgt2)
 
         except Exception as e:
             print("Exception occurred")
@@ -302,17 +317,39 @@ class DynAllocConnections:
             self.mongoclient['run_flight_date_audit'].update_many(update_query, update_values)
 
 
-    def allocateAUforflights(self, current_date1,current_date2, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2):
+    def allocateAUforflights(self, current_date1,current_date2, bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2, startOfDayTgt1=None, startOfDayTgt2=None):
         self.outputSummaryRow_b2b = OutputSummaryConnections()
         self.outputSummaryRow_b2c = OutputSummaryConnections()
         self.outputSummaryRow_b2c.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2
         self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
+        # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
             self.currParams.Lid1
         tgtBookedLoad2 = tgtBookedLoad2 * \
             self.currParams.Lid2
+        
+        # Compute intraday-adjusted targets (aligned with direct variance logic)
+        try:
+            currentDateTime = self.timeutils.getCurrentDateTime()
+            currentHour = currentDateTime.hour
+            area = self.rmdatabasehelper.getArea(currentHour)
+            areaAtCurrentTime = area["sum"][0] / 100
+        except Exception:
+            areaAtCurrentTime = 1.0  # Fallback: use end-of-day target
+        
+        if startOfDayTgt1 is not None:
+            startOfDayTgtAbs1 = startOfDayTgt1 * self.currParams.Lid1
+            self.tgtAtCurrentHour1 = (tgtBookedLoad1 - startOfDayTgtAbs1) * areaAtCurrentTime + startOfDayTgtAbs1
+        else:
+            self.tgtAtCurrentHour1 = tgtBookedLoad1
+        
+        if startOfDayTgt2 is not None:
+            startOfDayTgtAbs2 = startOfDayTgt2 * self.currParams.Lid2
+            self.tgtAtCurrentHour2 = (tgtBookedLoad2 - startOfDayTgtAbs2) * areaAtCurrentTime + startOfDayTgtAbs2
+        else:
+            self.tgtAtCurrentHour2 = tgtBookedLoad2
         sector1 = self.currParams.sector1
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
@@ -492,10 +529,10 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Lid1
-                self.outputSummaryRow_b2c.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
-                self.outputSummaryRow_b2b.variance1=(bookload1-tgtBookedLoad1)*100/self.currParams.Lid1
-                self.outputSummaryRow_b2b.variance2=(bookload2-tgtBookedLoad2)*100/self.currParams.Lid2
+                self.outputSummaryRow_b2c.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2c.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
+                self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
                 
                 self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1)
                 self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2)
@@ -975,8 +1012,9 @@ class DynAllocConnections:
         try:
             forecastPLF = float(forecastPLF)
             forecast_variance = float(forecast_variance)
+            IMP_FORECAST_DEDUCTION = float(self.constantsUtils.IMP_FORECAST_DEDUCTION)
             if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
-                return forecastPLF+variance-forecast_variance
+                return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
             return CONST_NA
         except (ValueError, TypeError):
             return CONST_NA
