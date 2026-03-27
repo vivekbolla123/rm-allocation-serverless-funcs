@@ -15,7 +15,11 @@ class MarketFareService:
         self.mongohelper=mongohelper
     
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)    
+    logger.setLevel(logging.INFO)
+
+    def _isValidSector(self, origin, destin):
+        """Returns False if origin and destination are the same station."""
+        return origin is not None and destin is not None and origin != destin
     
     def getMarketFareAnchorFare(self, currParams,currFltDate, channel, startTime, endTime, DaySpan, criteria, flightTime,hardcriteria,hardfare,hardstartTime,hardendTime, imp_forecast=CONST_NA):
         # Extract origin and destin from currParams
@@ -46,52 +50,119 @@ class MarketFareService:
         # If feature flag is enabled and no market fare sector rerouting is present and imputed forecast is available
         try:
             if int(currParams.market_station_mapping) == 1 and routedSector.empty and imp_forecast != CONST_NA:
-                # Check for mapped origin and get fares from mapped sector
                 MARKET_FARE_FORECAST_THRESHOLD = self.constantsutils.MARKET_FARE_FORECAST_THRESHOLD
-                mapped_mktFareRange = pd.DataFrame()
-                mapped_mktFareRange_minomaxo = pd.DataFrame()
 
-                # First check if origin has a mapped station
                 mapped_origin = self.rmdatabasehelper.getMappedStation(currParams.origin)
-                if mapped_origin is not None and mapped_origin != currParams.origin:
-                    _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
+                mapped_destin = self.rmdatabasehelper.getMappedStation(currParams.destin)
+
+                has_mapped_origin = mapped_origin is not None and mapped_origin != currParams.origin
+                has_mapped_destin = mapped_destin is not None and mapped_destin != currParams.destin
+
+                # Special case: both mapped_origin and mapped_destin exist
+                # Fetch fares from all 4 origin-destin combos and pick based on forecast
+                if has_mapped_origin and has_mapped_destin:
+                    # Combo 1: original origin - original destin (already fetched as mktFareRange / mktfareRange_minomaxo)
+                    # Combo 2: mapped_origin - original destin
+                    _, _, _, combo2_mktFareRange, combo2_minomaxo = self.getMarketFares(
                         currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, mapped_origin, destin
                     )
+                    # Combo 3: original origin - mapped_destin
+                    _, _, _, combo3_mktFareRange, combo3_minomaxo = self.getMarketFares(
+                        currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, mapped_destin
+                    )
+                    # Combo 4: mapped_origin - mapped_destin
+                    _, _, _, combo4_mktFareRange, combo4_minomaxo = self.getMarketFares(
+                        currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, mapped_origin, mapped_destin
+                    )
 
-                # If origin mapping didn't yield fares, check if destination has a mapped station
-                if mapped_mktFareRange.empty:
-                    mapped_destin = self.rmdatabasehelper.getMappedStation(currParams.destin)
-                    if mapped_destin is not None and mapped_destin != currParams.destin:
+                    all_combos = [mktFareRange, combo2_mktFareRange, combo3_mktFareRange, combo4_mktFareRange]
+                    all_combos_minomaxo = [mktfareRange_minomaxo, combo2_minomaxo, combo3_minomaxo, combo4_minomaxo]
+
+                    # Collect min and max fare rows from each non-empty combo for mktFareRange
+                    min_fare_rows = []
+                    max_fare_rows = []
+                    for combo in all_combos:
+                        if not combo.empty:
+                            min_fare_rows.append(combo.iloc[[0]])
+                            max_fare_rows.append(combo.iloc[[-1]])
+
+                    # Collect min and max fare rows from each non-empty combo for minomaxo
+                    min_fare_rows_minomaxo = []
+                    max_fare_rows_minomaxo = []
+                    for combo in all_combos_minomaxo:
+                        if not combo.empty:
+                            min_fare_rows_minomaxo.append(combo.iloc[[0]])
+                            max_fare_rows_minomaxo.append(combo.iloc[[-1]])
+
+                    # Pick based on forecast performance
+                    # Good forecast (>= threshold): take max of min fares and max of max fares
+                    # Bad forecast (< threshold): take min of min fares and min of max fares
+                    if min_fare_rows and max_fare_rows:
+                        all_min_fares = pd.concat(min_fare_rows, ignore_index=True).sort_values(by='gross_fare', ascending=True)
+                        all_max_fares = pd.concat(max_fare_rows, ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                            picked_min = all_min_fares.iloc[[-1]]  # max of min fares
+                            picked_max = all_max_fares.iloc[[-1]]  # max of max fares
+                        else:
+                            picked_min = all_min_fares.iloc[[0]]   # min of min fares
+                            picked_max = all_max_fares.iloc[[0]]   # min of max fares
+
+                        mktFareRange = pd.concat([picked_min, picked_max], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                    if min_fare_rows_minomaxo and max_fare_rows_minomaxo:
+                        all_min_fares_mo = pd.concat(min_fare_rows_minomaxo, ignore_index=True).sort_values(by='gross_fare', ascending=True)
+                        all_max_fares_mo = pd.concat(max_fare_rows_minomaxo, ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                            picked_min_mo = all_min_fares_mo.iloc[[-1]]  # max of min fares
+                            picked_max_mo = all_max_fares_mo.iloc[[-1]]  # max of max fares
+                        else:
+                            picked_min_mo = all_min_fares_mo.iloc[[0]]   # min of min fares
+                            picked_max_mo = all_max_fares_mo.iloc[[0]]   # min of max fares
+
+                        mktfareRange_minomaxo = pd.concat([picked_min_mo, picked_max_mo], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                else:
+                    # Original logic: only one of mapped_origin or mapped_destin exists
+                    mapped_mktFareRange = pd.DataFrame()
+                    mapped_mktFareRange_minomaxo = pd.DataFrame()
+
+                    if has_mapped_origin:
+                        _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
+                            currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, mapped_origin, destin
+                        )
+
+                    if has_mapped_destin:
                         _, _, _, mapped_mktFareRange, mapped_mktFareRange_minomaxo = self.getMarketFares(
                             currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, mapped_destin
                         )
 
-
-                if mktFareRange.empty or mapped_mktFareRange.empty:
-                    if mktFareRange.empty:
-                        mktFareRange = mapped_mktFareRange
-                else:
-                    allFares = pd.concat([mktFareRange.iloc[[0, -1]], mapped_mktFareRange.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
-
-                    if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
-                        allFares = allFares.iloc[1:]
+                    if mktFareRange.empty or mapped_mktFareRange.empty:
+                        if mktFareRange.empty:
+                            mktFareRange = mapped_mktFareRange
                     else:
-                        allFares = allFares.iloc[:-1]
-                        
-                    mktFareRange = allFares
+                        allFares = pd.concat([mktFareRange.iloc[[0, -1]], mapped_mktFareRange.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
 
-                if mktfareRange_minomaxo.empty or mapped_mktFareRange_minomaxo.empty:
-                    if mktfareRange_minomaxo.empty:
-                        mktfareRange_minomaxo = mapped_mktFareRange_minomaxo
-                else:
-                    allFaresMinoMaxo = pd.concat([mktfareRange_minomaxo.iloc[[0, -1]], mapped_mktFareRange_minomaxo.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                            allFares = allFares.iloc[1:]
+                        else:
+                            allFares = allFares.iloc[:-1]
 
-                    if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
-                        allFaresMinoMaxo = allFaresMinoMaxo.iloc[1:]
+                        mktFareRange = allFares
+
+                    if mktfareRange_minomaxo.empty or mapped_mktFareRange_minomaxo.empty:
+                        if mktfareRange_minomaxo.empty:
+                            mktfareRange_minomaxo = mapped_mktFareRange_minomaxo
                     else:
-                        allFaresMinoMaxo = allFaresMinoMaxo.iloc[:-1]
-                        
-                    mktfareRange_minomaxo = allFaresMinoMaxo
+                        allFaresMinoMaxo = pd.concat([mktfareRange_minomaxo.iloc[[0, -1]], mapped_mktFareRange_minomaxo.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
+
+                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                            allFaresMinoMaxo = allFaresMinoMaxo.iloc[1:]
+                        else:
+                            allFaresMinoMaxo = allFaresMinoMaxo.iloc[:-1]
+
+                        mktfareRange_minomaxo = allFaresMinoMaxo
         
         except Exception as e:
             self.logger.error(f"Error comparing dual sector market fares due to reason {e}")
@@ -148,6 +219,11 @@ class MarketFareService:
         return int(lowFare),int(hiFare),lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria, startTime, endTime,hardfare,lowmktFile,himktFile
 
     def getMarketFares(self, currFltDate, currParams, channel, startTime, endTime, DaySpan, criteria, flightTime, origin, destin):
+        # Skip DB call if origin and destination are the same
+        if not self._isValidSector(origin, destin):
+            self.logger.info(f"Skipping market fare fetch: origin '{origin}' and destin '{destin}' are the same")
+            return startTime, endTime, criteria, pd.DataFrame(), pd.DataFrame()
+
         # Fetch market fares for the sector with provided origin/destin
         mktFareRange = self.fetchMarketFareRange(
             channel, currFltDate, currParams, DaySpan, startTime, endTime, origin, destin, includeWeekend=False,
