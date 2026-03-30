@@ -1243,6 +1243,27 @@ def lambda_handler(event, context):
         forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
         sector_forecast_model_map = get_sector_forecast_model_map()
 
+        # Filter out market list rows that don't exist in Navitaire
+        pre_filter_count = len(mkt_list)
+        nav_flight_keys = set(
+            zip(
+                pd.to_datetime(booked_loads['DepartureDate']).dt.normalize(),
+                booked_loads['FlightNumber'].astype('int64'),
+                booked_loads['Origin'].str.strip(),
+                booked_loads['Destination'].str.strip()
+            )
+        )
+        mkt_list['_nav_key'] = list(zip(
+            pd.to_datetime(mkt_list['DepartureDate']).dt.normalize() if not pd.api.types.is_datetime64_any_dtype(mkt_list['DepartureDate']) else pd.to_datetime(mkt_list['DepartureDate']),
+            mkt_list['FlightNumber'].astype('int64'),
+            mkt_list['Origin'].str.strip(),
+            mkt_list['Destin'].str.strip()
+        ))
+        mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
+        mkt_list = mkt_list.reset_index(drop=True)
+        logger.info(f"Navitaire existence filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)} flights not in Navitaire)")
+        markets_count = mkt_list.shape[0]
+
         mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map)
         print(len(mkt_list), " forecast_plf_list")
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
