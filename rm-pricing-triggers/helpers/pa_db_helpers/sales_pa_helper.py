@@ -28,6 +28,7 @@ class SalesPAHelper:
                 },
                 {
                     '$project': {
+                        'key': 1,
                         'sector': 1,
                         'type': 1,
                         'currency': 1,
@@ -175,6 +176,7 @@ class SalesPAHelper:
                     
                     output_row = {
                         'run_id': run_id,
+                        'key': row.get('key', ''),
                         'ACTION': 'I',
                         'ID': '',
                         'LOC1': origin,
