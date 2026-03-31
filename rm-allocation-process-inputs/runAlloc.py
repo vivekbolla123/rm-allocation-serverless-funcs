@@ -478,16 +478,21 @@ class DynAlloc:
 				sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
 			)
 			self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
-			imp_forecast = self.getParsedImputedForecast(variance_full)
+
+			# Use forecast data only if within 30 NDOs
+			imp_forecast = CONST_NA
+			if ndocounter <= 30:
+				imp_forecast = self.getParsedImputedForecast(variance_full)
 			Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
 
-			forecastBand = CONST_NA
-			forecast_plf = getattr(self.currParams, 'forecastPLF', CONST_NA)
+			forecast_plf = forecastBand = CONST_NA
+			if ndocounter <= 30:
+				forecast_plf = self.getParsedForecast()
 			if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
-				forecastBand = self.rmdatabasehelper.getForecastBand(getattr(self.currParams, 'forecastPLF', CONST_NA))
+				forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
 			
 			imp_forecast_band = CONST_NA
 			if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
@@ -897,7 +902,6 @@ class DynAlloc:
 				bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 
-				imp_forecast = self.getParsedImputedForecast(variance_full)
 				Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
 				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
@@ -1056,7 +1060,7 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 			self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
-			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = imp_forecast
+			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
 			self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 			self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
 			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin

@@ -470,7 +470,7 @@ class RBDAllocations:
             openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, firstRDBAllocation, otherRDBAllocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
 
         # Negative -99 Allocation
-        elif firstRDBAllocation == DYNAMIC_D3_D4:
+        elif firstRDBAllocation == DYNAMIC_D3_D4 or (firstRDBAllocation == FORECAST_ALLOCATION and (pd.isna(imp_forecast) or imp_forecast in (CONST_NA, ''))):
             openRBDIndex, entryRDB, d3Allocation, d4Allocation, remainingRBD = self.d3d4Calculations(dPLF, remainingCapacity, ndocounter, maxRBDPrice, openingRBDPrice, openRBDIndex, entryRDB, remainingRBD, d3Allocation, jumpPercent)
             openRBDIndex, incremental, jumpingRBDPrice, incrementalb2b = self.jumpingAllocation(currBookedLoad, bookedDeficit, openRBDIndex, incremental, jumpPercent, price, nextPrice, d3Allocation, d4Allocation, jumpingRBDPrice, b2bFactor, incrementalb2b)
             first_rbd_alloc = d3Allocation
