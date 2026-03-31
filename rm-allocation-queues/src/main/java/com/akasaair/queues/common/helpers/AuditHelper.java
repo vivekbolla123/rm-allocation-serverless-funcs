@@ -66,25 +66,53 @@ public class AuditHelper {
         this.spark = null;
     }
 
+    /**
+     * Number of records to process in each pipeline batch.
+     * Each batch: fetch existing from Mongo → compute delta → write to S3 → release memory.
+     * At ~2 KB per entity with 50 columns, 50k records ≈ 100 MB per batch (new + existing + audit).
+     */
+    private static final int AUDIT_PIPELINE_BATCH_SIZE = 50_000;
+
     public void buildAuditLogs(List<MarketListEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        log.info("Processing the delta for audits");
 
-        Set<String> keys = newRecords.stream()
-                .map(record -> createCompositeKey(record.getOrigin() + record.getDestination(), record.getFlightNo(), record.getStartDate()))
-                .collect(Collectors.toSet());
-
-        Map<String, MarketListEntity> existingMap = fetchExistingRecords(keys, MarketListEntity.class, collectionName);
-
-        log.info("Existing records fetched. Building delta and uploading audits asynchronously");
-
-        // Process delta and upload asynchronously
+        // Process asynchronously in pipelined batches to bound memory usage
         CompletableFuture.runAsync(() -> {
             try {
-                List<MarketListAuditEntity> changeMap = buildDeltaRecords(newRecords, existingMap, userName, currentDateTime);
+                int totalRecords = newRecords.size();
+                int totalBatches = (int) Math.ceil((double) totalRecords / AUDIT_PIPELINE_BATCH_SIZE);
+                log.info("Audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
 
-                appendAuditsToS3(changeMap, currentDateTime, MarketListAuditEntity.class);
+                for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                    int fromIndex = batchIdx * AUDIT_PIPELINE_BATCH_SIZE;
+                    int toIndex = Math.min(fromIndex + AUDIT_PIPELINE_BATCH_SIZE, totalRecords);
+                    List<MarketListEntity> batch = newRecords.subList(fromIndex, toIndex);
+
+                    // 1. Build keys for this batch only
+                    Set<String> batchKeys = batch.stream()
+                            .map(record -> createCompositeKey(record.getOrigin() + record.getDestination(), record.getFlightNo(), record.getStartDate()))
+                            .collect(Collectors.toSet());
+
+                    // 2. Fetch existing records for this batch only
+                    Map<String, MarketListEntity> existingMap = fetchExistingRecords(batchKeys, MarketListEntity.class, collectionName);
+
+                    // 3. Compute delta for this batch
+                    List<MarketListAuditEntity> changeMap = buildDeltaRecords(batch, existingMap, userName, currentDateTime);
+
+                    // 4. Write this batch's delta to S3
+                    if (!changeMap.isEmpty()) {
+                        appendAuditsToS3(changeMap, currentDateTime, MarketListAuditEntity.class);
+                    }
+
+                    // 5. Release batch references so GC can reclaim memory
+                    existingMap.clear();
+                    changeMap.clear();
+                    batchKeys.clear();
+
+                    log.info("Audit batch {}/{}: completed", batchIdx + 1, totalBatches);
+                }
+
             } catch (Throwable e) {
-                log.error("Error processing audit delta: {}", e.getMessage());
+                log.error("Error processing audit delta: {}", e.getMessage(), e);
             }
         }, taskExecutor);
 
@@ -231,25 +259,47 @@ public class AuditHelper {
     }
 
     public void buildConnAuditLogs(List<MarketListConnectionsEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
-        log.info("Processing the delta for connection audits");
 
-        Set<String> keys = newRecords.stream()
-                .map(record -> createCompositeKey(record.getSector1() + "-" + record.getSector2(),
-                        record.getFlight1() + "-" + record.getFlight2(), record.getStartDate()))
-                .collect(Collectors.toSet());
-
-        Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(keys, MarketListConnectionsEntity.class, collectionName);
-
-        log.info("Existing connection records fetched. Building delta and uploading audits asynchronously");
-
-        // Process delta and upload asynchronously
+        // Process asynchronously in pipelined batches to bound memory usage
         CompletableFuture.runAsync(() -> {
             try {
-                List<MarketListConnAuditEntity> changeMap = buildConnDeltaRecords(newRecords, existingMap, userName, currentDateTime);
+                int totalRecords = newRecords.size();
+                int totalBatches = (int) Math.ceil((double) totalRecords / AUDIT_PIPELINE_BATCH_SIZE);
+                log.info("Connection audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
 
-                appendAuditsToS3(changeMap, currentDateTime, MarketListConnAuditEntity.class);
+                for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                    int fromIndex = batchIdx * AUDIT_PIPELINE_BATCH_SIZE;
+                    int toIndex = Math.min(fromIndex + AUDIT_PIPELINE_BATCH_SIZE, totalRecords);
+                    List<MarketListConnectionsEntity> batch = newRecords.subList(fromIndex, toIndex);
+
+                    // 1. Build keys for this batch only
+                    Set<String> batchKeys = batch.stream()
+                            .map(record -> createCompositeKey(record.getSector1() + "-" + record.getSector2(),
+                                    record.getFlight1() + "-" + record.getFlight2(), record.getStartDate()))
+                            .collect(Collectors.toSet());
+
+                    // 2. Fetch existing records for this batch only
+                    Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(batchKeys, MarketListConnectionsEntity.class, collectionName);
+
+                    // 3. Compute delta for this batch
+                    List<MarketListConnAuditEntity> changeMap = buildConnDeltaRecords(batch, existingMap, userName, currentDateTime);
+
+                    // 4. Write this batch's delta to S3
+                    if (!changeMap.isEmpty()) {
+                        appendAuditsToS3(changeMap, currentDateTime, MarketListConnAuditEntity.class);
+                    }
+
+                    // 5. Release batch references so GC can reclaim memory
+                    existingMap.clear();
+                    changeMap.clear();
+                    batchKeys.clear();
+
+                    log.info("Connection audit batch {}/{}: completed", batchIdx + 1, totalBatches);
+                }
+
+                log.info("All connection audit batches completed successfully");
             } catch (Throwable e) {
-                log.error("Error processing connection audit delta: {}", e.getMessage());
+                log.error("Error processing connection audit delta: {}", e.getMessage(), e);
             }
         }, taskExecutor);
 
