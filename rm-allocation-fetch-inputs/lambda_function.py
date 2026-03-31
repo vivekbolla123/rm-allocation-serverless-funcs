@@ -27,6 +27,8 @@ from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
 from sqlalchemy.engine.base import Engine
 from urllib.parse import quote_plus
+import tracemalloc
+import gc
 
 warnings.filterwarnings('ignore')
 
@@ -54,6 +56,18 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+def log_memory(label):
+    import psutil, os
+    process = psutil.Process(os.getpid())
+    mb = process.memory_info().rss / 1024 / 1024
+    logger.info(f"[MEM] {label}: {mb:.1f} MB")
+
+# Then sprinkle throughout:
+log_memory("after market list fetch")
+log_memory("after booked_loads")
+log_memory("after all merges")
+log_memory("before SQS send")
 
 # ==========================
 # RETRY DECORATOR
@@ -1199,87 +1213,132 @@ def lambda_handler(event, context):
     if route_type == "direct":
         query_type = 'sales' if region == 'SalesInv' else 'standard'
         mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
+        log_memory("after fetch_and_process_market_list")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         nav_helper = NavDatabaseHelper(
             navconn=NavitaireConnection,
             nav_db_name=configsettings.NAV_DB_NAME,
             nav_db_wb_name=configsettings.NAV_DB_WB_NAME
         )
-        
+
         w0_df = nav_helper.get_w0_rbd(start_period, end_period)
-        logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
-        logger.info(f"Filtered Market List {mkt_list}")
+        log_memory("after get_w0_rbd")
+        logger.info(f"w0_df shape: {w0_df.shape}")
+
+        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df, nav_helper)
+        log_memory("after clean_markets_optimized")
+        logger.info(f"mkt_list after clean: {mkt_list.shape}")
+
         mkt_list = mkt_list.reset_index()
         markets_count = mkt_list.shape[0]
         logger.info(f"Total markets: {markets_count}")
 
-        # Initialize NavDatabaseHelper
-       
-
-        # Convert PerStart to datetime for joining
         mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
         min_date = mkt_list['DepartureDate'].min()
         max_date = mkt_list['DepartureDate'].max()
-        ist = pytz.timezone('Asia/Kolkata')
+        logger.info(f"Date range: {min_date} to {max_date}")
 
+        ist = pytz.timezone('Asia/Kolkata')
         curr_date = datetime.now(ist).date()
         curr_datetime = datetime.now(ist) - timedelta(hours=1)
         curr_datetime_str = curr_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Fetch Navitaire data with retry
+
         booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
+        log_memory("after getCurrentBookedLoads")
+        logger.info(f"booked_loads shape: {booked_loads.shape}")
+
         seats_sold_pivot = nav_helper.get_seats_sold_by_class(min_date, max_date)
+        log_memory("after get_seats_sold_by_class")
+        logger.info(f"seats_sold_pivot shape: {seats_sold_pivot.shape}")
+
         rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
+        log_memory("after get_current_rbds_by_class")
+        logger.info(f"rbd_pivot shape: {rbd_pivot.shape}")
+
         series_seats_data = nav_helper.get_series_seats(min_date, max_date)
+        log_memory("after get_series_seats")
+        logger.info(f"series_seats_data shape: {series_seats_data.shape}")
+
         daily_flights = nav_helper.get_daily_flights(min_date, max_date)
+        log_memory("after get_daily_flights")
+        logger.info(f"daily_flights shape: {daily_flights.shape}")
+
         opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
+        log_memory("after get_opening_rbds")
+        logger.info(f"opening_rbds shape: {opening_rbds.shape}")
+
         bookings_count = nav_helper.get_last_bookings_count(
             departure_start_date=min_date,
             departure_end_date=max_date,
             comparison_date=curr_date,
             comparison_datetime=curr_datetime_str
         )
+        log_memory("after get_last_bookings_count")
+        logger.info(f"bookings_count shape: {bookings_count.shape}")
+
         forecast_plf_query = get_forecast(min_date, max_date)
         forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
-        sector_forecast_model_map = get_sector_forecast_model_map()
+        log_memory("after forecast query")
+        logger.info(f"forecast_plf_list shape: {forecast_plf_list.shape}")
 
-        # Filter out market list rows that don't exist in Navitaire
-        pre_filter_count = len(mkt_list)
-        nav_flight_keys = set(
-            zip(
-                pd.to_datetime(booked_loads['DepartureDate']).dt.normalize(),
-                booked_loads['FlightNumber'].astype('int64'),
-                booked_loads['Origin'].str.strip(),
-                booked_loads['Destination'].str.strip()
-            )
-        )
-        mkt_list['_nav_key'] = list(zip(
-            pd.to_datetime(mkt_list['DepartureDate']).dt.normalize() if not pd.api.types.is_datetime64_any_dtype(mkt_list['DepartureDate']) else pd.to_datetime(mkt_list['DepartureDate']),
-            mkt_list['FlightNumber'].astype('int64'),
-            mkt_list['Origin'].str.strip(),
-            mkt_list['Destin'].str.strip()
-        ))
-        mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
-        mkt_list = mkt_list.reset_index(drop=True)
-        logger.info(f"Navitaire existence filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)} flights not in Navitaire)")
+        sector_forecast_model_map = get_sector_forecast_model_map()
+        log_memory("after get_sector_forecast_model_map")
+        logger.info(f"sector_forecast_model_map shape: {sector_forecast_model_map.shape}")
+
+        # pre_filter_count = len(mkt_list)
+        # nav_flight_keys = set(
+        #     zip(
+        #         pd.to_datetime(booked_loads['DepartureDate']).dt.normalize(),
+        #         booked_loads['FlightNumber'].astype('int64'),
+        #         booked_loads['Origin'].str.strip(),
+        #         booked_loads['Destination'].str.strip()
+        #     )
+        # )
+        # mkt_list['_nav_key'] = list(zip(
+        #     pd.to_datetime(mkt_list['DepartureDate']).dt.normalize() if not pd.api.types.is_datetime64_any_dtype(mkt_list['DepartureDate']) else pd.to_datetime(mkt_list['DepartureDate']),
+        #     mkt_list['FlightNumber'].astype('int64'),
+        #     mkt_list['Origin'].str.strip(),
+        #     mkt_list['Destin'].str.strip()
+        # ))
+        # mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
+        # mkt_list = mkt_list.reset_index(drop=True)
+        # log_memory("after nav existence filter")
+        # logger.info(f"mkt_list after nav filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)})")
         markets_count = mkt_list.shape[0]
 
         mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map)
-        print(len(mkt_list), " forecast_plf_list")
+        log_memory("after left_join_forecast")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
-        print(len(mkt_list), " booked_loads")
+        log_memory("after merge booked_loads")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
-        print(len(mkt_list), " seats_sold_pivot")
+        log_memory("after merge seats_sold_pivot")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
-        print(len(mkt_list), " rbd_pivot")
+        log_memory("after merge rbd_pivot")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
-        print(len(mkt_list), " series_seats_data")
+        log_memory("after merge series_seats_data")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
-        print(len(mkt_list), " daily_flights")
+        log_memory("after merge daily_flights")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
-        print(len(mkt_list), " opening_rbds")
+        log_memory("after merge opening_rbds")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
-        print(len(mkt_list), " bookings_count")
+        log_memory("after merge bookings_count")
+        logger.info(f"FINAL mkt_list shape: {mkt_list.shape}")
+        logger.info(f"FINAL mkt_list columns: {list(mkt_list.columns)}")
         
     elif route_type == "connections":
         navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL, configsettings.NAV_OCP_SUBSCRIPTION_KEY, configsettings.NAV_USERNAME, configsettings.NAV_PWD, configsettings.NAV_DOMAIN)
