@@ -807,8 +807,27 @@ def clean_markets_optimized(market_list_df, w0_df,nav_helper):
 def fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='standard'):
     log_time.start()
     try:
-        # Fetch using retry mechanism
-        market_list_filter = {}
+        # Fetch using retry mechanism - filter by NDO date range overlap
+        # Only fetch records where PerEnd >= start_period AND PerStart <= end_period
+        # PerStart/PerEnd are stored as MM/DD/YYYY strings, so use $dateFromString for comparison
+        market_list_filter = {
+            '$expr': {
+                '$and': [
+                    {
+                        '$gte': [
+                            {'$dateFromString': {'dateString': '$PerEnd', 'format': '%m/%d/%Y'}},
+                            {'$dateFromString': {'dateString': start_period, 'format': '%Y-%m-%d'}}
+                        ]
+                    },
+                    {
+                        '$lte': [
+                            {'$dateFromString': {'dateString': '$PerStart', 'format': '%m/%d/%Y'}},
+                            {'$dateFromString': {'dateString': end_period, 'format': '%Y-%m-%d'}}
+                        ]
+                    }
+                ]
+            }
+        }
         if market_list_table != "market_list" and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
