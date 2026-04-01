@@ -99,7 +99,7 @@ class CleanUpConfig:
         else:
             raise ValueError(f"Unsupported date type: {type(date_value)}")
 
-    def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3, date_format='%Y-%m-%d %H:%M:%S', batch_size=1000):
+    def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3, date_format='%Y-%m-%d %H:%M:%S', batch_size=20000):
         """Archive data to S3 and/or archive database before deletion with memory-optimized batching"""
         try:
             if not is_archive_db and not is_archive_s3:
