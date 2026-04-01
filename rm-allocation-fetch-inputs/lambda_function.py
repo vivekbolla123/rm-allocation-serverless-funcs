@@ -939,25 +939,31 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
     try:
-        document = {
-            'run_id': run_id,
-            'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'user': username,
-            'dtd_start': start_interval,
-            'dtd_end': end_interval,
-            'Curves': table_versions.get('Curves'),
-            'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
-            'market_list': table_versions.get('market_list'),
-            'Fares': table_versions.get('Fares'),
-            'type': type,
-            'market_list_name': table_versions.get('market_list_name'),
-            'is_connections_required': is_connections_required,
-            'update_navitaire_method': update_navitaire_method,
-            'is_run_completed': '0',
-            'region': region,
-            'marketListCount': count
+        update_doc = {
+            '$setOnInsert': {
+                'run_id': run_id,
+                'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'user': username,
+                'dtd_start': start_interval,
+                'dtd_end': end_interval,
+                'Curves': table_versions.get('Curves'),
+                'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
+                'market_list': table_versions.get('market_list'),
+                'Fares': table_versions.get('Fares'),
+                'type': type,
+                'market_list_name': table_versions.get('market_list_name'),
+                'is_connections_required': is_connections_required,
+                'update_navitaire_method': update_navitaire_method,
+                'is_run_completed': '0',
+                'region': region
+            },
+            '$inc': {'marketListCount': count}
         }
-        mongo_insert_with_retry('allocation_run_audit', document)
+        mongo_db['allocation_run_audit'].update_one(
+            {'run_id': run_id},
+            update_doc,
+            upsert=True
+        )
     except Exception as e:
         logger.info(e)
     finally:
@@ -1715,13 +1721,16 @@ def lambda_handler(event, context):
     
     # Proceed with SQS
     start_time = datetime.now()
-    run_id = str(uuid4())
+    run_id = data.get('run_id') or str(uuid4())
+    overall_start = data.get('overall_start', start_interval)
+    overall_end = data.get('overall_end', end_interval)
+
     log_time.update_run_id(run_id)
 
-    del_stack_df = get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id)
+    del_stack_df = get_run_operation_log_data(overall_start, overall_end, market_list_table, update_navitaire_method, region, type, run_id)
 
     if not del_stack_df.empty:
-        insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
+        insert_deleted_run(start_time, run_id, overall_start, overall_end, market_list_table, username, type, update_navitaire_method, region, markets_count)
         logger.info(f"Skipping run: {run_id}")
         log_time.send_time_log_db()
         return {
@@ -1729,15 +1738,26 @@ def lambda_handler(event, context):
             'body': -1
         }
 
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
+    insert_run_start(start_time, run_id, overall_start, overall_end, market_list_table,
                      username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
+    cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.expire(KEY_B2B_PENDING_COUNT + run_id, 86400)
+    
+    cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.expire(KEY_B2C_PENDING_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2B_READY_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2B_READY_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2C_READY_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2C_READY_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2B_DONE_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2B_DONE_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2C_DONE_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2C_DONE_COUNT + run_id, 86400)
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,

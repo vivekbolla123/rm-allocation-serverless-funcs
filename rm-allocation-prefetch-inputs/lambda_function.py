@@ -5,6 +5,7 @@ import json
 import pytz
 import pandas as pd
 from datetime import datetime, timedelta
+import uuid
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 import configsettings
@@ -74,8 +75,9 @@ def count_records_per_ndo(market_list_table, start_period, end_period):
     """
     ist = pytz.timezone('Asia/Kolkata')
     curr_date = datetime.now(ist).date()
-    start_dt = datetime.strptime(start_period, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_period, "%Y-%m-%d")
+    # Use UTC-aware datetimes so MongoDB $gte/$lte aligns with UTC-midnight stored dates
+    start_dt = pytz.utc.localize(datetime.strptime(start_period, "%Y-%m-%d"))
+    end_dt = pytz.utc.localize(datetime.strptime(end_period, "%Y-%m-%d"))
 
     pipeline = [
         # Parse PerStart string to date
@@ -118,7 +120,9 @@ def count_records_per_ndo(market_list_table, start_period, end_period):
 
     # Convert to DataFrame and compute NDO
     counts_df = pd.DataFrame(results)
-    counts_df['ndo'] = counts_df['_id'].apply(lambda d: (d.date() - curr_date).days)
+    counts_df['ndo'] = counts_df['_id'].apply(
+        lambda d: (pytz.utc.localize(d).astimezone(ist).date() - curr_date).days
+    )
     counts_df = counts_df[['ndo', 'record_count']].sort_values('ndo').reset_index(drop=True)
 
     logger.info(f"Total NDO days with records: {len(counts_df)}, total records: {counts_df['record_count'].sum()}")
@@ -186,9 +190,17 @@ def lambda_handler(event, context):
     """
     logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
 
+    # Unwrap nested body if event came from SQS/EventBridge wrapping
+    if 'body' in event and isinstance(event['body'], str):
+        event = json.loads(event['body'])
+    elif 'body' in event and isinstance(event['body'], dict):
+        event = event['body']
+
+    logger.info(f"Parsed event body: {json.dumps(event)}")
+
     # Parse input
-    overall_start = int(event.get('overall_start_interval', 0))
-    overall_end = int(event.get('overall_end_interval', 90))
+    overall_start = int(event.get('start_interval', 0))
+    overall_end = int(event.get('end_interval', 7))
     market_list_table = event.get('market_list_table_name', 'market_list')
 
     # Read config
@@ -223,15 +235,16 @@ def lambda_handler(event, context):
     chunks = bin_ndo_into_chunks(counts_df, chunk_size)
     logger.info(f"Created {len(chunks)} chunks from {len(counts_df)} NDO days")
 
-    # Step 3: Build base payload (pass through all original fields except overall_*)
-    base_payload = {}
-    passthrough_keys = [
-        'market_list_table_name', 'run_type', 'region_method',
-        'update_navitaire_method', 'route_type', 'cug_alloc', 'mongodb'
-    ]
-    for key in passthrough_keys:
-        if key in event:
-            base_payload[key] = event[key]
+    # Step 3: Build base payload — pass through ALL fields from the event,
+    # only strip the interval keys (those will be set per-chunk below)
+    PREFETCH_ONLY_KEYS = {'start_interval', 'end_interval'}
+    base_payload = {k: v for k, v in event.items() if k not in PREFETCH_ONLY_KEYS}
+
+    # Generate a single run_id to trace all chunks together
+    run_id = base_payload.get('run_id') or str(uuid.uuid4())
+    base_payload['run_id'] = run_id
+    base_payload['overall_start'] = overall_start
+    base_payload['overall_end'] = overall_end
 
     # Step 4: Send one SQS message per chunk
     for i, chunk in enumerate(chunks):
@@ -263,3 +276,19 @@ def lambda_handler(event, context):
             'chunks': chunks
         })
     }
+
+
+# if __name__ == "__main__":
+#     # For local testing; adjust event as needed
+#     event = {
+#         "body": json.dumps({
+#             "start_interval": 0,
+#             "end_interval": 7,
+#             "market_list_table_name": "market_list",
+#             "run_type": "Scheduled",
+#             "cug_alloc":0
+#         })
+#     }
+#     context = {}
+#     result = lambda_handler(event, context)
+#     print(result)
