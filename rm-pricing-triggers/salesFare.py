@@ -422,7 +422,7 @@ class SalesFare:
                     try:
                         audit_table = self.pa_helper.save_run_audit(
                             self.analystName, self.currVersion, run_id, 
-                            output_df, status, failure_reason
+                            output_df, status, failure_reason, key_val=key_val
                         )
                         if audit_table:
                             self.logger.info(f"Audit saved for key '{key_val}' to {audit_table}")
