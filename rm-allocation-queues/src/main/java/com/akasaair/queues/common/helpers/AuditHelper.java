@@ -83,6 +83,7 @@ public class AuditHelper {
                 log.info("Audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
 
                 for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                    log.info("Audit batch {}/{}: started", batchIdx + 1, totalBatches);
                     int fromIndex = batchIdx * AUDIT_PIPELINE_BATCH_SIZE;
                     int toIndex = Math.min(fromIndex + AUDIT_PIPELINE_BATCH_SIZE, totalRecords);
                     List<MarketListEntity> batch = newRecords.subList(fromIndex, toIndex);
@@ -268,6 +269,7 @@ public class AuditHelper {
                 log.info("Connection audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
 
                 for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                    log.info("Connection audit batch {}/{}: started", batchIdx + 1, totalBatches);
                     int fromIndex = batchIdx * AUDIT_PIPELINE_BATCH_SIZE;
                     int toIndex = Math.min(fromIndex + AUDIT_PIPELINE_BATCH_SIZE, totalRecords);
                     List<MarketListConnectionsEntity> batch = newRecords.subList(fromIndex, toIndex);
@@ -297,7 +299,6 @@ public class AuditHelper {
                     log.info("Connection audit batch {}/{}: completed", batchIdx + 1, totalBatches);
                 }
 
-                log.info("All connection audit batches completed successfully");
             } catch (Throwable e) {
                 log.error("Error processing connection audit delta: {}", e.getMessage(), e);
             }

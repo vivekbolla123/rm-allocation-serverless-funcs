@@ -3625,6 +3625,7 @@ public class App implements CommandLineRunner {
      */
     private static final int BULK_INSERT_BATCH_SIZE = 5000;
     private static final int DELETE_BATCH_SIZE = 5000;
+    private static final int LOG_EVERY_N_RECORDS = 50000;
 
     public void bulkInsertIntoMarketList(List<MarketListEntity> entities, String collectionName) {
         Date now = new Date();
@@ -3799,6 +3800,7 @@ public class App implements CommandLineRunner {
 
             int totalRecords = entities.size();
             int totalBatches = (int) Math.ceil((double) totalRecords / DELETE_BATCH_SIZE);
+            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / DELETE_BATCH_SIZE);
             long totalDeleted = 0;
 
             for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
@@ -3815,7 +3817,9 @@ public class App implements CommandLineRunner {
                 DeleteResult result = collection.deleteMany(filter);
                 totalDeleted += result.getDeletedCount();
 
-                log.info("{} delete batch {}/{}: removed {} documents", label, batchIdx + 1, totalBatches, result.getDeletedCount());
+                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
+                    log.info("{} delete progress {}/{} batches, {} deleted so far", label, batchIdx + 1, totalBatches, totalDeleted);
+                }
             }
 
             log.info("Total deleted {} {} records from {}", totalDeleted, label, collectionName);
@@ -3843,6 +3847,8 @@ public class App implements CommandLineRunner {
 
             int totalRecords = entities.size();
             int totalBatches = (int) Math.ceil((double) totalRecords / BULK_INSERT_BATCH_SIZE);
+            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / BULK_INSERT_BATCH_SIZE);
+            long totalInserted = 0;
 
             for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
                 int fromIndex = batchIdx * BULK_INSERT_BATCH_SIZE;
@@ -3855,8 +3861,14 @@ public class App implements CommandLineRunner {
                 }
 
                 collection.insertMany(docs);
-                log.info("{} insert batch {}/{}: inserted {} documents", label, batchIdx + 1, totalBatches, docs.size());
+                totalInserted += docs.size();
+
+                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
+                    log.info("{} insert progress {}/{} batches, {} inserted so far", label, batchIdx + 1, totalBatches, totalInserted);
+                }
             }
+
+            log.info("Total inserted {} {} records into {}", totalInserted, label, collectionName);
         } catch (Exception e) {
             error_occurred.set(1);
             log.error("Bulk insert of {} into {} failed: {}", label, collectionName, e.getMessage());
