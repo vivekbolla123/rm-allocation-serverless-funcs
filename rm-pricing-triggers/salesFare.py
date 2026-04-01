@@ -350,54 +350,93 @@ class SalesFare:
     def run(self):
         """
         Main processing method to collect data and generate output.
+        Groups input by 'key' column and produces a separate output per key.
         """
-        run_id = str(uuid.uuid4())
         self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
-        status = 'SUCCESS'
-        output_df = None
+        all_outputs = []
         
         try:
-            self.logger.info(f"Starting sales fare processing... Run ID: {run_id}")
+            self.logger.info("Starting sales fare processing...")
             
             # Collect data (includes validation)
             self.collect_data()
             
-            # Pass additional context needed for parsing
-            context = {
-                'parse_sector': self.parse_sector,
-                'split_date_range_by_blackouts': self.split_date_range_by_blackouts,
-                'sales_fares_data': self.sales_fares_data
-            }
+            if self.sales_fares_data is None or self.sales_fares_data.empty:
+                raise ValueError("No sales fare data available to process")
             
-            # Generate output and save to database with run_id
-            output_df = self.pa_helper.generate_output_data(run_id, context)
+            # Get unique keys - each key produces a separate output
+            if 'key' not in self.sales_fares_data.columns:
+                # Fallback: no key column, process all as single output
+                unique_keys = ['default']
+                self.sales_fares_data['key'] = 'default'
+            else:
+                unique_keys = self.sales_fares_data['key'].fillna('default').unique().tolist()
             
-            self.logger.info("Sales fare processing completed successfully")
+            self.logger.info(f"Found {len(unique_keys)} unique key(s): {unique_keys}")
             
-        except ValueError as ve:
-            # Validation errors - these are user-fixable data issues
-            status = 'FAILED'
-            self.failure_reason = f"Validation error: {str(ve)}"
-            self.logger.error(f"Validation failed: {str(ve)}")
+            # Process each key group separately
+            for key_val in unique_keys:
+                run_id = str(uuid.uuid4())
+                status = 'SUCCESS'
+                output_df = None
+                failure_reason = None
+                
+                try:
+                    self.logger.info(f"Processing key '{key_val}' with Run ID: {run_id}")
+                    
+                    # Filter data for this key
+                    key_data = self.sales_fares_data[
+                        self.sales_fares_data['key'].fillna('default') == key_val
+                    ].copy()
+                    
+                    self.logger.info(f"Key '{key_val}' has {len(key_data)} input rows")
+                    
+                    # Pass filtered data in context
+                    context = {
+                        'parse_sector': self.parse_sector,
+                        'split_date_range_by_blackouts': self.split_date_range_by_blackouts,
+                        'sales_fares_data': key_data
+                    }
+                    
+                    # Generate output for this key group
+                    output_df = self.pa_helper.generate_output_data(run_id, context)
+                    
+                    if output_df is not None and not output_df.empty:
+                        all_outputs.append(output_df)
+                    
+                    self.logger.info(f"Key '{key_val}' processing completed successfully")
+                    
+                except ValueError as ve:
+                    status = 'FAILED'
+                    failure_reason = f"Validation error for key '{key_val}': {str(ve)}"
+                    self.logger.error(failure_reason)
+                    
+                except Exception as e:
+                    status = 'FAILED'
+                    failure_reason = f"Processing failed for key '{key_val}': {str(e)}"
+                    self.logger.error(failure_reason)
+                    self.logger.error(traceback.format_exc())
+                
+                finally:
+                    # Save audit for this key's run
+                    try:
+                        audit_table = self.pa_helper.save_run_audit(
+                            self.analystName, self.currVersion, run_id, 
+                            output_df, status, failure_reason
+                        )
+                        if audit_table:
+                            self.logger.info(f"Audit saved for key '{key_val}' to {audit_table}")
+                    except Exception as audit_error:
+                        self.logger.error(f"Failed to save audit for key '{key_val}': {str(audit_error)}")
+            
+            self.logger.info(f"Sales fare processing completed. Generated {len(all_outputs)} output(s) from {len(unique_keys)} key(s)")
             
         except Exception as e:
-            # Other errors - system/code issues
-            status = 'FAILED'
-            if not self.failure_reason:
-                self.failure_reason = f"Processing failed: {str(e)}"
             self.logger.error(f"Error in sales fare processing: {str(e)}")
             self.logger.error(traceback.format_exc())
+            raise
         
-        finally:
-            # Save audit regardless of success or failure
-            try:
-                audit_table = self.pa_helper.save_run_audit(self.analystName, self.currVersion, run_id, output_df, status, self.failure_reason)
-                if audit_table:
-                    self.logger.info(f"Audit saved to {audit_table}")
-            except Exception as audit_error:
-                self.logger.error(f"Failed to save audit: {str(audit_error)}")
-            
-            if status == 'FAILED':
-                raise Exception(self.failure_reason)
-        
-        return output_df
+        # Return combined output (or None if no outputs)
+        if all_outputs:
+            return pd.concat(all_outputs, ignore_index=True)
+        return None
