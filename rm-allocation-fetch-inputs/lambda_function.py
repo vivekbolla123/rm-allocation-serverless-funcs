@@ -1160,8 +1160,16 @@ def lambda_handler(event, context):
     mongodb_key = "mongodb"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
-    body = event['body']
-    data = json.loads(body)
+
+    # SQS trigger from prefetchLambda vs direct API call (Adhoc)
+    if 'Records' in event:
+        # triggered by SQS from prefetchLambda
+        body = event['Records'][0]['body']
+        data = json.loads(json.loads(body)['body'])
+    else:
+        # direct API call (Adhoc) — unchanged
+        body = event['body']
+        data = json.loads(body)
 
     # Defaults
     start_interval = 30
