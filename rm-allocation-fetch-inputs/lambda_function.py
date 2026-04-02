@@ -955,7 +955,9 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
                 'is_connections_required': is_connections_required,
                 'update_navitaire_method': update_navitaire_method,
                 'is_run_completed': '0',
-                'region': region
+                'region': region,
+                'batch_completed': 0,
+                'total_batch_size': 0
             },
             '$inc': {'marketListCount': count}
         }
@@ -1081,11 +1083,10 @@ def update_run_with_batches(total_batches, run_id):
         mongo_update_with_retry(
             'allocation_run_audit',
             {'run_id': run_id},
-            {'$set': {
-                'total_batch_size': total_batches,
-                'batch_completed': 0,
-                'adhoc_run_status': "IN-QUEUE"
-            }}
+            {
+                '$inc': {'total_batch_size': total_batches},
+                '$set': {'adhoc_run_status': "IN-QUEUE"}
+            }
         )
     except Exception as e:
         logger.info(e)
@@ -1764,43 +1765,57 @@ def lambda_handler(event, context):
                               update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
     else:
         batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
-        for batch_num in range(batches_required[0]):
-            start_idx = batch_num * adhoc_batch_size
-            end_idx = start_idx + adhoc_batch_size
-            batch_df = mkt_list.iloc[start_idx:end_idx]
-            batch_df['runId'] = run_id
-            batch_df['update_navitaire_method'] = update_navitaire_method
-            batch_df['runTime'] = start_time
-            batch_df['route_type'] = route_type
-            batch_df['queue'] = queue_name
-            batch_df['cug_alloc'] = cug_alloc
-            batch_df['mongodb'] = mongodb
-            batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
-            data_to_serialize = batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+        total_number_of_batches = batches_required[0] + (1 if batches_required[1] > 0 else 0)
+        
+        if total_number_of_batches > 0:
+            for batch_num in range(batches_required[0]):
+                start_idx = batch_num * adhoc_batch_size
+                end_idx = start_idx + adhoc_batch_size
+                batch_df = mkt_list.iloc[start_idx:end_idx]
+                batch_df['runId'] = run_id
+                batch_df['update_navitaire_method'] = update_navitaire_method
+                batch_df['runTime'] = start_time
+                batch_df['route_type'] = route_type
+                batch_df['queue'] = queue_name
+                batch_df['cug_alloc'] = cug_alloc
+                batch_df['mongodb'] = mongodb
+                batch_df['saleinvflag'] = salesinv
+                
+                # Atomically get sequential batch id across concurrent fetch-inputs invocations
+                counter_key = f"adhoc_batch_counter_{run_id}"
+                batch_id = cache_client.incr(counter_key)
+                cache_client.expire(counter_key, 86400)
+                
+                temp_name = f"adhoc_stack_{run_id}_batch_{batch_id}"
+                data_to_serialize = batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        if batches_required[1] > 0:
-            last_batch_df = mkt_list.iloc[-batches_required[1]:]
-            last_batch_df['runId'] = run_id
-            last_batch_df['update_navitaire_method'] = update_navitaire_method
-            last_batch_df['runTime'] = start_time
-            last_batch_df['route_type'] = route_type
-            last_batch_df['queue'] = queue_name
-            last_batch_df['cug_alloc'] = cug_alloc
-            last_batch_df['mongodb'] = mongodb
-            last_batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
-            data_to_serialize = last_batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+            if batches_required[1] > 0:
+                last_batch_df = mkt_list.iloc[-batches_required[1]:]
+                last_batch_df['runId'] = run_id
+                last_batch_df['update_navitaire_method'] = update_navitaire_method
+                last_batch_df['runTime'] = start_time
+                last_batch_df['route_type'] = route_type
+                last_batch_df['queue'] = queue_name
+                last_batch_df['cug_alloc'] = cug_alloc
+                last_batch_df['mongodb'] = mongodb
+                last_batch_df['saleinvflag'] = salesinv
+                
+                counter_key = f"adhoc_batch_counter_{run_id}"
+                batch_id = cache_client.incr(counter_key)
+                cache_client.expire(counter_key, 86400)
+                
+                temp_name = f"adhoc_stack_{run_id}_batch_{batch_id}"
+                data_to_serialize = last_batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        update_run_with_batches(batches_required[0] + (1 if batches_required[1] > 0 else 0), run_id)
+            update_run_with_batches(total_number_of_batches, run_id)
 
     end_time = datetime.now()
     logger.info(run_log)
