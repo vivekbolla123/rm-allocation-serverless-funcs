@@ -8,3 +8,4 @@ requests==2.32.5
 mysql-connector-python
 pymysql
 pymongo
+psutil

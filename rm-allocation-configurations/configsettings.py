@@ -80,6 +80,7 @@ if env == 'prod':
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds"
     PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-pricing-triggers"
+    FETCH_INPUTS_TRIGGER_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues-rm-allocation-fetch-inputs"
     NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     NAV_DB_USER = "0KODSUSER2"
@@ -168,6 +169,7 @@ if env == 'uat':
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds"
     PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-pricing-triggers"
+    FETCH_INPUTS_TRIGGER_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-fetch-inputs"
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"
     RM_CACHE_ENDPOINT = "ip-172-24-72-8.ap-south-1.compute.internal"
@@ -223,7 +225,7 @@ if env == 'uat':
     SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     MONGO_USERNAME = "testuser"
     MONGO_DB = "qp_dw_rmalloc"
-    MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
+    MONGO_PASSWORD = "testpassword"
     MONGO_URL = "172.24.72.35"
     MONGO_AUTH_SOURCE="admin"
 
@@ -248,6 +250,7 @@ if env == 'preprod':
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-allocation-rbds"
     PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues_rm-pricing-triggers"
+    FETCH_INPUTS_TRIGGER_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/preprod-rm-allocation-queues-rm-allocation-fetch-inputs"
     NAV_API_URL="https://8trj4yffqf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://dotrezapi.prod.0k.navitaire.com/0k/dotrez"
     NAV_DB_USER = "0KODSUSER2"
