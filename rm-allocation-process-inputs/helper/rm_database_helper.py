@@ -725,6 +725,17 @@ class RMDatabaseHelper:
                 self.logger.error(e)
                 return False
 
+    def format_date_to_mm_dd_yyyy(self, date_val):
+        try:
+            if date_val is None or pd.isna(date_val):
+                return date_val
+            date_str = str(date_val)
+            if len(date_str) == 10 and date_str[2] == '/' and date_str[5] == '/':
+                return date_str
+            return pd.to_datetime(date_str).strftime('%m/%d/%Y')
+        except Exception:
+            return date_val
+
     def insertSummaryRow(self, allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocResults[-1]
@@ -734,7 +745,7 @@ class RMDatabaseHelper:
                 "Origin": latest_row.Origin,
                 "Destin": latest_row.Destin,
                 "FltNum": latest_row.FltNum,
-                "DepDate": latest_row.DepDate,
+                "DepDate": self.format_date_to_mm_dd_yyyy(latest_row.DepDate),
                 "BookedLoad": latest_row.BookedLoad,
                 "TgtLoad": latest_row.TgtLoad,
                 "MktFare_Min": str(latest_row.MktFare_Min),
@@ -2095,8 +2106,8 @@ class RMDatabaseHelper:
                 "Sector2": latest_row.Sector2,
                 "FltNum1": str(latest_row.FltNum1),
                 "FltNum2": str(latest_row.FltNum2),
-                "DepDate1": latest_row.DepDate1,
-                "DepDate2": latest_row.DepDate2,
+                "DepDate1": self.format_date_to_mm_dd_yyyy(latest_row.DepDate1),
+                "DepDate2": self.format_date_to_mm_dd_yyyy(latest_row.DepDate2),
                 "BookedLoad": str(latest_row.BookedLoad),
                 "BookedLoad1": str(latest_row.Bookedload1),
                 "SellingFare1": str(latest_row.SellingFare1),
