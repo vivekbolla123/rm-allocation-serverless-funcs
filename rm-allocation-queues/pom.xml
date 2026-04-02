@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.10</version>
+        <version>3.5.12</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
@@ -35,7 +35,7 @@
         <!-- jackson: 2.21.1 (overridden for security - GHSA-72hv-8253-57qq DoS via async parser) -->
         <jackson-bom.version>2.21.1</jackson-bom.version>
         <!-- Updated for security - fixes MadeYouReset DDoS, CRLF injection, SSL verification CVEs -->
-        <netty.version>4.1.129.Final</netty.version>
+        <netty.version>4.1.132.Final</netty.version>
         <!-- Updated for security - fixes GHSA-jwp6-cvj8-fw65 (History Server RCE) -->
         <spark.version>3.5.7</spark.version>
         <avro.version>1.11.4</avro.version>
