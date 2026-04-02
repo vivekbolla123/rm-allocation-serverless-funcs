@@ -550,7 +550,7 @@ class ScheduleThirty:
         """Invoke Lambda function."""
         try:
             lambda_client = boto3.client('lambda')
-            lambda_function_name = configsettings.FETCH_INPUTS_LAMBDA
+            lambda_function_name = configsettings.PREFETCH_INPUTS_LAMBDA
             
             payload = {
                 "body": json.dumps({
