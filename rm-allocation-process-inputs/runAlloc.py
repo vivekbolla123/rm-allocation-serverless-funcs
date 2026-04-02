@@ -84,6 +84,7 @@ class DynAlloc:
 
 		self.logger.info("**********************************************")
 		self.logger.info("Starting Allocation for row : " + str(mtkIndex+1))
+		self.redishelper.updateRunAuditReady()
 
 		if self.debugMode:
 			self.logger.info(self.currParams)
@@ -138,7 +139,6 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
-					self.redishelper.updateRunAuditReady()
 					break
 				# bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
 				# if FlightNumber == '*':
@@ -171,7 +171,6 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
-					self.redishelper.updateRunAuditReady()
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
@@ -204,7 +203,6 @@ class DynAlloc:
 								self.allocResults.append(self.outputSummaryRow_b2b)
 								self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 								self.redishelper.updateRunAudit()
-								self.redishelper.updateRunAuditReady()
 							else:
 								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
 								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoadPercent)
@@ -232,7 +230,6 @@ class DynAlloc:
 							self.allocResults.append(self.outputSummaryRow_b2b)
 							self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 							self.redishelper.updateRunAudit()
-							self.redishelper.updateRunAuditReady()
 					else:
 						# Cannot get a reference curve - Abort
 						self.logger.info("Unable to get a Target - Check the booking curves")
@@ -256,7 +253,6 @@ class DynAlloc:
 						self.allocResults.append(self.outputSummaryRow_b2b)
 						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 						self.redishelper.updateRunAudit()	
-						self.redishelper.updateRunAuditReady()
 		except Exception as e:
 			self.logger.info("Exception occurred")
 			traceback.print_exc()
@@ -867,7 +863,7 @@ class DynAlloc:
 			else: 
 				openDataB2C_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data & L7D Avg NA'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [0]}
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2C Mkt Data NA - Skip B2B'], 'anchorFare': [CONST_NA], 'statusInd': [3], 'allocationStatus': [0]}
-				self.redishelper.updateRunAudit(); self.redishelper.updateRunAuditReady()
+				self.redishelper.updateRunAudit();
 
 			# --- AU Grid Allocation (Full Mode) ---
 			currRec_fullalloc = AuGridRow(self.AU_COLUMN_LENGTH) # AU_COLUMN_LENGTH from _initialize_params
@@ -1101,7 +1097,6 @@ class DynAlloc:
 			if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
 			else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
 
-			self.redishelper.updateRunAuditReady()
 		else: # Skipped due to DOW or flight number mismatch (Full Allocation Mode)
 			# Check for specific DOW '9' for audit update
 			dow_char_to_check = ''
@@ -1110,7 +1105,6 @@ class DynAlloc:
 
 			if dow_char_to_check == "9":
 				self.redishelper.updateRunAudit()
-				self.redishelper.updateRunAuditReady()
 			self.logger.info(f"Run Parameters requested to skip this flight-day (Flt: {currFlt}, DOW_int: {dow}, DOW_char_in_param: '{dow_char_to_check}') in Full Allocation Mode.")
 
 	def w_rbd_allocation(self, currRec, brd_counter):
