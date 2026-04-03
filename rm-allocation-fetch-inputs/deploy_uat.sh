@@ -4,7 +4,7 @@ cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 
-docker image build --no-cache -t test-rm-allocation-fetch-inputs-image --build-arg ENVN=uat  .
+docker image build --no-cache -t test-rm-allocation-fetch-inputs-image --build-arg ENVN=uat --build-arg DD_SERVICE_NAME=uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs  .
 
 docker tag test-rm-allocation-fetch-inputs-image 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs:latest
 

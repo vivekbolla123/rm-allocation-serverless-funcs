@@ -64,6 +64,8 @@ param_names = [
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
 
+os.environ['DD_API_KEY'] = credentials.get('/rm/' + credenv + '/rm-allocation/DD_API_KEY', '')
+
 
 if env == 'prod':
     RM_DB_APPUSER_USERNAME = "rmappuser"

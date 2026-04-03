@@ -4,7 +4,7 @@ cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 
-docker image build --no-cache -t preprod-rm-alloc-fetch-inputs --build-arg ENVN=preprod  .
+docker image build --no-cache -t preprod-rm-alloc-fetch-inputs --build-arg ENVN=preprod --build-arg DD_SERVICE_NAME=preprod-rm-alloc-fetch-inputs  .
 
 docker tag preprod-rm-alloc-fetch-inputs 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-fetch-inputs:latest
 
