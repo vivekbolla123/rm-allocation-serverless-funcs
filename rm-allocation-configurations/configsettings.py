@@ -1,4 +1,4 @@
-from os import getenv
+from os import getenv, environ
 from boto3 import client
 
 def get_multiple_credentials(parameter_names):
@@ -65,7 +65,7 @@ param_names = [
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
 
-os.environ['DD_API_KEY'] = credentials.get(f'/rm/{creenv}/rm-allocation/DD_API_KEY', '')
+environ['DD_API_KEY'] = credentials.get(f'/rm/{creenv}/rm-allocation/DD_API_KEY', '')
 
 
 if env == 'prod':
