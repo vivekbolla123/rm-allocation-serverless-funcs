@@ -60,6 +60,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.text.SimpleDateFormat;
@@ -364,16 +365,18 @@ public class App implements CommandLineRunner {
         int rNum = numOfRows.get();
         String formattedDuration = "00:00:00";
         LocalDateTime endTime = LocalDateTime.now();
-        try {
-            Duration duration = Duration.between(startTime, endTime);
-            long seconds = duration.getSeconds();
-            long hours = seconds / 3600;
-            long minutes = (seconds % 3600) / 60;
-            long secs = seconds % 60;
-            formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
-        } catch (Exception e) {
-            log.info("Error calculating duration: " + e.getMessage());
-            e.printStackTrace();
+        if (startTime != null) {
+            try {
+                Duration duration = Duration.between(startTime, endTime);
+                long seconds = duration.getSeconds();
+                long hours = seconds / 3600;
+                long minutes = (seconds % 3600) / 60;
+                long secs = seconds % 60;
+                formattedDuration = String.format("%02d:%02d:%02d", hours, minutes, secs);
+            } catch (Exception e) {
+                log.info("Error calculating duration: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
         log.info("Status--->" + status);
 
@@ -399,7 +402,13 @@ public class App implements CommandLineRunner {
     }
 
     private void deleteS3Object(String finalKey) {
-        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), 20).equalsIgnoreCase("locals")) {
+        if (finalKey == null || finalKey.length() < 20 || S3_FILE_PATH_NAME == null || S3_FILE_PATH_NAME.length() > finalKey.length()) {
+            log.warn("Invalid key or path for S3 deletion: {}", finalKey);
+            return;
+        }
+        // CWE-476/CWE-125: Ensure substring end index does not exceed key length
+        int substringEnd = Math.min(S3_FILE_PATH_NAME.length() + 6, finalKey.length());
+        if (!finalKey.substring(S3_FILE_PATH_NAME.length(), substringEnd).equalsIgnoreCase("locals")) {
             s3Client.deleteObject(DeleteObjectRequest.builder()
                     .bucket(S3_BUCKET_NAME)
                     .key(finalKey)
@@ -410,6 +419,12 @@ public class App implements CommandLineRunner {
     private void insertAndValidatedBasedOnTableName(String bucketName, String key, String obj_id, String tableName,
                                                      String table, Object role_obj, String userName, String adhocUsername,
                                                     String routeString, String status) throws Exception {
+        if (tableName == null) {
+            error_occurred.set(1);
+            listOfErrors.get().add("Table name is null. Cannot process file.");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            return;
+        }
         try {
             switch (tableName) {
                 case MARKET_LIST_TABLE_NAME, MARKET_LIST_INTERNATIONAL_TABLE_NAME, MARKET_LIST_ADHOC_TABLE_NAME,
@@ -509,7 +524,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadStrategyGridFile(reader, userName, obj_id);
@@ -549,7 +564,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadProfileFaresFile(reader, userName, obj_id);
@@ -589,7 +604,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadAutoB2BGridFile(reader, userName, obj_id);
@@ -628,7 +643,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadPartialDateEvent(reader, userName, obj_id);
@@ -668,7 +683,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadDateEventFile(reader, userName, obj_id, UploadFileType.DISTRESS);
@@ -1061,7 +1076,7 @@ public class App implements CommandLineRunner {
 
                         String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
                         long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
-                        numOfRows.set((int) rowCount);
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
                             uploadFile(reader, table, userName, obj_id);
@@ -1448,9 +1463,7 @@ public class App implements CommandLineRunner {
                     deleteRecords(validMarketListEntityList, tableName);
                 }
 
-                for (MarketListEntity marketEntity : validMarketListEntityList) {
-                    insertIntoMarketList(marketEntity, tableName);
-                }
+                bulkInsertIntoMarketList(validMarketListEntityList, tableName);
 
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), uuid);
@@ -1487,6 +1500,10 @@ public class App implements CommandLineRunner {
 
         for (int rowIndex = 1; rowIndex < csvData.size(); rowIndex++) {
             List<String> row = csvData.get(rowIndex);
+            if (row.size() < 6) {
+                listOfErrors.get().add("Line " + (rowIndex + 1) + ": Insufficient columns (expected at least 6, found " + row.size() + ")");
+                continue;
+            }
             LocalDate startDate = LocalDate.parse(row.get(3), DATE_FORMATTER);
             LocalDate endDate = LocalDate.parse(row.get(4), DATE_FORMATTER);
             String dowPattern = row.get(5);
@@ -1525,6 +1542,10 @@ public class App implements CommandLineRunner {
 
     private static void addRowWithDuplicateCheck(List<List<String>> result, Set<String> uniqueKeys, List<String> row,
                                                  int rowIndex) {
+        if (row.size() < 4) {
+            listOfErrors.get().add("Line " + (rowIndex + 1) + ": Insufficient columns for duplicate check (expected at least 4, found " + row.size() + ")");
+            return;
+        }
         String key = row.get(0) + "|" + row.get(1) + "|" + row.get(2) + "|" + row.get(3);
         if (!uniqueKeys.add(key)) {
             listOfErrors.get().add("Duplicate record found at Line" + (rowIndex + 1) + ": " + key);
@@ -2378,7 +2399,7 @@ public class App implements CommandLineRunner {
         List<Map<String, String>> data = new ArrayList<>();
         for (List<String> singleCsvData : csvData) {
             Map<String, String> map = new HashMap<>();
-            for (int i = 0; i < headers.size(); i++) {
+            for (int i = 0; i < headers.size() && i < singleCsvData.size(); i++) {
                 map.put(headers.get(i), singleCsvData.get(i));
             }
             data.add(map);
@@ -2387,18 +2408,25 @@ public class App implements CommandLineRunner {
     }
 
     private List<Map<String, String>> createListOfMapSeriesBlock(List<List<String>> csvData) {
+        if (csvData == null || csvData.isEmpty()) {
+            return new ArrayList<>();
+        }
         List<String> headers = csvData.get(0);
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
         DateTimeFormatter inputFormatter = DateTimeFormatter.ofPattern("MM/dd/yyyy");
         DateTimeFormatter outputFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (List<String> singleCsvData : csvData) {
+            // CWE-125: Bounds check before accessing index 0
+            if (singleCsvData.isEmpty()) {
+                continue;
+            }
             String inputDate = singleCsvData.get(0);
 
             LocalDate date = LocalDate.parse(inputDate, inputFormatter);
             String departureDate = date.format(outputFormatter);
 
-            for (int i = 1; i < singleCsvData.size(); i++) {
+            for (int i = 1; i < singleCsvData.size() && i < headers.size(); i++) {
                 Map<String, String> map = new HashMap<>();
                 map.put("DepartureDate", departureDate);
                 map.put("OrgCode", headers.get(i));
@@ -2488,7 +2516,6 @@ public class App implements CommandLineRunner {
                                                 String obj_id) {
         List<String> methodScopedErrors = new ArrayList<>();
         List<MarketListConnectionsEntity> validMarketListConnectionsEntityList = new ArrayList<>();
-        int numOfRowsProcessed = 0;
 
         try {
             List<String> permissions = getRoleAccess(role);
@@ -2511,7 +2538,7 @@ public class App implements CommandLineRunner {
             }
 
             List<List<String>> processedCsvData = splitConnectionsRowsByDateRange(rawCsvData, methodScopedErrors);
-            numOfRowsProcessed = processedCsvData.isEmpty() ? 0 : Math.max(0, processedCsvData.size() - 1);
+            numOfRows.set(processedCsvData.isEmpty() ? 0 : Math.max(0, processedCsvData.size() - 1));
 
             for (int i = 1; i < processedCsvData.size(); i++) {
                 List<String> record = processedCsvData.get(i);
@@ -2547,9 +2574,7 @@ public class App implements CommandLineRunner {
                     deleteSpecificConnectionRecords(validMarketListConnectionsEntityList, tableName);
                 }
 
-                for (MarketListConnectionsEntity marketEntity : validMarketListConnectionsEntityList) {
-                    insertIntoMarketListConnections(marketEntity, tableName);
-                }
+                bulkInsertIntoMarketListConnections(validMarketListConnectionsEntityList, tableName);
 
                 s3FileStorageDao.storeFile(createCSV(tableName), tableName, auditUuid);
                 updateAuditStatement(tableName, getCurrentDateTime(), auditUuid);
@@ -2581,127 +2606,15 @@ public class App implements CommandLineRunner {
 
     private void deleteSpecificConnectionRecords(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
                                                  String collectionName) {
-        if (marketListConnectionsEntityList == null || marketListConnectionsEntityList.isEmpty()) {
-            return;
-        }
-
-        try {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
-
-            // Build single filter with $or for all conditions
-            List<Bson> orConditions = new ArrayList<>();
-            for (MarketListConnectionsEntity entity : marketListConnectionsEntityList) {
-                orConditions.add(and(
-                        eq("Sector1", entity.getSector1()),
-                        eq("Flight1", Integer.parseInt(entity.getFlight1())),
-                        eq("Sector2", entity.getSector2()),
-                        eq("Flight2", Integer.parseInt(entity.getFlight2())),
-                        eq("PerStart", entity.getStartDate())
-                ));
-            }
-
-            // Single delete operation with $or
-            Bson filter = or(orConditions);
-            DeleteResult result = collection.deleteMany(filter);
-
-            System.out.println("Deleted " + result.getDeletedCount() +
-                    " connection records for replacement");
-
-        } catch (Exception e) {
-            error_occurred.set(1);
-            String errorMsg = "Error deleting existing connection records for replacement";
-            log.info(DATABASE_ACCESS_ERROR_MESSAGE + " " + errorMsg);
-            e.printStackTrace();
-            listOfErrors.get().add(errorMsg);
-            // Re-throw to ensure the @Transactional annotation triggers a rollback
-            throw new RuntimeException(errorMsg, e);
-        }
+        batchedDelete(marketListConnectionsEntityList, collectionName, entity -> and(
+                eq("Sector1", entity.getSector1()),
+                eq("Flight1", Integer.parseInt(entity.getFlight1())),
+                eq("Sector2", entity.getSector2()),
+                eq("Flight2", Integer.parseInt(entity.getFlight2())),
+                eq("PerStart", entity.getStartDate())
+        ), "MarketListConnections");
     }
 
-
-    public void insertIntoMarketListConnections(MarketListConnectionsEntity marketListEntity, String collectionName) {
-        try {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
-
-            Document doc = new Document()
-                    .append("Sector1", toIntOrKeepSame(marketListEntity.getSector1()))
-                    .append("Sector2", toIntOrKeepSame(marketListEntity.getSector2()))
-                    .append("Flight1", toIntOrKeepSame(marketListEntity.getFlight1()))
-                    .append("Flight2", toIntOrKeepSame(marketListEntity.getFlight2()))
-                    .append("Pertype", toIntOrKeepSame(marketListEntity.getPerType()))
-                    .append("PerStart", toIntOrKeepSame(marketListEntity.getStartDate()))
-                    .append("PerEnd", toIntOrKeepSame(marketListEntity.getEndDate()))
-                    .append("DOW", toIntOrKeepSame(marketListEntity.getDayOfWeek()))
-                    .append("Price_Strategy", toIntOrKeepSame(marketListEntity.getPriceStrategy()))
-                    .append("Discount_Value", toIntOrKeepSame(marketListEntity.getDiscountValue()))
-                    .append("FirstRBDAlloc", toIntOrKeepSame(marketListEntity.getFirstAllocation()))
-                    .append("OtherRBDAlloc", toIntOrKeepSame(marketListEntity.getOtherAllocation()))
-                    .append("B2BBackstop", toIntOrKeepSame(marketListEntity.getB2bBackstop()))
-                    .append("B2CBackstop", toIntOrKeepSame(marketListEntity.getB2cBackstop()))
-                    .append("B2BFactor", toIntOrKeepSame(marketListEntity.getB2bFactor()))
-                    .append("SkippingFactor", toIntOrKeepSame(marketListEntity.getSkippingFactor()))
-                    .append("analystName", toIntOrKeepSame(marketListEntity.getAnalystName()))
-                    .append("UUID", toIntOrKeepSame(marketListEntity.getUuid()))
-                    .append("Outbound_stop", toIntOrKeepSame(marketListEntity.getOutboundStop()))
-                    .append("Outbound_duration", toIntOrKeepSame(marketListEntity.getOutboundDuration()))
-                    .append("carrierExclusionB2C", toIntOrKeepSame(marketListEntity.getCarrierExclusionB2B()))
-                    .append("carrierExclusionB2B", toIntOrKeepSame(marketListEntity.getCarrierExclusionB2C()))
-                    .append("Currency", toIntOrKeepSame(marketListEntity.getCurrency()))
-                    .append("fareAnchor", toIntOrKeepSame(marketListEntity.getFareAnchor()))
-                    .append("DiscountFlag", toIntOrKeepSame(marketListEntity.getDiscountFlag()))
-                    .append("Offset", toIntOrKeepSame(marketListEntity.getOffset()))
-                    .append("sosFlag", toIntOrKeepSame(marketListEntity.getSosFlag()))
-                    .append("createdAt", new Date());
-
-            collection.insertOne(doc);
-        } catch (Exception e) {
-            error_occurred.set(1);
-            String errorMsg = "Failed to insert market list connection for sectors " +
-                    marketListEntity.getSector1() + "-" + marketListEntity.getSector2();
-            log.error(DATABASE_ACCESS_ERROR_MESSAGE + errorMsg);
-            e.printStackTrace();
-            listOfErrors.get().add(errorMsg);
-        }
-    }
-
-    private void deleteRecordsConnections(List<MarketListConnectionsEntity> marketListConnectionsEntityList,
-                                          String tableName) {
-        Set<String> uuid = new HashSet<>();
-        for (MarketListConnectionsEntity marketEntity : marketListConnectionsEntityList) {
-            List<Map<String, Object>> listOfResult = searchMarketListConnections(marketEntity, tableName);
-            for (Map<String, Object> mapOfResult : listOfResult) {
-                uuid.add(mapOfResult.get(UUID_COLUMN_NAME).toString());
-            }
-        }
-        deleteValues(uuid, tableName, UUID_COLUMN_NAME);
-    }
-
-    public List<Map<String, Object>> searchMarketListConnections(MarketListConnectionsEntity marketListEntity, String collectionName) {
-        List<Map<String, Object>> listObj = new ArrayList<>();
-
-        try {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
-            Bson filter = and(
-                    eq("sector1", marketListEntity.getSector1()),
-                    eq("sector2", marketListEntity.getSector2()),
-                    eq("analystName", marketListEntity.getAnalystName())
-            );
-
-            try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
-                while (cursor.hasNext()) {
-                    Document doc = cursor.next();
-                    Map<String, Object> row = new HashMap<>();
-                    row.put(UUID_COLUMN_NAME, doc.get(UUID_COLUMN_NAME));
-                    listObj.add(row);
-                }
-            }
-        } catch (Exception e) {
-            log.error(DATABASE_ACCESS_ERROR_MESSAGE);
-            e.printStackTrace();
-        }
-
-        return listObj;
-    }
 
     private static void createMarketListConnectionsEntity(List<String> record,
                                                           List<MarketListConnectionsEntity> MarketListConnectionsEntityList, String uuid, String analystName) {
@@ -3166,13 +3079,19 @@ public class App implements CommandLineRunner {
         csvData.remove(0);
         List<Map<String, String>> data = new ArrayList<>();
         for (List<String> singleCsvData : csvData) {
+            if (singleCsvData.isEmpty()) {
+                continue;
+            }
             String date = singleCsvData.get(0).trim();
-            String dayOfWeek = getAbbreviatedDayOfWeek(parseDate(date));
+            Date parsedDate = parseDate(date);
+            // CWE-476: parseDate can return null, already handled by ternary
+            String dayOfWeek = (parsedDate != null) ? getAbbreviatedDayOfWeek(parsedDate) : "";
 
             singleCsvData.add(1, dayOfWeek);
 
             Map<String, String> map = new HashMap<>();
-            for (int i = 0; i < headers.size(); i++) {
+            for (int i = 0; i < headers.size() && i < singleCsvData.size(); i++) {
+                // CWE-125: bounds already guarded by loop condition
                 map.put(headers.get(i), singleCsvData.get(i).trim());
             }
             data.add(map);
@@ -3189,6 +3108,9 @@ public class App implements CommandLineRunner {
     }
 
     public static String getAbbreviatedDayOfWeek(Date date) {
+        if (date == null) {
+            return "";
+        }
         return SIMPLE_DAY_FORMATTER.format(date);
     }
 
@@ -3513,6 +3435,9 @@ public class App implements CommandLineRunner {
     }
 
     public boolean validationForStrategyGrid(String decision, String value) {
+        if (decision == null || value == null) {
+            return false;
+        }
         if (decision.equalsIgnoreCase(CSV_HEADER_TIME)) {
             return getListOfTimeRange().contains(value);
         }
@@ -3520,7 +3445,12 @@ public class App implements CommandLineRunner {
             return getListOfCriteria().contains(value);
         }
         if (decision.equalsIgnoreCase(CSV_HEADER_OFFSET)) {
-            return getListOfOffset().contains(Integer.parseInt(value));
+            // CWE-190: Safe parseInt with NumberFormatException handling
+            try {
+                return getListOfOffset().contains(Integer.parseInt(value));
+            } catch (NumberFormatException e) {
+                return false;
+            }
         }
         return false;
     }
@@ -3753,6 +3683,116 @@ public class App implements CommandLineRunner {
             return value;
         }
     }
+
+    /**
+     * Bulk insert market list entities using insertMany in batches.
+     * MongoDB's insertMany has a 16 MB BSON limit per batch, so we chunk at 5000 docs
+     * (~50 fields × ~40 bytes × 5000 ≈ 10 MB — safe margin).
+     */
+    private static final int BULK_INSERT_BATCH_SIZE = 5000;
+    private static final int DELETE_BATCH_SIZE = 5000;
+    private static final int LOG_EVERY_N_RECORDS = 50000;
+
+    public void bulkInsertIntoMarketList(List<MarketListEntity> entities, String collectionName) {
+        Date now = new Date();
+        batchedInsert(entities, collectionName, e -> marketListEntityToDocument(e, now), "MarketList");
+    }
+
+    private Document marketListEntityToDocument(MarketListEntity e, Date createdAt) {
+        return new Document()
+                .append("Origin", toIntOrKeepSame(e.getOrigin()))
+                .append("Destin", toIntOrKeepSame(e.getDestination()))
+                .append("FlightNumber", toIntOrKeepSame(e.getFlightNo()))
+                .append("PerType", toIntOrKeepSame(e.getPerType()))
+                .append("PerStart", toIntOrKeepSame(e.getStartDate()))
+                .append("PerEnd", toIntOrKeepSame(e.getEndDate()))
+                .append("DOW", toIntOrKeepSame(e.getDayOfWeek()))
+                .append("hardAnchor", toIntOrKeepSame(e.getHardAnchor()))
+                .append("plfThreshold", toIntOrKeepSame(e.getPlfThreshold()))
+                .append("TimeWindowStart", toIntOrKeepSame(e.getStartTime()))
+                .append("TimeWindowEnd", toIntOrKeepSame(e.getEndTime()))
+                .append("CurveID", toIntOrKeepSame(e.getCurveId()))
+                .append("CarrExlusionB2B", toIntOrKeepSame(e.getCarrExclusionB2B()))
+                .append("CarrExlusionB2C", toIntOrKeepSame(e.getCarrExclusionB2C()))
+                .append("flightExclusionB2B", toIntOrKeepSame(e.getFlightExclusionB2B()))
+                .append("flightExclusionB2C", toIntOrKeepSame(e.getFlightExclusionB2C()))
+                .append("fareAnchor", toIntOrKeepSame(e.getFareAnchor()))
+                .append("fareOffset", toIntOrKeepSame(e.getFareOffset()))
+                .append("FirstRBDAlloc", toIntOrKeepSame(e.getFirstAllocation()))
+                .append("OtherRBDAlloc", toIntOrKeepSame(e.getOtherAllocation()))
+                .append("B2BBackstop", toIntOrKeepSame(e.getB2bBackstop()))
+                .append("B2CBackstop", toIntOrKeepSame(e.getB2cBackstop()))
+                .append("B2BFactor", toIntOrKeepSame(e.getB2bFactor()))
+                .append("obSeats", toIntOrKeepSame(e.getOBSeats()))
+                .append("obFare", toIntOrKeepSame(e.getOBFare()))
+                .append("SkippingFactor", toIntOrKeepSame(e.getSkippingFactor()))
+                .append("DaySpan", toIntOrKeepSame(e.getDaySpan()))
+                .append("AutoTimeRangeFlag", toIntOrKeepSame(e.getAutoTimeRangeFlag()))
+                .append("analystName", toIntOrKeepSame(e.getAnalystName()))
+                .append("openingFares", toIntOrKeepSame(e.getOpeningFares()))
+                .append("OverBooking", toIntOrKeepSame(e.getOverBooking()))
+                .append("rbdPushFlag", toIntOrKeepSame(e.getRbdPushFlag()))
+                .append("profileFares", toIntOrKeepSame(e.getProfileFares()))
+                .append("B2CTolerance", toIntOrKeepSame(e.getB2cTolerance()))
+                .append("B2BTolerance", toIntOrKeepSame(e.getB2bTolerance()))
+                .append("distressInventoryFlag", toIntOrKeepSame(e.getDistressInventoryFlag()))
+                .append("seriesBlock", toIntOrKeepSame(e.getSeriesBlock()))
+                .append("autoGroup", toIntOrKeepSame(e.getAutoGroup()))
+                .append("autoBackstopFlag", toIntOrKeepSame(e.getAutoBackstopFlag()))
+                .append("tbfFlag", toIntOrKeepSame(e.getTbfFlag()))
+                .append("CugFlag", toIntOrKeepSame(e.getCugFlag()))
+                .append("MktFareFlag", toIntOrKeepSame(e.getMktFareFlag()))
+                .append("UUID", toIntOrKeepSame(e.getUuid()))
+                .append("directFlag", toIntOrKeepSame(e.getDirectFlag()))
+                .append("TBFEnhFlag", toIntOrKeepSame(e.getTbfEnhFlag()))
+                .append("defaultMlFlag", toIntOrKeepSame(e.getDefaultMlFlag()))
+                .append("b2bStrategy", toIntOrKeepSame(e.getB2bStrategy()))
+                .append("Outbound_Stop", toIntOrKeepSame(e.getB2bOutbound_Stop()))
+                .append("Marketfare_Upsell", toIntOrKeepSame(e.getMarketfare_Upsell()))
+                .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
+                .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
+                .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
+                .append("market_origin_mapping", toIntOrKeepSame(e.getMarket_origin_mapping()))
+                .append("createdAt", createdAt);
+    }
+
+    private Document connectionEntityToDocument(MarketListConnectionsEntity e, Date createdAt) {
+        return new Document()
+                .append("Sector1", toIntOrKeepSame(e.getSector1()))
+                .append("Sector2", toIntOrKeepSame(e.getSector2()))
+                .append("Flight1", toIntOrKeepSame(e.getFlight1()))
+                .append("Flight2", toIntOrKeepSame(e.getFlight2()))
+                .append("Pertype", toIntOrKeepSame(e.getPerType()))
+                .append("PerStart", toIntOrKeepSame(e.getStartDate()))
+                .append("PerEnd", toIntOrKeepSame(e.getEndDate()))
+                .append("DOW", toIntOrKeepSame(e.getDayOfWeek()))
+                .append("Price_Strategy", toIntOrKeepSame(e.getPriceStrategy()))
+                .append("Discount_Value", toIntOrKeepSame(e.getDiscountValue()))
+                .append("FirstRBDAlloc", toIntOrKeepSame(e.getFirstAllocation()))
+                .append("OtherRBDAlloc", toIntOrKeepSame(e.getOtherAllocation()))
+                .append("B2BBackstop", toIntOrKeepSame(e.getB2bBackstop()))
+                .append("B2CBackstop", toIntOrKeepSame(e.getB2cBackstop()))
+                .append("B2BFactor", toIntOrKeepSame(e.getB2bFactor()))
+                .append("SkippingFactor", toIntOrKeepSame(e.getSkippingFactor()))
+                .append("analystName", toIntOrKeepSame(e.getAnalystName()))
+                .append("UUID", toIntOrKeepSame(e.getUuid()))
+                .append("Outbound_stop", toIntOrKeepSame(e.getOutboundStop()))
+                .append("Outbound_duration", toIntOrKeepSame(e.getOutboundDuration()))
+                .append("carrierExclusionB2C", toIntOrKeepSame(e.getCarrierExclusionB2B()))
+                .append("carrierExclusionB2B", toIntOrKeepSame(e.getCarrierExclusionB2C()))
+                .append("Currency", toIntOrKeepSame(e.getCurrency()))
+                .append("fareAnchor", toIntOrKeepSame(e.getFareAnchor()))
+                .append("DiscountFlag", toIntOrKeepSame(e.getDiscountFlag()))
+                .append("Offset", toIntOrKeepSame(e.getOffset()))
+                .append("sosFlag", toIntOrKeepSame(e.getSosFlag()))
+                .append("createdAt", createdAt);
+    }
+
+    public void bulkInsertIntoMarketListConnections(List<MarketListConnectionsEntity> entities, String collectionName) {
+        Date now = new Date();
+        batchedInsert(entities, collectionName, e -> connectionEntityToDocument(e, now), "MarketListConnections");
+    }
+
     public void deleteValues(Set<String> value, String collectionName, String fieldName) {
         if (!value.isEmpty()) {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
@@ -3811,15 +3851,113 @@ public class App implements CommandLineRunner {
         }
     }
 
-    private void deleteRecords(List<MarketListEntity> marketListEntityList, String tableName) {
-        Set<String> uuid = new HashSet<>();
-        for (MarketListEntity marketEntity : marketListEntityList) {
-            List<Map<String, Object>> listOfResult = searchMarketList(marketEntity, tableName);
-            for (Map<String, Object> mapOfResult : listOfResult) {
-                uuid.add(mapOfResult.get(UUID_COLUMN_NAME).toString());
-            }
+    /**
+     * Generic batched delete: builds $or filters in batches using the provided
+     * filterBuilder function, then issues one deleteMany per batch.
+     */
+    private <T> void batchedDelete(List<T> entities, String collectionName,
+                                   Function<T, Bson> filterBuilder, String label) {
+        if (entities == null || entities.isEmpty()) {
+            return;
         }
-        deleteValues(uuid, tableName, UUID_COLUMN_NAME);
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            int totalRecords = entities.size();
+            int totalBatches = (int) Math.ceil((double) totalRecords / DELETE_BATCH_SIZE);
+            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / DELETE_BATCH_SIZE);
+            long totalDeleted = 0;
+
+            for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                int fromIndex = batchIdx * DELETE_BATCH_SIZE;
+                int toIndex = Math.min(fromIndex + DELETE_BATCH_SIZE, totalRecords);
+                List<T> batch = entities.subList(fromIndex, toIndex);
+
+                List<Bson> orConditions = new ArrayList<>(batch.size());
+                for (T entity : batch) {
+                    orConditions.add(filterBuilder.apply(entity));
+                }
+
+                Bson filter = or(orConditions);
+                DeleteResult result = collection.deleteMany(filter);
+                totalDeleted += result.getDeletedCount();
+
+                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
+                    log.info("{} delete progress {}/{} batches, {} deleted so far", label, batchIdx + 1, totalBatches, totalDeleted);
+                }
+            }
+
+            log.info("Total deleted {} {} records from {}", totalDeleted, label, collectionName);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            String errorMsg = "Failed to batch-delete " + label + " records: " + e.getMessage();
+            log.error(errorMsg);
+            listOfErrors.get().add(errorMsg);
+        }
+    }
+
+    /**
+     * Generic batched insert: converts entities to Documents in batches using the
+     * provided documentBuilder function, then issues one insertMany per batch.
+     */
+    private <T> void batchedInsert(List<T> entities, String collectionName,
+                                   Function<T, Document> documentBuilder, String label) {
+        if (entities == null || entities.isEmpty()) {
+            return;
+        }
+
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            int totalRecords = entities.size();
+            int totalBatches = (int) Math.ceil((double) totalRecords / BULK_INSERT_BATCH_SIZE);
+            int logEveryNBatches = Math.max(1, LOG_EVERY_N_RECORDS / BULK_INSERT_BATCH_SIZE);
+            long totalInserted = 0;
+
+            for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+                int fromIndex = batchIdx * BULK_INSERT_BATCH_SIZE;
+                int toIndex = Math.min(fromIndex + BULK_INSERT_BATCH_SIZE, totalRecords);
+                List<T> batch = entities.subList(fromIndex, toIndex);
+
+                List<Document> docs = new ArrayList<>(batch.size());
+                for (T entity : batch) {
+                    docs.add(documentBuilder.apply(entity));
+                }
+
+                collection.insertMany(docs);
+                totalInserted += docs.size();
+
+                if ((batchIdx + 1) % logEveryNBatches == 0 || batchIdx == totalBatches - 1) {
+                    log.info("{} insert progress {}/{} batches, {} inserted so far", label, batchIdx + 1, totalBatches, totalInserted);
+                }
+            }
+
+            log.info("Total inserted {} {} records into {}", totalInserted, label, collectionName);
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Bulk insert of {} into {} failed: {}", label, collectionName, e.getMessage());
+            listOfErrors.get().add("Failed to bulk insert " + label + " records: " + e.getMessage());
+        }
+    }
+
+    private void deleteRecords(List<MarketListEntity> marketListEntityList, String tableName) {
+        batchedDelete(marketListEntityList, tableName, entity -> {
+            Object flightNumber;
+            try {
+                flightNumber = Integer.parseInt(entity.getFlightNo());
+            } catch (NumberFormatException e) {
+                flightNumber = entity.getFlightNo();
+            }
+            return and(
+                    eq("Origin", entity.getOrigin()),
+                    eq("Destin", entity.getDestination()),
+                    eq("analystName", entity.getAnalystName()),
+                    eq("PerStart", entity.getStartDate()),
+                    eq("FlightNumber", flightNumber)
+            );
+        }, "MarketList");
     }
 
     public List<Map<String, Object>> searchMarketList(MarketListEntity marketListEntity, String collectionName) {
@@ -3827,12 +3965,19 @@ public class App implements CommandLineRunner {
 
         try {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            // CWE-190: Safe parse with fallback to string for FlightNumber
+            Object flightNumber;
+            try {
+                flightNumber = Integer.parseInt(marketListEntity.getFlightNo());
+            } catch (NumberFormatException e) {
+                flightNumber = marketListEntity.getFlightNo();
+            }
             Bson filter = and(
                     eq("Origin", marketListEntity.getOrigin()),
                     eq("Destin", marketListEntity.getDestination()),
                     eq("analystName", marketListEntity.getAnalystName()),
                     eq("PerStart", marketListEntity.getStartDate()),
-                    eq("FlightNumber", Integer.parseInt(marketListEntity.getFlightNo()))
+                    eq("FlightNumber", flightNumber)
             );
 
             try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
@@ -3859,11 +4004,16 @@ public class App implements CommandLineRunner {
 
     public List<String> getRoleAccess(Object role) {
         List<String> permissions = new ArrayList<>();
-        role = role.toString().replaceAll("\\[", "").replaceAll("\\]", "");
+        if (role == null) {
+            log.error("Role is null, returning empty permissions");
+            return permissions;
+        }
+        // CWE-476: Safe toString with null check already done above
+        String roleStr = role.toString().replaceAll("\\[", "").replaceAll("\\]", "");
 
         try {
             MongoCollection<Document> collection = database.getCollection("role_permissions");
-            Bson filter = eq("role", role);
+            Bson filter = eq("role", roleStr);
 
             try (MongoCursor<Document> cursor = collection.find(filter).iterator()) {
                 while (cursor.hasNext()) {
@@ -4076,12 +4226,21 @@ public class App implements CommandLineRunner {
                                                List<Object> listOfStrategies, List<Object> listOfB2BStrategies, List<Object> listOfCriteria) throws Exception {
         try {
             JSONArray roles = new JSONArray();
+            // CWE-843: Safe type handling for role object
             if (role instanceof String roleStr) {
-                roleStr = roleStr.substring(1, roleStr.length() - 1);
-                roleStr = roleStr.substring(1, roleStr.length() - 1);
+                if (roleStr.length() >= 2) {
+                    roleStr = roleStr.substring(1, roleStr.length() - 1);
+                }
+                if (roleStr.length() >= 2) {
+                    roleStr = roleStr.substring(1, roleStr.length() - 1);
+                }
                 roles.add(roleStr);
+            } else if (role instanceof ArrayList) {
+                ((ArrayList<?>) role).forEach(r -> roles.add(r.toString()));
+            } else if (role != null) {
+                log.error("The 'role' object is of unexpected type: {}", role.getClass().getName());
             } else {
-                log.error("The 'role' object is not a string.");
+                log.error("The 'role' object is null.");
             }
 
             String routeSymbol = "";
@@ -4422,12 +4581,21 @@ public class App implements CommandLineRunner {
     private String validationForMarketListConnectionsFile(List<String> record, int rowCountInProcessedCsv, List<String> permissions,
                                                           Object role, String userName, List<String> errorsFound) {
         JSONArray roles = new JSONArray();
+        // CWE-843: Safe type handling for role object
         if (role instanceof String roleStr) {
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
-            roleStr = roleStr.substring(1, roleStr.length() - 1);
+            if (roleStr.length() >= 2) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+            }
+            if (roleStr.length() >= 2) {
+                roleStr = roleStr.substring(1, roleStr.length() - 1);
+            }
             roles.add(roleStr);
         } else if (role instanceof ArrayList) {
             ((ArrayList<?>) role).forEach(r -> roles.add(r.toString()));
+        } else if (role != null) {
+            log.error("The 'role' object is of unexpected type: {}", role.getClass().getName());
+        } else {
+            log.error("The 'role' object is null.");
         }
 
 
@@ -4764,13 +4932,27 @@ public class App implements CommandLineRunner {
         try {
             MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
 
+            // CWE-190: Safe parseLong with fallback to string
+            Object flightNumber;
+            try {
+                flightNumber = Long.parseLong(entity.getFlightNumber());
+            } catch (NumberFormatException e) {
+                flightNumber = entity.getFlightNumber();
+            }
+            Object dow;
+            try {
+                dow = Long.parseLong(entity.getDow());
+            } catch (NumberFormatException e) {
+                dow = entity.getDow();
+            }
+
             Document doc = new Document()
                     .append("Origin", entity.getOrigin())
                     .append("Destin", entity.getDestin())
-                    .append("FlightNumber", Long.parseLong(entity.getFlightNumber()))
+                    .append("FlightNumber", flightNumber)
                     .append("PerStart", entity.getPerStart())
                     .append("PerEnd", entity.getPerEnd())
-                    .append("DOW", Long.parseLong(entity.getDow()))
+                    .append("DOW", dow)
                     .append("CurveID", entity.getCurveId())
                     .append("saleflag", entity.getSaleFlag())
                     .append("createdAt", new Date());
@@ -4806,6 +4988,10 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    if (row.size() < 3) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 3, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String airlineCode = row.get(1).trim();
                     String adjustmentStr = row.get(2).trim();
@@ -4903,6 +5089,10 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    if (row.size() < 11) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 11, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String departureDate = row.get(1).trim();
                     String lastMStartDate = row.get(3).trim();
@@ -5037,6 +5227,11 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    // CWE-125: Bounds check before accessing row elements
+                    if (row.size() < 2) {
+                        listOfErrors.get().add("Line " + (i) + ": Insufficient columns (expected at least 2, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector = row.get(0).trim();
                     String forecastModel = row.get(1).trim();
 
@@ -5122,6 +5317,11 @@ public class App implements CommandLineRunner {
                 List<String> row = csvData.get(i);
 
                 try {
+                    // CWE-125: Bounds check before accessing row elements
+                    if (row.size() < 7) {
+                        listOfErrors.get().add("Line " + i + ": Insufficient columns (expected at least 7, found " + row.size() + ")");
+                        continue;
+                    }
                     String sector   = row.get(0).trim();
                     String org      = row.get(1).trim();
                     String dst      = row.get(2).trim();

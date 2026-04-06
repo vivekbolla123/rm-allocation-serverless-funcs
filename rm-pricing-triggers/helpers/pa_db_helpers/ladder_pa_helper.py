@@ -21,6 +21,7 @@ class LadderPAHelper:
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
+        self.ladder_gen = ladder_gen
         self.B2B_RBD_LIST = ladder_gen.B2B_RBD_LIST
         self.B2C_RBD_LIST = ladder_gen.B2C_RBD_LIST
         self.TOTAL_B2C_FARES = ladder_gen.TOTAL_B2C_FARES
@@ -86,8 +87,12 @@ class LadderPAHelper:
             self.failure_reason = f"Tax master data collection failed: {str(e)}"
             return None, None, self.failure_reason
     
-    def collect_market_fares(self, route, sector, max_market_b2b, max_market_b2c):
+    
+    
+    def collect_market_fares(self, route, sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None):
         """Collect market fares for both B2B and B2C channels. Optimized for large datasets."""
+        if carrier_inclusion is None:
+            carrier_inclusion = []
         try:
             # Date filters - Keep as datetime objects
             now = datetime.now()
@@ -99,7 +104,7 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=24)}
             }
 
-            route_filter = {'outbound_stop': "0"}
+            route_filter = {'outbound_stop': {'$in': ["0", "1"]}} if layer_type == 'connection' else {'outbound_stop': "0"}
 
             if route == 'D':
                 match_stage = {
@@ -115,8 +120,13 @@ class LadderPAHelper:
                     **route_filter
                 }
             elif route == 'I':
+                if layer_type == 'connection':
+                    airline_filter = {'$in': carrier_inclusion} if carrier_inclusion else {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                else:
+                    airline_filter = {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                    
                 match_stage = {
-                    'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                    'outbound_airline_code': airline_filter,
                     'channel': {'$in': ['B2C', 'B2B']},
                     '$expr': {
                         '$eq': [
@@ -210,8 +220,10 @@ class LadderPAHelper:
             return None, self.failure_reason
 
 
-    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c):
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None):
         """Collect market fares for both directions and both B2B and B2C channels."""
+        if carrier_inclusion is None:
+            carrier_inclusion = []
         try:
             now = datetime.now()
             date_filter = {
@@ -222,7 +234,7 @@ class LadderPAHelper:
                 'created_at': {'$gt': now - timedelta(hours=72)}
             }
 
-            route_filter = {'outbound_stop': "0"}
+            route_filter = {'outbound_stop': {'$in': ["0", "1"]}} if layer_type == 'connection' else {'outbound_stop': "0"}
 
             sector_expr = {
                 '$or': [
@@ -254,8 +266,13 @@ class LadderPAHelper:
                     **route_filter
                 }
             elif route == 'I':
+                if layer_type == 'connection':
+                    airline_filter = {'$in': carrier_inclusion} if carrier_inclusion else {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                else:
+                    airline_filter = {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+
                 match_stage = {
-                    'outbound_airline_code': {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']},
+                    'outbound_airline_code': airline_filter,
                     'channel': {'$in': ['B2C', 'B2B']},
                     **sector_expr,
                     **date_filter,
@@ -639,18 +656,19 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
+                        'type': self.ladder_gen.type,
                         'channel': 'B2B',
                         'fare_point_number': i + 1,
                         'rbd_name': rbd_names_b2b[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in , 2),
-                        'new_all_in_ladder_fare': round( new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -688,18 +706,19 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="new")
+                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
+                        'type': self.ladder_gen.type,
                         'channel': 'B2C',
                         'fare_point_number': i + self.TOTAL_B2B_FARES + 1,  # (start after B2B fares)
                         'rbd_name': rbd_names_b2c[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,
                         'current_qp_all_in_fare': round(current_all_in, 2),
-                        'new_base_ladder_fare': round(new_all_in, 2),
-                        'new_all_in_ladder_fare': round(new_base, 2),
+                        'new_base_ladder_fare': round(new_base, 2),
+                        'new_all_in_ladder_fare': round(new_all_in, 2),
                         'data_period': ladder_result['data_period'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
@@ -776,6 +795,7 @@ class LadderPAHelper:
                     'failed_sectors': None,
                     'outliers_removed': None,
                     'route': route,
+                    'type': self.ladder_gen.type,
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
@@ -925,6 +945,7 @@ class LadderPAHelper:
                     'distinct_fares_count_b2c': None,
                     'distinct_fares_count_b2b': None,
                     'route': route,
+                    'type': self.ladder_gen.type,
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,

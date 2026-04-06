@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.10</version>
+        <version>3.5.12</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
@@ -32,16 +32,18 @@
         <json.version>20251224</json.version>
         <!-- Spring Boot 3.5.10 manages these versions automatically -->
         <!-- snakeyaml: 2.2 (managed by Spring Boot 3.5.10) -->
-        <!-- jackson: 2.18.2 (managed by Spring Boot 3.5.10) -->
+        <!-- jackson: 2.21.1 (overridden for security - GHSA-72hv-8253-57qq DoS via async parser) -->
+        <jackson-bom.version>2.21.1</jackson-bom.version>
         <!-- Updated for security - fixes MadeYouReset DDoS, CRLF injection, SSL verification CVEs -->
-        <netty.version>4.1.129.Final</netty.version>
-        <spark.version>3.4.4</spark.version>
+        <netty.version>4.1.132.Final</netty.version>
+        <!-- Updated for security - fixes GHSA-jwp6-cvj8-fw65 (History Server RCE) -->
+        <spark.version>3.5.7</spark.version>
         <avro.version>1.11.4</avro.version>
         <protobuf.version>3.25.5</protobuf.version>
         <snappy.version>1.1.10.4</snappy.version>
         <commons-io.version>2.14.0</commons-io.version>
-        <!-- Updated for security - fixes information disclosure (CVE-2024-23944) -->
-        <zookeeper.version>3.8.4</zookeeper.version>
+        <!-- Updated for security - fixes CVE-2024-23944, CVE-2026-24281, CVE-2026-24308 -->
+        <zookeeper.version>3.8.6</zookeeper.version>
         <!-- Hadoop version - updated for security (CVE-2022-26612 path traversal) -->
         <!-- Requires Spark 3.4.x for compatibility -->
         <hadoop.version>3.3.6</hadoop.version>
@@ -391,11 +393,12 @@
             </exclusions>
         </dependency>
 
-        <!-- Delta Lake -->
+        <!-- Delta Lake - Upgraded to 3.2.1 for Spark 3.5.x compatibility -->
+        <!-- Note: artifact changed from delta-core to delta-spark in 3.x -->
         <dependency>
             <groupId>io.delta</groupId>
-            <artifactId>delta-core_2.12</artifactId>
-            <version>2.4.0</version>
+            <artifactId>delta-spark_2.12</artifactId>
+            <version>3.2.1</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.fasterxml.jackson.core</groupId>

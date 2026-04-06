@@ -27,6 +27,8 @@ from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
 from sqlalchemy.engine.base import Engine
 from urllib.parse import quote_plus
+import tracemalloc
+import gc
 
 warnings.filterwarnings('ignore')
 
@@ -54,6 +56,18 @@ KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+def log_memory(label):
+    import psutil, os
+    process = psutil.Process(os.getpid())
+    mb = process.memory_info().rss / 1024 / 1024
+    logger.info(f"[MEM] {label}: {mb:.1f} MB")
+
+# Then sprinkle throughout:
+log_memory("after market list fetch")
+log_memory("after booked_loads")
+log_memory("after all merges")
+log_memory("before SQS send")
 
 # ==========================
 # RETRY DECORATOR
@@ -564,7 +578,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
@@ -669,7 +683,9 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
-    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
+    mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
+
+    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
     return mkt
 
 def quick_optimize(mkt_list, navapihelper):
@@ -791,8 +807,27 @@ def clean_markets_optimized(market_list_df, w0_df,nav_helper):
 def fetch_and_process_market_list(start_period, end_period, market_list_table, query_type='standard'):
     log_time.start()
     try:
-        # Fetch using retry mechanism
-        market_list_filter = {}
+        # Fetch using retry mechanism - filter by NDO date range overlap
+        # Only fetch records where PerEnd >= start_period AND PerStart <= end_period
+        # PerStart/PerEnd are stored as MM/DD/YYYY strings, so use $dateFromString for comparison
+        market_list_filter = {
+            '$expr': {
+                '$and': [
+                    {
+                        '$gte': [
+                            {'$dateFromString': {'dateString': '$PerEnd', 'format': '%m/%d/%Y'}},
+                            {'$dateFromString': {'dateString': start_period, 'format': '%Y-%m-%d'}}
+                        ]
+                    },
+                    {
+                        '$lte': [
+                            {'$dateFromString': {'dateString': '$PerStart', 'format': '%m/%d/%Y'}},
+                            {'$dateFromString': {'dateString': end_period, 'format': '%Y-%m-%d'}}
+                        ]
+                    }
+                ]
+            }
+        }
         if market_list_table != "market_list" and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
 
@@ -904,25 +939,33 @@ def insert_run_start(start_time, run_id, start_interval, end_interval, market_li
             table_versions[currVersion["tableName"]] = currVersion["curr_version"]
 
     try:
-        document = {
-            'run_id': run_id,
-            'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'user': username,
-            'dtd_start': start_interval,
-            'dtd_end': end_interval,
-            'Curves': table_versions.get('Curves'),
-            'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
-            'market_list': table_versions.get('market_list'),
-            'Fares': table_versions.get('Fares'),
-            'type': type,
-            'market_list_name': table_versions.get('market_list_name'),
-            'is_connections_required': is_connections_required,
-            'update_navitaire_method': update_navitaire_method,
-            'is_run_completed': '0',
-            'region': region,
-            'marketListCount': count
+        update_doc = {
+            '$setOnInsert': {
+                'run_id': run_id,
+                'start_time': start_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'user': username,
+                'dtd_start': start_interval,
+                'dtd_end': end_interval,
+                'Curves': table_versions.get('Curves'),
+                'd1_d2_strategies': table_versions.get('d1_d2_strategies'),
+                'market_list': table_versions.get('market_list'),
+                'Fares': table_versions.get('Fares'),
+                'type': type,
+                'market_list_name': table_versions.get('market_list_name'),
+                'is_connections_required': is_connections_required,
+                'update_navitaire_method': update_navitaire_method,
+                'is_run_completed': '0',
+                'region': region,
+                'batch_completed': 0,
+                'total_batch_size': 0
+            },
+            '$inc': {'marketListCount': count}
         }
-        mongo_insert_with_retry('allocation_run_audit', document)
+        mongo_db['allocation_run_audit'].update_one(
+            {'run_id': run_id},
+            update_doc,
+            upsert=True
+        )
     except Exception as e:
         logger.info(e)
     finally:
@@ -1040,11 +1083,10 @@ def update_run_with_batches(total_batches, run_id):
         mongo_update_with_retry(
             'allocation_run_audit',
             {'run_id': run_id},
-            {'$set': {
-                'total_batch_size': total_batches,
-                'batch_completed': 0,
-                'adhoc_run_status': "IN-QUEUE"
-            }}
+            {
+                '$inc': {'total_batch_size': total_batches},
+                '$set': {'adhoc_run_status': "IN-QUEUE"}
+            }
         )
     except Exception as e:
         logger.info(e)
@@ -1125,8 +1167,16 @@ def lambda_handler(event, context):
     mongodb_key = "mongodb"
 
     adhoc_batch_size = constantsutils.ADHOC_BATCH_SIZE
-    body = event['body']
-    data = json.loads(body)
+
+    # SQS trigger from prefetchLambda vs direct API call (Adhoc)
+    if 'Records' in event:
+        # triggered by SQS from prefetchLambda
+        body = event['Records'][0]['body']
+        data = json.loads(json.loads(body)['body'])
+    else:
+        # direct API call (Adhoc) — unchanged
+        body = event['body']
+        data = json.loads(body)
 
     # Defaults
     start_interval = 30
@@ -1197,66 +1247,132 @@ def lambda_handler(event, context):
     if route_type == "direct":
         query_type = 'sales' if region == 'SalesInv' else 'standard'
         mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
+        log_memory("after fetch_and_process_market_list")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         nav_helper = NavDatabaseHelper(
             navconn=NavitaireConnection,
             nav_db_name=configsettings.NAV_DB_NAME,
             nav_db_wb_name=configsettings.NAV_DB_WB_NAME
         )
-        
+
         w0_df = nav_helper.get_w0_rbd(start_period, end_period)
-        logger.info(f"Original Market List {mkt_list}")
-        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df,nav_helper)
-        logger.info(f"Filtered Market List {mkt_list}")
+        log_memory("after get_w0_rbd")
+        logger.info(f"w0_df shape: {w0_df.shape}")
+
+        mkt_list, failCount = clean_markets_optimized(mkt_list, w0_df, nav_helper)
+        log_memory("after clean_markets_optimized")
+        logger.info(f"mkt_list after clean: {mkt_list.shape}")
+
         mkt_list = mkt_list.reset_index()
         markets_count = mkt_list.shape[0]
         logger.info(f"Total markets: {markets_count}")
 
-        # Initialize NavDatabaseHelper
-       
-
-        # Convert PerStart to datetime for joining
         mkt_list['DepartureDate'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y').dt.date
         min_date = mkt_list['DepartureDate'].min()
         max_date = mkt_list['DepartureDate'].max()
-        ist = pytz.timezone('Asia/Kolkata')
+        logger.info(f"Date range: {min_date} to {max_date}")
 
+        ist = pytz.timezone('Asia/Kolkata')
         curr_date = datetime.now(ist).date()
         curr_datetime = datetime.now(ist) - timedelta(hours=1)
         curr_datetime_str = curr_datetime.strftime("%Y-%m-%d %H:%M:%S")
-        
-        # Fetch Navitaire data with retry
+
         booked_loads = nav_helper.getCurrentBookedLoads(startDate=min_date, endDate=max_date)
+        log_memory("after getCurrentBookedLoads")
+        logger.info(f"booked_loads shape: {booked_loads.shape}")
+
         seats_sold_pivot = nav_helper.get_seats_sold_by_class(min_date, max_date)
+        log_memory("after get_seats_sold_by_class")
+        logger.info(f"seats_sold_pivot shape: {seats_sold_pivot.shape}")
+
         rbd_pivot = nav_helper.get_current_rbds_by_class(min_date, max_date)
+        log_memory("after get_current_rbds_by_class")
+        logger.info(f"rbd_pivot shape: {rbd_pivot.shape}")
+
         series_seats_data = nav_helper.get_series_seats(min_date, max_date)
+        log_memory("after get_series_seats")
+        logger.info(f"series_seats_data shape: {series_seats_data.shape}")
+
         daily_flights = nav_helper.get_daily_flights(min_date, max_date)
+        log_memory("after get_daily_flights")
+        logger.info(f"daily_flights shape: {daily_flights.shape}")
+
         opening_rbds = nav_helper.get_opening_rbds(min_date, max_date)
+        log_memory("after get_opening_rbds")
+        logger.info(f"opening_rbds shape: {opening_rbds.shape}")
+
         bookings_count = nav_helper.get_last_bookings_count(
             departure_start_date=min_date,
             departure_end_date=max_date,
             comparison_date=curr_date,
             comparison_datetime=curr_datetime_str
         )
+        log_memory("after get_last_bookings_count")
+        logger.info(f"bookings_count shape: {bookings_count.shape}")
+
         forecast_plf_query = get_forecast(min_date, max_date)
         forecast_plf_list = execute_dw_query_with_retry(forecast_plf_query, dwconn)
+        log_memory("after forecast query")
+        logger.info(f"forecast_plf_list shape: {forecast_plf_list.shape}")
+
         sector_forecast_model_map = get_sector_forecast_model_map()
+        log_memory("after get_sector_forecast_model_map")
+        logger.info(f"sector_forecast_model_map shape: {sector_forecast_model_map.shape}")
+
+        pre_filter_count = len(mkt_list)
+        nav_flight_keys = set(
+            zip(
+                pd.to_datetime(booked_loads['DepartureDate']).dt.normalize(),
+                booked_loads['FlightNumber'].astype('int64'),
+                booked_loads['Origin'].str.strip(),
+                booked_loads['Destination'].str.strip()
+            )
+        )
+        mkt_list['_nav_key'] = list(zip(
+            pd.to_datetime(mkt_list['DepartureDate']).dt.normalize() if not pd.api.types.is_datetime64_any_dtype(mkt_list['DepartureDate']) else pd.to_datetime(mkt_list['DepartureDate']),
+            mkt_list['FlightNumber'].astype('int64'),
+            mkt_list['Origin'].str.strip(),
+            mkt_list['Destin'].str.strip()
+        ))
+        mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
+        mkt_list = mkt_list.reset_index(drop=True)
+        log_memory("after nav existence filter")
+        logger.info(f"mkt_list after nav filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)})")
+        markets_count = mkt_list.shape[0]
 
         mkt_list = left_join_forecast(mkt_list, forecast_plf_list, sector_forecast_model_map)
-        print(len(mkt_list), " forecast_plf_list")
+        log_memory("after left_join_forecast")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
-        print(len(mkt_list), " booked_loads")
+        log_memory("after merge booked_loads")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
-        print(len(mkt_list), " seats_sold_pivot")
+        log_memory("after merge seats_sold_pivot")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, rbd_pivot)
-        print(len(mkt_list), " rbd_pivot")
+        log_memory("after merge rbd_pivot")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, series_seats_data)
-        print(len(mkt_list), " series_seats_data")
+        log_memory("after merge series_seats_data")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, daily_flights)
-        print(len(mkt_list), " daily_flights")
+        log_memory("after merge daily_flights")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, opening_rbds)
-        print(len(mkt_list), " opening_rbds")
+        log_memory("after merge opening_rbds")
+        logger.info(f"mkt_list shape: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
-        print(len(mkt_list), " bookings_count")
+        log_memory("after merge bookings_count")
+        logger.info(f"FINAL mkt_list shape: {mkt_list.shape}")
+        logger.info(f"FINAL mkt_list columns: {list(mkt_list.columns)}")
         
     elif route_type == "connections":
         navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL, configsettings.NAV_OCP_SUBSCRIPTION_KEY, configsettings.NAV_USERNAME, configsettings.NAV_PWD, configsettings.NAV_DOMAIN)
@@ -1316,17 +1432,21 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
 
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
             'forecastPLF1'
         ] = mkt_list['forecastPLF_ml1']
+
+        mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['adjustedPLF_ml1'].notna()) & (mkt_list['adjustedPLF_ml1'].astype(str).str.strip() != ''),
+            'adjustedPLF1'
+        ] = mkt_list['adjustedPLF_ml1']
 
         mkt_list = mkt_list.merge(
             sector_forecast_model_map[['Origin', 'Destination', 'forecast_model']],
@@ -1337,19 +1457,23 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
         mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),
             'forecastPLF2'
         ] = mkt_list['forecastPLF_ml2']
 
-        mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1','forecast_model2', 'forecastPLF_ml2'], inplace=True, errors='ignore')
+        mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['adjustedPLF_ml2'].notna()) & (mkt_list['adjustedPLF_ml2'].astype(str).str.strip() != ''),
+            'adjustedPLF2'
+        ] = mkt_list['adjustedPLF_ml2']
+
+        mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1', 'adjustedPLF_ml1', 'forecast_model2', 'forecastPLF_ml2', 'adjustedPLF_ml2'], inplace=True, errors='ignore')
         
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
@@ -1363,7 +1487,7 @@ def lambda_handler(event, context):
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
             how='left',
-            left_on=['DepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
+            left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
         ).rename(columns={'forecast_variance': 'forecast_variance2'}).drop(
@@ -1598,13 +1722,16 @@ def lambda_handler(event, context):
     
     # Proceed with SQS
     start_time = datetime.now()
-    run_id = str(uuid4())
+    run_id = data.get('run_id') or str(uuid4())
+    overall_start = data.get('overall_start', start_interval)
+    overall_end = data.get('overall_end', end_interval)
+
     log_time.update_run_id(run_id)
 
-    del_stack_df = get_run_operation_log_data(start_interval, end_interval, market_list_table, update_navitaire_method, region, type, run_id)
+    del_stack_df = get_run_operation_log_data(overall_start, overall_end, market_list_table, update_navitaire_method, region, type, run_id)
 
     if not del_stack_df.empty:
-        insert_deleted_run(start_time, run_id, start_interval, end_interval, market_list_table, username, type, update_navitaire_method, region, markets_count)
+        insert_deleted_run(start_time, run_id, overall_start, overall_end, market_list_table, username, type, update_navitaire_method, region, markets_count)
         logger.info(f"Skipping run: {run_id}")
         log_time.send_time_log_db()
         return {
@@ -1612,58 +1739,83 @@ def lambda_handler(event, context):
             'body': -1
         }
 
-    insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table,
+    insert_run_start(start_time, run_id, overall_start, overall_end, market_list_table,
                      username, type, is_connections_required, update_navitaire_method, region, markets_count)
 
-    cache_client.set(KEY_B2B_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2C_PENDING_COUNT + run_id, int(markets_count), 86400)
-    cache_client.set(KEY_B2B_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_READY_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2B_DONE_COUNT + run_id, 0, 86400)
-    cache_client.set(KEY_B2C_DONE_COUNT + run_id, 0, 86400)
+    cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.expire(KEY_B2B_PENDING_COUNT + run_id, 86400)
+    
+    cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.expire(KEY_B2C_PENDING_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2B_READY_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2B_READY_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2C_READY_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2C_READY_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2B_DONE_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2B_DONE_COUNT + run_id, 86400)
+    
+    cache_client.setnx(KEY_B2C_DONE_COUNT + run_id, 0)
+    cache_client.expire(KEY_B2C_DONE_COUNT + run_id, 86400)
 
     if type != "Adhoc":
         send_dataframe_to_sqs(mkt_list, queue_name, run_id,
                               update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb)
     else:
         batches_required = number_of_batches_required(markets_count, adhoc_batch_size)
-        for batch_num in range(batches_required[0]):
-            start_idx = batch_num * adhoc_batch_size
-            end_idx = start_idx + adhoc_batch_size
-            batch_df = mkt_list.iloc[start_idx:end_idx]
-            batch_df['runId'] = run_id
-            batch_df['update_navitaire_method'] = update_navitaire_method
-            batch_df['runTime'] = start_time
-            batch_df['route_type'] = route_type
-            batch_df['queue'] = queue_name
-            batch_df['cug_alloc'] = cug_alloc
-            batch_df['mongodb'] = mongodb
-            batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batch_num + 1}"
-            data_to_serialize = batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+        total_number_of_batches = batches_required[0] + (1 if batches_required[1] > 0 else 0)
+        
+        if total_number_of_batches > 0:
+            for batch_num in range(batches_required[0]):
+                start_idx = batch_num * adhoc_batch_size
+                end_idx = start_idx + adhoc_batch_size
+                batch_df = mkt_list.iloc[start_idx:end_idx]
+                batch_df['runId'] = run_id
+                batch_df['update_navitaire_method'] = update_navitaire_method
+                batch_df['runTime'] = start_time
+                batch_df['route_type'] = route_type
+                batch_df['queue'] = queue_name
+                batch_df['cug_alloc'] = cug_alloc
+                batch_df['mongodb'] = mongodb
+                batch_df['saleinvflag'] = salesinv
+                
+                # Atomically get sequential batch id across concurrent fetch-inputs invocations
+                counter_key = f"adhoc_batch_counter_{run_id}"
+                batch_id = cache_client.incr(counter_key)
+                cache_client.expire(counter_key, 86400)
+                
+                temp_name = f"adhoc_stack_{run_id}_batch_{batch_id}"
+                data_to_serialize = batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        if batches_required[1] > 0:
-            last_batch_df = mkt_list.iloc[-batches_required[1]:]
-            last_batch_df['runId'] = run_id
-            last_batch_df['update_navitaire_method'] = update_navitaire_method
-            last_batch_df['runTime'] = start_time
-            last_batch_df['route_type'] = route_type
-            last_batch_df['queue'] = queue_name
-            last_batch_df['cug_alloc'] = cug_alloc
-            last_batch_df['mongodb'] = mongodb
-            last_batch_df['saleinvflag'] = salesinv
-            temp_name = f"adhoc_stack_{run_id}_batch_{batches_required[0] + 1}"
-            data_to_serialize = last_batch_df.to_dict(orient='records')
-            my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
-            logger.info(my_list_json)
-            cache_client.set(temp_name, my_list_json, 86400)
-            allocation_run_batch_audit(run_id, temp_name)
+            if batches_required[1] > 0:
+                last_batch_df = mkt_list.iloc[-batches_required[1]:]
+                last_batch_df['runId'] = run_id
+                last_batch_df['update_navitaire_method'] = update_navitaire_method
+                last_batch_df['runTime'] = start_time
+                last_batch_df['route_type'] = route_type
+                last_batch_df['queue'] = queue_name
+                last_batch_df['cug_alloc'] = cug_alloc
+                last_batch_df['mongodb'] = mongodb
+                last_batch_df['saleinvflag'] = salesinv
+                
+                counter_key = f"adhoc_batch_counter_{run_id}"
+                batch_id = cache_client.incr(counter_key)
+                cache_client.expire(counter_key, 86400)
+                
+                temp_name = f"adhoc_stack_{run_id}_batch_{batch_id}"
+                data_to_serialize = last_batch_df.to_dict(orient='records')
+                my_list_json = json.dumps(data_to_serialize, default=custom_serializer)
+                logger.info(my_list_json)
+                cache_client.set(temp_name, my_list_json, 86400)
+                allocation_run_batch_audit(run_id, temp_name)
 
-        update_run_with_batches(batches_required[0] + (1 if batches_required[1] > 0 else 0), run_id)
+            update_run_with_batches(total_number_of_batches, run_id)
 
     end_time = datetime.now()
     logger.info(run_log)
