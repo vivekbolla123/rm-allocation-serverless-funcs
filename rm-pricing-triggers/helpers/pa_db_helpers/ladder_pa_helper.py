@@ -220,10 +220,12 @@ class LadderPAHelper:
             return None, self.failure_reason
 
 
-    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None):
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None, carrier_exclusion=None):
         """Collect market fares for both directions and both B2B and B2C channels."""
         if carrier_inclusion is None:
             carrier_inclusion = []
+        if carrier_exclusion is None:
+            carrier_exclusion = []
         try:
             now = datetime.now()
             date_filter = {
@@ -258,18 +260,26 @@ class LadderPAHelper:
             }
 
             if route == 'D':
+                # Domestic: use carrier exclusion if provided, otherwise no airline filter
+                airline_filter = {}
+                if carrier_exclusion:
+                    airline_filter = {'outbound_airline_code': {'$nin': carrier_exclusion + ['QP', 'G8']}}
+                else:
+                    airline_filter = {'outbound_airline_code': {'$nin': ['QP', 'G8']}}
+
                 match_stage = {
-                    'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                    **airline_filter,
                     'channel': {'$in': ['B2C', 'B2B']},
                     **sector_expr,
                     **date_filter,
                     **route_filter
                 }
             elif route == 'I':
-                if layer_type == 'connection':
-                    airline_filter = {'$in': carrier_inclusion} if carrier_inclusion else {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                # International: use carrier inclusion if provided
+                if carrier_inclusion:
+                    airline_filter = {'$in': carrier_inclusion}
                 else:
-                    airline_filter = {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                    airline_filter = {'$exists': True}  # no filter if not provided
 
                 match_stage = {
                     'outbound_airline_code': airline_filter,

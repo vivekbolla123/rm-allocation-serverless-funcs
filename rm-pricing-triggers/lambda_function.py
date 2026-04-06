@@ -121,8 +121,22 @@ def lambda_handler(event, context):
 #     "overrides": {
 #         "route": "D",
 #         "analyst": "Kenneth Menezes",
-#         "sector": ["BOMDEL", "NMILKO", "BLRDBR"],
-#         "fare_source_flag": "esb"
+#     },
+#     "modules": {"ladder_gen": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "route": "I",
+#         "analyst": "Kenneth Menezes",
+#     },
+#     "modules": {"ladder_gen": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "route": "CNX",
+#         "analyst": "Kenneth Menezes",
 #     },
 #     "modules": {"ladder_gen": 1}
 # }

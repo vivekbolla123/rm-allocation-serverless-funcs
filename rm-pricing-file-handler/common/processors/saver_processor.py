@@ -1,4 +1,3 @@
-
 import pandas as pd
 
 single_rbd_map = {
@@ -9,9 +8,10 @@ single_rbd_map = {
 }
 
 def format_saver_file(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df.columns = df.columns.str.lower()
     if 'rbd' not in df.columns:
         raise KeyError("Column 'rbd' not found in DataFrame.")
-    df = df.copy()
 
     isna = df['rbd'].isna()
     s = df['rbd'].astype(str)
