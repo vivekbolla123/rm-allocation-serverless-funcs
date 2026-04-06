@@ -57,6 +57,7 @@ param_names = [
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/DD_API_KEY',
   
 ]
 
@@ -64,7 +65,7 @@ param_names = [
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
 
-os.environ['DD_API_KEY'] = credentials.get('/rm/' + credenv + '/rm-allocation/DD_API_KEY', '')
+os.environ['DD_API_KEY'] = credentials.get(f'/rm/{creenv}/rm-allocation/DD_API_KEY', '')
 
 
 if env == 'prod':
