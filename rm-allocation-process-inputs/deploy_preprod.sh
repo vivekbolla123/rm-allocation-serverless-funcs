@@ -1,20 +1,26 @@
-aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 471112573018.dkr.ecr.ap-south-1.amazonaws.com
+Lmd_Func="preprod-rm-alloc-process-inputs"
+ECR_Domain="471112573018.dkr.ecr.ap-south-1.amazonaws.com"
+Local_Img_Tag="preprod-rm-alloc-process-inputs"
+ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
+AWS_Region="ap-south-1"
+
+aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Domain
 
 cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 
-docker image build --no-cache -t preprod-rm-alloc-process-inputs --build-arg ENVN=preprod  .
+docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=preprod --build-arg DD_SERVICE_NAME=$Lmd_Func .
 
-docker tag preprod-rm-alloc-process-inputs 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-process-inputs:latest
+docker tag $Local_Img_Tag $ECR_Image_URL
 
-docker push 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-process-inputs:latest
+docker push $ECR_Image_URL
 
-aws lambda update-function-code --region ap-south-1 --function-name preprod-rm-alloc-process-inputs --image-uri 471112573018.dkr.ecr.ap-south-1.amazonaws.com/preprod-rm-alloc-process-inputs:latest
+aws lambda update-function-code --region $AWS_Region --function-name $Lmd_Func --image-uri $ECR_Image_URL
 echo ""
 echo ""
-echo "Lambda Function [preprod-rm-alloc-process-inputs] current state: "
-aws lambda get-function --region ap-south-1 --function-name preprod-rm-alloc-process-inputs | egrep -e "State" -e "LastModified"
+echo "Lambda Function [$Lmd_Func] current state: "
+aws lambda get-function --region $AWS_Region --function-name $Lmd_Func | egrep -e "State" -e "LastModified"
 echo ""
 echo ""
 

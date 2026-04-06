@@ -36,7 +36,7 @@ case $User_Input in
         yes ) echo Proceeding with deployment;
               aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Image_URL
               cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
-              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod .
+              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg DD_SERVICE_NAME=$Lmd_Func .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
               aws lambda update-function-code --region $AWS_Region --function-name $Lmd_Func --image-uri $ECR_Image_URL

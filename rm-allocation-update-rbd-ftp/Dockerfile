@@ -1,20 +1,29 @@
 FROM public.ecr.aws/lambda/python:3.10
-
 ARG ENVN
-ENV env $ENVN
-
+ARG DD_SERVICE_NAME
+ENV env=$ENVN
 RUN echo "Creating image for $env Environment"
-# Install the function's dependencies using file requirements.txt
-# from your project folder.
+
 RUN yum install -y gcc freetds-devel && \
     yum clean all
 
-COPY requirements.txt  .
-RUN  pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
 
-# Copy function code
+COPY --from=public.ecr.aws/datadog/lambda-extension:latest /opt/. /opt/
+
 COPY lambda_function.py ${LAMBDA_TASK_ROOT}
 COPY configsettings.py ${LAMBDA_TASK_ROOT}
 
-# Set the CMD to your handler (could also be done as a parameter override outside of the Dockerfile)
-CMD [ "lambda_function.lambda_handler" ] 
+# Datadog configuration
+# DD_API_KEY set in configsettings.py
+ENV DD_LAMBDA_HANDLER=lambda_function.lambda_handler
+ENV DD_SITE=datadoghq.com
+ENV DD_TRACE_ENABLED=true
+ENV DD_SERVERLESS_LOGS_ENABLED=true
+ENV DD_LOGS_INJECTION=true
+ENV DD_ENV=${ENVN}
+ENV DD_SERVICE=${DD_SERVICE_NAME}
+ENV DD_VERSION=1.0.0
+
+CMD ["datadog_lambda.handler.handler"]
