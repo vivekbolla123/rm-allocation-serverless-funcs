@@ -1,4 +1,5 @@
 import pandas as pd
+from datetime import datetime, timedelta
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
 KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
@@ -20,8 +21,12 @@ class MarkRunCompleted:
     def run(self):
         # MongoDB query to get documents where is_run_completed is '0'
         collection = self.db['allocation_run_audit']
+        yesterday_str = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         cursor = collection.find(
-            {'is_run_completed': '0'},
+            {
+                'is_run_completed': '0',
+                'start_time': {'$gte': yesterday_str}
+            },
             {'run_id': 1, 'update_navitaire_method': 1, 'type': 1, '_id': 0}
         )
         
@@ -31,21 +36,27 @@ class MarkRunCompleted:
         for row in rows:
             run_id = row["run_id"]
             audit_type = row["type"]
-            self.checkIfRunCompleted(run_id, audit_type)
+            method = row.get("update_navitaire_method")
+            is_sftp = method is not None and method.lower() == 'sftp'
+            self.checkIfRunCompleted(run_id, audit_type, is_sftp)
 
-    def checkIfRunCompleted(self, run_id, audit_type):
+    def checkIfRunCompleted(self, run_id, audit_type, is_sftp):
         b2bPendingCount = self.cache_client.get(KEY_B2B_PENDING_COUNT + run_id)
         b2cPendingCount = self.cache_client.get(KEY_B2C_PENDING_COUNT + run_id)
+        b2bReadyCount = self.cache_client.get(KEY_B2B_READY_COUNT + run_id)
+        b2cReadyCount = self.cache_client.get(KEY_B2C_READY_COUNT + run_id)
         b2bDoneCount = self.cache_client.get(KEY_B2B_DONE_COUNT + run_id)
         b2cDoneCount = self.cache_client.get(KEY_B2C_DONE_COUNT + run_id)
         
         try:
-            # for connections
-            if audit_type.lower().endswith('connections'):
-                db_total_count, db_done_count = self.get_conn_run_counts(run_id)
-                is_complete = db_done_count >= db_total_count
+            # for sftp
+            if is_sftp:
+                # if processing complete
+                if int(b2bReadyCount) + int(b2cReadyCount) >= int(b2bPendingCount) + int(b2cPendingCount):
+                    db_total_count, db_done_count = self.get_conn_run_counts(run_id)
+                    is_complete = db_done_count >= db_total_count
 
-            # for direct
+            # for api
             else:
                 is_complete = int(b2bDoneCount) + int(b2cDoneCount) >= int(b2bPendingCount) + int(b2cPendingCount)
 

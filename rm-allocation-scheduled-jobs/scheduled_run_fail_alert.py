@@ -365,7 +365,7 @@ class ScheduledRunFailureAlert:
         events = boto3.client("events")
         lambda_client = boto3.client("lambda")
 
-        response = lambda_client.get_function(FunctionName=configsettings.FETCH_INPUTS_LAMBDA)
+        response = lambda_client.get_function(FunctionName=configsettings.PREFETCH_INPUTS_LAMBDA)
         lambda_arn = response["Configuration"]["FunctionArn"]
 
         now_utc = self._get_simulated_time()
