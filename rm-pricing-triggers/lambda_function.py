@@ -9,6 +9,7 @@ from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
+from common_utils import instrument_engine
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
@@ -36,6 +37,7 @@ try:
         pool_size=5,
         max_overflow=10
     )
+    instrument_engine(NavitaireConnection)
     
     mongo_client = MongoClient(
             host=configsettings.MONGO_URL,

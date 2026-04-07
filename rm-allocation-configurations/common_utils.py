@@ -1,0 +1,75 @@
+"""Datadog tracing utilities for SQLAlchemy engines.
+
+Since ddtrace doesn't auto-instrument pymssql, this module provides
+manual instrumentation via SQLAlchemy engine events. Every query
+executed through an instrumented engine gets a Datadog APM span.
+
+Safe to import and use even if ddtrace is unavailable — silently no-ops.
+
+Usage:
+    from common_utils import instrument_engine
+    engine = create_engine("mssql+pymssql://...")
+    instrument_engine(engine)
+"""
+
+import sys
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    from ddtrace import tracer
+    from sqlalchemy import event
+    _TRACING_AVAILABLE = True
+except ImportError:
+    _TRACING_AVAILABLE = False
+
+
+def instrument_engine(engine, service_name="navitaire-mssql"):
+    """Attach Datadog trace spans to SQLAlchemy engine events.
+
+    Creates a span for every query executed through the engine, capturing
+    the SQL statement, row count, and any errors.
+
+    Args:
+        engine: SQLAlchemy Engine instance to instrument.
+        service_name: Datadog service name for the spans (default: navitaire-mssql).
+    """
+    if not _TRACING_AVAILABLE:
+        logger.debug("ddtrace or sqlalchemy not available, skipping engine instrumentation")
+        return
+
+    try:
+        @event.listens_for(engine, "before_cursor_execute")
+        def _before_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            span = tracer.trace("mssql.query", resource=statement[:1024], service=service_name)
+            span.set_tag("sql.query", statement[:4096])
+            span.span_type = "sql"
+            if not hasattr(conn, '_dd_spans'):
+                conn._dd_spans = []
+            conn._dd_spans.append(span)
+
+        @event.listens_for(engine, "after_cursor_execute")
+        def _after_cursor_execute(conn, cursor, statement, parameters, context, executemany):
+            if hasattr(conn, '_dd_spans') and conn._dd_spans:
+                span = conn._dd_spans.pop()
+                try:
+                    if cursor.rowcount and cursor.rowcount >= 0:
+                        span.set_tag("db.row_count", cursor.rowcount)
+                except Exception:
+                    pass
+                span.finish()
+
+        @event.listens_for(engine, "handle_error")
+        def _handle_error(exception_context):
+            conn = exception_context.connection
+            if hasattr(conn, '_dd_spans') and conn._dd_spans:
+                span = conn._dd_spans.pop()
+                span.set_exc_info(
+                    type(exception_context.original_exception),
+                    exception_context.original_exception,
+                    exception_context.original_exception.__traceback__
+                )
+                span.finish()
+    except Exception:
+        logger.debug("Failed to attach ddtrace instrumentation to engine, tracing will be skipped")

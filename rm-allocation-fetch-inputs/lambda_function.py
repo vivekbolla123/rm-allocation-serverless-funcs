@@ -24,6 +24,7 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 from sqlalchemy.exc import OperationalError, DBAPIError
 from urllib.parse import quote_plus
+from common_utils import instrument_engine
 import tracemalloc
 import gc
 
@@ -65,6 +66,11 @@ log_memory("after market list fetch")
 log_memory("after booked_loads")
 log_memory("after all merges")
 log_memory("before SQS send")
+
+# ==========================
+# SQLALCHEMY DDTRACE INSTRUMENTATION
+# ==========================
+# instrument_engine imported from common_utils
 
 # ==========================
 # RETRY DECORATOR
@@ -194,6 +200,7 @@ def create_navitaire_connection_pool():
             conn.execute(text("SELECT 1"))
     
     logger.info("Navitaire SQL Server connection pool established")
+    instrument_engine(engine)
     return engine
 
 def create_dw_connection():

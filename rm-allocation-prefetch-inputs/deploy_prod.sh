@@ -37,6 +37,7 @@ case $User_Input in
         yes ) echo Proceeding with deployment;
               aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Image_URL
               cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
+              cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
               docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg DD_SERVICE_NAME=$Lmd_Func .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
@@ -56,6 +57,7 @@ case $User_Input in
               echo ""
               echo ""
               rm -f ./configsettings.py
+              rm -f ./common_utils.py
               break;;
         no ) echo Exiting...;
               exit;;

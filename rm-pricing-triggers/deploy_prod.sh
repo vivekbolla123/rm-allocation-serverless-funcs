@@ -39,6 +39,7 @@ case $User_Input in
               cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
               cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
               cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
+              cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
               docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg DD_SERVICE_NAME=$Lmd_Func .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
@@ -60,6 +61,7 @@ case $User_Input in
               rm -f ./configsettings.py
               rm -f ./Constants.py
               rm -f ./constants_utils.py
+              rm -f ./common_utils.py
               break;;
         no ) echo Exiting...;
               exit;;

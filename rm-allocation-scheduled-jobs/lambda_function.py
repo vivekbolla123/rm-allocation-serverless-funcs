@@ -3,6 +3,7 @@ import boto3
 import configsettings
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
+from common_utils import instrument_engine
 import sys
 import json
 
@@ -78,6 +79,7 @@ try:
         pool_size=5,
         max_overflow=10
     )
+    instrument_engine(NavitaireConnection)
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     

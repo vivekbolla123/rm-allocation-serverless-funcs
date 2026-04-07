@@ -11,6 +11,7 @@ aws ecr get-login-password --region $AWS_Region | docker login --username AWS --
 cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
+cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
 
 docker build --no-cache -t $Local_Img_Tag --build-arg ENVN=uat --build-arg DD_SERVICE_NAME=$Lmd_Func .
 
@@ -39,3 +40,4 @@ echo ""
 rm -f ./configsettings.py
 rm -f ./Constants.py
 rm -f ./constants_utils.py
+rm -f ./common_utils.py

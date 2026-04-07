@@ -9,6 +9,7 @@ from redis import Redis
 from datetime import datetime, timezone, timedelta
 from boto3 import client
 from pymongo import MongoClient
+from common_utils import instrument_engine
 
 
 class LastSoldFare:
@@ -55,6 +56,7 @@ class LastSoldFare:
                     pool_size=5,
                     max_overflow=10
                 )
+                instrument_engine(self.NavitaireConnection)
                 
                 # MongoDB connection
                 self.rmrdconn = MongoClient(MONGO_CONN_STRING)
@@ -93,6 +95,7 @@ class LastSoldFare:
                     pool_size=5,
                     max_overflow=10
                 )
+                instrument_engine(self.NavitaireConnection)
                 
                 # MongoDB connection
                 self.rmrdconn = MongoClient(MONGO_CONN_STRING)
