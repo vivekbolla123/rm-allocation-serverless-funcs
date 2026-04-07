@@ -4,7 +4,7 @@ import json
 from urllib.parse import quote_plus
 
 import pandas as pd
-import pymssql
+from sqlalchemy import create_engine
 from redis import Redis
 from datetime import datetime, timezone, timedelta
 from boto3 import client
@@ -46,10 +46,14 @@ class LastSoldFare:
                 if self.cache_client.ping():
                     print("Connected to Redis")
 
-                self.NavitaireConnection = pymssql.connect(
-                    host="10.154.12.13:52900",
-                    user="0KODSUSER2",
-                    password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
+                self.NavitaireConnection = create_engine(
+                    f"mssql+pymssql://0KODSUSER2:"
+                    f"{quote_plus(self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD'))}@"
+                    f"10.154.12.13:52900",
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    pool_size=5,
+                    max_overflow=10
                 )
                 
                 # MongoDB connection
@@ -80,10 +84,14 @@ class LastSoldFare:
                 if self.cache_client.ping():
                     print("Connected to Redis")
 
-                self.NavitaireConnection = pymssql.connect(
-                    host="10.154.12.19:52900",
-                    user="0KODSUSER2",
-                    password=self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD')
+                self.NavitaireConnection = create_engine(
+                    f"mssql+pymssql://0KODSUSER2:"
+                    f"{quote_plus(self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD'))}@"
+                    f"10.154.12.19:52900",
+                    pool_pre_ping=True,
+                    pool_recycle=3600,
+                    pool_size=5,
+                    max_overflow=10
                 )
                 
                 # MongoDB connection

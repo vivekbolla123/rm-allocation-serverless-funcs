@@ -1,8 +1,8 @@
 import logging
 import boto3
-import pymssql
 import configsettings
 from sqlalchemy import create_engine
+from urllib.parse import quote_plus
 import sys
 import json
 
@@ -69,11 +69,15 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
     dw_conn = create_engine(DB_DW_WR_CONN_STRING) if hasattr(configsettings, 'DW_DB_USER') else None
 
-    NavitaireConnection = pymssql.connect(
-            host=configsettings.NAV_DB_HOST,
-            user=configsettings.NAV_DB_USER,
-            password=configsettings.NAV_DB_PASSWORD
-        )
+    NavitaireConnection = create_engine(
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}",
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_size=5,
+        max_overflow=10
+    )
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     

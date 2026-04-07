@@ -7,7 +7,6 @@ from pymongo import MongoClient
 import configsettings
 import json
 from sqlalchemy import create_engine
-import pymssql
 import warnings
 import boto3
 from redis import Redis

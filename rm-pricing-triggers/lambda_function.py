@@ -1,7 +1,6 @@
 import logging
 import boto3
 from pymongo import MongoClient
-import pymssql
 import configsettings
 import sys
 import json
@@ -9,6 +8,7 @@ import json
 from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
+from urllib.parse import quote_plus
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
@@ -27,11 +27,15 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB)
     dw_conn = create_engine(DW_DB_CONN)
 
-    NavitaireConnection = pymssql.connect(
-            host=configsettings.NAV_DB_HOST,
-            user=configsettings.NAV_DB_USER,
-            password=configsettings.NAV_DB_PASSWORD
-        )
+    NavitaireConnection = create_engine(
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}",
+        pool_pre_ping=True,
+        pool_recycle=3600,
+        pool_size=5,
+        max_overflow=10
+    )
     
     mongo_client = MongoClient(
             host=configsettings.MONGO_URL,

@@ -6,7 +6,6 @@ import os
 import configsettings
 from constants_utils import ConstantsUtils
 from datetime import datetime, timedelta, date
-import pymssql
 import traceback
 import uuid
 import pytz
