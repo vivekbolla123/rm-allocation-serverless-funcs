@@ -1,0 +1,19 @@
+aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 891377165721.dkr.ecr.ap-south-1.amazonaws.com
+
+cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
+
+docker image build --no-cache -t test-rm-allocation-prefetch-inputs-image --build-arg ENVN=uat  .
+
+docker tag test-rm-allocation-prefetch-inputs-image 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs:latest
+
+docker push 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs:latest
+
+aws lambda update-function-code --region ap-south-1 --function-name uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs --image-uri 891377165721.dkr.ecr.ap-south-1.amazonaws.com/uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs:latest
+echo ""
+echo ""
+echo "Lambda Function [uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs] current state: "
+aws lambda get-function --region ap-south-1 --function-name uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs | egrep -e "State" -e "LastModified"
+echo ""
+echo ""
+
+rm -f ./configsettings.py
