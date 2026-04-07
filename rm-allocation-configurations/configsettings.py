@@ -1,4 +1,4 @@
-from os import getenv, environ
+from os import getenv
 from boto3 import client
 
 def get_multiple_credentials(parameter_names):
@@ -57,15 +57,11 @@ param_names = [
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
-    f'/rm/{creenv}/rm-allocation/DD_API_KEY',
-  
 ]
 
 
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
-
-environ['DD_API_KEY'] = credentials.get(f'/rm/{creenv}/rm-allocation/DD_API_KEY', '')
 
 
 if env == 'prod':
