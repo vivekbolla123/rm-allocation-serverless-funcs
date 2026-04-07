@@ -478,10 +478,12 @@ class DynAlloc:
 			# Use forecast data only if within 30 NDOs
 			imp_forecast = CONST_NA
 			PLF_Gain = CONST_NA
+			Af_Nb_Allin = CONST_NA
 			if ndocounter <= 30:
 				imp_forecast = self.getParsedImputedForecast(variance_full)
-			Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
-			PLF_Gain = (imp_forecast - str(round(final_plf,2)))
+			if(imp_forecast != CONST_NA):
+				Af_Nb_Allin = self.calculateAfNbAllin(imp_forecast, str(round(final_plf,2)))
+				PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 			dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
@@ -493,12 +495,10 @@ class DynAlloc:
 				forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
 			
 			imp_forecast_band = CONST_NA
+			af_forecast_band = CONST_NA
 			if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
 				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
-
-			af_forecast_band = CONST_NA
-			if Af_Nb_Allin != CONST_NA and not pd.isna(Af_Nb_Allin):
-				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(Af_Nb_Allin)
+				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
 
 			ml_b2b_factor = self.currParams.b2b_factor
 			b2b_strategy = self.currParams.b2bStrategy

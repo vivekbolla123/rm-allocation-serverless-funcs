@@ -16,13 +16,13 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
         hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
         forecastAllocFlag = int(getattr(currParams, 'forecastAllocFlag', 0))
         afForecastAllocFlag = int(getattr(currParams, 'afForecastAllocFlag', 0))
-        forecast_plf = float(forecast_plf)
+        forecast_plf = float(forecast_plf) if forecast_plf!= CONST_NA else CONST_NA
         strategyFare = CONST_NA
         howDetermined = CONST_NA
         upsell = CONST_NA
@@ -57,7 +57,7 @@ class DetermineRBD:
         
         anchorValue = ''
         if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0):
-            anchorFare, howDetermined = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
+            anchorFare, howDetermined, upsell, overBookingFare = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_' + howDetermined
             
         else:
