@@ -1,8 +1,10 @@
+set -e
 Lmd_Func="preprod-rm-alloc-update-rbd-ftp"
 ECR_Domain="471112573018.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="preprod-rm-alloc-update-rbd-ftp"
 ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
 AWS_Region="ap-south-1"
+SSM_ENV="prod"
 
 aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Domain
 
@@ -17,6 +19,16 @@ docker tag $Local_Img_Tag $ECR_Image_URL
 docker push $ECR_Image_URL
 
 aws lambda update-function-code --region $AWS_Region --function-name $Lmd_Func --image-uri $ECR_Image_URL
+echo "Waiting for function update to complete..."
+aws lambda wait function-updated --region $AWS_Region --function-name $Lmd_Func
+
+# Fetch DD_API_KEY from SSM and set it on the Lambda
+DD_API_KEY=$(aws ssm get-parameter --name "/rm/${SSM_ENV}/rm-allocation/DD_API_KEY" --with-decryption --query "Parameter.Value" --output text --region $AWS_Region)
+EXISTING_VARS=$(aws lambda get-function-configuration --region $AWS_Region --function-name $Lmd_Func --query "Environment.Variables" --output json 2>/dev/null || echo "{}")
+UPDATED_VARS=$(echo "$EXISTING_VARS" | python3 -c "import sys,json; d=json.load(sys.stdin) or {}; d['DD_API_KEY']='$DD_API_KEY'; print(json.dumps({'Variables':d}))")
+aws lambda update-function-configuration --region $AWS_Region --function-name $Lmd_Func --environment "$UPDATED_VARS" > /dev/null
+echo "DD_API_KEY environment variable set successfully"
+
 echo ""
 echo ""
 echo "Lambda Function [$Lmd_Func] current state: "
