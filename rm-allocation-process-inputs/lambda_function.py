@@ -142,7 +142,7 @@ def lambda_handler(event, context):
 
         except Exception as e:
             #print stacktrace
-            logger.error(f"Error processing flight: {traceback.format_exc}")
+            logger.error(f"Error processing flight: {traceback.format_exc()}")
 
 
     log_time.send_time_log_db()
