@@ -56,7 +56,8 @@ class SaleInvRBLCalc:
                 for doc in self.db.saleinv_parameter_values.find(
                     {'parameterKey': {'$in': [
                         'RBL_CORP_CONTRI_MAP', 'RBL_FARE_PREMIUM_MAP',
-                        'RBL_FLOWN_PLF_MAP', 'RBL_METRO_MAP', 'METRO_STATIONS'
+                        'RBL_FLOWN_PLF_MAP', 'RBL_METRO_MAP', 'METRO_STATIONS',
+                        'RBL_FLOOR', 'RBL_PLF_THRESHOLD'
                     ]}},
                     {'_id': 0, 'parameterKey': 1, 'parameterValue': 1}
                 )
@@ -68,6 +69,11 @@ class SaleInvRBLCalc:
 
             metro_entries = json.loads(param_docs['RBL_METRO_MAP'])
             self.metro_map = {e['metro_class']: e['value'] for e in metro_entries}
+
+            self.metro_stations = set(json.loads(param_docs['METRO_STATIONS']))
+
+            self.rbl_floor = float(param_docs.get('RBL_FLOOR', '30'))
+            self.rbl_plf_threshold = float(param_docs.get('RBL_PLF_THRESHOLD', '90'))
 
             self.metro_stations = set(json.loads(param_docs['METRO_STATIONS']))
 
@@ -219,9 +225,9 @@ class SaleInvRBLCalc:
                 df['FlownPLFMapped']
             )
 
-            # RBL_Capped: if FlownPLF < 90, RBL must be at least 30
+            # RBL_Capped: if FlownPLF < threshold, RBL must be at least floor
             df['RBL_Capped'] = df.apply(
-                lambda r: max(r['RBL'], 30) if pd.notna(r['FlownPLF']) and r['FlownPLF'] < 90 else r['RBL'],
+                lambda r: max(r['RBL'], self.rbl_floor) if pd.notna(r['FlownPLF']) and r['FlownPLF'] < self.rbl_plf_threshold else r['RBL'],
                 axis=1
             )
 

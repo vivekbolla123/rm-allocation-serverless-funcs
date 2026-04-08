@@ -40,6 +40,7 @@ from forecast_date_config import ForecastDateConfig
 from mlForecastScore import MLForecastScore
 from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
+from saleinv_leanpeak_map import SaleInvLeanPeakMap
 
 def create_logger():
     logger = logging.getLogger()
@@ -125,7 +126,8 @@ module_map = {
     "forecast_date_config": ForecastDateConfig,
     "ml_forecast_score": MLForecastScore,
     "saleinv_baseload": SaleInvBaseloadCalc,
-    "saleinv_rbl": SaleInvRBLCalc
+    "saleinv_rbl": SaleInvRBLCalc,
+    "saleinv_leanpeak_map": SaleInvLeanPeakMap
 }
 
 

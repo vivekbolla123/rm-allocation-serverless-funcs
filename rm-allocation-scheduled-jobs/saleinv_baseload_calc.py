@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from constants_utils import ConstantsUtils
 import traceback
 import warnings
@@ -9,11 +10,15 @@ import calendar
 warnings.filterwarnings('ignore')
 
 COLLECTION_NAME = 'saleinv_flown_data'
+LEANPEAK_COLLECTION_NAME = 'saleinv_flown_leanpeak'
 
-VALUE_COLUMNS = ['BaseLoad', 'CorporateContribution', 'AvgFare_FIT_0_7', 'AvgFare_FIT_30Plus', 'FarePremium', 'FlownPLF']
+VALUE_COLUMNS = ['BaseLoad', 'CorporateContribution_Overall', 'CorporateContribution_Near', 'AvgFare_FIT_Near', 'AvgFare_FIT_Far', 'FarePremium', 'FlownPLF']
 
 GROUP_COLS = ['Sector', 'TimeCluster', 'DayOfWeek']
 KEY_COLS = ['Month'] + GROUP_COLS
+
+LEANPEAK_DATE_GROUP_COLS = ['Sector', 'DepartureDate', 'DayOfWeek']
+LEANPEAK_DOW_GROUP_COLS = ['Sector', 'DayOfWeek']
 
 
 class SaleInvBaseloadCalc:
@@ -27,10 +32,11 @@ class SaleInvBaseloadCalc:
         self.db = self.mongoconn['qp_dw_rmalloc']
         self.constants = ConstantsUtils(self.db)
 
-        start_date_str = overrides.get('start_date', '2025-01-01')
+        start_date_str = overrides.get('start_date', '2025-03-01')
         self.start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
 
         self.time_clusters = self._fetch_time_clusters()
+        self._load_tunable_config()
 
     # ── Retry helper ──────────────────────────────────────────────────
 
@@ -45,22 +51,64 @@ class SaleInvBaseloadCalc:
                 self.logger.warning(f"{description} failed (attempt {attempt}/{max_retries}), retrying in {delay}s...")
                 time.sleep(delay)
 
+    # ── Tunable config ────────────────────────────────────────────────
+
+    def _load_tunable_config(self):
+        """Load tunable constants from saleinv_parameter_values collection."""
+        import json
+
+        def _do_load():
+            keys = [
+                'BASELOAD_NDO_MIN', 'CORP_CONTRI_NDO_MIN', 'CORP_CONTRI_NDO_MAX',
+                'AVG_FARE_NEAR_NDO_MIN', 'AVG_FARE_NEAR_NDO_MAX',
+                'AVG_FARE_FAR_NDO_MIN',
+                'LEANPEAK_THRESHOLD_MULTIPLIER', 'LEANPEAK_SMOOTH_WINDOW',
+                'LEANPEAK_MIN_BAND_LENGTH'
+            ]
+            param_docs = {
+                doc['parameterKey']: doc['parameterValue']
+                for doc in self.db.saleinv_parameter_values.find(
+                    {'parameterKey': {'$in': keys}},
+                    {'_id': 0, 'parameterKey': 1, 'parameterValue': 1}
+                )
+            }
+            return param_docs
+
+        params = self._retry_db_operation(_do_load, "Load tunable config")
+
+        self.baseload_ndo_min = int(params.get('BASELOAD_NDO_MIN', '31'))
+        self.corp_ndo_min = int(params.get('CORP_CONTRI_NDO_MIN', '0'))
+        self.corp_ndo_max = int(params.get('CORP_CONTRI_NDO_MAX', '7'))
+        self.near_ndo_min = int(params.get('AVG_FARE_NEAR_NDO_MIN', '0'))
+        self.near_ndo_max = int(params.get('AVG_FARE_NEAR_NDO_MAX', '7'))
+        self.far_ndo_min = int(params.get('AVG_FARE_FAR_NDO_MIN', '31'))
+        self.lp_threshold_multiplier = float(params.get('LEANPEAK_THRESHOLD_MULTIPLIER', '0.75'))
+        self.lp_smooth_window = int(params.get('LEANPEAK_SMOOTH_WINDOW', '4'))
+        self.lp_min_band_length = int(params.get('LEANPEAK_MIN_BAND_LENGTH', '3'))
+
+        self.logger.info("Tunable config loaded from saleinv_parameter_values")
+
     # ── Time clusters ─────────────────────────────────────────────────
 
     def _fetch_time_clusters(self):
         def _do_fetch():
             clusters = list(self.db.config_clusters.find({}, {'_id': 0, 'cluster': 1, 'startTime': 1, 'endTime': 1}))
-            return [(c['cluster'], c['startTime'], c['endTime']) for c in clusters]
+            # Zero-pad times for consistent string comparison (e.g., "2:30:00" → "02:30:00")
+            def pad_time(t):
+                parts = t.split(':')
+                parts[0] = parts[0].zfill(2)
+                return ':'.join(parts)
+            return [(c['cluster'], pad_time(c['startTime']), pad_time(c['endTime'])) for c in clusters]
         return self._retry_db_operation(_do_fetch, "Fetch time clusters")
 
     def _get_time_cluster_case_statement(self):
         cases = []
         for cluster_id, start_time, end_time in self.time_clusters:
             if start_time > end_time:
-                cases.append(f"WHEN CAST(IL.STD AS TIME) BETWEEN '{start_time}' AND '23:59:59' THEN {cluster_id}")
-                cases.append(f"WHEN CAST(IL.STD AS TIME) BETWEEN '00:00:00' AND '{end_time}' THEN {cluster_id}")
+                cases.append(f"WHEN CAST(IL.STD AS TIME) >= '{start_time}' AND CAST(IL.STD AS TIME) <= '23:59:59' THEN {cluster_id}")
+                cases.append(f"WHEN CAST(IL.STD AS TIME) >= '00:00:00' AND CAST(IL.STD AS TIME) < '{end_time}' THEN {cluster_id}")
             else:
-                cases.append(f"WHEN CAST(IL.STD AS TIME) BETWEEN '{start_time}' AND '{end_time}' THEN {cluster_id}")
+                cases.append(f"WHEN CAST(IL.STD AS TIME) >= '{start_time}' AND CAST(IL.STD AS TIME) < '{end_time}' THEN {cluster_id}")
         return "CASE " + " ".join(cases) + " ELSE NULL END"
 
     # ── Data fetch ────────────────────────────────────────────────────
@@ -75,13 +123,15 @@ class SaleInvBaseloadCalc:
                 PX.DepartureDate,
                 (WEEKDAY(PX.DepartureDate) + 1) AS DayOfWeek,
                 {time_cluster_case} AS TimeCluster,
-                DATEDIFF(PX.DepartureDate, DATE(PX.BookingUTC)) AS NDO,
+                DATEDIFF(PX.DepartureDate, DATE(PX.BookingDate)) AS NDO,
                 PX.PassengerID,
                 PX.FlightNumber,
                 PX.FareBasis,
                 PX.AdjustedCapacity,
                 (CASE WHEN SUBSTRING(PX.FareBasis, 5, 1) = 'T' THEN PX.FB_Net ELSE PX.DiscountedBaseFare_Pro END
                     + PX.YQ_Pro + PX.RCS + PX.CUTE) AS TotalFare,
+                (CASE WHEN SUBSTRING(PX.FareBasis, 5, 1) = 'T' THEN PX.FB_Net ELSE PX.DiscountedBaseFare_Pro END
+                    + PX.YQ_Pro + PX.RCS + PX.CUTE) AS PRASKFare,
                 PX.OrganizationCode
             FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
             INNER JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL
@@ -91,7 +141,6 @@ class SaleInvBaseloadCalc:
                 AND PX.BookingID IS NOT NULL
                 AND IL.CarrierCode = 'QP'
                 AND SUBSTRING(PX.FareBasis, 1, 1) != 'S'
-                AND SUBSTRING(PX.FareBasis, 5, 1) != 'G'
                 AND PX.OrganizationCode NOT LIKE '%%3T'
             """
 
@@ -99,12 +148,14 @@ class SaleInvBaseloadCalc:
                 lambda: pd.read_sql(query, self.ebsconn),
                 f"Fetch FLOWNDATAPAX {month_start} to {month_end}"
             )
+            # df = pd.read_csv('flown_02_2025.csv')
             self.logger.info(f"Fetched {len(df)} records from FLOWNDATAPAX for {month_start} to {month_end}")
 
             if df.empty:
                 return df
 
             df['IsCorporate'] = df['FareBasis'].str[4] == 'C'
+            df['IsGroup'] = df['FareBasis'].str[4] == 'G'
             return df
 
         except Exception as e:
@@ -114,11 +165,11 @@ class SaleInvBaseloadCalc:
     # ── Metric calculations ───────────────────────────────────────────
 
     def _calc_baseload(self, df, month_key):
-        df_ndo30 = df[df['NDO'] >= 30]
-        if df_ndo30.empty:
+        df_far_ndo = df[df['NDO'] >= self.baseload_ndo_min]
+        if df_far_ndo.empty:
             return pd.DataFrame(columns=KEY_COLS + ['BaseLoad'])
 
-        flight_level = df_ndo30.groupby(
+        flight_level = df_far_ndo.groupby(
             GROUP_COLS + ['DepartureDate', 'FlightNumber']
         ).agg(PaxCount=('PassengerID', 'count'), AdjustedCapacity=('AdjustedCapacity', 'first')).reset_index()
 
@@ -131,19 +182,34 @@ class SaleInvBaseloadCalc:
         return result[KEY_COLS + ['BaseLoad']]
 
     def _calc_corporate_contribution(self, df, month_key):
-        df_ndo07 = df[(df['NDO'] >= 0) & (df['NDO'] <= 7)]
-        if df_ndo07.empty:
-            return pd.DataFrame(columns=KEY_COLS + ['CorporateContribution'])
+        # Overall corporate contribution (all NDOs)
+        if df.empty:
+            return pd.DataFrame(columns=KEY_COLS + ['CorporateContribution_Overall']), \
+                   pd.DataFrame(columns=KEY_COLS + ['CorporateContribution_Near'])
 
-        result = df_ndo07.groupby(GROUP_COLS).agg(
+        overall = df.groupby(GROUP_COLS).agg(
             TotalPax=('PassengerID', 'count'), CorporatePax=('IsCorporate', 'sum')
         ).reset_index()
+        overall['CorporateContribution_Overall'] = (overall['CorporatePax'] / overall['TotalPax'] * 100).round(0)
+        overall.insert(0, 'Month', month_key)
+        overall = overall[KEY_COLS + ['CorporateContribution_Overall']]
 
-        result['CorporateContribution'] = (result['CorporatePax'] / result['TotalPax'] * 100).round(0)
-        result.insert(0, 'Month', month_key)
-        return result[KEY_COLS + ['CorporateContribution']]
+        # Near-NDO corporate contribution (0-7)
+        df_near_ndo = df[(df['NDO'] >= self.corp_ndo_min) & (df['NDO'] <= self.corp_ndo_max)]
+        if df_near_ndo.empty:
+            near = pd.DataFrame(columns=KEY_COLS + ['CorporateContribution_Near'])
+        else:
+            near = df_near_ndo.groupby(GROUP_COLS).agg(
+                TotalPax=('PassengerID', 'count'), CorporatePax=('IsCorporate', 'sum')
+            ).reset_index()
+            near['CorporateContribution_Near'] = (near['CorporatePax'] / near['TotalPax'] * 100).round(0)
+            near.insert(0, 'Month', month_key)
+            near = near[KEY_COLS + ['CorporateContribution_Near']]
+
+        return overall, near
 
     def _calc_avg_fare(self, df, month_key, ndo_min, ndo_max, col_name):
+        df = df[~df['IsGroup']]
         if ndo_max is None:
             filtered = df[df['NDO'] >= ndo_min]
         else:
@@ -158,15 +224,15 @@ class SaleInvBaseloadCalc:
         result.insert(0, 'Month', month_key)
         return result[KEY_COLS + [col_name]]
 
-    def _calc_fare_premium(self, fares_07, fares_30):
-        if fares_07.empty or fares_30.empty:
+    def _calc_fare_premium(self, fares_near, fares_far):
+        if fares_near.empty or fares_far.empty:
             return pd.DataFrame(columns=KEY_COLS + ['FarePremium'])
 
-        merged = fares_07.merge(fares_30, on=KEY_COLS, how='inner')
+        merged = fares_near.merge(fares_far, on=KEY_COLS, how='inner')
         if merged.empty:
             return pd.DataFrame(columns=KEY_COLS + ['FarePremium'])
 
-        merged['FarePremium'] = ((merged['AvgFare_FIT_0_7'] / merged['AvgFare_FIT_30Plus']) - 1) * 100
+        merged['FarePremium'] = ((merged['AvgFare_FIT_Near'] / merged['AvgFare_FIT_Far']) - 1) * 100
         merged['FarePremium'] = merged['FarePremium'].round(0)
         return merged[KEY_COLS + ['FarePremium']]
 
@@ -185,6 +251,236 @@ class SaleInvBaseloadCalc:
         result['FlownPLF'] = (result['TotalPax'] / result['TotalCapacity'] * 100).round(0)
         result.insert(0, 'Month', month_key)
         return result[KEY_COLS + ['FlownPLF']]
+
+    # ── City pair distance fetch ─────────────────────────────────────
+
+    def _fetch_city_pair_distances(self):
+        """Fetch ActualDistance for all active city pairs from DW."""
+        try:
+            query = """
+            SELECT
+                CONCAT(DepartureStation, ArrivalStation) AS Sector,
+                ActualDistance AS Distance
+            FROM QP_DWH_MASTER.CityPair
+            """
+            df = self._retry_db_operation(
+                lambda: pd.read_sql(query, self.dwconn),
+                "Fetch CityPair distances"
+            )
+            self.logger.info(f"Fetched {len(df)} city pair distances")
+            return df
+        except Exception as e:
+            self.logger.error(f"Error fetching city pair distances: {traceback.format_exc()}")
+            raise
+
+    # ── Lean Peak calculations ────────────────────────────────────────
+
+    def _calc_prask_by_sector_dow_date(self, df, month_key):
+        """PRASK grouped by Sector, DayOfWeek, DepartureDate.
+        Numerator (fare sum) is per-passenger, denominator (capacity×distance) is per-flight."""
+        if df.empty:
+            return pd.DataFrame(columns=['Month'] + LEANPEAK_DATE_GROUP_COLS + ['PRASK'])
+
+        # Numerator: sum of PRASKFare across all pax
+        fare_agg = df.groupby(LEANPEAK_DATE_GROUP_COLS).agg(
+            SumFare=('PRASKFare', 'sum')
+        ).reset_index()
+
+        # Denominator: sum of AdjustedCapacity × Distance, once per flight
+        flight_level = df.groupby(
+            LEANPEAK_DATE_GROUP_COLS + ['FlightNumber']
+        ).agg(AdjustedCapacity=('AdjustedCapacity', 'first'), Distance=('Distance', 'first')).reset_index()
+        flight_level['CapDist'] = flight_level['AdjustedCapacity'] * flight_level['Distance']
+        cap_agg = flight_level.groupby(LEANPEAK_DATE_GROUP_COLS).agg(
+            SumCapDist=('CapDist', 'sum')
+        ).reset_index()
+
+        agg = fare_agg.merge(cap_agg, on=LEANPEAK_DATE_GROUP_COLS, how='inner')
+        agg['PRASK'] = (agg['SumFare'] / agg['SumCapDist']).round(2)
+        agg.insert(0, 'Month', month_key)
+        return agg[['Month'] + LEANPEAK_DATE_GROUP_COLS + ['PRASK']]
+
+
+    def _calc_prask_by_dow(self, df, month_key):
+        """PRASK grouped by DayOfWeek only.
+        Numerator (fare sum) is per-passenger, denominator (capacity*distance) is per-flight."""
+        if df.empty:
+            return pd.DataFrame(columns=['Month', 'DayOfWeek', 'DOW_PRASK'])
+
+        # Numerator: sum of PRASKFare across all pax
+        fare_agg = df.groupby(LEANPEAK_DOW_GROUP_COLS).agg(
+            SumFare=('PRASKFare', 'sum')
+        ).reset_index()
+
+        # Denominator: sum of AdjustedCapacity * Distance, once per flight
+        flight_level = df.groupby(
+            LEANPEAK_DATE_GROUP_COLS + ['FlightNumber']
+        ).agg(AdjustedCapacity=('AdjustedCapacity', 'first'), Distance=('Distance', 'first')).reset_index()
+        flight_level['CapDist'] = flight_level['AdjustedCapacity'] * flight_level['Distance']
+        cap_agg = flight_level.groupby(LEANPEAK_DOW_GROUP_COLS).agg(
+            SumCapDist=('CapDist', 'sum')
+        ).reset_index()
+
+        agg = fare_agg.merge(cap_agg, on=LEANPEAK_DOW_GROUP_COLS, how='inner')
+        agg['DOW_PRASK'] = (agg['SumFare'] / agg['SumCapDist']).round(2)
+        agg.insert(0, 'Month', month_key)
+        return agg[['Month'] + LEANPEAK_DOW_GROUP_COLS + ['DOW_PRASK']]
+
+    def _calc_deviation(self, prask_df, dow_prask_df):
+        """Deviation% = (PRASK / DOW_PRASK - 1) × 100."""
+        merged = prask_df.merge(dow_prask_df, on=['Month'] + LEANPEAK_DOW_GROUP_COLS, how='left')
+        merged['Deviation_Pct'] = ((merged['PRASK'] / merged['DOW_PRASK']) - 1) * 100
+        merged['Deviation_Pct'] = merged['Deviation_Pct'].round(2)
+        return merged
+
+    def _calc_sector_threshold(self, deviation_df):
+        """Threshold = 0.75 × Std(Deviation%) grouped by Sector."""
+        sector_std = deviation_df.groupby('Sector')['Deviation_Pct'].std().reset_index()
+        sector_std.rename(columns={'Deviation_Pct': 'Sector_Std'}, inplace=True)
+        sector_std['Threshold'] = (self.lp_threshold_multiplier * sector_std['Sector_Std']).round(2)
+        sector_std['Threshold'] = sector_std['Threshold'].fillna(np.inf)
+        return sector_std[['Sector', 'Threshold']]
+
+    def _calc_lean_peak_tag(self, deviation_df, threshold_df):
+        """Tag: 1 if Deviation% >= Threshold, -1 if Deviation% <= -Threshold, else 0."""
+        merged = deviation_df.merge(threshold_df, on='Sector', how='left')
+        merged['Tag'] = 0
+        merged.loc[merged['Deviation_Pct'] >= merged['Threshold'], 'Tag'] = 1
+        merged.loc[merged['Deviation_Pct'] <= -merged['Threshold'], 'Tag'] = -1
+        return merged
+
+    def _fill_missing_dates(self, tagged_df, month_key):
+        """Expand each sector to cover all dates in the month, filling missing dates with Tag=0."""
+        d = datetime.strptime(month_key, '%Y-%m').date()
+        last_day = calendar.monthrange(d.year, d.month)[1]
+        all_dates = pd.date_range(d, d.replace(day=last_day), freq='D')
+
+        sectors = tagged_df['Sector'].unique()
+        full_grid = pd.MultiIndex.from_product(
+            [sectors, all_dates], names=['Sector', 'DepartureDate']
+        ).to_frame(index=False)
+        full_grid['DayOfWeek'] = full_grid['DepartureDate'].dt.weekday + 1
+
+        tagged_df['DepartureDate'] = pd.to_datetime(tagged_df['DepartureDate'])
+        merged = full_grid.merge(tagged_df, on=['Sector', 'DepartureDate', 'DayOfWeek'], how='left')
+        merged['Tag'] = merged['Tag'].fillna(0).astype(int)
+
+        # Carry forward columns that came from the tag step (Month, thresholds, etc.)
+        for col in ['Month']:
+            if col in merged.columns:
+                merged[col] = merged[col].fillna(month_key)
+
+        return merged.sort_values(['Sector', 'DepartureDate']).reset_index(drop=True)
+
+    def _smooth_lone_zeros(self, tags, window=4):
+        """Sliding window: if exactly 1 zero among `window` consecutive values
+        and the rest are all the same sign, fill that zero with that sign.
+        Uses numpy rolling for vectorized computation."""
+        arr = np.array(tags)
+        n = len(arr)
+        if n < window:
+            return tags
+
+        for i in range(n - window + 1):
+            w = arr[i:i + window]
+            zero_mask = w == 0
+            if zero_mask.sum() != 1:
+                continue
+            zero_pos = zero_mask.argmax()
+            if zero_pos == 0 or zero_pos == window - 1:
+                continue
+            non_zeros = w[~zero_mask]
+            if non_zeros[0] == non_zeros[1] == non_zeros[2]:
+                arr[i + zero_pos] = non_zeros[0]
+
+        return arr.tolist()
+
+    def _remove_short_bands(self, tags, min_length=3):
+        """Remove non-zero bands shorter than min_length using numpy diff-based run detection."""
+        arr = np.array(tags)
+        n = len(arr)
+        if n == 0:
+            return tags
+
+        # Find run boundaries using diff
+        diff = np.diff(arr, prepend=arr[0] - 1)
+        starts = np.where(diff != 0)[0]
+
+        for k in range(len(starts)):
+            s = starts[k]
+            e = starts[k + 1] if k + 1 < len(starts) else n
+            if arr[s] != 0 and (e - s) < min_length:
+                arr[s:e] = 0
+
+        return arr.tolist()
+
+    def _smooth_tags(self, tagged_df):
+        """Apply smoothing per sector: fill lone zeros, then remove short bands.
+        Uses sort_values + groupby transform to avoid per-group concat."""
+        tagged_df = tagged_df.sort_values(['Sector', 'DepartureDate']).reset_index(drop=True)
+
+        def _apply_smoothing(group_tags):
+            tags = group_tags.tolist()
+            tags = self._smooth_lone_zeros(tags, window=self.lp_smooth_window)
+            tags = self._remove_short_bands(tags, min_length=self.lp_min_band_length)
+            return pd.Series(tags, index=group_tags.index)
+
+        tagged_df['Tag'] = tagged_df.groupby('Sector')['Tag'].transform(_apply_smoothing)
+        return tagged_df
+
+    def _insert_leanpeak_to_mongo(self, df, month_key):
+        """Insert PRASK data (first df) into saleinv_leanpeak collection."""
+        if df.empty:
+            self.logger.warning(f"Skipping insert for {LEANPEAK_COLLECTION_NAME} — empty DataFrame")
+            return 0
+
+        def _do_insert():
+            collection = self.db[LEANPEAK_COLLECTION_NAME]
+            records = df.to_dict('records')
+            collection.delete_many({'Month': month_key})
+            collection.insert_many(records)
+            return len(records)
+
+        return self._retry_db_operation(_do_insert, f"Insert into {LEANPEAK_COLLECTION_NAME} for {month_key}")
+
+    def _process_lean_peak(self, df, city_pair_df, month_key):
+        """Calculate PRASK, deviation, threshold, and lean/peak tags for a month."""
+        # Merge with city pair to get Distance
+        merged = df.merge(city_pair_df, on='Sector', how='inner')
+        if merged.empty:
+            self.logger.warning(f"No city pair matches for lean peak calc in {month_key}")
+            return
+
+        # 1. PRASK by Sector, DOW, DepartureDate
+        prask_df = self._calc_prask_by_sector_dow_date(merged, month_key)
+
+        # 2. PRASK by DayOfWeek only
+        dow_prask_df = self._calc_prask_by_dow(merged, month_key)
+
+        # 3. Deviation%
+        deviation_df = self._calc_deviation(prask_df, dow_prask_df)
+
+        # 4. Sector-level threshold
+        threshold_df = self._calc_sector_threshold(deviation_df)
+
+        # 5. Lean/Peak tag
+        tagged_df = self._calc_lean_peak_tag(deviation_df, threshold_df)
+
+        # 6. Fill missing dates with Tag=0 before smoothing
+        tagged_df = self._fill_missing_dates(tagged_df, month_key)
+
+        # 7. Smooth tags per sector
+        tagged_df = self._smooth_tags(tagged_df)
+
+        # Keep only required columns
+        tagged_df = tagged_df[['Sector', 'DepartureDate', 'DayOfWeek', 'Tag']]
+
+        # Insert smoothed tagged df into collection
+        insert_df = tagged_df.copy()
+        insert_df.insert(0, 'Month', month_key)
+        insert_df['DepartureDate'] = insert_df['DepartureDate'].astype(str)
+        count = self._insert_leanpeak_to_mongo(insert_df, month_key)
+        self.logger.info(f"Inserted {count} records into {LEANPEAK_COLLECTION_NAME} for {month_key}")
 
     # ── Grid expansion & missing value fill ───────────────────────────
 
@@ -277,19 +573,19 @@ class SaleInvBaseloadCalc:
 
     # ── Process a single month ────────────────────────────────────────
 
-    def _process_month(self, df, month_key):
+    def _process_month(self, df, month_key, city_pair_df):
         """Calculate all metrics, merge, expand grid, fill missing, insert."""
         # Calculate individual metrics
         baseload = self._calc_baseload(df, month_key)
-        corp_contrib = self._calc_corporate_contribution(df, month_key)
-        fares_07 = self._calc_avg_fare(df, month_key, 0, 7, 'AvgFare_FIT_0_7')
-        fares_30 = self._calc_avg_fare(df, month_key, 30, None, 'AvgFare_FIT_30Plus')
-        fare_premium = self._calc_fare_premium(fares_07, fares_30)
+        corp_overall, corp_near = self._calc_corporate_contribution(df, month_key)
+        fares_near = self._calc_avg_fare(df, month_key, self.near_ndo_min, self.near_ndo_max, 'AvgFare_FIT_Near')
+        fares_far = self._calc_avg_fare(df, month_key, self.far_ndo_min, None, 'AvgFare_FIT_Far')
+        fare_premium = self._calc_fare_premium(fares_near, fares_far)
         flown_plf = self._calc_flown_plf(df, month_key)
 
         # Collect all unique sectors across all metrics
         all_sectors = set()
-        for mdf in [baseload, corp_contrib, fares_07, fares_30, fare_premium, flown_plf]:
+        for mdf in [baseload, corp_overall, corp_near, fares_near, fares_far, fare_premium, flown_plf]:
             if not mdf.empty:
                 all_sectors.update(mdf['Sector'].unique())
 
@@ -300,7 +596,7 @@ class SaleInvBaseloadCalc:
         # Build full grid and merge all metrics onto it
         combined = self._expand_full_grid(sorted(all_sectors), month_key)
 
-        for mdf in [baseload, corp_contrib, fares_07, fares_30, fare_premium, flown_plf]:
+        for mdf in [baseload, corp_overall, corp_near, fares_near, fares_far, fare_premium, flown_plf]:
             if not mdf.empty:
                 combined = combined.merge(mdf, on=KEY_COLS, how='left')
 
@@ -316,6 +612,9 @@ class SaleInvBaseloadCalc:
         # Select final columns
         final_cols = KEY_COLS + VALUE_COLUMNS + [f'Imputed_{vc}' for vc in VALUE_COLUMNS]
         combined = combined[final_cols]
+
+        # Lean Peak calculation
+        self._process_lean_peak(df, city_pair_df, month_key)
 
         count = self._insert_to_mongo(combined, month_key)
         self.logger.info(f"Inserted {count} records into {COLLECTION_NAME} for {month_key}")
@@ -340,6 +639,9 @@ class SaleInvBaseloadCalc:
 
             all_months = self._get_month_range(start_key, last_completed_key)
 
+            # Fetch city pair distances once for all months
+            city_pair_df = self._fetch_city_pair_distances()
+
             for idx, month_info in enumerate(all_months, 1):
                 month_key = month_info['month_key']
                 try:
@@ -347,7 +649,7 @@ class SaleInvBaseloadCalc:
                     if df.empty:
                         self.logger.warning(f"No data for {month_key}, skipping...")
                         continue
-                    self._process_month(df, month_key)
+                    self._process_month(df, month_key, city_pair_df)
                 except Exception as e:
                     self.logger.error(f"Error processing month {month_key}: {e}")
                     self.logger.error(traceback.format_exc())
