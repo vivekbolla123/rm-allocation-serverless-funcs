@@ -687,6 +687,9 @@ class FareFiling:
                         else:  # All-in
                             fare_for_upsell = saver_allin_fare
                         
+                        if not self.isSaver:
+                            fare_for_upsell = self.calculate_all_in_fare(fare_for_upsell, origin, destination, ftype="base")
+                        
                         # Apply upsell
                         upsell_type = upsell_row['type']
                         upsell_value = float(upsell_row['value']) if pd.notna(upsell_row['value']) else 0
