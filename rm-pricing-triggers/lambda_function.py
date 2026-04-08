@@ -85,7 +85,16 @@ def lambda_handler(event, context):
     params = {}
 
     if "overrides" in data:
+        # Direct invocation / local testing — overrides nested under 'overrides' key
         overrides = data["overrides"]
+    else:
+        # SQS message from rm-pricing-fetch-inputs — flat structure
+        # Build overrides from top-level keys
+        overrides = {
+            k: data[k] for k in ('route', 'analyst', 'run_id', 'batch_index',
+                                  'batch_total', 'ladder_codes')
+            if k in data
+        }
 
     for module_key in modules.keys():
         params["rdEsbConn"] = rm_rd_esb_conn
@@ -109,14 +118,8 @@ def lambda_handler(event, context):
 
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {
-#     "overrides": {
-#         "route": "I",
-#         "analyst": "Kenneth Menezes"
-#     },
-#     "modules": {"action_sect": 1}
-# }
 
+# --- Local testing: process ALL ladder codes for a route ---
 # messageBody = {
 #     "overrides": {
 #         "route": "D",
@@ -125,20 +128,34 @@ def lambda_handler(event, context):
 #     "modules": {"ladder_gen": 1}
 # }
 
+# --- Local testing: process SPECIFIC ladder codes (simulates SQS batch) ---
 # messageBody = {
 #     "overrides": {
-#         "route": "I",
+#         "route": "D",
 #         "analyst": "Kenneth Menezes",
+#         "ladder_codes": ["BOMDEL_MKT", "BOMBLR_BKG"],
+#         "run_id": "test-run-123"
 #     },
+#     "modules": {"ladder_gen": 1}
+# }
+
+# --- SQS format (sent by rm-pricing-fetch-inputs) ---
+# messageBody = {
+#     "route": "D",
+#     "analyst": "Kenneth Menezes",
+#     "run_id": "a1b2c3d4-...",
+#     "batch_index": 1,
+#     "batch_total": 6,
+#     "ladder_codes": ["BOMDEL_MKT", "BOMDEL_BKG", "BOMBLR_MKT"],
 #     "modules": {"ladder_gen": 1}
 # }
 
 # messageBody = {
 #     "overrides": {
-#         "route": "CNX",
-#         "analyst": "Kenneth Menezes",
+#         "route": "I",
+#         "analyst": "Kenneth Menezes"
 #     },
-#     "modules": {"ladder_gen": 1}
+#     "modules": {"action_sect": 1}
 # }
 
 # messageBody = {

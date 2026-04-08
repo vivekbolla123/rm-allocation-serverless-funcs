@@ -24,6 +24,7 @@ class MarketListConfig:
 
     def __init__(self, params):
         self.sector = params.get("Sector")
+        self.ladder_code = params.get("LadderCode")
         self.date_range_start = self._to_date(params.get("DateRangeStart"))
         self.date_range_end = self._to_date(params.get("DateRangeEnd"))
         self.type = params.get("Type")  # 'Bookings' or 'Market'
@@ -35,7 +36,7 @@ class MarketListConfig:
         self.carrier_exclusion = params.get("CarrierExclusion") or []
         self.b2c_distinct_fare_count = int(params.get("B2C_Distinct_Fare_Count", 60))
         self.coverage_parameter = float(params.get("CoverageParameter", 2))
-        self.market_flag = str(params.get("MarketFlag", "TRUE")).strip().upper()
+        self.market_flag = str(params.get("MarketFlag", "Y")).strip().upper()
         self.up_b2c = int(params.get("UP_B2C", 5))
         self.up_b2b = int(params.get("UP_B2B", 4))
         self.b2b_threshold = float(params.get("B2B_Threshold", 100))
@@ -47,17 +48,22 @@ class MarketListConfig:
 
     @staticmethod
     def _to_date(val):
-        """Convert datetime/date/string to date object."""
+        """Convert datetime/date/string (mm/dd/yyyy or yyyy-mm-dd) to date object."""
         if val is None:
             return None
         if isinstance(val, datetime):
             return val.date()
         if isinstance(val, date):
             return val
-        try:
-            return datetime.strptime(str(val).strip(), '%Y-%m-%d').date()
-        except (ValueError, TypeError):
+        s = str(val).strip()
+        if not s:
             return None
+        for fmt in ('%m/%d/%Y', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except (ValueError, TypeError):
+                continue
+        return None
 
 
 class MarketListHandler:
@@ -89,17 +95,25 @@ class MarketListHandler:
         for doc in raw_docs:
             cfg = MarketListConfig(doc)
             sector = cfg.sector
+            ladder_code = cfg.ladder_code
+
             if not sector or len(str(sector).strip()) != 6:
                 self.logger.warning(f"Skipping invalid sector in {collection_name}: {sector}")
                 continue
-            sector = str(sector).strip().upper()
-            cfg.sector = sector
-
-            if sector in configs:
-                self.logger.warning(f"Duplicate sector {sector} in {collection_name}, keeping first")
+            if not ladder_code or not str(ladder_code).strip():
+                self.logger.warning(f"Skipping row with missing LadderCode in {collection_name}: sector={sector}")
                 continue
 
-            configs[sector] = cfg
+            sector = str(sector).strip().upper()
+            ladder_code = str(ladder_code).strip()
+            cfg.sector = sector
+            cfg.ladder_code = ladder_code
 
-        self.logger.info(f"Loaded {len(configs)} sectors from '{collection_name}'")
+            if ladder_code in configs:
+                self.logger.warning(f"Duplicate LadderCode {ladder_code} in {collection_name}, keeping first")
+                continue
+
+            configs[ladder_code] = cfg
+
+        self.logger.info(f"Loaded {len(configs)} entries from '{collection_name}'")
         return configs

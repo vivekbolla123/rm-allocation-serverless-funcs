@@ -1,0 +1,8 @@
+configsettings.py
+Constants.py
+constants_utils.py
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+local.env

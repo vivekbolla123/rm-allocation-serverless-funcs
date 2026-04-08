@@ -41,17 +41,34 @@ class LadderGen:
         self.route = overrides['route']
         self.analystName = overrides['analyst']
         self.batch_run_id = overrides.get('batch_run_id', None)
+        self.batch_run_id = overrides.get('run_id', overrides.get('batch_run_id', None))
         self.batch_total = overrides.get('batch_total', None)
 
         # Load per-sector config from the appropriate MongoDB collection
         ml_handler = MarketListHandler(self.db, logger, self.constants)
-        self.sector_configs = ml_handler.load_sector_configs(self.route)
+        all_configs = ml_handler.load_sector_configs(self.route)
         collection_name = COLLECTION_MAP.get(self.route, '?')
-        if not self.sector_configs:
+        if not all_configs:
             raise ValueError(f"No valid sector configs found in collection '{collection_name}' for route '{self.route}'")
 
-        self.sectors = list(self.sector_configs.keys())
-        self.logger.info(f"Loaded {len(self.sectors)} sector configs from '{collection_name}': {self.sectors}")
+        # If ladder_codes provided in overrides (from SQS batch), filter to only those.
+        # Otherwise process all (local/direct invocation).
+        requested_codes = overrides.get('ladder_codes', None)
+        if requested_codes:
+            self.sector_configs = {lc: all_configs[lc] for lc in requested_codes if lc in all_configs}
+            skipped = [lc for lc in requested_codes if lc not in all_configs]
+            if skipped:
+                self.logger.warning(f"Ladder codes not found in {collection_name}: {skipped}")
+        else:
+            self.sector_configs = all_configs
+
+        if not self.sector_configs:
+            raise ValueError(f"No matching ladder codes found in '{collection_name}'")
+
+        # sector_configs is keyed by LadderCode
+        self.ladder_codes = list(self.sector_configs.keys())
+        self.sectors = [self.sector_configs[lc].sector for lc in self.ladder_codes]
+        self.logger.info(f"Processing {len(self.ladder_codes)} entries from '{collection_name}': {self.ladder_codes}")
 
         # Derive route code used internally ('D' or 'I')
         # CNX is international connections
@@ -117,9 +134,9 @@ class LadderGen:
         # Farecap distance config from rm_parameter_values
         self.FARECAP_DISTANCE_CONFIG = self.constants.FARECAP_DISTANCE_CONFIG
 
-    def _apply_sector_config(self, sector):
-        """Apply per-sector configuration from the loaded MarketListConfig."""
-        cfg = self.sector_configs[sector]
+    def _apply_sector_config(self, ladder_code):
+        """Apply per-entry configuration from the loaded MarketListConfig."""
+        cfg = self.sector_configs[ladder_code]
 
         self.fare_source_flag = cfg.fare_source_flag
         self.date_range_start = cfg.date_range_start
@@ -141,7 +158,7 @@ class LadderGen:
         self.MAX_ESBFARES_THRESHOLD_B2C = cfg.max_threshold_b2c
         self.MAX_ESBFARES_THRESHOLD_B2B = cfg.max_threshold_b2b
 
-        self.logger.info(f"Applied sector config for {sector}: "
+        self.logger.info(f"Applied config for {ladder_code} (sector={cfg.sector}): "
                          f"source={self.fare_source_flag}, "
                          f"dates={self.date_range_start} to {self.date_range_end}, "
                          f"thresholds B2C={self.MIN_MARKETFARES_THRESHOLD_B2C}-{self.MAX_MARKETFARES_THRESHOLD_B2C}, "
@@ -1121,7 +1138,7 @@ class LadderGen:
             self.logger.info(f"  f1 = {f1:.2f}, f2 = {f2:.2f}, f3 = {f3:.2f}")
             
             # ===== HIGHER BUFFER FARES - Calculate fmax =====
-            if self.MARKET_FLAG == "TRUE" and valid_max_market_fare is not None:
+            if self.MARKET_FLAG == "Y" and valid_max_market_fare is not None:
                 fmax_new = max(max_booking_fare, valid_max_market_fare)
                 self.logger.info(f"fmax calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {fmax_new:.2f}")
             else:
@@ -1367,7 +1384,7 @@ class LadderGen:
                     self.logger.info(f"  f1 = {f1:.2f} (B2C-threshold), f2 = {f2:.2f} ((f1+f3)/2)")
             
             # ===== HIGHER BUFFER FARES - Calculate fmax_b2b =====
-            if self.MARKET_FLAG == "TRUE" and valid_max_market_fare is not None:
+            if self.MARKET_FLAG == "Y" and valid_max_market_fare is not None:
                 fmax_b2b_new = max(max_booking_fare, valid_max_market_fare)
                 self.logger.info(f"fmax_b2b calculation: max(booking={max_booking_fare:.2f}, market={valid_max_market_fare:.2f}) = {fmax_b2b_new:.2f}")
             else:
@@ -1683,8 +1700,7 @@ class LadderGen:
         # Create initial audit record for the batch
         try:
             sectors_str = ', '.join(self.sectors)
-            # Determine fare source from first sector config (for audit label)
-            first_cfg = self.sector_configs[self.sectors[0]]
+            first_cfg = self.sector_configs[self.ladder_codes[0]]
             fare_source = 'bookings' if first_cfg.fare_source_flag == 'esb' else 'market'
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None, 
@@ -1694,20 +1710,22 @@ class LadderGen:
         except Exception as e:
             self.logger.error(f"Failed to create initial batch audit record: {str(e)}")
         
-        # Process each sector
-        for sector in self.sectors:
-            self.sector = sector
+        # Process each ladder code entry
+        for ladder_code in self.ladder_codes:
+            cfg = self.sector_configs[ladder_code]
+            self.sector = cfg.sector
+            self.ladder_code = ladder_code
             self.logger.info(f"=" * 80)
-            self.logger.info(f"Processing sector: {sector} (run_id: {run_id})")
+            self.logger.info(f"Processing {ladder_code} (sector: {self.sector}, run_id: {run_id})")
             self.logger.info(f"=" * 80)
             
-            # Reset failure tracking for each sector
+            # Reset failure tracking
             self.failure_reason = None
             self.outlier_count = None
             self.fare_cap_value = None
 
-            # Apply per-sector configuration from the input collection
-            self._apply_sector_config(sector)
+            # Apply per-entry configuration from the input collection
+            self._apply_sector_config(ladder_code)
             
             result = self._run_single_sector(run_id)
             all_results.append(result)
@@ -1720,9 +1738,9 @@ class LadderGen:
             if result['status'] == 'SUCCESS' and result.get('ladder_result'):
                 all_ladder_results.append(result['ladder_result'])
             
-            self.logger.info(f"Sector {sector} completed with status: {result['status']}")
+            self.logger.info(f"{ladder_code} ({self.sector}) completed with status: {result['status']}")
             if result['status'] == 'FAILED':
-                self.logger.error(f"Sector {sector} failure reason: {result.get('reason', 'Unknown')}")
+                self.logger.error(f"{ladder_code} ({self.sector}) failure reason: {result.get('reason', 'Unknown')}")
         
         # Summary
         success_count = sum(1 for r in all_results if r['status'] == 'SUCCESS')
@@ -1771,6 +1789,7 @@ class LadderGen:
                     'ladder_result': None,
                     'file_path': None,
                     'run_id': run_id,
+                    'ladder_code': self.ladder_code,
                     'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason or 'Data collection failed'
@@ -1784,6 +1803,7 @@ class LadderGen:
                     'ladder_result': None,
                     'file_path': None,
                     'run_id': run_id,
+                    'ladder_code': self.ladder_code,
                     'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason or 'Ladder generation failed'
@@ -1801,13 +1821,14 @@ class LadderGen:
                     'ladder_result': ladder_result,
                     'file_path': None,
                     'run_id': run_id,
+                    'ladder_code': self.ladder_code,
                     'sector': self.sector,
                     'status': 'FAILED',
                     'reason': self.failure_reason
                 }
             
             route_desc = "Domestic" if self.route == 'D' else "International"
-            self.logger.info(f"Ladder generation completed: {self.sector} ({route_desc})")
+            self.logger.info(f"Ladder generation completed: {self.ladder_code} / {self.sector} ({route_desc})")
             
             return {
                 'ladder_result': ladder_result,
@@ -1815,6 +1836,7 @@ class LadderGen:
                 'run_id': run_id,
                 'route': self.route,
                 'route_description': route_desc,
+                'ladder_code': self.ladder_code,
                 'sector': self.sector,
                 'status': 'SUCCESS',
                 'summary': {
@@ -1848,6 +1870,7 @@ class LadderGen:
                 'ladder_result': None,
                 'file_path': None,
                 'run_id': run_id,
+                'ladder_code': self.ladder_code,
                 'sector': self.sector,
                 'status': 'FAILED',
                 'reason': self.failure_reason,

@@ -14,6 +14,7 @@ from datetime import datetime
 # CSV headers are matched case-insensitively, then renamed to these.
 EXPECTED_COLUMNS = [
     "Sector",
+    "LadderCode",
     "DateRangeStart",
     "DateRangeEnd",
     "Type",
@@ -50,7 +51,7 @@ _DATE_COLUMNS = ["DateRangeStart", "DateRangeEnd"]
 _VALID_TYPES = {"bookings", "market"}
 
 # Valid values for MarketFlag column
-_VALID_MARKET_FLAGS = {"true", "false"}
+_VALID_MARKET_FLAGS = {"y", "n"}
 
 
 def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
@@ -111,17 +112,23 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
 
     df["Sector"] = df["Sector"].astype(str).str.strip().str.upper()
 
-    # --- 4. Date format (allow empty for market type) ---
+    # --- 3b. LadderCode must not be empty ---
+    df["LadderCode"] = df["LadderCode"].astype(str).str.strip()
+    empty_codes = df[df["LadderCode"].isin(["", "nan", "None"])].index
+    if len(empty_codes) > 0:
+        details = [f"Row {r + 2}" for r in empty_codes]
+        raise ValueError(f"Empty LadderCode in: {', '.join(details)}")
+
+    # --- 4. Date format (allow empty; expected mm/dd/yyyy) ---
     for date_col in _DATE_COLUMNS:
-        # Only validate non-empty values
         non_empty = df[date_col].notna() & (df[date_col].astype(str).str.strip() != '')
         if non_empty.any():
-            parsed = pd.to_datetime(df.loc[non_empty, date_col], format="%Y-%m-%d", errors="coerce")
+            parsed = pd.to_datetime(df.loc[non_empty, date_col], format="%m/%d/%Y", errors="coerce")
             bad_rows = parsed[parsed.isna()].index
             if len(bad_rows) > 0:
                 bad_vals = [f"Row {r + 2}: '{df.at[r, date_col]}'" for r in bad_rows]
                 raise ValueError(
-                    f"Invalid date format in {date_col} (expected YYYY-MM-DD): {'; '.join(bad_vals)}"
+                    f"Invalid date format in {date_col} (expected MM/DD/YYYY): {'; '.join(bad_vals)}"
                 )
 
     # --- 5. DateRangeStart <= DateRangeEnd (only when both are provided) ---
@@ -183,15 +190,21 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- 10. MarketFlag validation ---
     df["MarketFlag"] = df["MarketFlag"].astype(str).str.strip()
-    invalid_flags = df[~df["MarketFlag"].str.lower().isin(_VALID_MARKET_FLAGS)].index
+    invalid_flags = df[~df["MarketFlag"].str.upper().isin({"Y", "N"})].index
     if len(invalid_flags) > 0:
         details = [f"Row {r + 2}: '{df.at[r, 'MarketFlag']}'" for r in invalid_flags]
-        raise ValueError(f"Invalid MarketFlag (expected 'TRUE' or 'FALSE'): {'; '.join(details)}")
+        raise ValueError(f"Invalid MarketFlag (expected 'Y' or 'N'): {'; '.join(details)}")
 
-    # --- 11. Duplicate sectors ---
-    dupes = df[df.duplicated(subset=["Sector"], keep=False)]
+    # --- 11. Duplicate LadderCode ---
+    dupes = df[df.duplicated(subset=["LadderCode"], keep=False)]
     if not dupes.empty:
-        dup_sectors = dupes["Sector"].unique().tolist()
-        raise ValueError(f"Duplicate Sector entries found: {dup_sectors}")
+        dup_codes = dupes["LadderCode"].unique().tolist()
+        raise ValueError(f"Duplicate LadderCode entries found: {dup_codes}")
+
+    # --- 12. Exact duplicate rows ---
+    exact_dupes = df[df.duplicated(keep=False)]
+    if not exact_dupes.empty:
+        dup_rows = [str(r + 2) for r in exact_dupes.index]
+        raise ValueError(f"Exact duplicate rows found at rows: {', '.join(dup_rows)}")
 
     return df
