@@ -24,6 +24,6 @@ ENV DD_LOGS_INJECTION=true
 ENV DD_ENV=${ENVN}
 ENV DD_SERVICE=${DD_SERVICE_NAME}
 ENV DD_VERSION=${GIT_TAG}
-ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.branch:${GIT_BRANCH}"
+ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.branch:${GIT_BRANCH},Department:RM"
 
 CMD ["datadog_lambda.handler.handler"]

@@ -79,6 +79,7 @@ def instrument_engine(engine, service_name="navitaire-mssql"):
 
             # Standard Datadog DB tags
             span.set_tag("db.system", "mssql")
+            span.set_tag("Department", "RM")
             if db_host:
                 span.set_tag("out.host", db_host)
             if db_port:

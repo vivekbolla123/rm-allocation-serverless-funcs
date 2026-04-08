@@ -39,6 +39,7 @@ def trace_span(name, resource=None, tags=None):
         if tags:
             for k, v in tags.items():
                 span.set_tag(k, v)
+        span.set_tag("Department", "RM")
         return span
     except Exception:
         return None
@@ -134,7 +135,7 @@ class DataProcessor:
         logger.info("Started SFTP upload.....")
         start = datetime.now()
 
-        span = trace_span("sftp.connect", resource=self.sftp_host, tags={
+        span = trace_span("sftp.connect", resource=self.sftp_host, service="au-sftp", tags={
             "sftp.host": self.sftp_host, "sftp.port": self.sftp_port, "run_id": runid
         })
         try:
