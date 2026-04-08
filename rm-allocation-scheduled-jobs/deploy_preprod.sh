@@ -5,6 +5,9 @@ Local_Img_Tag="preprod-rm-alloc-scheduled-jobs"
 ECR_Image_URL="$ECR_Domain/$Lmd_Func:latest"
 AWS_Region="ap-south-1"
 SSM_ENV="prod"
+GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git branch --show-current)
+GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "$GIT_COMMIT_SHA")
 
 aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Domain
 
@@ -13,7 +16,7 @@ cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
 cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
 cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
 
-docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=preprod --build-arg DD_SERVICE_NAME=$Lmd_Func .
+docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=preprod --build-arg DD_SERVICE_NAME=$Lmd_Func --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
 
 docker tag $Local_Img_Tag $ECR_Image_URL
 
