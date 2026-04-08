@@ -35,7 +35,7 @@ try:
         retryWrites=True,
         retryReads=True,
     )
-    mongo_db = mongo_client[configsettings.MONGO_DB]
+    mongo_db = mongo_client["qp_dw_priaut"]
 
     sqs = boto3.client('sqs')
 
