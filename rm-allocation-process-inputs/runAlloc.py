@@ -685,6 +685,7 @@ class DynAlloc:
 			# Determine RBD to Open
 			b2b_discount_fare_active = False; current_discount_amount = 0.0; determined_overBookingFare = 0.0
 			openDataB2C_details = {}; openDataB2B_details = {} # To store results from determineRBDToOpen
+			b2b_anchor_source = None  # Track B2B anchor source for HowDetermined
 			
 			param_obFare = getattr(self.currParams, 'obFare', None) # Get obFare safely
 			param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
@@ -754,7 +755,7 @@ class DynAlloc:
 				# determineRBDToOpen needs YYYY-MM-DD date
 				openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
 				self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
-				determined_overBookingFare,hard_anchor_flag = self.determinerbd.determineRBDToOpen(
+				determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue = self.determinerbd.determineRBDToOpen(
 												self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL, 
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
@@ -818,13 +819,19 @@ class DynAlloc:
 					if offset_flag:
 						self.outputSummaryRow_b2b.fareOffset=0
 					# Set anchor fare to minimum of all available candidates
+					b2b_anchor_source = "Strategy"
 					if b2b_anchor_candidates:
 						self.outputSummaryRow_b2b.anchorFare = min(b2b_anchor_candidates)
+						# Check if winning anchor is the B2C discounted price
+						if B2C_opening_price_val and current_discount_amount:
+							b2c_discounted_val = B2C_opening_price_val - current_discount_amount
+							if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
+								b2b_anchor_source = "B2CDiscounted"
 					else:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Fallback
 					self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 					openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
-					self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag = \
+					self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue = \
 						self.determinerbd.determineRBDToOpen(
 							self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL, 
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
@@ -1085,6 +1092,9 @@ class DynAlloc:
 			self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD'))
 			self.outputSummaryRow_b2b.SellingFare = str(safe_get_from_dict(openDataB2B_details, "Fare")); self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
 			self.outputSummaryRow_b2b.HowDetermined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+			# Override B2B HowDetermined with simplified format
+			if b2b_anchor_source is not None:
+				self.outputSummaryRow_b2b.HowDetermined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
 			self.outputSummaryRow_b2b.Backstop = param_b2b_backstop_full; self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop_str
 			self.outputSummaryRow_b2b.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2b.analystName = param_analyst_name_full
 			self.outputSummaryRow_b2b.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2b.allocationStatus = safe_get_from_dict(openDataB2B_details, 'allocationStatus', default=0)
