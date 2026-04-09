@@ -416,7 +416,7 @@ class FareFiling:
                 gst_rate = 0
             
             if(ftype == 'base'):
-                total_taxes = base_fare + asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf
+                total_taxes = base_fare + asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf + yq + (yq*gst_rate)
             else:
                 # Base Fare=Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]/ (1+GST) 
                 # Base Fare={Gross Fare−[GST×(RCS+CUTE) +RCS + Other Taxes]}/ (1+GST)
@@ -686,6 +686,9 @@ class FareFiling:
                             fare_for_upsell = saver_base_fare
                         else:  # All-in
                             fare_for_upsell = saver_allin_fare
+                        
+                        if not self.isSaver:
+                            fare_for_upsell = self.calculate_all_in_fare(fare_for_upsell, origin, destination, ftype="base")
                         
                         # Apply upsell
                         upsell_type = upsell_row['type']

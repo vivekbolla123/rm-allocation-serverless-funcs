@@ -15,7 +15,7 @@ def convert_product_upsell_data_types(df):
         return df
     
     df = df.copy()  # Avoid modifying original dataframe
-    
+    df.columns = df.columns.str.lower()
     # CRITICAL: Ensure rule_nbr is always stored as string
     # This prevents issues where rule numbers like 1002, 5002 are stored as integers
     if 'rule_nbr' in df.columns:
