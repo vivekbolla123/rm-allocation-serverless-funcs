@@ -51,21 +51,24 @@ class SaleInvLeanPeakMap:
 
     def _load_tunable_config(self):
         """Load tunable constants from saleinv_parameter_values collection."""
+        import json
+
         def _do_load():
-            keys = ['LEANPEAK_HOLIDAY_WINDOW_DAYS', 'LEANPEAK_MIN_BAND_LENGTH']
             param_docs = {
                 doc['parameterKey']: doc['parameterValue']
                 for doc in self.db.saleinv_parameter_values.find(
-                    {'parameterKey': {'$in': keys}},
+                    {'parameterKey': 'LEANPEAK_PARAMS'},
                     {'_id': 0, 'parameterKey': 1, 'parameterValue': 1}
                 )
             }
             return param_docs
 
-        params = self._retry_db_operation(_do_load, "Load tunable config")
+        raw = self._retry_db_operation(_do_load, "Load tunable config")
 
-        self.holiday_window_days = int(params.get('LEANPEAK_HOLIDAY_WINDOW_DAYS', '7'))
-        self.min_band_length = int(params.get('LEANPEAK_MIN_BAND_LENGTH', '3'))
+        lp = json.loads(raw.get('LEANPEAK_PARAMS', '{}'))
+
+        self.holiday_window_days = int(lp.get('LEANPEAK_HOLIDAY_WINDOW_DAYS', '7'))
+        self.min_band_length = int(lp.get('LEANPEAK_MIN_BAND_LENGTH', '3'))
 
         self.logger.info("Tunable config loaded from saleinv_parameter_values")
 

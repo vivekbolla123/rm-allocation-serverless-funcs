@@ -58,33 +58,29 @@ class SaleInvBaseloadCalc:
         import json
 
         def _do_load():
-            keys = [
-                'BASELOAD_NDO_MIN', 'CORP_CONTRI_NDO_MIN', 'CORP_CONTRI_NDO_MAX',
-                'AVG_FARE_NEAR_NDO_MIN', 'AVG_FARE_NEAR_NDO_MAX',
-                'AVG_FARE_FAR_NDO_MIN',
-                'LEANPEAK_THRESHOLD_MULTIPLIER', 'LEANPEAK_SMOOTH_WINDOW',
-                'LEANPEAK_MIN_BAND_LENGTH'
-            ]
             param_docs = {
                 doc['parameterKey']: doc['parameterValue']
                 for doc in self.db.saleinv_parameter_values.find(
-                    {'parameterKey': {'$in': keys}},
+                    {'parameterKey': {'$in': ['BASELOAD_PARAMS', 'LEANPEAK_PARAMS']}},
                     {'_id': 0, 'parameterKey': 1, 'parameterValue': 1}
                 )
             }
             return param_docs
 
-        params = self._retry_db_operation(_do_load, "Load tunable config")
+        raw = self._retry_db_operation(_do_load, "Load tunable config")
 
-        self.baseload_ndo_min = int(params.get('BASELOAD_NDO_MIN', '31'))
-        self.corp_ndo_min = int(params.get('CORP_CONTRI_NDO_MIN', '0'))
-        self.corp_ndo_max = int(params.get('CORP_CONTRI_NDO_MAX', '7'))
-        self.near_ndo_min = int(params.get('AVG_FARE_NEAR_NDO_MIN', '0'))
-        self.near_ndo_max = int(params.get('AVG_FARE_NEAR_NDO_MAX', '7'))
-        self.far_ndo_min = int(params.get('AVG_FARE_FAR_NDO_MIN', '31'))
-        self.lp_threshold_multiplier = float(params.get('LEANPEAK_THRESHOLD_MULTIPLIER', '0.75'))
-        self.lp_smooth_window = int(params.get('LEANPEAK_SMOOTH_WINDOW', '4'))
-        self.lp_min_band_length = int(params.get('LEANPEAK_MIN_BAND_LENGTH', '3'))
+        bl = json.loads(raw.get('BASELOAD_PARAMS', '{}'))
+        lp = json.loads(raw.get('LEANPEAK_PARAMS', '{}'))
+
+        self.baseload_ndo_min = int(bl.get('BASELOAD_NDO_MIN', '31'))
+        self.corp_ndo_min = int(bl.get('CORP_CONTRI_NDO_MIN', '0'))
+        self.corp_ndo_max = int(bl.get('CORP_CONTRI_NDO_MAX', '7'))
+        self.near_ndo_min = int(bl.get('AVG_FARE_NEAR_NDO_MIN', '0'))
+        self.near_ndo_max = int(bl.get('AVG_FARE_NEAR_NDO_MAX', '7'))
+        self.far_ndo_min = int(bl.get('AVG_FARE_FAR_NDO_MIN', '31'))
+        self.lp_threshold_multiplier = float(lp.get('LEANPEAK_THRESHOLD_MULTIPLIER', '0.75'))
+        self.lp_smooth_window = int(lp.get('LEANPEAK_SMOOTH_WINDOW', '4'))
+        self.lp_min_band_length = int(lp.get('LEANPEAK_MIN_BAND_LENGTH', '3'))
 
         self.logger.info("Tunable config loaded from saleinv_parameter_values")
 

@@ -57,7 +57,7 @@ class SaleInvRBLCalc:
                     {'parameterKey': {'$in': [
                         'RBL_CORP_CONTRI_MAP', 'RBL_FARE_PREMIUM_MAP',
                         'RBL_FLOWN_PLF_MAP', 'RBL_METRO_MAP', 'METRO_STATIONS',
-                        'RBL_FLOOR', 'RBL_PLF_THRESHOLD'
+                        'RBL_PARAMS'
                     ]}},
                     {'_id': 0, 'parameterKey': 1, 'parameterValue': 1}
                 )
@@ -72,8 +72,9 @@ class SaleInvRBLCalc:
 
             self.metro_stations = set(json.loads(param_docs['METRO_STATIONS']))
 
-            self.rbl_floor = float(param_docs.get('RBL_FLOOR', '30'))
-            self.rbl_plf_threshold = float(param_docs.get('RBL_PLF_THRESHOLD', '90'))
+            rbl = json.loads(param_docs.get('RBL_PARAMS', '{}'))
+            self.rbl_floor = float(rbl.get('RBL_FLOOR', '30'))
+            self.rbl_plf_threshold = float(rbl.get('RBL_PLF_THRESHOLD', '90'))
 
             self.metro_stations = set(json.loads(param_docs['METRO_STATIONS']))
 
@@ -146,7 +147,7 @@ class SaleInvRBLCalc:
             docs = list(self.db['saleinv_flown_data'].find(
                 {'Month': self.source_month},
                 {'_id': 0, 'Month': 1, 'Sector': 1, 'TimeCluster': 1, 'DayOfWeek': 1,
-                 'BaseLoad': 1, 'Imputed_BaseLoad': 1, 'CorporateContribution': 1, 'FarePremium': 1, 'FlownPLF': 1}
+                 'BaseLoad': 1, 'Imputed_BaseLoad': 1, 'CorporateContribution_Near': 1, 'FarePremium': 1, 'FlownPLF': 1}
             ))
             if not docs:
                 return pd.DataFrame()
@@ -206,7 +207,7 @@ class SaleInvRBLCalc:
             df = self._apply_sector_mapping(df)
 
             # Map actual values to parameter band values
-            df['CorpContriMapped'] = df['CorporateContribution'].apply(
+            df['CorpContriMapped'] = df['CorporateContribution_Near'].apply(
                 lambda x: self._get_mapped_value(x, self.corp_contri_map)
             )
             df['FarePremiumMapped'] = df['FarePremium'].apply(
