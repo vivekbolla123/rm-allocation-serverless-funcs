@@ -12,46 +12,13 @@ from datetime import datetime
 from pymongo import MongoClient
 import pandas as pd
 from redis import Redis
-from ddtrace import tracer
+from common_utils import trace_span, finish_span
 
 warnings.filterwarnings('ignore')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
-def trace_span(name, resource=None, tags=None):
-    """Create a safe Datadog trace span that never breaks business logic.
-    
-    Usage:
-        span = trace_span("sftp.upload", resource="/path", tags={"run_id": "123"})
-        try:
-            # your code
-        except Exception:
-            if span:
-                span.set_exc_info(*sys.exc_info())
-            raise
-        finally:
-            finish_span(span)
-    """
-    try:
-        span = tracer.trace(name, resource=resource)
-        if tags:
-            for k, v in tags.items():
-                span.set_tag(k, v)
-        span.set_tag("Department", "RM")
-        return span
-    except Exception:
-        return None
-
-
-def finish_span(span):
-    """Safely finish a trace span."""
-    if span:
-        try:
-            span.finish()
-        except Exception:
-            pass
 
 # MongoDB connection string
 

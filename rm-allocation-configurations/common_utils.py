@@ -1,13 +1,25 @@
-"""Datadog tracing utilities for SQLAlchemy engines.
+"""Datadog tracing utilities.
 
-Since ddtrace doesn't auto-instrument pymssql, this module provides
-manual instrumentation via SQLAlchemy engine events. Every query
-executed through an instrumented engine gets a Datadog APM span.
+Provides manual instrumentation helpers for Datadog APM:
+- trace_span / finish_span: Generic span helpers for any operation (SFTP, HTTP, etc.)
+- instrument_engine: SQLAlchemy engine auto-instrumentation for pymssql
 
 Safe to import and use even if ddtrace is unavailable — silently no-ops.
 
 Usage:
-    from common_utils import instrument_engine
+    from common_utils import trace_span, finish_span, instrument_engine
+
+    # Generic spans
+    span = trace_span("sftp.upload", resource="/path", service="au-sftp", tags={"run_id": "123"})
+    try:
+        do_work()
+    except Exception:
+        if span: span.set_exc_info(*sys.exc_info())
+        raise
+    finally:
+        finish_span(span)
+
+    # SQLAlchemy engine instrumentation
     engine = create_engine("mssql+pymssql://...")
     instrument_engine(engine)
 """
@@ -23,6 +35,41 @@ try:
     _TRACING_AVAILABLE = True
 except ImportError:
     _TRACING_AVAILABLE = False
+
+
+def trace_span(name, resource=None, service=None, tags=None):
+    """Create a safe Datadog trace span that never breaks business logic.
+
+    Args:
+        name: Span operation name (e.g. "sftp.upload", "http.request").
+        resource: The resource being acted on (e.g. file path, URL).
+        service: Datadog service name override for this span.
+        tags: Dict of additional tags to set on the span.
+
+    Returns:
+        A ddtrace Span, or None if tracing is unavailable.
+    """
+    if not _TRACING_AVAILABLE:
+        return None
+    try:
+        span = tracer.trace(name, resource=resource, service=service)
+        span.set_tag("Department", "RM")
+        if tags:
+            for k, v in tags.items():
+                span.set_tag(k, v)
+        return span
+    except Exception:
+        return None
+
+
+def finish_span(span):
+    """Safely finish a trace span."""
+    if span:
+        try:
+            span.finish()
+        except Exception:
+            pass
+
 
 # Pattern to extract [DatabaseName].[Schema].[Table] or DatabaseName.Schema.Table from SQL
 _DB_SCHEMA_TABLE_RE = re.compile(

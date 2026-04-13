@@ -15,8 +15,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT
 
 COPY --from=public.ecr.aws/datadog/lambda-extension:latest /opt/. /opt/
 
-COPY lambda_function.py ${LAMBDA_TASK_ROOT}
-COPY configsettings.py ${LAMBDA_TASK_ROOT}
+COPY ./ ${LAMBDA_TASK_ROOT}/
 
 # Datadog configuration
 # DD_API_KEY set in configsettings.py
