@@ -3655,7 +3655,7 @@ public class App implements CommandLineRunner {
                     .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
-                    .append("market_origin_mapping", toIntOrKeepSame(marketListEntity.getMarket_origin_mapping()))
+                    .append("market_station_mapping", toIntOrKeepSame(marketListEntity.getMarket_station_mapping()))
                     .append("createdAt", new Date());
 
             collection.insertOne(doc);
