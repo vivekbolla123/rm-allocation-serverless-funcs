@@ -846,7 +846,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
             'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
             'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_origin_mapping'
+            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_origin_mapping','afForecastAllocFlag'
         ]
         sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
         connection_cols = [

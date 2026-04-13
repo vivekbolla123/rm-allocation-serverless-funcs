@@ -3597,6 +3597,72 @@ public class App implements CommandLineRunner {
         }
     }
 
+    public void insertIntoMarketList(MarketListEntity marketListEntity, String collectionName) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            Document doc = new Document()
+                    .append("Origin", toIntOrKeepSame(marketListEntity.getOrigin()))
+                    .append("Destin", toIntOrKeepSame(marketListEntity.getDestination()))
+                    .append("FlightNumber", toIntOrKeepSame(marketListEntity.getFlightNo()))
+                    .append("PerType", toIntOrKeepSame(marketListEntity.getPerType()))
+                    .append("PerStart", toIntOrKeepSame(marketListEntity.getStartDate()))
+                    .append("PerEnd", toIntOrKeepSame(marketListEntity.getEndDate()))
+                    .append("DOW", toIntOrKeepSame(marketListEntity.getDayOfWeek()))
+                    .append("hardAnchor", toIntOrKeepSame(marketListEntity.getHardAnchor()))
+                    .append("plfThreshold", toIntOrKeepSame(marketListEntity.getPlfThreshold()))
+                    .append("TimeWindowStart", toIntOrKeepSame(marketListEntity.getStartTime()))
+                    .append("TimeWindowEnd", toIntOrKeepSame(marketListEntity.getEndTime()))
+                    .append("CurveID", toIntOrKeepSame(marketListEntity.getCurveId()))
+                    .append("CarrExlusionB2B", toIntOrKeepSame(marketListEntity.getCarrExclusionB2B()))
+                    .append("CarrExlusionB2C", toIntOrKeepSame(marketListEntity.getCarrExclusionB2C()))
+                    .append("flightExclusionB2B", toIntOrKeepSame(marketListEntity.getFlightExclusionB2B()))
+                    .append("flightExclusionB2C", toIntOrKeepSame(marketListEntity.getFlightExclusionB2C()))
+                    .append("fareAnchor", toIntOrKeepSame(marketListEntity.getFareAnchor()))
+                    .append("fareOffset", toIntOrKeepSame(marketListEntity.getFareOffset()))
+                    .append("FirstRBDAlloc", toIntOrKeepSame(marketListEntity.getFirstAllocation()))
+                    .append("OtherRBDAlloc", toIntOrKeepSame(marketListEntity.getOtherAllocation()))
+                    .append("B2BBackstop", toIntOrKeepSame(marketListEntity.getB2bBackstop()))
+                    .append("B2CBackstop", toIntOrKeepSame(marketListEntity.getB2cBackstop()))
+                    .append("B2BFactor", toIntOrKeepSame(marketListEntity.getB2bFactor()))
+                    .append("obSeats", toIntOrKeepSame(marketListEntity.getOBSeats()))
+                    .append("obFare", toIntOrKeepSame(marketListEntity.getOBFare()))
+                    .append("SkippingFactor", toIntOrKeepSame(marketListEntity.getSkippingFactor()))
+                    .append("DaySpan", toIntOrKeepSame(marketListEntity.getDaySpan()))
+                    .append("AutoTimeRangeFlag", toIntOrKeepSame(marketListEntity.getAutoTimeRangeFlag()))
+                    .append("analystName", toIntOrKeepSame(marketListEntity.getAnalystName()))
+                    .append("openingFares", toIntOrKeepSame(marketListEntity.getOpeningFares()))
+                    .append("OverBooking", toIntOrKeepSame(marketListEntity.getOverBooking()))
+                    .append("rbdPushFlag", toIntOrKeepSame(marketListEntity.getRbdPushFlag()))
+                    .append("profileFares", toIntOrKeepSame(marketListEntity.getProfileFares()))
+                    .append("B2CTolerance", toIntOrKeepSame(marketListEntity.getB2cTolerance()))
+                    .append("B2BTolerance", toIntOrKeepSame(marketListEntity.getB2bTolerance()))
+                    .append("distressInventoryFlag", toIntOrKeepSame(marketListEntity.getDistressInventoryFlag()))
+                    .append("seriesBlock", toIntOrKeepSame(marketListEntity.getSeriesBlock()))
+                    .append("autoGroup", toIntOrKeepSame(marketListEntity.getAutoGroup()))
+                    .append("autoBackstopFlag", toIntOrKeepSame(marketListEntity.getAutoBackstopFlag()))
+                    .append("tbfFlag", toIntOrKeepSame(marketListEntity.getTbfFlag()))
+                    .append("CugFlag", toIntOrKeepSame(marketListEntity.getCugFlag()))
+                    .append("MktFareFlag", toIntOrKeepSame(marketListEntity.getMktFareFlag()))
+                    .append("UUID", toIntOrKeepSame(marketListEntity.getUuid()))
+                    .append("directFlag", toIntOrKeepSame(marketListEntity.getDirectFlag()))
+                    .append("TBFEnhFlag", toIntOrKeepSame(marketListEntity.getTbfEnhFlag()))
+                    .append("defaultMlFlag", toIntOrKeepSame(marketListEntity.getDefaultMlFlag()))
+                    .append("b2bStrategy", toIntOrKeepSame(marketListEntity.getB2bStrategy()))
+                    .append("Outbound_Stop", toIntOrKeepSame(marketListEntity.getB2bOutbound_Stop()))
+                    .append("Marketfare_Upsell", toIntOrKeepSame(marketListEntity.getMarketfare_Upsell()))
+                    .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
+                    .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
+                    .append("market_origin_mapping", toIntOrKeepSame(marketListEntity.getMarket_origin_mapping()))
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
     public Object toIntOrKeepSame(String value) {
         if (value == null || value.isEmpty()) {
             return value;
@@ -4085,6 +4151,7 @@ public class App implements CommandLineRunner {
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
+                .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
                 .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
@@ -4301,6 +4368,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
+                listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
                 listOfErrors.get().add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");

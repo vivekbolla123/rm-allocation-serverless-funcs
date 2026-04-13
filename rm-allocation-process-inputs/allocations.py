@@ -132,7 +132,7 @@ class RBDAllocations:
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
                    
-                if b2cctr == B2CRBDs.shape[0] - 1:
+                if b2cctr == B2CRBDs.shape[0]:
                     incremental = totalCapacity
                 
                 if currRec.get_class_attribute(b2cctr,'class_au') is not None:
