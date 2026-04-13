@@ -669,6 +669,7 @@ class LadderPAHelper:
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
+                        'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'type': self.ladder_gen.type,
@@ -719,6 +720,7 @@ class LadderPAHelper:
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
+                        'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'type': self.ladder_gen.type,
@@ -770,16 +772,24 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  success_count=0, failed_count=0, source=None):
-        """Save or update batch audit information for multiple sectors under one run_id."""
+                  success_count=0, failed_count=0, source=None, batch_total=None):
+        """Save or update batch audit information for multiple sectors under one run_id.
+        
+        When multiple batches share the same run_id (parallel execution), the initial
+        call upserts to avoid duplicates, and the final call appends results using
+        $push and $inc so parallel completions don't overwrite each other.
+        
+        Args:
+            batch_total: Total number of sectors across ALL batches (from orchestrator).
+                         Used to determine when all batches have reported.
+                         If None, completion check is skipped (single-batch mode).
+        """
         try:
             collection = self.db.ladder_generation_audits
             
             if is_initial:
-                # Initial audit record - insert with IN_PROGRESS status
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
                 
-                # Get version info safely
                 qp_fares_version = None
                 tax_master_version = None
                 
@@ -793,102 +803,154 @@ class LadderPAHelper:
                 except Exception:
                     pass
                 
-                initial_audit = {
+                sector_list = [s.strip() for s in sectors.split(',') if s.strip()]
+                
+                set_on_insert = {
                     'run_id': run_id,
-                    'sectors': sectors,  # Comma-separated list of sectors
                     'is_batch': True,
                     'start_time': start_time,
                     'end_time': None,
                     'status': 'IN_PROGRESS',
-                    'total_sectors': len(sectors.split(', ')),
-                    'successful_sectors': None,
-                    'failed_sectors': None,
-                    'outliers_removed': None,
+                    'successful_sectors': 0,
+                    'failed_sectors': 0,
+                    'outliers_removed': 0,
                     'route': route,
                     'type': self.ladder_gen.type,
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
                     'source': source,
-                    'failure_reason': None
+                    'failure_reason': None,
+                    'ladder_gen_output': [],
                 }
                 
-                collection.insert_one(initial_audit)
-                self.logger.info(f"Created batch audit record for run_id: {run_id}, sectors: {sectors}")
-                
-                return 'ladder_generation_audits'
-                
-            else:
-                # Update existing audit record with final results
-                if status == 'SUCCESS' and not ladder_results:
-                    status = 'FAILED'
-                
-                # Aggregate statistics from all ladder results
-                total_b2c_records = 0
-                total_b2b_records = 0
-                total_b2c_fares = 0
-                total_b2b_fares = 0
-                min_b2c_fare = None
-                max_b2c_fare = None
-                min_b2b_fare = None
-                max_b2b_fare = None
-                
-                if ladder_results:
-                    for lr in ladder_results:
-                        total_b2c_records += lr.get('total_booking_records_b2c', 0)
-                        total_b2b_records += lr.get('total_booking_records_b2b', 0)
-                        total_b2c_fares += lr.get('distinct_fares_count_b2c', 0)
-                        total_b2b_fares += lr.get('distinct_fares_count_b2b', 0)
-                        
-                        # Track min/max across all sectors
-                        b2c_fares = lr.get('ladder_fares_b2c', [])
-                        b2b_fares = lr.get('ladder_fares_b2b', [])
-                        
-                        if b2c_fares:
-                            sector_min_b2c = min(b2c_fares)
-                            sector_max_b2c = max(b2c_fares)
-                            min_b2c_fare = sector_min_b2c if min_b2c_fare is None else min(min_b2c_fare, sector_min_b2c)
-                            max_b2c_fare = sector_max_b2c if max_b2c_fare is None else max(max_b2c_fare, sector_max_b2c)
-                        
-                        if b2b_fares:
-                            sector_min_b2b = min(b2b_fares)
-                            sector_max_b2b = max(b2b_fares)
-                            min_b2b_fare = sector_min_b2b if min_b2b_fare is None else min(min_b2b_fare, sector_min_b2b)
-                            max_b2b_fare = sector_max_b2b if max_b2b_fare is None else max(max_b2b_fare, sector_max_b2b)
-                
-                update_doc = {
-                    '$set': {
-                        'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                        'status': status,
-                        'successful_sectors': success_count,
-                        'failed_sectors': failed_count,
-                        'outliers_removed': outlier_count,
-                        'total_booking_records_b2c': total_b2c_records,
-                        'total_booking_records_b2b': total_b2b_records,
-                        'total_distinct_fares_b2c': total_b2c_fares,
-                        'total_distinct_fares_b2b': total_b2b_fares,
-                        'min_b2c_fare': round(min_b2c_fare, 2) if min_b2c_fare else None,
-                        'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
-                        'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
-                        'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
-                        'source': source,
-                        'failure_reason': failure_reason if status == 'FAILED' else None
-                    }
-                }
+                # batch_total is the ground truth from the orchestrator
+                if batch_total is not None:
+                    set_on_insert['batch_total'] = int(batch_total)
                 
                 collection.update_one(
                     {'run_id': run_id},
-                    update_doc
+                    {
+                        '$setOnInsert': set_on_insert,
+                        '$addToSet': {
+                            'sector_list': {'$each': sector_list}
+                        }
+                    },
+                    upsert=True
                 )
                 
-                self.logger.info(f"Updated batch audit record for run_id: {run_id}, status: {status}")
+                # Update sectors string from accumulated list
+                existing = collection.find_one({'run_id': run_id}, {'sector_list': 1})
+                if existing and 'sector_list' in existing:
+                    collection.update_one(
+                        {'run_id': run_id},
+                        {'$set': {
+                            'sectors': ', '.join(existing['sector_list']),
+                            'total_sectors': len(existing['sector_list'])
+                        }}
+                    )
+                
+                self.logger.info(f"Upserted batch audit for run_id: {run_id}, sectors: {sectors}")
+                return 'ladder_generation_audits'
+                
+            else:
+                # Final update: append results and increment counters
+                if status == 'SUCCESS' and not ladder_results:
+                    status = 'FAILED'
+                
+                # Build per-sector summary dicts and ladder_gen_output entries
+                output_entries = []
+                set_fields = {
+                    'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                    'source': source,
+                }
+                
+                if ladder_results:
+                    for lr in ladder_results:
+                        sector = lr.get('sector', 'UNKNOWN')
+                        b2c_fares = lr.get('ladder_fares_b2c', [])
+                        b2b_fares = lr.get('ladder_fares_b2b', [])
+                        
+                        # Per-sector nested fields: b2c_fare.SECTOR, b2b_fare.SECTOR, etc.
+                        if b2c_fares:
+                            set_fields[f'b2c_fare.{sector}'] = {
+                                'min': round(min(b2c_fares), 2),
+                                'max': round(max(b2c_fares), 2),
+                            }
+                        if b2b_fares:
+                            set_fields[f'b2b_fare.{sector}'] = {
+                                'min': round(min(b2b_fares), 2),
+                                'max': round(max(b2b_fares), 2),
+                            }
+                        set_fields[f'booking_records.{sector}'] = {
+                            'b2c': lr.get('total_booking_records_b2c', 0),
+                            'b2b': lr.get('total_booking_records_b2b', 0),
+                        }
+                        set_fields[f'distinct_fares.{sector}'] = {
+                            'b2c': lr.get('distinct_fares_count_b2c', 0),
+                            'b2b': lr.get('distinct_fares_count_b2b', 0),
+                        }
+                        
+                        # ladder_gen_output array entry
+                        output_entries.append({
+                            'ladder_code': lr.get('ladder_code'),
+                            'sector': sector,
+                            'fare_source': lr.get('fare_source'),
+                            'data_period': lr.get('data_period'),
+                            'b2c_ladder_points': len(b2c_fares),
+                            'b2b_ladder_points': len(b2b_fares),
+                            'generation_timestamp': lr.get('generation_timestamp'),
+                        })
+                
+                update_ops = {
+                    '$set': set_fields,
+                    '$inc': {
+                        'successful_sectors': success_count,
+                        'failed_sectors': failed_count,
+                        'outliers_removed': outlier_count or 0,
+                    },
+                }
+                
+                if output_entries:
+                    update_ops['$push'] = {
+                        'ladder_gen_output': {'$each': output_entries}
+                    }
+                
+                if failure_reason:
+                    update_ops.setdefault('$push', {})
+                    update_ops['$push']['failure_reasons'] = failure_reason
+                
+                collection.update_one({'run_id': run_id}, update_ops)
+                
+                # Check if all batches have reported
+                doc = collection.find_one({'run_id': run_id}, {
+                    'successful_sectors': 1, 'failed_sectors': 1, 'batch_total': 1, 'total_sectors': 1
+                })
+                if doc:
+                    total_done = doc.get('successful_sectors', 0) + doc.get('failed_sectors', 0)
+                    # Use batch_total (from orchestrator) if available, else total_sectors
+                    total_expected = doc.get('batch_total') or doc.get('total_sectors', total_done)
+                    
+                    if total_done >= total_expected:
+                        final_status = 'SUCCESS' if doc.get('successful_sectors', 0) > 0 else 'FAILED'
+                        collection.update_one(
+                            {'run_id': run_id},
+                            {'$set': {'status': final_status}}
+                        )
+                        self.logger.info(f"All batches complete for run_id: {run_id}, "
+                                        f"{total_done}/{total_expected} sectors, status: {final_status}")
+                    else:
+                        self.logger.info(f"Batch reported for run_id: {run_id} ({total_done}/{total_expected} done)")
+                
+                self.logger.info(f"Updated batch audit for run_id: {run_id}, "
+                                f"+{success_count} success, +{failed_count} failed, "
+                                f"+{len(output_entries)} outputs appended")
                 
                 return 'ladder_generation_audits'
             
         except Exception as e:
             self.logger.error(f"Error saving/updating batch audit: {str(e)}")
             if not is_initial:
-                # For update failures, try minimal fallback
                 try:
                     collection.update_one(
                         {'run_id': run_id},
@@ -900,7 +962,6 @@ class LadderPAHelper:
                             }
                         }
                     )
-                    
                     return 'ladder_generation_audits'
                 except:
                     self.logger.error("Failed to save even minimal batch audit update")

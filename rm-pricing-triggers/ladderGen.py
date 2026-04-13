@@ -1663,6 +1663,7 @@ class LadderGen:
             fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
             
             return {
+                'ladder_code' : self.ladder_code,
                 'sector': self.sector,
                 'route': self.route,
                 'fare_source': fare_source,
@@ -1705,7 +1706,8 @@ class LadderGen:
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None, 
                 self.start_time, self.currentVersion, run_id, None, 
-                None, None, 'IN_PROGRESS', is_initial=True, source=fare_source
+                None, None, 'IN_PROGRESS', is_initial=True, source=fare_source,
+                batch_total=self.batch_total
             )
         except Exception as e:
             self.logger.error(f"Failed to create initial batch audit record: {str(e)}")
