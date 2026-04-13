@@ -781,9 +781,6 @@ class LadderPAHelper:
         try:
             collection = self.db.ladder_generation_audits
             
-            # Ensure unique index on run_id to prevent duplicate documents from parallel upserts
-            collection.create_index('run_id', unique=True, background=True)
-            
             if is_initial:
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
                 qp_fares_version = None
