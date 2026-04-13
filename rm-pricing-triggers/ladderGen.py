@@ -1562,8 +1562,8 @@ class LadderGen:
     def generate_saver_ladder(self):
         """Main ladder generation method."""
         try:
-            booking_data_b2c, data_period = self.get_historical_booking_data(self.B2C_CHANNEL)
-            booking_data_b2b, data_period = self.get_historical_booking_data(self.B2B_CHANNEL)
+            booking_data_b2c, data_period_b2c = self.get_historical_booking_data(self.B2C_CHANNEL)
+            booking_data_b2b, data_period_b2b = self.get_historical_booking_data(self.B2B_CHANNEL)
             
             # Apply fare cap to booking data before binning
             booking_data_b2c = self._apply_fare_cap_to_bookings(booking_data_b2c, self.B2C_CHANNEL)
@@ -1667,7 +1667,8 @@ class LadderGen:
                 'sector': self.sector,
                 'route': self.route,
                 'fare_source': fare_source,
-                'data_period': data_period,
+                'data_period_b2c': data_period_b2c,
+                'data_period_b2b': data_period_b2b,
                 'total_booking_records_b2c': len(booking_data_b2c),
                 'total_booking_records_b2b': len(booking_data_b2b),
                 'distinct_fares_count_b2c': len(booking_data_b2c['Fare'].unique()),
@@ -1761,7 +1762,7 @@ class LadderGen:
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, total_outliers,
                 self.start_time, self.currentVersion, run_id, batch_failure_reason,
-                all_ladder_results, 'ladder_gen_output', batch_status, is_initial=False,
+                all_ladder_results, None, batch_status, is_initial=False,
                 success_count=success_count, failed_count=failed_count, source=fare_source
             )
         except Exception as e:
@@ -1848,7 +1849,8 @@ class LadderGen:
                     'b2b_total_ladder_points': len(ladder_result['ladder_fares_b2b']),
                     'b2b_min_fare': round(min(ladder_result['ladder_fares_b2b']), 2),
                     'b2b_max_fare': round(max(ladder_result['ladder_fares_b2b']), 2),
-                    'data_period': ladder_result['data_period'],
+                    'data_period_b2c': ladder_result['data_period_b2c'],
+                    'data_period_b2b': ladder_result['data_period_b2b'],
                     'booking_records_used_b2c': ladder_result['total_booking_records_b2c'],
                     'booking_records_used_b2b': ladder_result['total_booking_records_b2b'],
                     'distinct_fares_analyzed_b2c': ladder_result['distinct_fares_count_b2c'],

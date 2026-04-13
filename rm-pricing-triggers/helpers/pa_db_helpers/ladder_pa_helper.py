@@ -680,7 +680,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
-                        'data_period': ladder_result['data_period'],
+                        'data_period': ladder_result['data_period_b2b'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
                         'run_id': run_id,
@@ -731,7 +731,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
-                        'data_period': ladder_result['data_period'],
+                        'data_period': ladder_result['data_period_b2c'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
                         'run_id': run_id,
@@ -775,39 +775,27 @@ class LadderPAHelper:
                   success_count=0, failed_count=0, source=None, batch_total=None):
         """Save or update batch audit information for multiple sectors under one run_id.
         
-        When multiple batches share the same run_id (parallel execution), the initial
-        call upserts to avoid duplicates, and the final call appends results using
-        $push and $inc so parallel completions don't overwrite each other.
-        
-        Args:
-            batch_total: Total number of sectors across ALL batches (from orchestrator).
-                         Used to determine when all batches have reported.
-                         If None, completion check is skipped (single-batch mode).
+        Parallel-safe: initial call upserts, final call uses $inc and $set with
+        dot-notation so concurrent batches merge cleanly into one document.
         """
         try:
             collection = self.db.ladder_generation_audits
             
             if is_initial:
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
-                
                 qp_fares_version = None
                 tax_master_version = None
-                
                 try:
                     if currVersion is not None and not currVersion.empty:
-                        qp_version_rows = currVersion[currVersion['table_name'] == 'qp_fares']
-                        tax_version_rows = currVersion[currVersion['table_name'] == tax_table]
-                        
-                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
-                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                        qp_ver = currVersion[currVersion['table_name'] == 'qp_fares']
+                        tax_ver = currVersion[currVersion['table_name'] == tax_table]
+                        qp_fares_version = qp_ver['curr_version'].values[0] if not qp_ver.empty else None
+                        tax_master_version = tax_ver['curr_version'].values[0] if not tax_ver.empty else None
                 except Exception:
                     pass
                 
-                sector_list = [s.strip() for s in sectors.split(',') if s.strip()]
-                
                 set_on_insert = {
                     'run_id': run_id,
-                    'is_batch': True,
                     'start_time': start_time,
                     'end_time': None,
                     'status': 'IN_PROGRESS',
@@ -820,11 +808,7 @@ class LadderPAHelper:
                     'tax_master': tax_master_version,
                     'analyst': analystName,
                     'source': source,
-                    'failure_reason': None,
-                    'ladder_gen_output': [],
                 }
-                
-                # batch_total is the ground truth from the orchestrator
                 if batch_total is not None:
                     set_on_insert['batch_total'] = int(batch_total)
                 
@@ -832,37 +816,23 @@ class LadderPAHelper:
                     {'run_id': run_id},
                     {
                         '$setOnInsert': set_on_insert,
-                        '$addToSet': {
-                            'sector_list': {'$each': sector_list}
+                        '$set': {
+                            'sectors': sectors,
+                            'total_sectors': len([s.strip() for s in sectors.split(',') if s.strip()])
                         }
                     },
                     upsert=True
                 )
                 
-                # Update sectors string from accumulated list
-                existing = collection.find_one({'run_id': run_id}, {'sector_list': 1})
-                if existing and 'sector_list' in existing:
-                    collection.update_one(
-                        {'run_id': run_id},
-                        {'$set': {
-                            'sectors': ', '.join(existing['sector_list']),
-                            'total_sectors': len(existing['sector_list'])
-                        }}
-                    )
-                
                 self.logger.info(f"Upserted batch audit for run_id: {run_id}, sectors: {sectors}")
                 return 'ladder_generation_audits'
                 
             else:
-                # Final update: append results and increment counters
                 if status == 'SUCCESS' and not ladder_results:
                     status = 'FAILED'
                 
-                # Build per-sector summary dicts and ladder_gen_output entries
-                output_entries = []
                 set_fields = {
                     'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                    'source': source,
                 }
                 
                 if ladder_results:
@@ -871,7 +841,6 @@ class LadderPAHelper:
                         b2c_fares = lr.get('ladder_fares_b2c', [])
                         b2b_fares = lr.get('ladder_fares_b2b', [])
                         
-                        # Per-sector nested fields: b2c_fare.SECTOR, b2b_fare.SECTOR, etc.
                         if b2c_fares:
                             set_fields[f'b2c_fare.{sector}'] = {
                                 'min': round(min(b2c_fares), 2),
@@ -890,17 +859,6 @@ class LadderPAHelper:
                             'b2c': lr.get('distinct_fares_count_b2c', 0),
                             'b2b': lr.get('distinct_fares_count_b2b', 0),
                         }
-                        
-                        # ladder_gen_output array entry
-                        output_entries.append({
-                            'ladder_code': lr.get('ladder_code'),
-                            'sector': sector,
-                            'fare_source': lr.get('fare_source'),
-                            'data_period': lr.get('data_period'),
-                            'b2c_ladder_points': len(b2c_fares),
-                            'b2b_ladder_points': len(b2b_fares),
-                            'generation_timestamp': lr.get('generation_timestamp'),
-                        })
                 
                 update_ops = {
                     '$set': set_fields,
@@ -911,14 +869,8 @@ class LadderPAHelper:
                     },
                 }
                 
-                if output_entries:
-                    update_ops['$push'] = {
-                        'ladder_gen_output': {'$each': output_entries}
-                    }
-                
                 if failure_reason:
-                    update_ops.setdefault('$push', {})
-                    update_ops['$push']['failure_reasons'] = failure_reason
+                    update_ops['$push'] = {'failure_reasons': failure_reason}
                 
                 collection.update_one({'run_id': run_id}, update_ops)
                 
@@ -928,7 +880,6 @@ class LadderPAHelper:
                 })
                 if doc:
                     total_done = doc.get('successful_sectors', 0) + doc.get('failed_sectors', 0)
-                    # Use batch_total (from orchestrator) if available, else total_sectors
                     total_expected = doc.get('batch_total') or doc.get('total_sectors', total_done)
                     
                     if total_done >= total_expected:
@@ -938,13 +889,9 @@ class LadderPAHelper:
                             {'$set': {'status': final_status}}
                         )
                         self.logger.info(f"All batches complete for run_id: {run_id}, "
-                                        f"{total_done}/{total_expected} sectors, status: {final_status}")
+                                        f"{total_done}/{total_expected}, status: {final_status}")
                     else:
                         self.logger.info(f"Batch reported for run_id: {run_id} ({total_done}/{total_expected} done)")
-                
-                self.logger.info(f"Updated batch audit for run_id: {run_id}, "
-                                f"+{success_count} success, +{failed_count} failed, "
-                                f"+{len(output_entries)} outputs appended")
                 
                 return 'ladder_generation_audits'
             
@@ -954,13 +901,11 @@ class LadderPAHelper:
                 try:
                     collection.update_one(
                         {'run_id': run_id},
-                        {
-                            '$set': {
-                                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                                'status': 'FAILED',
-                                'failure_reason': f"Audit update failed: {str(e)}. Original failure: {failure_reason}"
-                            }
-                        }
+                        {'$set': {
+                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                            'status': 'FAILED',
+                            'failure_reason': f"Audit update failed: {str(e)}"
+                        }}
                     )
                     return 'ladder_generation_audits'
                 except:
@@ -1010,7 +955,8 @@ class LadderPAHelper:
                     'b2c_max_ladder_fare': None,
                     'b2b_min_ladder_fare': None,
                     'b2b_max_ladder_fare': None,
-                    'data_period_used': None,
+                    'data_period_used_b2c': None,
+                    'data_period_used_b2b': None,
                     'total_booking_records_b2c': None,
                     'total_booking_records_b2b': None,
                     'distinct_fares_count_b2c': None,
@@ -1051,7 +997,8 @@ class LadderPAHelper:
                         'b2c_max_ladder_fare': round(max(ladder_fares_b2c), 2) if ladder_fares_b2c else None,
                         'b2b_min_ladder_fare': round(min(ladder_fares_b2b), 2) if ladder_fares_b2b else None,
                         'b2b_max_ladder_fare': round(max(ladder_fares_b2b), 2) if ladder_fares_b2b else None,
-                        'data_period_used': ladder_result['data_period'] if ladder_result else None,
+                        'data_period_used_b2c': ladder_result['data_period_b2c'] if ladder_result else None,
+                        'data_period_used_b2b': ladder_result['data_period_b2b'] if ladder_result else None,
                         'total_booking_records_b2c': ladder_result.get('total_booking_records_b2c', 0) if ladder_result else 0,
                         'total_booking_records_b2b': ladder_result.get('total_booking_records_b2b', 0) if ladder_result else 0,
                         'distinct_fares_count_b2c': ladder_result.get('distinct_fares_count_b2c', 0) if ladder_result else 0,
