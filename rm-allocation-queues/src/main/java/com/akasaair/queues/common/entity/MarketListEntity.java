@@ -124,5 +124,6 @@ public class MarketListEntity {
     public String canAdjustedForecast;
     @Column(name = "market_station_mapping")
     public String market_station_mapping;
-
+    @Column(name = "afForecastAllocFlag")
+    public String afForecastAllocFlag;
 }
