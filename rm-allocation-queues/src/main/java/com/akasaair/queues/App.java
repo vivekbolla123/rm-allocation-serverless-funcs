@@ -3752,7 +3752,7 @@ public class App implements CommandLineRunner {
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
-                .append("market_origin_mapping", toIntOrKeepSame(e.getMarket_origin_mapping()))
+                .append("market_station_mapping", toIntOrKeepSame(e.getMarket_station_mapping()))
                 .append("createdAt", createdAt);
     }
 
@@ -4154,7 +4154,7 @@ public class App implements CommandLineRunner {
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
-                .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
+                .market_station_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
                 .analystName(analystName)
                 .build());
     }
