@@ -781,6 +781,9 @@ class LadderPAHelper:
         try:
             collection = self.db.ladder_generation_audits
             
+            # Ensure unique index on run_id to prevent duplicate documents from parallel upserts
+            collection.create_index('run_id', unique=True, background=True)
+            
             if is_initial:
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
                 qp_fares_version = None
@@ -812,17 +815,30 @@ class LadderPAHelper:
                 if batch_total is not None:
                     set_on_insert['batch_total'] = int(batch_total)
                 
+                sector_list = [s.strip() for s in sectors.split(',') if s.strip()]
+                
                 collection.update_one(
                     {'run_id': run_id},
                     {
                         '$setOnInsert': set_on_insert,
-                        '$set': {
-                            'sectors': sectors,
-                            'total_sectors': len([s.strip() for s in sectors.split(',') if s.strip()])
+                        '$addToSet': {
+                            'sector_list': {'$each': sector_list}
                         }
                     },
                     upsert=True
                 )
+                
+                # Rebuild sectors string from accumulated list
+                doc = collection.find_one({'run_id': run_id}, {'sector_list': 1})
+                if doc and 'sector_list' in doc:
+                    all_sectors = doc['sector_list']
+                    collection.update_one(
+                        {'run_id': run_id},
+                        {'$set': {
+                            'sectors': ', '.join(all_sectors),
+                            'total_sectors': len(all_sectors)
+                        }}
+                    )
                 
                 self.logger.info(f"Upserted batch audit for run_id: {run_id}, sectors: {sectors}")
                 return 'ladder_generation_audits'
