@@ -32,7 +32,7 @@ class SaleInvBaseloadCalc:
         self.db = self.mongoconn['qp_dw_rmalloc']
         self.constants = ConstantsUtils(self.db)
 
-        start_date_str = overrides.get('start_date', '2025-03-01')
+        start_date_str = overrides.get('start_date', '2025-01-01')
         self.start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
 
         self.time_clusters = self._fetch_time_clusters()
