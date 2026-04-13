@@ -4,7 +4,8 @@ boto3
 redis==5.0.1
 numpy==1.26.4
 pymssql==2.2.5
-requests==2.32.4
+requests==2.32.5
 mysql-connector-python
 pymysql
 pymongo
+psutil

@@ -99,8 +99,8 @@ class CleanUpConfig:
         else:
             raise ValueError(f"Unsupported date type: {type(date_value)}")
 
-    def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3, date_format='%Y-%m-%d %H:%M:%S', batch_size=1000):
-        """Archive data to S3 and/or archive database before deletion with optimized batching"""
+    def archive_before_delete(self, database_name, collection_name, time_column, max_days, is_archive_db, is_archive_s3, date_format='%Y-%m-%d %H:%M:%S', batch_size=20000):
+        """Archive data to S3 and/or archive database before deletion with memory-optimized batching"""
         try:
             if not is_archive_db and not is_archive_s3:
                 self.logger.info("Archive Skipped as per configuration!")
@@ -123,18 +123,22 @@ class CleanUpConfig:
             cursor = source_db[collection_name].find(query).batch_size(batch_size)
             
             if is_archive_s3:
-                # Accumulate ALL documents by date before writing
-                date_batches = {}
+                # Memory-bounded: flush each date-bucket to S3 when it reaches batch_size
+                date_batches = {}  # date_key -> list of docs (bounded by batch_size)
+                db_batch = []  # buffer for bulk DB inserts
                 
                 for doc in cursor:
-                    # Archive to DB if needed (streaming)
+                    # Archive to DB if needed (bulk insert for efficiency)
                     if is_archive_db:
-                        try:
-                            archive_db[collection_name].insert_one(doc)
-                        except Exception as e:
-                            self.logger.warning(f"Failed to archive document to DB: {e}")
+                        db_batch.append(doc)
+                        if len(db_batch) >= batch_size:
+                            try:
+                                archive_db[collection_name].insert_many(db_batch, ordered=False)
+                            except Exception as e:
+                                self.logger.warning(f"Failed to archive batch to DB: {e}")
+                            db_batch = []
                     
-                    # Accumulate by date for S3
+                    # Accumulate by date for S3, flush when batch is full
                     if time_column not in doc:
                         continue
                         
@@ -146,12 +150,27 @@ class CleanUpConfig:
                     
                     date_batches[date_key].append(doc)
                     total_archived += 1
+                    
+                    # Flush this date's batch to S3 when it reaches batch_size
+                    if len(date_batches[date_key]) >= batch_size:
+                        self._write_batch_to_s3(date_batches[date_key], collection_name, date_key)
+                        self.logger.info(f"Flushed {len(date_batches[date_key])} records for {date_key} to S3")
+                        date_batches[date_key] = []  # free memory immediately
                 
-                # Write all accumulated batches to S3 (one file per date)
+                # Flush remaining documents per date
                 for date_key, documents in date_batches.items():
                     if documents:
                         self._write_batch_to_s3(documents, collection_name, date_key)
-                        self.logger.info(f"Wrote {len(documents)} records for {date_key} to S3")
+                        self.logger.info(f"Flushed final {len(documents)} records for {date_key} to S3")
+                date_batches.clear()  # free memory
+                
+                # Flush remaining DB batch
+                if is_archive_db and db_batch:
+                    try:
+                        archive_db[collection_name].insert_many(db_batch, ordered=False)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to archive final batch to DB: {e}")
+                    db_batch = []
                 
                 self.logger.info(f"Successfully archived {total_archived} records from {database_name}.{collection_name} to S3")
             
@@ -190,30 +209,15 @@ class CleanUpConfig:
             day = str(date_key.day).zfill(2)
             s3_path = base_path + f"/collection={collection_name}/year={year}/month={month}/day={day}/"
             
-            # Sanitize documents before converting to DataFrame
-            sanitized_docs = []
-            for doc in documents:
-                sanitized_doc = self._sanitize_document(doc)
-                sanitized_docs.append(sanitized_doc)
-            
-            # Convert batch to DataFrame
-            df = pd.DataFrame(sanitized_docs)
-            df_to_save = df.drop(columns=['_id'], errors='ignore')
-            
-            # Debug: Log data types
-            self.logger.info(f"DataFrame dtypes: {df_to_save.dtypes.to_dict()}")
+            # Sanitize and convert to DataFrame in one pass (no intermediate list)
+            df_to_save = pd.DataFrame(self._sanitize_document(doc) for doc in documents)
             
             # Convert all columns to consistent types
             for col in df_to_save.columns:
                 col_dtype = df_to_save[col].dtype
                 
-                # Handle object dtype columns
+                # Handle object dtype columns - convert to string for safety
                 if col_dtype == 'object':
-                    # Check for mixed types in the column
-                    sample_types = df_to_save[col].dropna().apply(type).unique()
-                    self.logger.info(f"Column '{col}' has types: {sample_types}")
-                    
-                    # Convert to string for safety
                     df_to_save[col] = df_to_save[col].astype(str)
                 
                 # Handle float columns that might have NaN
