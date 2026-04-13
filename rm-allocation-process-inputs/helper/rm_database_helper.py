@@ -800,7 +800,8 @@ class RMDatabaseHelper:
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
                 "forecastPLF": str(latest_row.forecastPLF),
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
-                "B2BFactor": str(latest_row.B2BFactor)
+                "B2BFactor": str(latest_row.B2BFactor),
+                "toleranceValue": str(latest_row.toleranceValue)
             }
 
             try:
@@ -864,6 +865,17 @@ class RMDatabaseHelper:
         try:
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
+            )
+            return int(result['band']) if result else CONST_NA
+        except Exception as e:
+            self.logger.error(e)
+            return CONST_NA
+    
+    def get_af_forecast_band(self, af_forecast):
+        rounded_af_fcst = round(af_forecast)
+        try:
+            result = self.db.imputed_forecast_bands.find_one(
+                {"start_af": {"$lte": rounded_af_fcst}, "end_af": {"$gte": rounded_af_fcst}}
             )
             return int(result['band']) if result else CONST_NA
         except Exception as e:

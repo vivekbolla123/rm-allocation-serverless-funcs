@@ -132,7 +132,7 @@ class RBDAllocations:
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
                    
-                if b2cctr == B2CRBDs.shape[0] - 1:
+                if b2cctr == B2CRBDs.shape[0]:
                     incremental = totalCapacity
                 
                 if currRec.get_class_attribute(b2cctr,'class_au') is not None:
@@ -558,18 +558,11 @@ class RBDAllocations:
                     )
 
                     # ---------- MIN RULE ----------
-                    min_band = None
-                    for rule_name, rule in D3_MIN_RULES.items():
+                    min_d3_value = None
+                    for rule in D3_MIN_RULES.values():
                         if rule['forecast_start'] <= imp_forecast <= rule['forecast_end']:
-                            min_band = rule_name
+                            min_d3_value = rule['min_value']
                             break
-
-                    if min_band == 'H':
-                        min_d3_value = 3
-                    elif min_band == 'L':
-                        min_d3_value = 5
-                    else:
-                        min_d3_value = None
 
                     if min_d3_value is not None:
                         d3Allocation = round(max(d3Allocation, min_d3_value))
@@ -578,22 +571,24 @@ class RBDAllocations:
 
                     # ---------- MAX RULE ----------
                     max_band = None
+                    max_value = None
                     for rule_name, rule in D3_MAX_RULES.items():
                         if rule['forecast_start'] <= imp_forecast <= rule['forecast_end']:
                             if 'ndo_start' in rule and 'ndo_end' in rule:
                                 if not (rule['ndo_start'] <= ndocounter <= rule['ndo_end']):
                                     continue
                             max_band = rule_name
+                            max_value = rule['max_value']
                             break
 
                     if max_band == 'L':
-                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 0.5 * remainingCapacity)
+                        max_d3_value = max(remainingCapacity / (1 + ndocounter), max_value)
                     elif max_band == 'M':
-                        max_d3_value = max(0.4 * remainingCapacity, 10)
+                        max_d3_value = max(remainingCapacity, max_value)
                     elif max_band == 'H1':
-                        max_d3_value = max(0.2 * remainingCapacity, 7)
+                        max_d3_value = max(0.2 * remainingCapacity, max_value)
                     elif max_band == 'H2':
-                        max_d3_value = max(remainingCapacity / (1 + ndocounter), 7)
+                        max_d3_value = max(remainingCapacity / (1 + ndocounter), max_value)
                     else:
                         max_d3_value = None
 
