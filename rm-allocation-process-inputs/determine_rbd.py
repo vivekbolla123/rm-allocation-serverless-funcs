@@ -56,6 +56,14 @@ class DetermineRBD:
             return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare
         
         anchorValue = ''
+    
+        toleranceValue = CONST_NA
+
+        if forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2:
+
+            anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band)
+
+            howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
         if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0):
             anchorFare, howDetermined, upsell, overBookingFare = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
             howDetermined = timeString + '_' + str(startEndOfDayDplfBand) + '_' + str(dplfBand) + '_' + howDetermined
@@ -367,6 +375,7 @@ class DetermineRBD:
         howDetermined = ''
         upsell = 0
         overBookingFare = 0
+        toleranceValue = CONST_NA
         should_use_tolerance = False
         TOLERANCE_MAP = self.constantsutils.TOLERANCE_MAP
         B2B_FACTOR_MAP = self.constantsutils.B2B_FACTOR_MAP

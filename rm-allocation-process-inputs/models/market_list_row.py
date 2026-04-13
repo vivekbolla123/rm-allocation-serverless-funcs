@@ -104,4 +104,4 @@ class MarketListRow:
         self.Spoilage_Flag = currParams.get("Spoilage_Flag", 0)
         self.CanAdjustedForecast = currParams.get("CanAdjustedForecast", 0)
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
-        self.market_origin_mapping = currParams.get("market_origin_mapping", 0)
+        self.market_station_mapping = currParams.get("market_station_mapping", 0)
