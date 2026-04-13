@@ -773,13 +773,14 @@ class LadderPAHelper:
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
                   success_count=0, failed_count=0, source=None, batch_total=None):
-        """Save or update batch audit information for multiple sectors under one run_id.
+        """Save or update batch audit for multiple ladder codes under one run_id.
         
-        Parallel-safe: initial call upserts, final call uses $inc and $set with
-        dot-notation so concurrent batches merge cleanly into one document.
+        Parallel-safe: unique index on run_id prevents duplicates, $inc for counters,
+        dot-notation $set keyed by ladder_code for per-entry results.
         """
         try:
             collection = self.db.ladder_generation_audits
+            collection.create_index('run_id', unique=True, background=True)
             
             if is_initial:
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
@@ -807,37 +808,22 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
-                    'source': source,
                 }
                 if batch_total is not None:
                     set_on_insert['batch_total'] = int(batch_total)
                 
-                sector_list = [s.strip() for s in sectors.split(',') if s.strip()]
+                ladder_codes = list(self.ladder_gen.ladder_codes)
                 
                 collection.update_one(
                     {'run_id': run_id},
                     {
                         '$setOnInsert': set_on_insert,
-                        '$addToSet': {
-                            'sector_list': {'$each': sector_list}
-                        }
+                        '$addToSet': {'ladder_codes': {'$each': ladder_codes}}
                     },
                     upsert=True
                 )
                 
-                # Rebuild sectors string from accumulated list
-                doc = collection.find_one({'run_id': run_id}, {'sector_list': 1})
-                if doc and 'sector_list' in doc:
-                    all_sectors = doc['sector_list']
-                    collection.update_one(
-                        {'run_id': run_id},
-                        {'$set': {
-                            'sectors': ', '.join(all_sectors),
-                            'total_sectors': len(all_sectors)
-                        }}
-                    )
-                
-                self.logger.info(f"Upserted batch audit for run_id: {run_id}, sectors: {sectors}")
+                self.logger.info(f"Upserted batch audit for run_id: {run_id}, ladder_codes: {ladder_codes}")
                 return 'ladder_generation_audits'
                 
             else:
@@ -850,27 +836,28 @@ class LadderPAHelper:
                 
                 if ladder_results:
                     for lr in ladder_results:
-                        sector = lr.get('sector', 'UNKNOWN')
-                        b2c_fares = lr.get('ladder_fares_b2c', [])
-                        b2b_fares = lr.get('ladder_fares_b2b', [])
-                        
-                        if b2c_fares:
-                            set_fields[f'b2c_fare.{sector}'] = {
-                                'min': round(min(b2c_fares), 2),
-                                'max': round(max(b2c_fares), 2),
-                            }
-                        if b2b_fares:
-                            set_fields[f'b2b_fare.{sector}'] = {
-                                'min': round(min(b2b_fares), 2),
-                                'max': round(max(b2b_fares), 2),
-                            }
-                        set_fields[f'booking_records.{sector}'] = {
-                            'b2c': lr.get('total_booking_records_b2c', 0),
-                            'b2b': lr.get('total_booking_records_b2b', 0),
-                        }
-                        set_fields[f'distinct_fares.{sector}'] = {
-                            'b2c': lr.get('distinct_fares_count_b2c', 0),
-                            'b2b': lr.get('distinct_fares_count_b2b', 0),
+                        lc = str(lr.get('ladder_code', 'UNKNOWN'))
+                        set_fields[f'results.{lc}'] = {
+                            'sector': lr.get('sector'),
+                            'fare_source': lr.get('fare_source'),
+                            'data_period_b2c': lr.get('data_period_b2c'),
+                            'data_period_b2b': lr.get('data_period_b2b'),
+                            'booking_records': {
+                                'b2c': lr.get('total_booking_records_b2c', 0),
+                                'b2b': lr.get('total_booking_records_b2b', 0),
+                            },
+                            'distinct_fares': {
+                                'b2c': lr.get('distinct_fares_count_b2c', 0),
+                                'b2b': lr.get('distinct_fares_count_b2b', 0),
+                            },
+                            'b2c_fare': {
+                                'min': round(min(lr['ladder_fares_b2c']), 2),
+                                'max': round(max(lr['ladder_fares_b2c']), 2),
+                            } if lr.get('ladder_fares_b2c') else None,
+                            'b2b_fare': {
+                                'min': round(min(lr['ladder_fares_b2b']), 2),
+                                'max': round(max(lr['ladder_fares_b2b']), 2),
+                            } if lr.get('ladder_fares_b2b') else None,
                         }
                 
                 update_ops = {
@@ -889,12 +876,11 @@ class LadderPAHelper:
                 
                 # Check if all batches have reported
                 doc = collection.find_one({'run_id': run_id}, {
-                    'successful_sectors': 1, 'failed_sectors': 1, 'batch_total': 1, 'total_sectors': 1
+                    'successful_sectors': 1, 'failed_sectors': 1, 'batch_total': 1
                 })
                 if doc:
                     total_done = doc.get('successful_sectors', 0) + doc.get('failed_sectors', 0)
-                    total_expected = doc.get('batch_total') or doc.get('total_sectors', total_done)
-                    
+                    total_expected = doc.get('batch_total', total_done)
                     if total_done >= total_expected:
                         final_status = 'SUCCESS' if doc.get('successful_sectors', 0) > 0 else 'FAILED'
                         collection.update_one(
