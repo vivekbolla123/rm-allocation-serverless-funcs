@@ -3798,6 +3798,7 @@ public class App implements CommandLineRunner {
                 .append("Outbound_Stop", toIntOrKeepSame(e.getB2bOutbound_Stop()))
                 .append("Marketfare_Upsell", toIntOrKeepSame(e.getMarketfare_Upsell()))
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
+                .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
                 .append("market_station_mapping", toIntOrKeepSame(e.getMarket_station_mapping()))
