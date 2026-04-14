@@ -4199,7 +4199,7 @@ public class App implements CommandLineRunner {
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
-                .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
+                .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
                 .market_station_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
