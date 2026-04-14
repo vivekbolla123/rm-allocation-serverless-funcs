@@ -643,7 +643,7 @@ class DetermineRBD:
             assign_b2b_factor(currParams, b2b_factor_value)
             should_use_tolerance = True
 
-        if afForecastAllocFlag == 1 and Af_Nb_Allin > 0:
+        if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:
             anchorFare, howDetermined = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
