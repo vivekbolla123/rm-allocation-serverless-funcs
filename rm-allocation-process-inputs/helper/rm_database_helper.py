@@ -800,7 +800,8 @@ class RMDatabaseHelper:
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
                 "forecastPLF": str(latest_row.forecastPLF),
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
-                "B2BFactor": str(latest_row.B2BFactor)
+                "B2BFactor": str(latest_row.B2BFactor),
+                "toleranceValue": str(latest_row.toleranceValue)
             }
 
             try:
