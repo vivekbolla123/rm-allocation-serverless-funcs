@@ -800,7 +800,8 @@ class RMDatabaseHelper:
                 "OtherRBDAlloc": str(latest_row.OtherRBDAlloc),
                 "forecastPLF": str(latest_row.forecastPLF),
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
-                "B2BFactor": str(latest_row.B2BFactor)
+                "B2BFactor": str(latest_row.B2BFactor),
+                "toleranceValue": str(latest_row.toleranceValue)
             }
 
             try:
@@ -864,6 +865,17 @@ class RMDatabaseHelper:
         try:
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
+            )
+            return int(result['band']) if result else CONST_NA
+        except Exception as e:
+            self.logger.error(e)
+            return CONST_NA
+    
+    def get_af_forecast_band(self, af_forecast):
+        rounded_af_fcst = round(af_forecast)
+        try:
+            result = self.db.imputed_forecast_bands.find_one(
+                {"start_af": {"$lte": rounded_af_fcst}, "end_af": {"$gte": rounded_af_fcst}}
             )
             return int(result['band']) if result else CONST_NA
         except Exception as e:
@@ -985,23 +997,23 @@ class RMDatabaseHelper:
             self.logger.error(f"Error getting Market fare adjustments: {e}")
             return pd.DataFrame()
     
-    def getMappedOriginStation(self, origin):
+    def getMappedStation(self, station):
         try:
-            doc = self.db.market_fare_origin_map.find_one(
-                {"$or": [{"origin1": origin}, {"origin2": origin}]}
+            doc = self.db.market_fare_station_map.find_one(
+                {"$or": [{"station1": station}, {"station2": station}]}
             )
 
             if not doc:
                 return None
 
-            if origin == doc.get("origin1"):
-                return doc.get("origin2")
-            elif origin == doc.get("origin2"):
-                return doc.get("origin1")
+            if station == doc.get("station1"):
+                return doc.get("station2")
+            elif station == doc.get("station2"):
+                return doc.get("station1")
 
             return None
         except Exception as e:
-            self.logger.error(f"Error getting mapped Market fare origin station: {e}")
+            self.logger.error(f"Error getting mapped Market fare station: {e}")
             return None
 
     def getMarketFareRange(self, channel, currParams, currFltDateStr, DaySpan, startTime, endtime, Day3Flag, hrs, origin, destination):
