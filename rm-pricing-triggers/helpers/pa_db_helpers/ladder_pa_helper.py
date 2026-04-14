@@ -812,12 +812,16 @@ class LadderPAHelper:
                     set_on_insert['batch_total'] = int(batch_total)
                 
                 ladder_codes = list(self.ladder_gen.ladder_codes)
+                sector_list = list(set(self.ladder_gen.sectors))
                 
                 collection.update_one(
                     {'run_id': run_id},
                     {
                         '$setOnInsert': set_on_insert,
-                        '$addToSet': {'ladder_codes': {'$each': ladder_codes}}
+                        '$addToSet': {
+                            'ladder_codes': {'$each': ladder_codes},
+                            'sectors': {'$each': sector_list},
+                        }
                     },
                     upsert=True
                 )
