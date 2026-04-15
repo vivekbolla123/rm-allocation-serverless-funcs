@@ -28,6 +28,7 @@ class SalesPAHelper:
                 },
                 {
                     '$project': {
+                        'key': 1,
                         'sector': 1,
                         'type': 1,
                         'currency': 1,
@@ -175,6 +176,7 @@ class SalesPAHelper:
                     
                     output_row = {
                         'run_id': run_id,
+                        'key': row.get('key', ''),
                         'ACTION': 'I',
                         'ID': '',
                         'LOC1': origin,
@@ -222,7 +224,7 @@ class SalesPAHelper:
             self.logger.error(traceback.format_exc())
             raise
     
-    def save_run_audit(self, analystName, currVersion, run_id, output_df, status, failure_reason=None):
+    def save_run_audit(self, analystName, currVersion, run_id, output_df, status, failure_reason=None, key_val=None):
         """Save audit information with enhanced failure tracking."""
         try:
             if status == 'SUCCESS' and (output_df is None or output_df.empty):
@@ -247,6 +249,7 @@ class SalesPAHelper:
             
             audit_data = {
                 'run_id': run_id,
+                'key': key_val,
                 'start_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 'status': status,
@@ -260,7 +263,7 @@ class SalesPAHelper:
             # Save to MongoDB
             self.db.sales_fare_generation_audits.insert_one(audit_data)
             
-            self.logger.info(f"Audit record saved - Run ID: {run_id}, Status: {status}, Output Rows: {total_output_rows}")
+            self.logger.info(f"Audit record saved - Run ID: {run_id}, Key: {key_val}, Status: {status}, Output Rows: {total_output_rows}")
             
             return 'sales_fare_generation_audits'
             
@@ -270,6 +273,7 @@ class SalesPAHelper:
                 # Fallback minimal audit record
                 minimal_audit = {
                     'run_id': run_id,
+                    'key': key_val,
                     'start_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                     'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                     'total_output_rows': 0,

@@ -44,6 +44,7 @@ public interface TableNamesConstants {
     public static final String MARKET_FARE_ADJUSTMENTS_TABLE_NAME = "market_fare_adjustments";
     public static final String FORECAST_DATE_CONFIG_TABLE_NAME = "forecast_date_config";
     public static final String ACTIVE_SECTORS_TABLE_NAME = "active_sectors";
+    public static final String SALEINV_RBL_TABLE_NAME = "saleinv_rbl";
 
 
 }

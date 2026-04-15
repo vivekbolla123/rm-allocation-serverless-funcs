@@ -1048,6 +1048,54 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case SALEINV_RBL_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadSaleInvRblFile(reader, tableName, userName, obj_id);
+                        } catch (Exception e) {
+                            error_occurred.set(1);
+                            if (listOfErrors.get().isEmpty()) {
+                                listOfErrors.get().add("Error processing SaleInv RBL file");
+                                addErrorsToTable(listOfErrors.get(), obj_id);
+                            }
+                            throw new RuntimeException("Error processing SaleInv RBL file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        error_occurred.set(1);
+                        log.error("Error during S3 getObject or processing for SaleInv RBL: " + ex.getMessage());
+                        if (listOfErrors.get().isEmpty()) {
+                            listOfErrors.get().add("Failed to retrieve or process SaleInv RBL file from S3");
+                            addErrorsToTable(listOfErrors.get(), obj_id);
+                        }
+                        throw new RuntimeException(ex);
+                    }
+                    break;
+                }
                 default -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -3597,6 +3645,72 @@ public class App implements CommandLineRunner {
         }
     }
 
+    public void insertIntoMarketList(MarketListEntity marketListEntity, String collectionName) {
+        try {
+            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+
+            Document doc = new Document()
+                    .append("Origin", toIntOrKeepSame(marketListEntity.getOrigin()))
+                    .append("Destin", toIntOrKeepSame(marketListEntity.getDestination()))
+                    .append("FlightNumber", toIntOrKeepSame(marketListEntity.getFlightNo()))
+                    .append("PerType", toIntOrKeepSame(marketListEntity.getPerType()))
+                    .append("PerStart", toIntOrKeepSame(marketListEntity.getStartDate()))
+                    .append("PerEnd", toIntOrKeepSame(marketListEntity.getEndDate()))
+                    .append("DOW", toIntOrKeepSame(marketListEntity.getDayOfWeek()))
+                    .append("hardAnchor", toIntOrKeepSame(marketListEntity.getHardAnchor()))
+                    .append("plfThreshold", toIntOrKeepSame(marketListEntity.getPlfThreshold()))
+                    .append("TimeWindowStart", toIntOrKeepSame(marketListEntity.getStartTime()))
+                    .append("TimeWindowEnd", toIntOrKeepSame(marketListEntity.getEndTime()))
+                    .append("CurveID", toIntOrKeepSame(marketListEntity.getCurveId()))
+                    .append("CarrExlusionB2B", toIntOrKeepSame(marketListEntity.getCarrExclusionB2B()))
+                    .append("CarrExlusionB2C", toIntOrKeepSame(marketListEntity.getCarrExclusionB2C()))
+                    .append("flightExclusionB2B", toIntOrKeepSame(marketListEntity.getFlightExclusionB2B()))
+                    .append("flightExclusionB2C", toIntOrKeepSame(marketListEntity.getFlightExclusionB2C()))
+                    .append("fareAnchor", toIntOrKeepSame(marketListEntity.getFareAnchor()))
+                    .append("fareOffset", toIntOrKeepSame(marketListEntity.getFareOffset()))
+                    .append("FirstRBDAlloc", toIntOrKeepSame(marketListEntity.getFirstAllocation()))
+                    .append("OtherRBDAlloc", toIntOrKeepSame(marketListEntity.getOtherAllocation()))
+                    .append("B2BBackstop", toIntOrKeepSame(marketListEntity.getB2bBackstop()))
+                    .append("B2CBackstop", toIntOrKeepSame(marketListEntity.getB2cBackstop()))
+                    .append("B2BFactor", toIntOrKeepSame(marketListEntity.getB2bFactor()))
+                    .append("obSeats", toIntOrKeepSame(marketListEntity.getOBSeats()))
+                    .append("obFare", toIntOrKeepSame(marketListEntity.getOBFare()))
+                    .append("SkippingFactor", toIntOrKeepSame(marketListEntity.getSkippingFactor()))
+                    .append("DaySpan", toIntOrKeepSame(marketListEntity.getDaySpan()))
+                    .append("AutoTimeRangeFlag", toIntOrKeepSame(marketListEntity.getAutoTimeRangeFlag()))
+                    .append("analystName", toIntOrKeepSame(marketListEntity.getAnalystName()))
+                    .append("openingFares", toIntOrKeepSame(marketListEntity.getOpeningFares()))
+                    .append("OverBooking", toIntOrKeepSame(marketListEntity.getOverBooking()))
+                    .append("rbdPushFlag", toIntOrKeepSame(marketListEntity.getRbdPushFlag()))
+                    .append("profileFares", toIntOrKeepSame(marketListEntity.getProfileFares()))
+                    .append("B2CTolerance", toIntOrKeepSame(marketListEntity.getB2cTolerance()))
+                    .append("B2BTolerance", toIntOrKeepSame(marketListEntity.getB2bTolerance()))
+                    .append("distressInventoryFlag", toIntOrKeepSame(marketListEntity.getDistressInventoryFlag()))
+                    .append("seriesBlock", toIntOrKeepSame(marketListEntity.getSeriesBlock()))
+                    .append("autoGroup", toIntOrKeepSame(marketListEntity.getAutoGroup()))
+                    .append("autoBackstopFlag", toIntOrKeepSame(marketListEntity.getAutoBackstopFlag()))
+                    .append("tbfFlag", toIntOrKeepSame(marketListEntity.getTbfFlag()))
+                    .append("CugFlag", toIntOrKeepSame(marketListEntity.getCugFlag()))
+                    .append("MktFareFlag", toIntOrKeepSame(marketListEntity.getMktFareFlag()))
+                    .append("UUID", toIntOrKeepSame(marketListEntity.getUuid()))
+                    .append("directFlag", toIntOrKeepSame(marketListEntity.getDirectFlag()))
+                    .append("TBFEnhFlag", toIntOrKeepSame(marketListEntity.getTbfEnhFlag()))
+                    .append("defaultMlFlag", toIntOrKeepSame(marketListEntity.getDefaultMlFlag()))
+                    .append("b2bStrategy", toIntOrKeepSame(marketListEntity.getB2bStrategy()))
+                    .append("Outbound_Stop", toIntOrKeepSame(marketListEntity.getB2bOutbound_Stop()))
+                    .append("Marketfare_Upsell", toIntOrKeepSame(marketListEntity.getMarketfare_Upsell()))
+                    .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
+                    .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
+                    .append("market_station_mapping", toIntOrKeepSame(marketListEntity.getMarket_station_mapping()))
+                    .append("createdAt", new Date());
+
+            collection.insertOne(doc);
+        } catch (Exception e) {
+            log.error(e.getMessage());
+        }
+    }
     public Object toIntOrKeepSame(String value) {
         if (value == null || value.isEmpty()) {
             return value;
@@ -3684,9 +3798,10 @@ public class App implements CommandLineRunner {
                 .append("Outbound_Stop", toIntOrKeepSame(e.getB2bOutbound_Stop()))
                 .append("Marketfare_Upsell", toIntOrKeepSame(e.getMarketfare_Upsell()))
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
+                .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
-                .append("market_origin_mapping", toIntOrKeepSame(e.getMarket_origin_mapping()))
+                .append("market_station_mapping", toIntOrKeepSame(e.getMarket_station_mapping()))
                 .append("createdAt", createdAt);
     }
 
@@ -4085,9 +4200,10 @@ public class App implements CommandLineRunner {
                 .b2bOutbound_Stop(record.get(CSV_HEADER_OUTBOUNDSTOP))
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
+                .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
-                .market_origin_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
+                .market_station_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
                 .analystName(analystName)
                 .build());
     }
@@ -4301,6 +4417,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "forecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
+                listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
                 listOfErrors.get().add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");
@@ -5360,6 +5479,148 @@ public class App implements CommandLineRunner {
         }
         MongoCollection<Document> collection = database.getCollection(collectionName);
         collection.bulkWrite(updates);
+    }
+
+    /**
+     * Handles SaleInv_RBL CSV file upload.
+     * CSV has a multi-row header: row 0 = group headers, row 1 = column headers (Month, Sector, Time Cluster, ..., Mon-Sun per group).
+     * Only processes "Baseload" and "Recommended baseload (w 90% flown condition)" groups.
+     * Updates BaseLoad and RBL_Capped fields in SaleInv_RBL collection.
+     * Sets Baseload_Manual=1 or RBL_Manual=1 if the respective value changed.
+     */
+    
+    public void uploadSaleInvRblFile(Reader file, String tableName, String userName, String obj_id) throws Exception {
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            if (csvData.size() < 3) {
+                throw new DataMismatchedException(List.of("SaleInv RBL CSV needs at least 2 header rows and 1 data row."));
+            }
+
+            List<String> groupHeaderRow = csvData.get(0);
+
+            // Time band -> cluster map
+            Map<String, Integer> timeBandToCluster = new HashMap<>();
+            for (Document doc : database.getCollection("config_clusters").find()) {
+                String tb = doc.getString("startTime") + " - " + doc.getString("endTime");
+                Object cl = doc.get("cluster");
+                if (cl != null) timeBandToCluster.put(tb.trim(), cl instanceof Number ? ((Number) cl).intValue() : Integer.parseInt(cl.toString().trim()));
+            }
+
+            // Find group column starts
+            int baseloadStart = -1, rblCappedStart = -1;
+            for (int i = 0; i < groupHeaderRow.size(); i++) {
+                String h = groupHeaderRow.get(i).replace("\uFEFF", "").trim();
+                if (h.equalsIgnoreCase("Baseload")) baseloadStart = i;
+                else if (h.equalsIgnoreCase("Recommended baseload capped")) rblCappedStart = i;
+            }
+            if (baseloadStart == -1 || rblCappedStart == -1) {
+                throw new DataMismatchedException(List.of("Missing required group headers: Baseload or Recommended baseload capped"));
+            }
+
+            // Collect unique months and pre-fetch existing records
+            Set<String> uniqueMonths = new LinkedHashSet<>();
+            for (int i = 2; i < csvData.size(); i++) {
+                if (!csvData.get(i).isEmpty()) {
+                    String m = csvData.get(i).get(0).replace("\uFEFF", "").trim();
+                    if (!m.isEmpty()) uniqueMonths.add(m);
+                }
+            }
+
+            Map<String, Document> existingMap = new HashMap<>();
+            if (!uniqueMonths.isEmpty()) {
+                for (Document doc : database.getCollection(SALEINV_RBL_TABLE_NAME).find(Filters.in("Month", uniqueMonths))) {
+                    String key = doc.getString("Month") + "|" + doc.getString("Sector") + "|" + doc.get("TimeCluster") + "|" + doc.get("DayOfWeek");
+                    existingMap.put(key, doc);
+                }
+                log.info("Pre-fetched {} existing records for months: {}", existingMap.size(), uniqueMonths);
+            }
+
+            // Process rows
+            List<WriteModel<Document>> bulkOps = new ArrayList<>();
+            for (int i = 2; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                if (row.size() < 3) continue;
+
+                String month = row.get(0).replace("\uFEFF", "").trim();
+                String sector = row.get(1).trim();
+                String timeBandStr = row.get(2).trim();
+                if (month.isEmpty() || sector.isEmpty() || timeBandStr.isEmpty()) continue;
+
+                Integer clusterNum = timeBandToCluster.get(timeBandStr);
+                if (clusterNum == null) {
+                    log.warn("Line {}: Unknown time band '{}'", i + 1, timeBandStr);
+                    continue;
+                }
+
+                for (int d = 0; d < 7; d++) {
+                    int dowIso = d + 1;
+                    String blStr = (baseloadStart + d < row.size()) ? row.get(baseloadStart + d).trim() : "";
+                    String rcStr = (rblCappedStart + d < row.size()) ? row.get(rblCappedStart + d).trim() : "";
+                    if (blStr.isEmpty() && rcStr.isEmpty()) continue;
+
+                    String lookupKey = month + "|" + sector + "|" + clusterNum + "|" + dowIso;
+                    Document existing = existingMap.get(lookupKey);
+
+                    Document setFields = new Document();
+                    double newBL = blStr.isEmpty() ? Double.NaN : Double.parseDouble(blStr);
+                    double newRC = rcStr.isEmpty() ? Double.NaN : Double.parseDouble(rcStr);
+
+                    if (!Double.isNaN(newBL)) {
+                        Object oldVal = existing != null ? existing.get("BaseLoad") : null;
+                        boolean changed = oldVal == null || !oldVal.equals(newBL);
+                        if (changed) {
+                            setFields.append("BaseLoad", newBL);
+                            setFields.append("Baseload_Manual", 1);
+                        }
+                    }
+
+                    if (!Double.isNaN(newRC)) {
+                        Object oldVal = existing != null ? existing.get("RBL_Capped") : null;
+                        boolean changed = oldVal == null || !oldVal.equals(newRC);
+                        if (changed) {
+                            setFields.append("RBL_Capped", newRC);
+                            setFields.append("RBL_Manual", 1);
+                        }
+                    }
+
+                    if (!setFields.isEmpty()) {
+                        Bson filter = Filters.and(
+                                Filters.eq("Month", month), Filters.eq("Sector", sector),
+                                Filters.eq("TimeCluster", clusterNum), Filters.eq("DayOfWeek", dowIso)
+                        );
+                        bulkOps.add(new UpdateOneModel<>(filter, new Document("$set", setFields)));
+                    }
+                }
+            }
+
+            if (!bulkOps.isEmpty()) {
+                updateRecords(bulkOps, SALEINV_RBL_TABLE_NAME);
+                log.info("SaleInv RBL: {} updates executed", bulkOps.size());
+            } else {
+                log.info("SaleInv RBL: no changes detected");
+            }
+            numOfRows.set(bulkOps.size());
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (DataMismatchedException dme) {
+            error_occurred.set(1);
+            if (dme.message != null) dme.message.forEach(m -> listOfErrors.get().add(m.toString()));
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw dme;
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing SaleInv RBL:{}", e.getMessage());
+            listOfErrors.get().add("Failed to process SaleInv RBL file");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
     }
 
 }
