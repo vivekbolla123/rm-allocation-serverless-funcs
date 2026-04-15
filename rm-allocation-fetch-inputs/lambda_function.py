@@ -721,7 +721,7 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
         ON s2.ScheduleJourneyID = a.ScheduleJourneyID
         AND s2.SegmentNumber = 2
 
-    ORDER BY DepartureDate1 ASC, JourneyDepartureStation, JourneyArrivalStation
+    ORDER BY DepartureDate1 ASC, a.JourneyDepartureStation, a.JourneyArrivalStation
     """
     conn_df = nav_helper._execute_query_with_retry(query)
     conn_df['FlightNumber1'] = conn_df['FlightNumber1'].astype(str).str.strip()

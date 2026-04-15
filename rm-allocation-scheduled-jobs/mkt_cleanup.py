@@ -108,7 +108,7 @@ class MarketListCleanup:
                 ON s2.ScheduleJourneyID = a.ScheduleJourneyID
                 AND s2.SegmentNumber = 2
 
-            ORDER BY DepartureDate1 ASC, JourneyDepartureStation, JourneyArrivalStation
+            ORDER BY DepartureDate1 ASC, a.JourneyDepartureStation, a.JourneyArrivalStation
             """
             df = pd.read_sql(query, self.nav_conn)
             df['FlightNumber1'] = df['FlightNumber1'].astype(str).str.strip()
