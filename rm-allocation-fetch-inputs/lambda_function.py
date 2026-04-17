@@ -692,36 +692,94 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
     """Fetch second flight departure dates from ActiveJourneyView via SQL query
     instead of making individual API calls per connection."""
     NAV_CONN_DB_NAME = configsettings.NAV_CONN_DB_NAME
+    NAV_DB_NAME = configsettings.NAV_DB_NAME
     query = f"""
+    WITH JourneyData AS (
+        SELECT
+            a.ScheduleJourneyID,
+            a.JourneyDepartureStation,
+            a.JourneyArrivalStation,
+            a.JourneyBeginDate,
+
+            -- Segment 1
+            LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber1,
+            s1.DepartureStation + s1.ArrivalStation                                                               AS Sector1,
+            CAST(a.JourneyBeginDate AS DATE)                                                                            AS DepartureDate1,
+            RIGHT('0' + CAST(s1.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTD % 60 AS VARCHAR), 2)   AS STD1,
+            RIGHT('0' + CAST(s1.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTA % 60 AS VARCHAR), 2)   AS STA1,
+
+            -- Segment 2
+            LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber2,
+            s2.DepartureStation + s2.ArrivalStation                                                               AS Sector2,
+            DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))                                               AS DepartureDate2,
+            RIGHT('0' + CAST(s2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTD % 60 AS VARCHAR), 2)   AS STD2,
+            RIGHT('0' + CAST(s2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTA % 60 AS VARCHAR), 2)   AS STA2,
+
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR))),
+                    LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR))),
+                    s1.DepartureStation + '-' + s1.ArrivalStation,
+                    s2.DepartureStation + '-' + s2.ArrivalStation,
+                    CAST(a.JourneyBeginDate AS DATE),
+                    DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
+                ORDER BY a.ScheduleJourneyID
+            ) AS rn
+
+        FROM (
+            SELECT DISTINCT
+                ScheduleJourneyID,
+                JourneyDepartureStation,
+                JourneyArrivalStation,
+                JourneyBeginDate
+            FROM {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView
+            WHERE JourneyBeginDate >= '{min_date}'
+              AND JourneyBeginDate <= '{max_date}'
+        ) a
+
+        INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s1
+            ON s1.ScheduleJourneyID = a.ScheduleJourneyID
+            AND s1.SegmentNumber = 1
+
+        INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s2
+            ON s2.ScheduleJourneyID = a.ScheduleJourneyID
+            AND s2.SegmentNumber = 2
+
+        INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il1
+            ON il1.CarrierCode       = s1.SegmentCarrierCode
+            AND il1.FlightNumber     = s1.SegmentFlightNumber
+            AND il1.DepartureStation = s1.DepartureStation
+            AND il1.ArrivalStation   = s1.ArrivalStation
+            AND CAST(il1.DepartureDate AS DATE) = CAST(a.JourneyBeginDate AS DATE)
+            AND il1.Status = 0
+
+        INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il2
+            ON il2.CarrierCode       = s2.SegmentCarrierCode
+            AND il2.FlightNumber     = s2.SegmentFlightNumber
+            AND il2.DepartureStation = s2.DepartureStation
+            AND il2.ArrivalStation   = s2.ArrivalStation
+            AND CAST(il2.DepartureDate AS DATE) = DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
+            AND il2.Status = 0
+    )
+
     SELECT
-        LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR))) AS FlightNumber1,
-        s1.DepartureStation + s1.ArrivalStation AS Sector1,
-        CAST(a.JourneyBeginDate AS DATE) AS DepartureDate1,
-
-        LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR))) AS FlightNumber2,
-        s2.DepartureStation + s2.ArrivalStation AS Sector2,
-        DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE)) AS DepartureDate2
-
-    FROM (
-        SELECT DISTINCT
-            ScheduleJourneyID,
-            JourneyDepartureStation,
-            JourneyArrivalStation,
-            JourneyBeginDate
-        FROM {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView
-        WHERE JourneyBeginDate >= '{min_date}'
-          AND JourneyBeginDate <= '{max_date}'
-    ) a
-
-    INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s1
-        ON s1.ScheduleJourneyID = a.ScheduleJourneyID
-        AND s1.SegmentNumber = 1
-
-    INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s2
-        ON s2.ScheduleJourneyID = a.ScheduleJourneyID
-        AND s2.SegmentNumber = 2
-
-    ORDER BY DepartureDate1 ASC, a.JourneyDepartureStation, a.JourneyArrivalStation
+        ScheduleJourneyID,
+        JourneyDepartureStation,
+        JourneyArrivalStation,
+        JourneyBeginDate,
+        FlightNumber1,
+        Sector1,
+        DepartureDate1,
+        STD1,
+        STA1,
+        FlightNumber2,
+        Sector2,
+        DepartureDate2,
+        STD2,
+        STA2
+    FROM JourneyData
+    WHERE rn = 1
+    ORDER BY DepartureDate1 ASC, JourneyDepartureStation, JourneyArrivalStation
     """
     conn_df = nav_helper._execute_query_with_retry(query)
     conn_df['FlightNumber1'] = conn_df['FlightNumber1'].astype(str).str.strip()
