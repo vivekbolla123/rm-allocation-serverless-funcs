@@ -12,7 +12,7 @@ GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "$GIT_COMMIT_SHA")
 aws ecr get-login-password --region $AWS_Region | docker login --username AWS --password-stdin $ECR_Domain
 
 # Fetch DD_API_KEY from SSM and set it on the Lambda
-DD_API_KEY=$(aws ssm get-parameter --name "/rm/${SSM_ENV}/rm-allocation/DD_API_KEY" --with-decryption --query "Parameter.Value" --output text --region $AWS_Region)
+DD_API_KEY=$(aws ssm get-parameter --name "/copilot/qp/${SSM_ENV}/secrets/DD_API_KEY" --with-decryption --query "Parameter.Value" --output text --region $AWS_Region)
 EXISTING_VARS=$(aws lambda get-function-configuration --region $AWS_Region --function-name $Lmd_Func --query "Environment.Variables" --output json 2>/dev/null || echo "{}")
 UPDATED_VARS=$(echo "$EXISTING_VARS" | python3 -c "import sys,json; d=json.load(sys.stdin) or {}; d['DD_API_KEY']='$DD_API_KEY'; print(json.dumps({'Variables':d}))")
 aws lambda update-function-configuration --region $AWS_Region --function-name $Lmd_Func --environment "$UPDATED_VARS" > /dev/null
