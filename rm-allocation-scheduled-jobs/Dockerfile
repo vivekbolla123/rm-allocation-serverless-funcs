@@ -6,11 +6,12 @@ ENV env $ENVN
 RUN echo "Creating image for $env Environment"
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
-RUN yum install -y gcc freetds-devel && \
-    yum clean all
-
 COPY requirements.txt  .
-RUN  pip3 install -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+RUN yum install -y gcc freetds freetds-devel && \
+    pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" && \
+    yum remove -y gcc freetds-devel && \
+    yum clean all && \
+    rm -rf /var/cache/yum
 
 # Copy function code
 COPY ./ ${LAMBDA_TASK_ROOT}/
