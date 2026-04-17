@@ -5283,6 +5283,7 @@ public class App implements CommandLineRunner {
                     }
                     String sector = row.get(0).trim();
                     String forecastModel = row.get(1).trim();
+                    String farecap = row.size() > 2 ? row.get(2).trim() : "NA";
 
                     if (sector.isEmpty() || !isLengthEqualTo(sector, 6)) {
                         listOfErrors.get().add("Line " + (i) + ": invalid sector");
@@ -5302,6 +5303,10 @@ public class App implements CommandLineRunner {
                     Document updateFields = new Document()
                             .append("forecast_model", forecastModel)
                             .append("updated_at", new Date());
+
+                    if (!farecap.isEmpty()) {
+                        updateFields.append("farecap", farecap);
+                    }
 
                     Document update = new Document("$set", updateFields);
 
