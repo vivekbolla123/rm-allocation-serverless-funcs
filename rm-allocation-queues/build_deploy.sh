@@ -15,6 +15,39 @@ log_err() {
     echo "[$TIMESTAMP] [ERROR] $*" >&2
 }
 
+# Execution section
+clear
+echo ""
+echo "###################################################################"
+echo "[[[  Running: git fetch --all on current working directory: ]]]"
+echo "$PWD"
+git fetch --all
+echo "###################################################################"  && sleep 2
+echo ""
+echo ""
+echo "###################################################################"
+echo "[[[  Running git checkout on $1  ]]]"
+git checkout $1
+echo "###################################################################" && sleep 2
+echo ""
+echo ""
+echo "###################################################################"
+echo "[[[  Git status O/P: ]]]"
+Git_Status=`git status|head -n 5`
+echo "$Git_Status"
+echo "###################################################################" && sleep 2
+echo ""
+echo ""
+
+read -p "Do you want to proceed? (yes/no) " User_Input
+case $User_Input in
+        yes ) echo Proceeding with deployment;
+              ;;
+        no ) echo Exiting...;
+              exit;;
+        * ) echo Invalid input; exit;;
+esac
+
 # Build
 log "Starting Maven build..."
 if mvn clean package -DskipTests; then
