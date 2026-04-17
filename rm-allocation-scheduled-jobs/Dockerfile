@@ -7,9 +7,13 @@ RUN echo "Creating image for $env Environment"
 # Install the function's dependencies using file requirements.txt
 # from your project folder.
 COPY requirements.txt  .
-RUN yum install -y gcc freetds freetds-devel && \
+RUN yum install -y gcc freetds freetds-devel binutils && \
     pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" && \
-    yum remove -y gcc freetds-devel && \
+    find "${LAMBDA_TASK_ROOT}" -name "*.so" -type f -exec strip {} \; || true && \
+    find "${LAMBDA_TASK_ROOT}" -type d \( -name "tests" -o -name "test" \) -exec rm -rf {} + || true && \
+    find "${LAMBDA_TASK_ROOT}" -type d -name "__pycache__" -exec rm -rf {} + || true && \
+    rm -rf "${LAMBDA_TASK_ROOT}/boto3"* "${LAMBDA_TASK_ROOT}/botocore"* && \
+    yum remove -y gcc freetds-devel binutils && \
     yum clean all && \
     rm -rf /var/cache/yum
 
