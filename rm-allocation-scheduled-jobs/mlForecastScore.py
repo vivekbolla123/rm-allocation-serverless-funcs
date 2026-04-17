@@ -3,7 +3,6 @@ import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta, time as dt_time
-import pickle
 import joblib
 from io import BytesIO
 import configsettings
@@ -221,15 +220,15 @@ class MLForecastScore:
     def load_artifacts(self):
         # Load Model
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.model_key)
-        model = pickle.loads(response['Body'].read())
+        model = joblib.load(BytesIO(response['Body'].read()))
  
         # Load Sector Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.sector_mapping_key)
-        sector_mapping = pickle.loads(response['Body'].read())
+        sector_mapping = joblib.load(BytesIO(response['Body'].read()))
  
         # Load Day Mapping dict
         response = self.s3_old.get_object(Bucket=self.s3_bucket, Key=self.day_mapping_key)
-        day_mapping = pickle.loads(response['Body'].read())
+        day_mapping = joblib.load(BytesIO(response['Body'].read()))
  
         return model, sector_mapping, day_mapping
 
