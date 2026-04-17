@@ -772,7 +772,7 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  success_count=0, failed_count=0, source=None, batch_total=None):
+                  successful_codes=None, failed_codes=None, source=None, batch_total=None):
         """Save or update batch audit for multiple ladder codes under one run_id.
         
         Parallel-safe: unique index on run_id prevents duplicates, $inc for counters,
@@ -799,9 +799,8 @@ class LadderPAHelper:
                     'start_time': start_time,
                     'end_time': None,
                     'status': 'IN_PROGRESS',
-                    'successful_sectors': 0,
-                    'failed_sectors': 0,
-                    'outliers_removed': 0,
+                    'successful_sectors': [],
+                    'failed_sectors': [],
                     'route': route,
                     'type': self.ladder_gen.type,
                     'qp_fares': qp_fares_version,
@@ -853,6 +852,10 @@ class LadderPAHelper:
                                 'b2c': lr.get('distinct_fares_count_b2c', 0),
                                 'b2b': lr.get('distinct_fares_count_b2b', 0),
                             },
+                            'outliers_removed': {
+                                'b2c': lr.get('outliers_removed_b2c', 0),
+                                'b2b': lr.get('outliers_removed_b2b', 0),
+                            },
                             'b2c_fare': {
                                 'min': round(min(lr['ladder_fares_b2c']), 2),
                                 'max': round(max(lr['ladder_fares_b2c']), 2),
@@ -865,15 +868,15 @@ class LadderPAHelper:
                 
                 update_ops = {
                     '$set': set_fields,
-                    '$inc': {
-                        'successful_sectors': success_count,
-                        'failed_sectors': failed_count,
-                        'outliers_removed': outlier_count or 0,
+                    '$addToSet': {
+                        'successful_sectors': {'$each': successful_codes or []},
+                        'failed_sectors': {'$each': failed_codes or []},
                     },
                 }
                 
                 if failure_reason:
-                    update_ops['$push'] = {'failure_reasons': failure_reason}
+                    update_ops.setdefault('$push', {})
+                    update_ops['$push']['failure_reasons'] = failure_reason
                 
                 collection.update_one({'run_id': run_id}, update_ops)
                 
@@ -882,10 +885,10 @@ class LadderPAHelper:
                     'successful_sectors': 1, 'failed_sectors': 1, 'batch_total': 1
                 })
                 if doc:
-                    total_done = doc.get('successful_sectors', 0) + doc.get('failed_sectors', 0)
+                    total_done = len(doc.get('successful_sectors', [])) + len(doc.get('failed_sectors', []))
                     total_expected = doc.get('batch_total', total_done)
                     if total_done >= total_expected:
-                        final_status = 'SUCCESS' if doc.get('successful_sectors', 0) > 0 else 'FAILED'
+                        final_status = 'SUCCESS' if doc.get('successful_sectors') else 'FAILED'
                         collection.update_one(
                             {'run_id': run_id},
                             {'$set': {'status': final_status}}

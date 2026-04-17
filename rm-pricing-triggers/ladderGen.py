@@ -1563,7 +1563,9 @@ class LadderGen:
         """Main ladder generation method."""
         try:
             booking_data_b2c, data_period_b2c = self.get_historical_booking_data(self.B2C_CHANNEL)
+            outliers_b2c = self.outlier_count or 0
             booking_data_b2b, data_period_b2b = self.get_historical_booking_data(self.B2B_CHANNEL)
+            outliers_b2b = self.outlier_count or 0
             
             # Apply fare cap to booking data before binning
             booking_data_b2c = self._apply_fare_cap_to_bookings(booking_data_b2c, self.B2C_CHANNEL)
@@ -1673,6 +1675,8 @@ class LadderGen:
                 'total_booking_records_b2b': len(booking_data_b2b),
                 'distinct_fares_count_b2c': len(booking_data_b2c['Fare'].unique()),
                 'distinct_fares_count_b2b': len(booking_data_b2b['Fare'].unique()),
+                'outliers_removed_b2c': outliers_b2c,
+                'outliers_removed_b2b': outliers_b2b,
                 'ladder_fares_b2c': base_ladder_b2c,
                 'ladder_fares_b2b': base_ladder_b2b,
                 'generation_timestamp': datetime.now()
@@ -1690,7 +1694,6 @@ class LadderGen:
         self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         all_results = []
         all_ladder_results = []
-        total_outliers = 0
         
         # Get version info once for the batch
         try:
@@ -1733,10 +1736,6 @@ class LadderGen:
             result = self._run_single_sector(run_id)
             all_results.append(result)
             
-            # Accumulate outliers
-            if self.outlier_count:
-                total_outliers += self.outlier_count
-            
             # Collect successful ladder results
             if result['status'] == 'SUCCESS' and result.get('ladder_result'):
                 all_ladder_results.append(result['ladder_result'])
@@ -1746,34 +1745,34 @@ class LadderGen:
                 self.logger.error(f"{ladder_code} ({self.sector}) failure reason: {result.get('reason', 'Unknown')}")
         
         # Summary
-        success_count = sum(1 for r in all_results if r['status'] == 'SUCCESS')
-        failed_count = len(all_results) - success_count
+        successful_codes = [r['ladder_code'] for r in all_results if r['status'] == 'SUCCESS']
+        failed_codes = [r['ladder_code'] for r in all_results if r['status'] == 'FAILED']
         
         self.logger.info(f"=" * 80)
-        self.logger.info(f"BATCH SUMMARY: {success_count} succeeded, {failed_count} failed out of {len(all_results)} sectors")
+        self.logger.info(f"BATCH SUMMARY: {len(successful_codes)} succeeded, {len(failed_codes)} failed out of {len(all_results)} sectors")
         self.logger.info(f"=" * 80)
         
         # Update batch audit with final status
         try:
-            batch_status = 'SUCCESS' if success_count > 0 else 'FAILED'
+            batch_status = 'SUCCESS' if successful_codes else 'FAILED'
             failure_reasons = [r.get('reason') for r in all_results if r['status'] == 'FAILED']
             batch_failure_reason = '; '.join(failure_reasons) if failure_reasons else None
             
             self.pa_helper.save_batch_run_audit(
-                sectors_str, self.route, self.analystName, total_outliers,
+                sectors_str, self.route, self.analystName, None,
                 self.start_time, self.currentVersion, run_id, batch_failure_reason,
                 all_ladder_results, None, batch_status, is_initial=False,
-                success_count=success_count, failed_count=failed_count, source=fare_source
+                successful_codes=successful_codes, failed_codes=failed_codes, source=fare_source
             )
         except Exception as e:
             self.logger.error(f"Failed to update batch audit record: {str(e)}")
         
         return {
-            'statusCode': 200 if success_count > 0 else 500,
+            'statusCode': 200 if successful_codes else 500,
             'run_id': run_id,
             'total_sectors': len(all_results),
-            'successful': success_count,
-            'failed': failed_count,
+            'successful': len(successful_codes),
+            'failed': len(failed_codes),
             'results': all_results
         }
     
