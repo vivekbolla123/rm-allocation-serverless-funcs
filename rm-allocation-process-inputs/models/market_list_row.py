@@ -105,3 +105,4 @@ class MarketListRow:
         self.CanAdjustedForecast = currParams.get("CanAdjustedForecast", 0)
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
         self.market_station_mapping = currParams.get("market_station_mapping", 0)
+        self.farecap = currParams.get("farecap", 30000)

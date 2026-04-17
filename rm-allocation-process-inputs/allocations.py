@@ -28,6 +28,18 @@ class RBDAllocations:
         
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
+        
+        farecap = getattr(currParams, 'farecap', None)
+        cappedRBDIndex = -1
+        if farecap is not None and farecap != CONST_NA and str(farecap).strip() != "":
+            try:
+                farecap_val = float(farecap)
+                valid_rbds = B2CRBDs[B2CRBDs['TOTAL'] < farecap_val]
+                if not valid_rbds.empty:
+                    cappedRBDIndex = valid_rbds.index[-1]
+            except ValueError:
+                pass
+                
         fullRbds=B2CRBDs
         # rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
         # rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
@@ -132,7 +144,14 @@ class RBDAllocations:
                     incrementalb2b += overBookingSeats
                     status = f"Normal allocation ({incremental - overBookingSeats}) + Overbooking ({overBookingSeats}) for RBD {RBDLabel}"
                    
-                if b2cctr == B2CRBDs.shape[0]-1:
+                if cappedRBDIndex != -1:
+                    if b2cctr == cappedRBDIndex:
+                        incremental = totalCapacity
+                        incrementalb2b = totalCapacity
+                    elif b2cctr > cappedRBDIndex:
+                        incremental = 0
+                        incrementalb2b = 0
+                elif b2cctr == B2CRBDs.shape[0]-1:
                     incremental = totalCapacity
                 
                 if currRec.get_class_attribute(b2cctr,'class_au') is not None:
@@ -641,6 +660,18 @@ class RBDAllocations:
     def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag, close_b2b):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
+
+        farecap = getattr(currParams, 'farecap', None)
+        cappedRBDIndex = -1
+        if farecap is not None and farecap != CONST_NA and str(farecap).strip() != "":
+            try:
+                farecap_val = float(farecap)
+                valid_rbds = B2BRBDs[B2BRBDs['TOTAL'] < farecap_val]
+                if not valid_rbds.empty:
+                    cappedRBDIndex = valid_rbds.index[-1]
+            except ValueError:
+                pass
+
         openingB2CRBD = openDataB2C['RBD'][0]
 
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, openingB2CRBD, 'L')
@@ -671,7 +702,15 @@ class RBDAllocations:
                         openbuketFlag = True
                         openingRBDPrice = price
 
-                    if openbuketFlag:
+                    if cappedRBDIndex != -1 and b2bctr == cappedRBDIndex:
+                        currRec.set_class_attribute(brd_counter, 'class_au', int(totalCapacity))
+                        if openbuketFlag and ((b2bStatus == 0) or (b2bStatus == 2)):
+                            counter = counter + 1
+                    elif cappedRBDIndex != -1 and b2bctr > cappedRBDIndex:
+                        currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                        if openbuketFlag and ((b2bStatus == 0) or (b2bStatus == 2)):
+                            counter = counter + 1
+                    elif openbuketFlag:
                         # Allocation
                         if (b2bStatus == 0) or (b2bStatus == 2):
                             if dPLF < 0 and (PLF < self.constantsutils.PLF_CURVE_VALUE or (openingB2CPrice <= openingRBDPrice)):

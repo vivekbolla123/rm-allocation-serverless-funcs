@@ -666,7 +666,7 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
     fc['FlightNumber'] = fc['FlightNumber'].astype('int64')
 
     mkt = mkt.merge(
-        model[['Origin', 'Destination', 'forecast_model']],
+        model[['Origin', 'Destination', 'forecast_model', 'farecap']],
         how='left',
         left_on=['Origin', 'Destin'],
         right_on=['Origin', 'Destination'],
@@ -1134,7 +1134,7 @@ def custom_serializer(obj):
     return str(obj)
 
 def get_sector_forecast_model_map():
-    projection = {"sector": 1, "forecast_model": 1, "_id": 0 }
+    projection = {"sector": 1, "forecast_model": 1, "farecap": 1, "_id": 0 }
     cursor = mongo_find_with_retry('active_sectors', {}, projection)
     df = pd.DataFrame(cursor)
 
