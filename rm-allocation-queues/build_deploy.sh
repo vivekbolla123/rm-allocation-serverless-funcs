@@ -25,12 +25,30 @@ git fetch --all
 echo "###################################################################"  && sleep 2
 echo ""
 echo ""
-echo "###################################################################"
-echo "[[[  Running git checkout on $1  ]]]"
-git checkout $1
-echo "###################################################################" && sleep 2
-echo ""
-echo ""
+if [ -z "${1:-}" ]; then
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    echo "###################################################################"
+    echo "[[[  No branch provided as parameter.  ]]]"
+    echo "[[[  Current branch is: $CURRENT_BRANCH  ]]]"
+    echo "###################################################################" && sleep 2
+    echo ""
+    
+    read -p "Do you want to proceed with current branch '$CURRENT_BRANCH'? (yes/no) " Proceed_Current
+    case $Proceed_Current in
+        yes ) echo "Proceeding with current branch...";;
+        no ) echo "Exiting..."; exit 0;;
+        * ) echo "Invalid input"; exit 1;;
+    esac
+    echo ""
+    echo ""
+else
+    echo "###################################################################"
+    echo "[[[  Running git checkout on $1  ]]]"
+    git checkout "$1"
+    echo "###################################################################" && sleep 2
+    echo ""
+    echo ""
+fi
 echo "###################################################################"
 echo "[[[  Git status O/P: ]]]"
 Git_Status=`git status|head -n 5`
