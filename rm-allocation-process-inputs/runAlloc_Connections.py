@@ -563,12 +563,14 @@ class DynAllocConnections:
                 else:
                     self.fareStatus = " - MarketFare"
                     # Phase 2: Calculate anchor fare using helper
+                    alloc_forecast_plf_sector1 = self.outputSummaryRow_b2c.ImputedForecast1 if self.outputSummaryRow_b2c.ImputedForecast1 != CONST_NA else forecasted_plf_sector1
+                    alloc_forecast_plf_sector2 = self.outputSummaryRow_b2c.ImputedForecast2 if self.outputSummaryRow_b2c.ImputedForecast2 != CONST_NA else forecasted_plf_sector2
                     b2cTotal, how_determined_b2c = self._calculate_phase2_anchor_fare(
                         channel="B2C", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
                         market_fare=strategyFare, strategy_fare=strategyFare, sector1=sector1,
                         sector2=sector2, is_sector1_domestic=is_sector1_domestic,
-                        is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
-                        forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                        is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
+                        forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
                         bookload2=bookload2, ndocounter=ndocounter
                     )
                 if self.currParams.currency != "INR":
@@ -684,13 +686,14 @@ class DynAllocConnections:
                         else:
                             self.fareStatus = " - MarketFare"
                             # Phase 2: Calculate anchor fare using helper
-                            # Phase 2: Calculate anchor fare using helper
+                            alloc_forecast_plf_sector1 = self.outputSummaryRow_b2b.ImputedForecast1 if self.outputSummaryRow_b2b.ImputedForecast1 != CONST_NA else forecasted_plf_sector1
+                            alloc_forecast_plf_sector2 = self.outputSummaryRow_b2b.ImputedForecast2 if self.outputSummaryRow_b2b.ImputedForecast2 != CONST_NA else forecasted_plf_sector2
                             b2bTotal, how_determined_b2b = self._calculate_phase2_anchor_fare(
                                 channel="B2B", selling_fare1=SellingFare1, selling_fare2=SellingFare2,
                                 market_fare=fare2, strategy_fare=strategyFare, sector1=sector1,
                                 sector2=sector2, is_sector1_domestic=is_sector1_domestic,
-                                is_sector2_domestic=is_sector2_domestic, forecasted_plf1=forecasted_plf_sector1,
-                                forecasted_plf2=forecasted_plf_sector2, bookload1=bookload1,
+                                is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
+                                forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
                                 bookload2=bookload2, ndocounter=ndocounter
                             )
                         if self.currParams.currency != "INR":

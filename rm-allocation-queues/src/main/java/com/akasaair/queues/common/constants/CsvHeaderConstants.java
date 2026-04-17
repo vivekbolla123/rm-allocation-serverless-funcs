@@ -52,6 +52,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_SPOILAGE_FLAG = 47;
     int CSV_HEADER_CAN_ADJUSTED_FORECAST = 48;
     int CSV_HEADER_MKT_ORIGIN_MAPPING = 49;
+    int CSV_HEADER_AF_FORECAST_ALLOC_FLAG = 50;
 
 
 

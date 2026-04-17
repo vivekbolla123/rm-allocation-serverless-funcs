@@ -62,3 +62,4 @@ class OutputSummary:
         self.FirstRBDAlloc=CONST_NA
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
+        self.toleranceValue=CONST_NA
