@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -euo pipefail
+set -eu
 
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 JAR_SRC=~/rm-allocation-serverless-funcs/rm-allocation-queues/target/rm-file-handler-1.0.jar
