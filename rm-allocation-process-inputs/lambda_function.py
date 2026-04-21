@@ -99,50 +99,46 @@ def lambda_handler(event, context):
     }
 
     for record in records:
-        try:
-            content = record['body']
-            data = json.loads(content)
-            data["timelogger"] = log_time
-            data["dwconn"] = dwconn
-            data["sqs"] = sqs
-            data["runSingleMarket"] = True
-            data["s3"]=s3
-            data['cache_client']=cache_client
-            data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
-            data["runTime"]=data["runTime"]
-            
-            route_type = data.get("route_type")
-            run_id = data.get("runId")
-            is_sales_inventory = str(data.get("saleinvflag")) == "1"
+        content = record['body']
+        data = json.loads(content)
+        data["timelogger"] = log_time
+        data["dwconn"] = dwconn
+        data["sqs"] = sqs
+        data["runSingleMarket"] = True
+        data["s3"]=s3
+        data['cache_client']=cache_client
+        data["NavitaireUpdateMethod"]=data["update_navitaire_method"]
+        data["runTime"]=data["runTime"]
+        
+        route_type = data.get("route_type")
+        run_id = data.get("runId")
+        is_sales_inventory = str(data.get("saleinvflag")) == "1"
 
-            data["mongodbclient"]=mongodb
-            status_df = getRunStatus(run_id)
-            if (not status_df.empty):
-                if (status_df.iloc[0]['run_status'] == 'DELETED'):
-                    logger.info(f"Skipping run: {run_id}")
-                    log_time.send_time_log_db()
-                    continue 
-                elif (status_df.iloc[0]['run_status'] in ['PAUSED', 'AUTO-PAUSED']):
-                    insert_paused_run(run_id, content)
-                    log_time.send_time_log_db()
-                    continue
+        data["mongodbclient"]=mongodb
+        status_df = getRunStatus(run_id)
+        if (not status_df.empty):
+            if (status_df.iloc[0]['run_status'] == 'DELETED'):
+                logger.info(f"Skipping run: {run_id}")
+                log_time.send_time_log_db()
+                continue 
+            elif (status_df.iloc[0]['run_status'] in ['PAUSED', 'AUTO-PAUSED']):
+                insert_paused_run(run_id, content)
+                log_time.send_time_log_db()
+                continue
 
-            # Route to the correct logic based on the message flags
-            if is_sales_inventory:
-                logger.info("Routing to Sales Inventory Allocation Logic")
-                DynAllocSalesInv(input_data, data)
-            elif route_type == 'connections':
-                logger.info("Routing to Connections Allocation Logic")
-                DynAllocConnections(input_data, data)
-            elif route_type == 'direct':
-                logger.info("Routing to Direct Allocation Logic")
-                DynAlloc(input_data, data)
-            else:
-                logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
+        # Route to the correct logic based on the message flags
+        if is_sales_inventory:
+            logger.info("Routing to Sales Inventory Allocation Logic")
+            DynAllocSalesInv(input_data, data)
+        elif route_type == 'connections':
+            logger.info("Routing to Connections Allocation Logic")
+            DynAllocConnections(input_data, data)
+        elif route_type == 'direct':
+            logger.info("Routing to Direct Allocation Logic")
+            DynAlloc(input_data, data)
+        else:
+            logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
 
-        except Exception as e:
-            #print stacktrace
-            logger.error(f"Error processing flight: {traceback.format_exc()}")
 
 
     log_time.send_time_log_db()
