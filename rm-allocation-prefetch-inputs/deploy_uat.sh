@@ -21,7 +21,7 @@ echo "DD_API_KEY environment variable set on [$Lmd_Func]"
 cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
 cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
 
-docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=uat --build-arg DD_SERVICE_NAME=$Lmd_Func --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
+docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=uat --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
 
 docker tag $Local_Img_Tag $ECR_Image_URL
 

@@ -27,8 +27,50 @@ from urllib.parse import quote_plus
 from common_utils import instrument_engine
 import tracemalloc
 import gc
+import os
+import traceback
 
 warnings.filterwarnings('ignore')
+
+# ==========================
+# JSON LOGGING SETUP (root logger only)
+# ==========================
+
+class JSONFormatter(logging.Formatter):
+    """JSON formatter for Datadog-compatible structured logging."""
+    def format(self, record):
+        log_entry = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+            "service": os.environ.get("DD_SERVICE", "rm-fetch-inputs"),
+            "env": os.environ.get("DD_ENV", "unknown"),
+        }
+        if record.exc_info and record.exc_info[0] is not None:
+            log_entry["error"] = {
+                "kind": record.exc_info[0].__name__,
+                "message": str(record.exc_info[1]),
+                "stack": self.formatException(record.exc_info),
+            }
+        return json.dumps(log_entry, default=str)
+
+
+def _setup_json_logging():
+    """Configure JSON logging on the root logger only."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+
+    # Remove existing handlers on root logger to avoid duplicate plain-text output
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    json_handler = logging.StreamHandler(sys.stdout)
+    json_handler.setFormatter(JSONFormatter())
+    root_logger.addHandler(json_handler)
+
+
+_setup_json_logging()
 
 # Global variables and setup
 run_log = []
@@ -53,7 +95,6 @@ KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 def log_memory(label):
     import psutil, os
@@ -570,7 +611,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
         if 'Failed' in response:
             logger.error(f"Failed to send {len(response['Failed'])} messages")
     except Exception as e:
-        print(e)
+        logger.error(f"Error sending batch to SQS: {str(e)}", exc_info=True)
 
 def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb, batch_size=10, max_workers=5):
     records = df.to_dict('records')
@@ -636,10 +677,10 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
     return mkt
 
 def quick_optimize(mkt_list, navapihelper):
-    print(f"Optimizing {len(mkt_list)} rows...")
+    logger.info(f"Optimizing {len(mkt_list)} rows...")
     
     unique_params = mkt_list[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate']].drop_duplicates()
-    print(f"Reduced to {len(unique_params)} unique API calls")
+    logger.info(f"Reduced to {len(unique_params)} unique API calls")
     
     def api_call(row):
         return navapihelper.get_second_flight_dep(

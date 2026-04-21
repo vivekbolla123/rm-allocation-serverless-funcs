@@ -49,7 +49,7 @@ case $User_Input in
               cp -r ../rm-allocation-configurations/Constants.py ./Constants.py
               cp -r ../rm-allocation-configurations/constants_utils.py ./constants_utils.py
               cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
-              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg DD_SERVICE_NAME=$Lmd_Func --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
+              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
               echo "Waiting for function configuration update to complete..."
