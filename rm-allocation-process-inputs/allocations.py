@@ -154,7 +154,10 @@ class RBDAllocations:
                 elif b2cctr == B2CRBDs.shape[0]-1:
                     incremental = totalCapacity
                 
-                if currRec.get_class_attribute(b2cctr,'class_au') is not None:
+                # Apply virtual nesting (ensure AU isn't strictly decreasing)
+                # Skip nesting override if we're purposefully closing the subclass due to farecap
+                is_above_capped = (cappedRBDIndex != -1 and b2cctr > cappedRBDIndex)
+                if not is_above_capped and currRec.get_class_attribute(b2cctr,'class_au') is not None:
                     if incremental<currRec.get_class_attribute(b2cctr,'class_au'):
                         incremental=currRec.get_class_attribute(b2cctr,'class_au')
                 
@@ -387,7 +390,10 @@ class RBDAllocations:
 
             except Exception as e:
                 self.logger.error(f"Error during spoilage reduction override: {e}")
-        
+        if cappedRBDIndex != -1:
+            for i in range(cappedRBDIndex + 1, B2CRBDs.shape[0]):
+                currRec.set_class_attribute(i + 1, 'class_au', 0)
+                
         data = {
         'jumpingRBDPrice': jumpingRBDPrice_list,
         'incremental': incremental_list,
