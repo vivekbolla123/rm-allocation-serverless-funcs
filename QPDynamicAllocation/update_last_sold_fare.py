@@ -3,6 +3,7 @@ from sys import exit
 import json
 from urllib.parse import quote_plus
 
+import pymssql
 import pandas as pd
 from sqlalchemy import create_engine
 from redis import Redis
@@ -10,7 +11,6 @@ from datetime import datetime, timezone, timedelta
 from boto3 import client
 from pymongo import MongoClient
 from common_utils import instrument_engine
-
 
 class LastSoldFare:
 
@@ -47,17 +47,13 @@ class LastSoldFare:
                 if self.cache_client.ping():
                     print("Connected to Redis")
 
-                self.NavitaireConnection = create_engine(
-                    f"mssql+pymssql://0KODSUSER2:"
-                    f"{quote_plus(self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD'))}@"
-                    f"10.154.12.13:52900",
-                    pool_pre_ping=True,
-                    pool_recycle=3600,
-                    pool_size=5,
-                    max_overflow=10
+                self.NavitaireConnection = pymssql.connect(
+                    host="10.154.12.13:52900",
+                    user="0KODSUSER2",
+                    password=self.get_credentials('/rm/prod/rm-allocation/NAV_DB_PASSWORD')
                 )
                 instrument_engine(self.NavitaireConnection)
-                
+
                 # MongoDB connection
                 self.rmrdconn = MongoClient(MONGO_CONN_STRING)
                 self.rm_db = self.rmrdconn['qp_dw_rmalloc']  # Database name
@@ -86,14 +82,10 @@ class LastSoldFare:
                 if self.cache_client.ping():
                     print("Connected to Redis")
 
-                self.NavitaireConnection = create_engine(
-                    f"mssql+pymssql://0KODSUSER2:"
-                    f"{quote_plus(self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD'))}@"
-                    f"10.154.12.19:52900",
-                    pool_pre_ping=True,
-                    pool_recycle=3600,
-                    pool_size=5,
-                    max_overflow=10
+                self.NavitaireConnection = pymssql.connect(
+                    host="10.154.12.19:52900",
+                    user="0KODSUSER2",
+                    password=self.get_credentials('/rm/uat/rm-allocation/NAV_DB_PASSWORD')
                 )
                 instrument_engine(self.NavitaireConnection)
                 

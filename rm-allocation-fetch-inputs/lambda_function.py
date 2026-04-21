@@ -6,6 +6,7 @@ import warnings
 import time
 from functools import wraps
 
+import pymssql
 import configsettings
 import pytz
 import pandas as pd
@@ -22,89 +23,15 @@ from time_logger import TimeLogger
 from nav_api_helper import NavAPIHelper
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
+from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
+from sqlalchemy.engine.base import Engine
 from urllib.parse import quote_plus
 from common_utils import instrument_engine
 import tracemalloc
 import gc
-import os
-import traceback
 
 warnings.filterwarnings('ignore')
-
-# ==========================
-# JSON LOGGING SETUP (root logger only)
-# ==========================
-
-import json
-import logging
-import sys
-import traceback
-from datetime import datetime, timezone
-
-
-class DatadogJSONFormatter(logging.Formatter):
-    """
-    Datadog-compatible JSON formatter using correct reserved attribute names.
-    Docs: https://docs.datadoghq.com/logs/log_configuration/attributes_naming_convention/
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        log_entry = {
-            # Reserved attributes — DD uses these natively
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),                          # ISO 8601 with timezone
-            "status": record.levelname,             # "status" not "level"
-            "message": record.getMessage(),
-            "logger": {"name": record.name},        # standard attr: logger.name
-        }
-
-        # Error tracking — DD requires error.kind, error.message, error.stack
-        if record.exc_info and record.exc_info[0] is not None:
-            log_entry["error"] = {
-                "kind": record.exc_info[0].__name__,
-                "message": str(record.exc_info[1]),
-                "stack": "".join(traceback.format_exception(*record.exc_info)),
-            }
-
-        # Trace correlation — pull dd.* fields injected by ddtrace into the record
-        # Only needed if DD_LOGS_INJECTION=true; ddtrace adds these to the record
-        for attr in ("dd.trace_id", "dd.span_id", "dd.env", "dd.service", "dd.version"):
-            value = getattr(record, attr, None)
-            if value:
-                log_entry[attr] = value
-
-        # Any extra fields passed via logger.info("msg", extra={"run_id": ...})
-        # Avoid polluting with standard LogRecord internal fields
-        skip_fields = {
-            "msg", "args", "levelname", "levelno", "pathname", "filename",
-            "module", "exc_info", "exc_text", "stack_info", "lineno",
-            "funcName", "created", "msecs", "relativeCreated", "thread",
-            "threadName", "processName", "process", "name", "message",
-        }
-        for key, value in record.__dict__.items():
-            if key not in skip_fields and not key.startswith("_"):
-                log_entry[key] = value
-
-        return json.dumps(log_entry, default=str)
-
-
-def setup_datadog_logging(level: int = logging.INFO) -> None:
-    """Configure JSON logging on the root logger for Datadog."""
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-
-    # Remove existing handlers to avoid duplicate plain-text output
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(DatadogJSONFormatter())
-    root_logger.addHandler(handler)
-
-
-setup_datadog_logging()
 
 # Global variables and setup
 run_log = []
@@ -129,6 +56,7 @@ KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
 
 logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 def log_memory(label):
     import psutil, os
@@ -141,11 +69,6 @@ log_memory("after market list fetch")
 log_memory("after booked_loads")
 log_memory("after all merges")
 log_memory("before SQS send")
-
-# ==========================
-# SQLALCHEMY DDTRACE INSTRUMENTATION
-# ==========================
-# instrument_engine imported from common_utils
 
 # ==========================
 # RETRY DECORATOR
@@ -278,6 +201,24 @@ def create_navitaire_connection_pool():
     instrument_engine(engine)
     return engine
 
+@retry_on_connection_error(
+    max_retries=3,
+    delay=2,
+    backoff=2,
+    exceptions=(PymssqlError,)
+)
+def create_navitaire_connection():
+    """Create SQL Server connection with retry logic - FALLBACK IF NOT USING POOL"""
+    conn = pymssql.connect(
+        host=configsettings.NAV_DB_HOST,
+        user=configsettings.NAV_DB_USER,
+        password=configsettings.NAV_DB_PASSWORD,
+        timeout=0,          # Increased from 30 to 120 seconds
+        login_timeout=120      # Increased from 30 to 60 seconds
+    )
+    logger.info("Navitaire SQL Server connection established")
+    return conn
+
 def create_dw_connection():
     """Create MySQL connection with retry and pooling"""
     engine = create_engine(
@@ -303,6 +244,9 @@ try:
     
     # OPTION 1: Use connection pool (RECOMMENDED)
     NavitaireConnection = create_navitaire_connection_pool()
+    
+    # OPTION 2: Use simple connection (if you can't use pool)
+    # NavitaireConnection = create_navitaire_connection()
     
     dwconn = create_dw_connection()
     
@@ -358,24 +302,49 @@ class NavDatabaseHelper:
         self.NAV_DB_NAME = nav_db_name
         self.NAV_DB_WB_NAME = nav_db_wb_name
         self.logger = logging.getLogger()
+        self.is_pool = isinstance(navconn, Engine)
 
     def _validate_connection(self):
         """Validate connection is alive with a simple query"""
         try:
-            with self.NavitaireConnection.connect() as conn:
-                conn.execute(text("SELECT 1"))
+            if self.is_pool:
+                # For SQLAlchemy engine, test with a simple query
+                with self.NavitaireConnection.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+            else:
+                # For pymssql connection
+                cursor = self.NavitaireConnection.cursor()
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+                cursor.close()
             return True
         except Exception as e:
             self.logger.warning(f"Connection validation failed: {str(e)}")
             return False
 
     def _execute_query_with_retry(self, query, max_retries=3):
-        """Execute query with automatic reconnection on failure"""
+        """Execute query with automatic reconnection on failure - ENHANCED VERSION"""
         for attempt in range(max_retries):
             try:
+                # If using connection pool, validation is automatic
+                if self.is_pool:
+                    return pd.read_sql(query, self.NavitaireConnection)
+                
+                # For direct connection, validate before use
+                if not self._validate_connection():
+                    self.logger.warning(f"Connection dead, recreating (attempt {attempt + 1})")
+                    try:
+                        self.NavitaireConnection.close()
+                    except:
+                        pass
+                    time.sleep(2 ** attempt)
+                    self.NavitaireConnection = create_navitaire_connection()
+                
                 return pd.read_sql(query, self.NavitaireConnection)
+                
             except Exception as e:
                 error_msg = str(e).lower()
+                # Check for connection-related errors
                 is_connection_error = any(keyword in error_msg for keyword in [
                     "connection", "dead", "not connected", "timeout", 
                     "20003", "20047", "not enabled", "timed out"
@@ -384,11 +353,22 @@ class NavDatabaseHelper:
                 if is_connection_error:
                     self.logger.warning(f"Connection error on attempt {attempt + 1}: {str(e)}")
                     if attempt < max_retries - 1:
-                        time.sleep(3 ** attempt)
+                        # Recreate connection and retry
+                        if not self.is_pool:
+                            try:
+                                self.NavitaireConnection.close()
+                            except:
+                                pass
+                            time.sleep(3 ** attempt)  # Longer exponential backoff
+                            self.NavitaireConnection = create_navitaire_connection()
+                        else:
+                            # For pool, just wait and retry
+                            time.sleep(3 ** attempt)
                     else:
                         self.logger.error(f"Failed after {max_retries} retries")
                         raise
                 else:
+                    # Non-connection error, don't retry
                     self.logger.error(f"Non-connection error: {str(e)}")
                     raise
         
@@ -645,7 +625,7 @@ def send_batch_to_sqs(batch, queue_url, additional_fields):
         if 'Failed' in response:
             logger.error(f"Failed to send {len(response['Failed'])} messages")
     except Exception as e:
-        logger.error(f"Error sending batch to SQS: {str(e)}", exc_info=True)
+        print(e)
 
 def send_dataframe_to_sqs(df, queue_url, run_id, update_navitaire_method, route_type, queue_name, cug_alloc, salesinv, mongodb, batch_size=10, max_workers=5):
     records = df.to_dict('records')
@@ -711,10 +691,10 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
     return mkt
 
 def quick_optimize(mkt_list, navapihelper):
-    logger.info(f"Optimizing {len(mkt_list)} rows...")
+    print(f"Optimizing {len(mkt_list)} rows...")
     
     unique_params = mkt_list[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate']].drop_duplicates()
-    logger.info(f"Reduced to {len(unique_params)} unique API calls")
+    print(f"Reduced to {len(unique_params)} unique API calls")
     
     def api_call(row):
         return navapihelper.get_second_flight_dep(
