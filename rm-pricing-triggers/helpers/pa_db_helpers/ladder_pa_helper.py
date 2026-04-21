@@ -220,10 +220,12 @@ class LadderPAHelper:
             return None, self.failure_reason
 
 
-    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None):
+    def collect_market_fares_bidirectional(self, route, sector, reverse_sector, max_market_b2b, max_market_b2c, layer_type='direct', carrier_inclusion=None, carrier_exclusion=None):
         """Collect market fares for both directions and both B2B and B2C channels."""
         if carrier_inclusion is None:
             carrier_inclusion = []
+        if carrier_exclusion is None:
+            carrier_exclusion = []
         try:
             now = datetime.now()
             date_filter = {
@@ -258,18 +260,26 @@ class LadderPAHelper:
             }
 
             if route == 'D':
+                # Domestic: use carrier exclusion if provided, otherwise no airline filter
+                airline_filter = {}
+                if carrier_exclusion:
+                    airline_filter = {'outbound_airline_code': {'$nin': carrier_exclusion + ['QP', 'G8']}}
+                else:
+                    airline_filter = {'outbound_airline_code': {'$nin': ['QP', 'G8']}}
+
                 match_stage = {
-                    'outbound_airline_code': {'$nin': ['9I', 'IC', 'S9', 'S5', 'QP', 'G8']},
+                    **airline_filter,
                     'channel': {'$in': ['B2C', 'B2B']},
                     **sector_expr,
                     **date_filter,
                     **route_filter
                 }
             elif route == 'I':
-                if layer_type == 'connection':
-                    airline_filter = {'$in': carrier_inclusion} if carrier_inclusion else {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                # International: use carrier inclusion if provided
+                if carrier_inclusion:
+                    airline_filter = {'$in': carrier_inclusion}
                 else:
-                    airline_filter = {'$in': ['6E','AI','IX','XY','FZ','GF','J9','KU','FD','SG','TG','WY','VZ','SV','F3']}
+                    airline_filter = {'$exists': True}  # no filter if not provided
 
                 match_stage = {
                     'outbound_airline_code': airline_filter,
@@ -659,6 +669,7 @@ class LadderPAHelper:
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
+                        'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'type': self.ladder_gen.type,
@@ -669,7 +680,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
-                        'data_period': ladder_result['data_period'],
+                        'data_period': ladder_result['data_period_b2b'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
                         'run_id': run_id,
@@ -709,6 +720,7 @@ class LadderPAHelper:
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
+                        'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
                         'route': ladder_result['route'],
                         'type': self.ladder_gen.type,
@@ -719,7 +731,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
-                        'data_period': ladder_result['data_period'],
+                        'data_period': ladder_result['data_period_b2c'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
                         'run_id': run_id,
@@ -760,137 +772,146 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  success_count=0, failed_count=0, source=None):
-        """Save or update batch audit information for multiple sectors under one run_id."""
+                  successful_codes=None, failed_codes=None, source=None, batch_total=None):
+        """Save or update batch audit for multiple ladder codes under one run_id.
+        
+        Parallel-safe: unique index on run_id prevents duplicates, $inc for counters,
+        dot-notation $set keyed by ladder_code for per-entry results.
+        """
         try:
             collection = self.db.ladder_generation_audits
             
             if is_initial:
-                # Initial audit record - insert with IN_PROGRESS status
                 tax_table = 'tax_mast_dom' if route == 'D' else 'tax_mast_intl'
-                
-                # Get version info safely
                 qp_fares_version = None
                 tax_master_version = None
-                
                 try:
                     if currVersion is not None and not currVersion.empty:
-                        qp_version_rows = currVersion[currVersion['table_name'] == 'qp_fares']
-                        tax_version_rows = currVersion[currVersion['table_name'] == tax_table]
-                        
-                        qp_fares_version = qp_version_rows['curr_version'].values[0] if not qp_version_rows.empty else None
-                        tax_master_version = tax_version_rows['curr_version'].values[0] if not tax_version_rows.empty else None
+                        qp_ver = currVersion[currVersion['table_name'] == 'qp_fares']
+                        tax_ver = currVersion[currVersion['table_name'] == tax_table]
+                        qp_fares_version = qp_ver['curr_version'].values[0] if not qp_ver.empty else None
+                        tax_master_version = tax_ver['curr_version'].values[0] if not tax_ver.empty else None
                 except Exception:
                     pass
                 
-                initial_audit = {
+                set_on_insert = {
                     'run_id': run_id,
-                    'sectors': sectors,  # Comma-separated list of sectors
-                    'is_batch': True,
                     'start_time': start_time,
                     'end_time': None,
                     'status': 'IN_PROGRESS',
-                    'total_sectors': len(sectors.split(', ')),
-                    'successful_sectors': None,
-                    'failed_sectors': None,
-                    'outliers_removed': None,
+                    'successful_sectors': [],
+                    'failed_sectors': [],
                     'route': route,
                     'type': self.ladder_gen.type,
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
-                    'source': source,
-                    'failure_reason': None
                 }
+                if batch_total is not None:
+                    set_on_insert['batch_total'] = int(batch_total)
                 
-                collection.insert_one(initial_audit)
-                self.logger.info(f"Created batch audit record for run_id: {run_id}, sectors: {sectors}")
-                
-                return 'ladder_generation_audits'
-                
-            else:
-                # Update existing audit record with final results
-                if status == 'SUCCESS' and not ladder_results:
-                    status = 'FAILED'
-                
-                # Aggregate statistics from all ladder results
-                total_b2c_records = 0
-                total_b2b_records = 0
-                total_b2c_fares = 0
-                total_b2b_fares = 0
-                min_b2c_fare = None
-                max_b2c_fare = None
-                min_b2b_fare = None
-                max_b2b_fare = None
-                
-                if ladder_results:
-                    for lr in ladder_results:
-                        total_b2c_records += lr.get('total_booking_records_b2c', 0)
-                        total_b2b_records += lr.get('total_booking_records_b2b', 0)
-                        total_b2c_fares += lr.get('distinct_fares_count_b2c', 0)
-                        total_b2b_fares += lr.get('distinct_fares_count_b2b', 0)
-                        
-                        # Track min/max across all sectors
-                        b2c_fares = lr.get('ladder_fares_b2c', [])
-                        b2b_fares = lr.get('ladder_fares_b2b', [])
-                        
-                        if b2c_fares:
-                            sector_min_b2c = min(b2c_fares)
-                            sector_max_b2c = max(b2c_fares)
-                            min_b2c_fare = sector_min_b2c if min_b2c_fare is None else min(min_b2c_fare, sector_min_b2c)
-                            max_b2c_fare = sector_max_b2c if max_b2c_fare is None else max(max_b2c_fare, sector_max_b2c)
-                        
-                        if b2b_fares:
-                            sector_min_b2b = min(b2b_fares)
-                            sector_max_b2b = max(b2b_fares)
-                            min_b2b_fare = sector_min_b2b if min_b2b_fare is None else min(min_b2b_fare, sector_min_b2b)
-                            max_b2b_fare = sector_max_b2b if max_b2b_fare is None else max(max_b2b_fare, sector_max_b2b)
-                
-                update_doc = {
-                    '$set': {
-                        'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                        'status': status,
-                        'successful_sectors': success_count,
-                        'failed_sectors': failed_count,
-                        'outliers_removed': outlier_count,
-                        'total_booking_records_b2c': total_b2c_records,
-                        'total_booking_records_b2b': total_b2b_records,
-                        'total_distinct_fares_b2c': total_b2c_fares,
-                        'total_distinct_fares_b2b': total_b2b_fares,
-                        'min_b2c_fare': round(min_b2c_fare, 2) if min_b2c_fare else None,
-                        'max_b2c_fare': round(max_b2c_fare, 2) if max_b2c_fare else None,
-                        'min_b2b_fare': round(min_b2b_fare, 2) if min_b2b_fare else None,
-                        'max_b2b_fare': round(max_b2b_fare, 2) if max_b2b_fare else None,
-                        'source': source,
-                        'failure_reason': failure_reason if status == 'FAILED' else None
-                    }
-                }
+                ladder_codes = list(self.ladder_gen.ladder_codes)
+                sector_list = list(set(self.ladder_gen.sectors))
                 
                 collection.update_one(
                     {'run_id': run_id},
-                    update_doc
+                    {
+                        '$setOnInsert': set_on_insert,
+                        '$addToSet': {
+                            'ladder_codes': {'$each': ladder_codes},
+                            'sectors': {'$each': sector_list},
+                        }
+                    },
+                    upsert=True
                 )
                 
-                self.logger.info(f"Updated batch audit record for run_id: {run_id}, status: {status}")
+                self.logger.info(f"Upserted batch audit for run_id: {run_id}, ladder_codes: {ladder_codes}")
+                return 'ladder_generation_audits'
+                
+            else:
+                if status == 'SUCCESS' and not ladder_results:
+                    status = 'FAILED'
+                
+                set_fields = {
+                    'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                }
+                
+                if ladder_results:
+                    for lr in ladder_results:
+                        lc = str(lr.get('ladder_code', 'UNKNOWN'))
+                        set_fields[f'results.{lc}'] = {
+                            'sector': lr.get('sector'),
+                            'fare_source': lr.get('fare_source'),
+                            'data_period_b2c': lr.get('data_period_b2c'),
+                            'data_period_b2b': lr.get('data_period_b2b'),
+                            'booking_records': {
+                                'b2c': lr.get('total_booking_records_b2c', 0),
+                                'b2b': lr.get('total_booking_records_b2b', 0),
+                            },
+                            'distinct_fares': {
+                                'b2c': lr.get('distinct_fares_count_b2c', 0),
+                                'b2b': lr.get('distinct_fares_count_b2b', 0),
+                            },
+                            'outliers_removed': {
+                                'b2c': lr.get('outliers_removed_b2c', 0),
+                                'b2b': lr.get('outliers_removed_b2b', 0),
+                            },
+                            'b2c_fare': {
+                                'min': round(min(lr['ladder_fares_b2c']), 2),
+                                'max': round(max(lr['ladder_fares_b2c']), 2),
+                            } if lr.get('ladder_fares_b2c') else None,
+                            'b2b_fare': {
+                                'min': round(min(lr['ladder_fares_b2b']), 2),
+                                'max': round(max(lr['ladder_fares_b2b']), 2),
+                            } if lr.get('ladder_fares_b2b') else None,
+                        }
+                
+                update_ops = {
+                    '$set': set_fields,
+                    '$addToSet': {
+                        'successful_sectors': {'$each': successful_codes or []},
+                        'failed_sectors': {'$each': failed_codes or []},
+                    },
+                }
+                
+                if failure_reason:
+                    update_ops.setdefault('$push', {})
+                    update_ops['$push']['failure_reasons'] = failure_reason
+                
+                collection.update_one({'run_id': run_id}, update_ops)
+                
+                # Check if all batches have reported
+                doc = collection.find_one({'run_id': run_id}, {
+                    'successful_sectors': 1, 'failed_sectors': 1, 'batch_total': 1
+                })
+                if doc:
+                    total_done = len(doc.get('successful_sectors', [])) + len(doc.get('failed_sectors', []))
+                    total_expected = doc.get('batch_total', total_done)
+                    if total_done >= total_expected:
+                        final_status = 'SUCCESS' if doc.get('successful_sectors') else 'FAILED'
+                        collection.update_one(
+                            {'run_id': run_id},
+                            {'$set': {'status': final_status}}
+                        )
+                        self.logger.info(f"All batches complete for run_id: {run_id}, "
+                                        f"{total_done}/{total_expected}, status: {final_status}")
+                    else:
+                        self.logger.info(f"Batch reported for run_id: {run_id} ({total_done}/{total_expected} done)")
                 
                 return 'ladder_generation_audits'
             
         except Exception as e:
             self.logger.error(f"Error saving/updating batch audit: {str(e)}")
             if not is_initial:
-                # For update failures, try minimal fallback
                 try:
                     collection.update_one(
                         {'run_id': run_id},
-                        {
-                            '$set': {
-                                'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
-                                'status': 'FAILED',
-                                'failure_reason': f"Audit update failed: {str(e)}. Original failure: {failure_reason}"
-                            }
-                        }
+                        {'$set': {
+                            'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
+                            'status': 'FAILED',
+                            'failure_reason': f"Audit update failed: {str(e)}"
+                        }}
                     )
-                    
                     return 'ladder_generation_audits'
                 except:
                     self.logger.error("Failed to save even minimal batch audit update")
@@ -939,7 +960,8 @@ class LadderPAHelper:
                     'b2c_max_ladder_fare': None,
                     'b2b_min_ladder_fare': None,
                     'b2b_max_ladder_fare': None,
-                    'data_period_used': None,
+                    'data_period_used_b2c': None,
+                    'data_period_used_b2b': None,
                     'total_booking_records_b2c': None,
                     'total_booking_records_b2b': None,
                     'distinct_fares_count_b2c': None,
@@ -980,7 +1002,8 @@ class LadderPAHelper:
                         'b2c_max_ladder_fare': round(max(ladder_fares_b2c), 2) if ladder_fares_b2c else None,
                         'b2b_min_ladder_fare': round(min(ladder_fares_b2b), 2) if ladder_fares_b2b else None,
                         'b2b_max_ladder_fare': round(max(ladder_fares_b2b), 2) if ladder_fares_b2b else None,
-                        'data_period_used': ladder_result['data_period'] if ladder_result else None,
+                        'data_period_used_b2c': ladder_result['data_period_b2c'] if ladder_result else None,
+                        'data_period_used_b2b': ladder_result['data_period_b2b'] if ladder_result else None,
                         'total_booking_records_b2c': ladder_result.get('total_booking_records_b2c', 0) if ladder_result else 0,
                         'total_booking_records_b2b': ladder_result.get('total_booking_records_b2b', 0) if ladder_result else 0,
                         'distinct_fares_count_b2c': ladder_result.get('distinct_fares_count_b2c', 0) if ladder_result else 0,
