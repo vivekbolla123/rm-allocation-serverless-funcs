@@ -36,41 +36,75 @@ warnings.filterwarnings('ignore')
 # JSON LOGGING SETUP (root logger only)
 # ==========================
 
-class JSONFormatter(logging.Formatter):
-    """JSON formatter for Datadog-compatible structured logging."""
-    def format(self, record):
+import json
+import logging
+import sys
+import traceback
+from datetime import datetime, timezone
+
+
+class DatadogJSONFormatter(logging.Formatter):
+    """
+    Datadog-compatible JSON formatter using correct reserved attribute names.
+    Docs: https://docs.datadoghq.com/logs/log_configuration/attributes_naming_convention/
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
         log_entry = {
-            "timestamp": self.formatTime(record, self.datefmt),
-            "level": record.levelname,
+            # Reserved attributes — DD uses these natively
+            "timestamp": datetime.fromtimestamp(
+                record.created, tz=timezone.utc
+            ).isoformat(),                          # ISO 8601 with timezone
+            "status": record.levelname,             # "status" not "level"
             "message": record.getMessage(),
-            "logger": record.name,
-            "service": os.environ.get("DD_SERVICE", "rm-fetch-inputs"),
-            "env": os.environ.get("DD_ENV", "unknown"),
+            "logger": {"name": record.name},        # standard attr: logger.name
         }
+
+        # Error tracking — DD requires error.kind, error.message, error.stack
         if record.exc_info and record.exc_info[0] is not None:
             log_entry["error"] = {
                 "kind": record.exc_info[0].__name__,
                 "message": str(record.exc_info[1]),
-                "stack": self.formatException(record.exc_info),
+                "stack": "".join(traceback.format_exception(*record.exc_info)),
             }
+
+        # Trace correlation — pull dd.* fields injected by ddtrace into the record
+        # Only needed if DD_LOGS_INJECTION=true; ddtrace adds these to the record
+        for attr in ("dd.trace_id", "dd.span_id", "dd.env", "dd.service", "dd.version"):
+            value = getattr(record, attr, None)
+            if value:
+                log_entry[attr] = value
+
+        # Any extra fields passed via logger.info("msg", extra={"run_id": ...})
+        # Avoid polluting with standard LogRecord internal fields
+        skip_fields = {
+            "msg", "args", "levelname", "levelno", "pathname", "filename",
+            "module", "exc_info", "exc_text", "stack_info", "lineno",
+            "funcName", "created", "msecs", "relativeCreated", "thread",
+            "threadName", "processName", "process", "name", "message",
+        }
+        for key, value in record.__dict__.items():
+            if key not in skip_fields and not key.startswith("_"):
+                log_entry[key] = value
+
         return json.dumps(log_entry, default=str)
 
 
-def _setup_json_logging():
-    """Configure JSON logging on the root logger only."""
+def setup_datadog_logging(level: int = logging.INFO) -> None:
+    """Configure JSON logging on the root logger for Datadog."""
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
+    root_logger.setLevel(level)
 
-    # Remove existing handlers on root logger to avoid duplicate plain-text output
+    # Remove existing handlers to avoid duplicate plain-text output
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
 
-    json_handler = logging.StreamHandler(sys.stdout)
-    json_handler.setFormatter(JSONFormatter())
-    root_logger.addHandler(json_handler)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(DatadogJSONFormatter())
+    root_logger.addHandler(handler)
 
 
-_setup_json_logging()
+setup_datadog_logging()
 
 # Global variables and setup
 run_log = []
