@@ -9,9 +9,6 @@ ECR_Img_Tag="latest"
 ECR_Image_URL=$ECR_Domain/$ECR_Repo:$ECR_Img_Tag
 AWS_Region="ap-south-1"
 SSM_ENV="prod"
-GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
-GIT_BRANCH=$(git branch --show-current)
-GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "$GIT_COMMIT_SHA")
 #Execution section
 clear
 echo ""
@@ -25,6 +22,9 @@ echo ""
 echo "###################################################################"
 echo "[[[  Running git checkout on $1  ]]]"
 git checkout $1
+GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git branch --show-current)
+GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "$GIT_COMMIT_SHA")
 echo "###################################################################" && sleep 2
 echo ""
 echo ""
