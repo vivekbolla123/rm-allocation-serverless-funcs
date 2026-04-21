@@ -11,6 +11,7 @@ from common.utils.db_helper import DbHelper
 from common.processors.sale_discount_processor import pivot_sale_fares
 from common.processors.saver_processor import format_saver_file
 from common.processors.product_upsell_processor import validate_product_upsell
+from common.processors.market_list_processor import validate_market_list
 
 
 class FileUploadWorker:
@@ -117,6 +118,17 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Product Upsell to DB")
                     raise RuntimeError(f"Error processing Product Upsell content: {str(e)}")
+            elif table in MARKET_LIST_TABLES:
+                try:
+                    market_list_df = validate_market_list(csv_df)
+                    self.insert_file_data(market_list_df, table, user_name, use_upsert=True)
+                    self.s3_helper.store_file(file_content, table, self.obj_id)
+                except ValueError as ve:
+                    self.list_of_errors.append(f"Market List Validation Failed: {str(ve)}")
+                    raise RuntimeError(f"Market List validation error: {str(ve)}")
+                except Exception as e:
+                    self.list_of_errors.append(f"Error Uploading {table} to DB")
+                    raise RuntimeError(f"Error processing Market List content: {str(e)}")
             else:
                 try:
                     # Determine if we should use upsert or replace
