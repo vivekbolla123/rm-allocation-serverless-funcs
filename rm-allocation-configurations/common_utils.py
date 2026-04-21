@@ -150,7 +150,7 @@ def instrument_engine(engine, service_name="navitaire-mssql"):
             if hasattr(conn, '_dd_spans') and conn._dd_spans:
                 span = conn._dd_spans.pop()
                 try:
-                    if cursor.rowcount and cursor.rowcount >= 0:
+                    if cursor.rowcount is not None and cursor.rowcount >= 0:
                         span.set_tag("db.row_count", cursor.rowcount)
                 except Exception:
                     pass
