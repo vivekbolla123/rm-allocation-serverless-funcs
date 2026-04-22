@@ -718,123 +718,152 @@ class FareFiling:
             CWT_RULES = set(self.CWT_PRIMARY_TO_COMPANION.values())   # {5001, 5002, 5006}
             SKIP_RULES = CWT_RULES | {'2001'}
 
-            unique_combos = self.product_upsell_data.groupby(
-                ['sector', 'rule_nbr', 'rbd_start', 'rbd_end']
+            # ── Group by (sector, rule_nbr) ───────────────────────────────────────
+            unique_sector_rules = self.product_upsell_data.groupby(
+                ['sector', 'rule_nbr']
             ).first().reset_index()
 
-            for _, combo_row in unique_combos.iterrows():
+            for _, combo_row in unique_sector_rules.iterrows():
                 sector = combo_row['sector']
                 rule_nbr = combo_row['rule_nbr']
-                rbd_start = combo_row['rbd_start']
-                rbd_end = combo_row['rbd_end']
 
                 if self.route == 'D' and rule_nbr in SKIP_RULES:
-                    continue
-
-                upsell_rows = self.product_upsell_data[
-                    (self.product_upsell_data['sector'] == sector) &
-                    (self.product_upsell_data['rule_nbr'] == rule_nbr) &
-                    (self.product_upsell_data['rbd_start'] == rbd_start) &
-                    (self.product_upsell_data['rbd_end'] == rbd_end)
-                ]
-
-                rbd_range = self.get_rbd_range(rbd_start, rbd_end)
-                if not rbd_range:
-                    self.logger.warning(f"Invalid RBD range for {sector}-{rule_nbr}: {rbd_start} to {rbd_end}")
                     continue
 
                 origin = sector[:3]
                 destination = sector[3:]
                 currency = self.sector_currency_map.get(sector, 'INR')
 
-                for rbd in rbd_range:
-                    # ── Split into flight-specific and default rows ────────────
-                    flt_mask = (
-                        upsell_rows['flt_nbr'].notna() &
-                        (upsell_rows['flt_nbr'].astype(str).str.strip() != '')
-                    )
-                    flt_specific_rows = upsell_rows[flt_mask]
-                    default_rows = upsell_rows[~flt_mask]
+                # All rows for this (sector, rule_nbr) regardless of rbd range
+                all_rows_for_rule = self.product_upsell_data[
+                    (self.product_upsell_data['sector'] == sector) &
+                    (self.product_upsell_data['rule_nbr'] == rule_nbr)
+                ]
 
-                    # ── 1. Process flight-specific rows ───────────────────────
-                    flt_output_rows = []
-                    for _, upsell_row in flt_specific_rows.iterrows():
-                        result = self._process_single_upsell_row(
-                            upsell_row, sector, rbd, rule_nbr,
-                            origin, destination, currency, existing_sort_prices
-                        )
-                        if result is not None:
-                            flt_output_rows.append(result)
+                # Split into flight-specific and default rows
+                flt_mask = (
+                    all_rows_for_rule['flt_nbr'].notna() &
+                    (all_rows_for_rule['flt_nbr'].astype(str).str.strip() != '')
+                )
+                flt_specific_rows = all_rows_for_rule[flt_mask]
+                default_rows = all_rows_for_rule[~flt_mask]
 
-                    # ── 2. Process explicit default row (flt_nbr empty) ───────
-                    explicit_default_output = None
-                    for _, upsell_row in default_rows.iterrows():
-                        result = self._process_single_upsell_row(
-                            upsell_row, sector, rbd, rule_nbr,
-                            origin, destination, currency, existing_sort_prices
-                        )
-                        if result is not None:
-                            explicit_default_output = result
-                            break  # only one default row expected
+                primary_rows_for_rule = []  # all output rows for this (sector, rule_nbr)
 
-                    # ── 3. Build default ladder when flight rows exist ─────────
-                    # (uses explicit if present, otherwise auto max-fare)
-                    default_output = None
-                    if flt_output_rows:
-                        default_output = self._generate_flt_nbr_default_row(
-                            sector, rbd, rule_nbr,
-                            flt_output_rows, explicit_default_output,
-                            origin, destination, currency
-                        )
+                if not flt_specific_rows.empty:
+                    # ── Flight-specific path ──────────────────────────────────────
+                    # Each flt_specific row has its own rbd_start/rbd_end.
+                    # Process each row × its rbd range individually for flight output.
+                    # Since ranges never overlap across flights, each RBD has exactly
+                    # one flight fare — the default ladder is a straight merge.
 
-                    # ── 4. Assemble all primary rows for this rbd ─────────────
-                    primary_rows_for_rbd = flt_output_rows[:]
+                    flt_all_output = []  # all flight-specific output rows, all rbds
 
-                    if flt_output_rows:
-                        # default_output covers both auto and explicit cases
-                        if default_output is not None:
-                            primary_rows_for_rbd.append(default_output)
-                    else:
-                        # No flight-specific rows — use the explicit default (normal path)
-                        if explicit_default_output is not None:
-                            primary_rows_for_rbd.append(explicit_default_output)
-
-                    all_output_rows.extend(primary_rows_for_rbd)
-
-                    # ── 5. Track for 2001 companion generation ────────────────
-                    if self.route == 'D' and rule_nbr in ['1002', '1006', '1007']:
-                        for row in primary_rows_for_rbd:
-                            key = (sector, rbd, row['OW_RT'], row['Footnote'], row.get('flt_nbr', ''))
-                            primary_rules_processed.setdefault(key, {})[rule_nbr] = row['Fare_Amount']
-
-                    # ── 6. Generate CwT companion rows for each primary row ────
-                    if self.route == 'D' and rule_nbr in self.CWT_PRIMARY_TO_COMPANION:
-                        cwt_rule = self.CWT_PRIMARY_TO_COMPANION[rule_nbr]
-                        for primary_row in primary_rows_for_rbd:
-                            # NDO decoded from farebasis char 7
-                            basis = primary_row.get('Fare_Basis_Code', '')
-                            decoded_ndo = basis[7] if len(basis) == 8 else 'X'
-
-                            cwt_config = self._find_cwt_config_row(
-                                cwt_rule, sector,
-                                primary_row.get('Footnote', ''),
-                                decoded_ndo,
-                                primary_row.get('flt_nbr', '')
+                    for _, flt_row in flt_specific_rows.iterrows():
+                        rbd_range = self.get_rbd_range(flt_row['rbd_start'], flt_row['rbd_end'])
+                        if not rbd_range:
+                            self.logger.warning(
+                                f"Invalid RBD range for {sector}-{rule_nbr} "
+                                f"flt={flt_row['flt_nbr']}: "
+                                f"{flt_row['rbd_start']} to {flt_row['rbd_end']}"
                             )
-                            cwt_row = self._generate_cwt_row_for_primary(
-                                primary_row, cwt_rule, cwt_config, existing_sort_prices
-                            )
-                            if cwt_row:
-                                all_output_rows.append(cwt_row)
+                            continue
 
-            # ── Domestic 2001 companion (from 1007) ───────────────────────────
+                        for rbd in rbd_range:
+                            result = self._process_single_upsell_row(
+                                flt_row, sector, rbd, rule_nbr,
+                                origin, destination, currency, existing_sort_prices
+                            )
+                            if result is not None:
+                                flt_all_output.append(result)
+
+                    primary_rows_for_rule.extend(flt_all_output)
+
+                    # ── One default ladder across union of all flight RBDs ─────────
+                    # Ranges don't overlap so each RBD maps to exactly one flight fare.
+                    # Default params: footnote='', ndo='X', ow_rt='O', pos='W'.
+                    # ── One default ladder across union of all flight RBDs ─────────
+                    # Group by RBD, take max fare across flights for that RBD.
+                    actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
+
+                    # Build a map of rbd -> max fare across all flight rows
+                    rbd_max_fare = {}
+                    for flt_output_row in flt_all_output:
+                        rbd = flt_output_row['RBD']
+                        fare = flt_output_row['Fare_Amount']
+                        if rbd not in rbd_max_fare or fare > rbd_max_fare[rbd]:
+                            rbd_max_fare[rbd] = fare
+
+                    for rbd, max_fare in rbd_max_fare.items():
+                        farebasis = self.generate_farebasis(
+                            rbd, rule_nbr, 'O', 'X', sector,
+                            pos='W', route_type=self.route, footnote='', currency=currency
+                        )
+                        default_row = self._make_output_row(
+                            sector, rbd, rule_nbr, max_fare, max_fare,
+                            'O', '', 'X', 'W', currency, farebasis,
+                            actual_origin, actual_destination, fare_direction,
+                            flt_nbr=''
+                        )
+                        primary_rows_for_rule.append(default_row)
+
+                else:
+                    # ── No flight rows — original path ────────────────────────────
+                    # Iterate by rbd_start/rbd_end groups (original behaviour).
+                    for (rbd_start, rbd_end), range_group in default_rows.groupby(
+                        ['rbd_start', 'rbd_end']
+                    ):
+                        rbd_range = self.get_rbd_range(rbd_start, rbd_end)
+                        if not rbd_range:
+                            self.logger.warning(
+                                f"Invalid RBD range for {sector}-{rule_nbr}: {rbd_start} to {rbd_end}"
+                            )
+                            continue
+
+                        for rbd in rbd_range:
+                            for _, upsell_row in range_group.iterrows():
+                                result = self._process_single_upsell_row(
+                                    upsell_row, sector, rbd, rule_nbr,
+                                    origin, destination, currency, existing_sort_prices
+                                )
+                                if result is not None:
+                                    primary_rows_for_rule.append(result)
+
+                all_output_rows.extend(primary_rows_for_rule)
+
+                # ── Track for 2001 companion generation ───────────────────────────
+                if self.route == 'D' and rule_nbr in ['1002', '1006', '1007']:
+                    for row in primary_rows_for_rule:
+                        key = (sector, row['RBD'], row['OW_RT'], row['Footnote'], row.get('flt_nbr', ''))
+                        primary_rules_processed.setdefault(key, {})[rule_nbr] = row['Fare_Amount']
+
+                # ── Generate CwT companion rows for each primary row ──────────────
+                if self.route == 'D' and rule_nbr in self.CWT_PRIMARY_TO_COMPANION:
+                    cwt_rule = self.CWT_PRIMARY_TO_COMPANION[rule_nbr]
+                    for primary_row in primary_rows_for_rule:
+                        basis = primary_row.get('Fare_Basis_Code', '')
+                        decoded_ndo = basis[7] if len(basis) == 8 else 'X'
+
+                        cwt_config = self._find_cwt_config_row(
+                            cwt_rule, sector,
+                            primary_row.get('Footnote', ''),
+                            decoded_ndo,
+                            primary_row.get('flt_nbr', '')
+                        )
+                        cwt_row = self._generate_cwt_row_for_primary(
+                            primary_row, cwt_rule, cwt_config, existing_sort_prices
+                        )
+                        if cwt_row:
+                            all_output_rows.append(cwt_row)
+
+            # ── Domestic 2001 companion (from 1007) ───────────────────────────────
             if self.route == 'D':
                 companion_rows = self._generate_companion_rules_domestic(
                     primary_rules_processed, existing_sort_prices
                 )
                 all_output_rows.extend(companion_rows)
 
-            # ── Saver fares (1001/2001 or international equivalents) ──────────
+            # ── Saver fares ───────────────────────────────────────────────────────
             if self.isSaver:
                 saver_output_rows = self.generate_saver_output()
                 all_output_rows.extend(saver_output_rows)
