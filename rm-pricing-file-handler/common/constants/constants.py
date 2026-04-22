@@ -12,6 +12,10 @@ SALE_DISCOUNTS_TABLE = "config_sale_discounts"
 SALE_DATES_TABLE = "config_sale_dates"
 SAVER_TABLE = "saver"
 PRODUCT_UPSELL_TABLE = "product_upsell"
+MARKET_LIST_TABLE = "market_list"
+MARKET_LIST_INTERNATIONAL_TABLE = "market_list_international"
+MARKET_LIST_CONNECTIONS_TABLE = "market_list_connections"
+MARKET_LIST_TABLES = [MARKET_LIST_TABLE, MARKET_LIST_INTERNATIONAL_TABLE, MARKET_LIST_CONNECTIONS_TABLE]
 
 #error constants
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
