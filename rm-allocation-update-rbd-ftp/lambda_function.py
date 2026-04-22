@@ -12,11 +12,13 @@ from datetime import datetime
 from pymongo import MongoClient
 import pandas as pd
 from redis import Redis
+from common_utils import trace_span, finish_span
 
 warnings.filterwarnings('ignore')
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
 
 # MongoDB connection string
 
@@ -99,29 +101,59 @@ class DataProcessor:
     def upload_to_sftp(self, local_file, runid):
         logger.info("Started SFTP upload.....")
         start = datetime.now()
-        transport = paramiko.Transport((self.sftp_host, self.sftp_port))
-        transport.connect(username=self.sftp_username, password=self.sftp_password)
-        sftp = paramiko.SFTPClient.from_transport(transport)
+
+        span = trace_span("sftp.connect", resource=self.sftp_host, service="au-sftp", tags={
+            "sftp.host": self.sftp_host, "sftp.port": self.sftp_port, "run_id": runid
+        })
+        try:
+            transport = paramiko.Transport((self.sftp_host, self.sftp_port))
+            transport.connect(username=self.sftp_username, password=self.sftp_password)
+            sftp = paramiko.SFTPClient.from_transport(transport)
+        except Exception:
+            if span:
+                span.set_exc_info(*sys.exc_info())
+            raise
+        finally:
+            finish_span(span)
+
         remote_file_path = os.path.join(self.sftp_destination_dir, self.sftp_target_file)
         
         timeout = 0
         while timeout < self.timeout:
             try:
                 # Check if the target file already exists on the SFTP server
+                stat_span = trace_span("sftp.stat", resource=remote_file_path, tags={"run_id": runid})
                 try:
                     sftp.stat(remote_file_path)
+                    finish_span(stat_span)
                     print("File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
                     logger.info("File AUUPDATE already exists on the SFTP server. Waiting for deletion...")
-                    # Wait for 30 seconds before checking again
                     time.sleep(self.refresh_time)
                     timeout += self.refresh_time
                     continue
                 except FileNotFoundError:
-                    pass
+                    finish_span(stat_span)
+                except Exception:
+                    if stat_span:
+                        stat_span.set_exc_info(*sys.exc_info())
+                    finish_span(stat_span)
+                    raise
                 
-                sftp.put(local_file, remote_file_path)
-                sftp.chdir(self.sftp_destination_dir)
-                sftp.open("AUUPDATE.TAG", 'w').close()
+                file_size = os.path.getsize(local_file) if os.path.exists(local_file) else 0
+                upload_span = trace_span("sftp.upload", resource=remote_file_path, tags={
+                    "sftp.remote_path": remote_file_path, "run_id": runid, "sftp.file_size_bytes": file_size
+                })
+                try:
+                    sftp.put(local_file, remote_file_path)
+                    sftp.chdir(self.sftp_destination_dir)
+                    sftp.open("AUUPDATE.TAG", 'w').close()
+                except Exception:
+                    if upload_span:
+                        upload_span.set_exc_info(*sys.exc_info())
+                    raise
+                finally:
+                    finish_span(upload_span)
+
                 elapsed_time = datetime.now() - start
                 minutes, remainder = divmod(elapsed_time.seconds, 60)
                 seconds = remainder

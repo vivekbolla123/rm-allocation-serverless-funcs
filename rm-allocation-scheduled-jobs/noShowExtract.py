@@ -7,7 +7,6 @@ import sys
 import boto3
 import json
 import warnings
-import pymssql
 import pytz
 import numpy as np
 import time
