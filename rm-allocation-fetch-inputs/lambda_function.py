@@ -180,13 +180,9 @@ def create_navitaire_connection_pool():
     
     engine = create_engine(
         connection_string,
-        pool_pre_ping=True,  # Validates connections before use
-        pool_recycle=3600,   # Recycle connections every hour
-        pool_size=5,
-        max_overflow=10,
         connect_args={
-            'timeout': 0,      # Query timeout - increased from 30
-            'login_timeout': 120  # Login timeout - increased from 30
+            'timeout': 0,
+            'login_timeout': 120
         }
     )
     
