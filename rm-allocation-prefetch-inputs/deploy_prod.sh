@@ -23,8 +23,7 @@ echo "###################################################################"
 echo "[[[  Running git checkout on $1  ]]]"
 git checkout $1
 GIT_COMMIT_SHA=$(git rev-parse --short HEAD)
-GIT_BRANCH=$(git branch --show-current)
-GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "$GIT_COMMIT_SHA")
+GIT_REF=$(git describe --tags --exact-match 2>/dev/null || git branch --show-current)
 echo "###################################################################" && sleep 2
 echo ""
 echo ""
@@ -47,7 +46,7 @@ case $User_Input in
               echo "DD_API_KEY environment variable set on [$Lmd_Func]"
               cp -r ../rm-allocation-configurations/configsettings.py ./configsettings.py
               cp -r ../rm-allocation-configurations/common_utils.py ./common_utils.py
-              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_TAG=$GIT_TAG .
+              docker image build --no-cache -t $Local_Img_Tag --build-arg ENVN=prod --build-arg GIT_COMMIT_SHA=$GIT_COMMIT_SHA --build-arg GIT_REF=$GIT_REF .
               docker tag $Local_Img_Tag $ECR_Image_URL
               docker push $ECR_Image_URL
               echo "Waiting for function configuration update to complete..."

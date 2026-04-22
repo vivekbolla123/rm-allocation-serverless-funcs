@@ -1,8 +1,7 @@
 FROM public.ecr.aws/lambda/python:3.10
 ARG ENVN
 ARG GIT_COMMIT_SHA
-ARG GIT_BRANCH
-ARG GIT_TAG
+ARG GIT_REF
 ENV env=$ENVN
 RUN echo "Creating image for $env Environment"
 
@@ -22,14 +21,13 @@ ENV DD_LAMBDA_HANDLER=lambda_function.lambda_handler
 ENV DD_SITE=datadoghq.com
 ENV DD_TRACE_ENABLED=true
 ENV DD_DATA_STREAMS_ENABLED=true
-ENV DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED=true
 ENV DD_SERVERLESS_LOGS_ENABLED=true
 ENV DD_LOGS_INJECTION=true
 ENV DD_COLD_START_TRACING=false
 ENV DD_APM_IGNORE_RESOURCES="aws.lambda.cold_start,aws.lambda.load.*"
 ENV DD_ENV=${ENVN}
 ENV DD_SERVICE=rm-fetch-inputs
-ENV DD_VERSION=${GIT_TAG}
-ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.branch:${GIT_BRANCH},Department:RM,team:RM"
+ENV DD_VERSION=${GIT_REF}
+ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.ref:${GIT_REF},Department:RM,team:RM"
 
 CMD ["datadog_lambda.handler.handler"]
