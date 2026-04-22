@@ -7,7 +7,6 @@ from pymongo import MongoClient
 import configsettings
 import json
 from sqlalchemy import create_engine
-import pymssql
 import warnings
 import boto3
 from redis import Redis
@@ -19,6 +18,7 @@ from runAlloc_SalesInv import DynAllocSalesInv
 from time_logger import TimeLogger
 from constants_utils import ConstantsUtils
 import pandas as pd
+import traceback
 warnings.filterwarnings('ignore')
 
 # sqs setting
@@ -138,6 +138,7 @@ def lambda_handler(event, context):
             DynAlloc(input_data, data)
         else:
             logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
+
 
 
     log_time.send_time_log_db()
