@@ -22,7 +22,7 @@ def convert_product_upsell_data_types(df):
         df['rule_nbr'] = df['rule_nbr'].astype(str)
     
     # String columns that should remain as strings
-    string_columns = ['sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos', 
+    string_columns = ['sector', 'rbd_start', 'rbd_end', 'flt_nbr', 'flt_tag', 'footnote', 'ow_rt', 'ndo', 'pos', 
                      'type', 'base_all_in', 'base_footnote', 'base_ndo']
     for col in string_columns:
         if col in df.columns:
@@ -55,7 +55,7 @@ def validate_product_upsell(df):
         return df
     
     # Define the key columns that should be unique
-    key_columns = ['rule_nbr', 'sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos']
+    key_columns = ['rule_nbr', 'sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos', 'flt_nbr', 'flt_tag']
     
     # Check if all key columns exist in the dataframe
     missing_columns = [col for col in key_columns if col not in df.columns]
