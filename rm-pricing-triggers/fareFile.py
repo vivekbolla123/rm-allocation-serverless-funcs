@@ -44,6 +44,8 @@ class FareFiling:
         self.B2C_RBD_LIST = self.constants.B2C_RBD_VALUES.split(',')
         self.TOTAL_B2C_FARES = len(self.B2C_RBD_LIST)
         self.TOTAL_B2B_FARES = len(self.B2B_RBD_LIST)
+        self.B2B_SAVER = '2001'
+        self.B2C_SAVER = '1001'
 
         # RBD list for iteration
         self.rbd_list = None
@@ -725,7 +727,7 @@ class FareFiling:
 
             # CwT rules and 2001 are excluded from the main loop
             CWT_RULES = set(self.CWT_PRIMARY_TO_COMPANION.values())   # {5001, 5002, 5006}
-            SKIP_RULES = CWT_RULES | {'2001'}
+            SKIP_RULES = CWT_RULES | {self.B2B_SAVER}
 
             # Group by (sector, rule_nbr)
             unique_sector_rules = self.product_upsell_data.groupby(
@@ -897,12 +899,12 @@ class FareFiling:
             missing_primary_rules = []
 
             companion_configs = self.product_upsell_data[
-                self.product_upsell_data['rule_nbr'] == '2001'
+                self.product_upsell_data['rule_nbr'] == self.B2B_SAVER
             ].copy()
 
             if companion_configs.empty and self.product_upsell_master_data is not None:
                 companion_configs = self.product_upsell_master_data[
-                    self.product_upsell_master_data['rule_nbr'] == '2001'
+                    self.product_upsell_master_data['rule_nbr'] == self.B2B_SAVER
                 ].copy()
 
             if companion_configs.empty:
@@ -928,7 +930,7 @@ class FareFiling:
                 rbd_end = config_row['rbd_end']
                 rbd_range = self.get_rbd_range(rbd_start, rbd_end)
 
-                b2b_rbds = self.get_rbd_range('Z9', 'Y0')
+                b2b_rbds = self.get_rbd_range(self.B2B_RBD_LIST[0], self.B2B_RBD_LIST[-1])
                 if len(b2b_rbds) == self.TOTAL_B2B_FARES + self.TOTAL_B2C_FARES:
                     rbd_range = b2b_rbds
 
@@ -967,7 +969,7 @@ class FareFiling:
 
                     if primary_base_fare is None:
                         missing_primary_rules.append({
-                            'companion_rule': '2001', 'primary_rule': '1007',
+                            'companion_rule': self.B2B_SAVER, 'primary_rule': '1007',
                             'sector': sector, 'rbd': rbd,
                             'companion_footnote': companion_footnote,
                             'base_footnote': base_footnote_for_search,
@@ -1011,7 +1013,7 @@ class FareFiling:
                         sort_price = existing_price if (sector in self.existing_qp_sectors and existing_price is not None) else final_fare
 
                     farebasis = self.generate_farebasis(
-                        rbd, '2001', 'C', companion_ndo, sector,
+                        rbd, self.B2B_SAVER, 'C', companion_ndo, sector,
                         pos=companion_pos, route_type='D',
                         footnote=companion_footnote, currency=currency
                     )
@@ -1019,7 +1021,7 @@ class FareFiling:
                     actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
 
                     companion_rows.append(self._make_output_row(
-                        sector, rbd, '2001', final_fare, sort_price,
+                        sector, rbd, self.B2B_SAVER, final_fare, sort_price,
                         companion_ow_rt, companion_footnote, companion_ndo,
                         companion_pos, currency, farebasis,
                         actual_origin, actual_destination, fare_direction
@@ -1235,8 +1237,8 @@ class FareFiling:
         """Generate output rows for saver fares (rule 1001/2001 or international equivalents)."""
         try:
             saver_rows = []
-            b2c_rbds = self.get_rbd_range('V4', 'Y0')
-            b2b_rbds = self.get_rbd_range('Z9', 'Y0')
+            b2c_rbds = self.get_rbd_range(self.B2C_RBD_LIST[0], self.B2C_RBD_LIST[-1])
+            b2b_rbds = self.get_rbd_range(self.B2B_RBD_LIST[0], self.B2B_RBD_LIST[-1])
 
             # Fetch sort prices once for CwT mirroring
             existing_sort_prices = self.pa_helper._get_existing_sort_prices()
@@ -1276,12 +1278,12 @@ class FareFiling:
                 rules_to_generate = []
                 if rbd in b2c_rbds:
                     if self.route == 'D':
-                        rules_to_generate = ['1001', '2001']
+                        rules_to_generate = [self.B2C_SAVER, self.B2B_SAVER]
                     elif self.route == 'I':
                         rules_to_generate = ['R201', 'M201'] if saver_is_connections == 'Y' else ['R101', 'M101']
                 elif rbd in b2b_rbds:
                     if self.route == 'D':
-                        rules_to_generate = ['2001']
+                        rules_to_generate = [self.B2B_SAVER]
                     elif self.route == 'I':
                         rules_to_generate = ['M201'] if saver_is_connections == 'Y' else ['M101']
 
@@ -1305,8 +1307,8 @@ class FareFiling:
                     saver_rows.append(saver_output_row)
 
                     # CwT mirror for saver 1001 rows (domestic only)
-                    if self.route == 'D' and rule_nbr == '1001':
-                        cwt_rule = self.CWT_PRIMARY_TO_COMPANION['1001']
+                    if self.route == 'D' and rule_nbr == self.B2C_SAVER:
+                        cwt_rule = self.CWT_PRIMARY_TO_COMPANION[self.B2C_SAVER]
                         cwt_config = self._find_cwt_config_row(
                             cwt_rule, sector, saver_footnote, saver_ndo, ''
                         )
