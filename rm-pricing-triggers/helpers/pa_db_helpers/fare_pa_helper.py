@@ -289,7 +289,8 @@ class FarePAHelper:
                     'pos': 1,
                     'base_footnote': 1,
                     'base_ndo': 1,
-                    'flt_nbr': 1
+                    'flt_nbr': 1,
+                    'flt_tag': 1
                 }
             ))
             
@@ -323,7 +324,8 @@ class FarePAHelper:
                     'pos': 1,
                     'base_footnote': 1,
                     'base_ndo': 1,
-                    'flt_nbr': 1
+                    'flt_nbr': 1,
+                    'flt_tag': 1
                 }
             ))
             

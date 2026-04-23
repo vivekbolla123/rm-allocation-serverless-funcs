@@ -510,6 +510,7 @@ class FareFiling:
                 currency
             )
 
+        # ow_rt: drives OW_RT output column, defaults to 'O'
         ow_rt = upsell_row.get('ow_rt', 'O')
         if pd.isna(ow_rt) or ow_rt == '':
             ow_rt = 'O'
@@ -527,15 +528,23 @@ class FareFiling:
             flt_nbr = ''
         flt_nbr = str(flt_nbr).strip()
 
+        flt_tag = upsell_row.get('flt_tag', '')
+        if pd.isna(flt_tag):
+            flt_tag = ''
+        flt_tag = str(flt_tag).strip()
+
         sort_price = upsell_row.get('sort_price')
         if pd.isna(sort_price) or sort_price == '':
             sort_price = final_base_fare
         else:
             sort_price = float(sort_price)
 
+        # Farebasis 3rd char: flt_tag if non-empty, else ow_rt, else 'O'
+        farebasis_owrt = flt_tag if flt_tag else (ow_rt if ow_rt else 'O')
+
         farebasis = self.generate_farebasis(
             rbd, rule_nbr,
-            'C' if rule_nbr[1] == '2' else ow_rt,
+            'C' if rule_nbr[1] == '2' else farebasis_owrt,
             ndo, sector, pos=pos_value,
             route_type=self.route, footnote=footnote, currency=currency
         )
@@ -718,7 +727,7 @@ class FareFiling:
             CWT_RULES = set(self.CWT_PRIMARY_TO_COMPANION.values())   # {5001, 5002, 5006}
             SKIP_RULES = CWT_RULES | {'2001'}
 
-            # ── Group by (sector, rule_nbr) ───────────────────────────────────────
+            # Group by (sector, rule_nbr)
             unique_sector_rules = self.product_upsell_data.groupby(
                 ['sector', 'rule_nbr']
             ).first().reset_index()
@@ -734,7 +743,6 @@ class FareFiling:
                 destination = sector[3:]
                 currency = self.sector_currency_map.get(sector, 'INR')
 
-                # All rows for this (sector, rule_nbr) regardless of rbd range
                 all_rows_for_rule = self.product_upsell_data[
                     (self.product_upsell_data['sector'] == sector) &
                     (self.product_upsell_data['rule_nbr'] == rule_nbr)
@@ -748,16 +756,11 @@ class FareFiling:
                 flt_specific_rows = all_rows_for_rule[flt_mask]
                 default_rows = all_rows_for_rule[~flt_mask]
 
-                primary_rows_for_rule = []  # all output rows for this (sector, rule_nbr)
+                primary_rows_for_rule = []
 
                 if not flt_specific_rows.empty:
                     # ── Flight-specific path ──────────────────────────────────────
-                    # Each flt_specific row has its own rbd_start/rbd_end.
-                    # Process each row × its rbd range individually for flight output.
-                    # Since ranges never overlap across flights, each RBD has exactly
-                    # one flight fare — the default ladder is a straight merge.
-
-                    flt_all_output = []  # all flight-specific output rows, all rbds
+                    flt_all_output = []
 
                     for _, flt_row in flt_specific_rows.iterrows():
                         rbd_range = self.get_rbd_range(flt_row['rbd_start'], flt_row['rbd_end'])
@@ -779,37 +782,45 @@ class FareFiling:
 
                     primary_rows_for_rule.extend(flt_all_output)
 
-                    # ── One default ladder across union of all flight RBDs ─────────
-                    # Ranges don't overlap so each RBD maps to exactly one flight fare.
-                    # Default params: footnote='', ndo='X', ow_rt='O', pos='W'.
-                    # ── One default ladder across union of all flight RBDs ─────────
-                    # Group by RBD, take max fare across flights for that RBD.
+                    # ── Default ladders: one per unique ow_rt value ───────────────
+                    # Group flt_all_output by ow_rt, take max fare per (ow_rt, rbd).
+                    # Default farebasis uses ow_rt (O if empty); OW_RT column = ow_rt.
                     actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
 
-                    # Build a map of rbd -> max fare across all flight rows
-                    rbd_max_fare = {}
-                    for flt_output_row in flt_all_output:
-                        rbd = flt_output_row['RBD']
-                        fare = flt_output_row['Fare_Amount']
-                        if rbd not in rbd_max_fare or fare > rbd_max_fare[rbd]:
-                            rbd_max_fare[rbd] = fare
+                    # Collect unique ow_rt values present in flight rows
+                    ow_rt_values = set(r['OW_RT'] for r in flt_all_output)
 
-                    for rbd, max_fare in rbd_max_fare.items():
-                        farebasis = self.generate_farebasis(
-                            rbd, rule_nbr, 'O', 'X', sector,
-                            pos='W', route_type=self.route, footnote='', currency=currency
-                        )
-                        default_row = self._make_output_row(
-                            sector, rbd, rule_nbr, max_fare, max_fare,
-                            'O', '', 'X', 'W', currency, farebasis,
-                            actual_origin, actual_destination, fare_direction,
-                            flt_nbr=''
-                        )
-                        primary_rows_for_rule.append(default_row)
+                    for ow_rt_val in ow_rt_values:
+                        # Build rbd -> max fare map for this ow_rt group
+                        rbd_max_fare = {}
+                        for flt_row in flt_all_output:
+                            if flt_row['OW_RT'] != ow_rt_val:
+                                continue
+                            rbd = flt_row['RBD']
+                            fare = flt_row['Fare_Amount']
+                            if rbd not in rbd_max_fare or fare > rbd_max_fare[rbd]:
+                                rbd_max_fare[rbd] = fare
+
+                        # Farebasis 3rd char for default: ow_rt_val (already 'O' if was empty)
+                        farebasis_owrt = ow_rt_val if ow_rt_val else 'O'
+
+                        for rbd, max_fare in rbd_max_fare.items():
+                            farebasis = self.generate_farebasis(
+                                rbd, rule_nbr,
+                                'C' if rule_nbr[1] == '2' else farebasis_owrt,
+                                'X', sector,
+                                pos='W', route_type=self.route, footnote='', currency=currency
+                            )
+                            default_row = self._make_output_row(
+                                sector, rbd, rule_nbr, max_fare, max_fare,
+                                ow_rt_val, '', 'X', 'W', currency, farebasis,
+                                actual_origin, actual_destination, fare_direction,
+                                flt_nbr=''
+                            )
+                            primary_rows_for_rule.append(default_row)
 
                 else:
                     # ── No flight rows — original path ────────────────────────────
-                    # Iterate by rbd_start/rbd_end groups (original behaviour).
                     for (rbd_start, rbd_end), range_group in default_rows.groupby(
                         ['rbd_start', 'rbd_end']
                     ):

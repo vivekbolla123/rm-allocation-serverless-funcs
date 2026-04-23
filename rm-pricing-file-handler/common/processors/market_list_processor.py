@@ -84,8 +84,10 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
+    df.columns = df.columns.str.strip()
+
     # --- 1. Normalize headers ---
-    incoming_lower = {col.strip().lower(): col.strip() for col in df.columns}
+    incoming_lower = {col.lower(): col for col in df.columns}
     rename_map = {}
     for lower_key, original_col in incoming_lower.items():
         if lower_key in _HEADER_MAP:
