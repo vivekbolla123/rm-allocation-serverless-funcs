@@ -68,7 +68,7 @@ def validate_product_upsell(df):
         df['rule_nbr'] = df['rule_nbr'].astype(str)
     
     # Also ensure other key columns that should be strings are properly converted
-    string_columns = ['sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos']
+    string_columns = ['sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos', 'flt_nbr', 'flt_tag']
     for col in string_columns:
         if col in df.columns:
             # Convert to string, handling NaN values properly
