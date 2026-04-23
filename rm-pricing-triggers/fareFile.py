@@ -638,73 +638,74 @@ class FareFiling:
         return matched.iloc[0] if not matched.empty else None
 
     def _generate_cwt_row_for_primary(self, primary_row, cwt_rule,
-                                       cwt_config_row, existing_sort_prices):
+                                   cwt_config_row, existing_sort_prices):
         """
         Generate one CwT companion output row from a single primary output row.
+        Only rule_nbr, fare_amount and sort_price change from the primary row.
+        All other columns (farebasis, ow_rt, footnote, ndo, pos, flt_nbr, etc.)
+        are mirrored directly from the primary row.
 
         cwt_config_row: matching row from product_upsell_data for this cwt_rule,
                         or None -> use constant fallback (self.cwt_upsell_params).
         """
         sector = primary_row['Sector']
         rbd = primary_row['RBD']
-        origin = sector[:3]
-        destination = sector[3:]
         currency = primary_row.get('Currency', 'INR')
         primary_fare = primary_row['Fare_Amount']
         flt_nbr = primary_row.get('flt_nbr', '')
 
-        # Decode NDO (char 7) and POS (char 5) from source farebasis
-        source_basis = primary_row.get('Fare_Basis_Code', '')
-        ndo = source_basis[7] if len(source_basis) == 8 else 'X'
-        pos = source_basis[5] if len(source_basis) == 8 else 'B'
+        # Mirror these directly from primary — do NOT recompute
         ow_rt = primary_row.get('OW_RT', 'O')
         footnote = primary_row.get('Footnote', '')
+        source_basis = primary_row.get('Fare_Basis_Code', '')
 
+        # Upsell params: prefer table row, fall back to constants
         if cwt_config_row is not None:
-            # Use table row's upsell params
             upsell_type = cwt_config_row['type']
             upsell_value = float(cwt_config_row['value']) if pd.notna(cwt_config_row['value']) else 0
             min_value = float(cwt_config_row['min_value']) if (pd.notna(cwt_config_row['min_value']) and cwt_config_row['min_value'] != '') else None
             max_value = float(cwt_config_row['max_value']) if (pd.notna(cwt_config_row['max_value']) and cwt_config_row['max_value'] != '') else None
-            # Allow the CwT row to override output params
-            row_ow_rt = cwt_config_row.get('ow_rt', '') or ''
-            ow_rt = row_ow_rt if row_ow_rt != '' else ow_rt
-            row_footnote = cwt_config_row.get('footnote', '')
-            footnote = row_footnote if not pd.isna(row_footnote) else footnote
-            row_ndo = cwt_config_row.get('ndo', '') or ''
-            ndo = row_ndo if row_ndo not in ('', None) else ndo
-            row_pos = cwt_config_row.get('pos', '') or ''
-            pos = row_pos if row_pos != '' else pos
         else:
-            # Fallback to constants
             fallback = self._get_cwt_upsell_params(cwt_rule)
             upsell_type = fallback['type']
             upsell_value = fallback['value']
             min_value = fallback['min_value']
             max_value = fallback['max_value']
-            # Mirror all output params from primary row (no override)
 
         cwt_fare = self._round_fare(
             self.apply_upsell(primary_fare, upsell_type, upsell_value, min_value, max_value),
             currency
         )
 
+        # Sort price: existing dump if sector exists, else cwt_fare
         sort_price_key = f"{sector}_{rbd}_{cwt_rule}"
         if sector in self.existing_qp_sectors:
             sort_price = existing_sort_prices.get(sort_price_key, cwt_fare)
         else:
             sort_price = cwt_fare
 
-        cwt_farebasis = self.generate_farebasis(
-            rbd, cwt_rule, ow_rt, ndo, sector,
-            pos=pos, route_type='D', footnote=footnote, currency=currency
-        )
+        # Farebasis: replace only the rule letter (char index 3) in the source farebasis.
+        # All other characters (ow_rt char, pos, route, ndo) stay identical to primary.
+        cwt_letter = self.product_rules_dict.get(cwt_rule, 'R')
+        if len(source_basis) == 8:
+            cwt_farebasis = source_basis[:4] + cwt_letter + source_basis[5:]
+        else:
+            # Fallback: regenerate — should not normally happen
+            ndo = source_basis[7] if len(source_basis) == 8 else 'X'
+            pos = source_basis[5] if len(source_basis) == 8 else 'W'
+            cwt_farebasis = self.generate_farebasis(
+                rbd, cwt_rule, ow_rt, ndo, sector,
+                pos=pos, route_type='D', footnote=footnote, currency=currency
+            )
 
         actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
 
         return self._make_output_row(
             sector, rbd, cwt_rule, cwt_fare, sort_price,
-            ow_rt, footnote, ndo, pos, currency, cwt_farebasis,
+            ow_rt, footnote,
+            source_basis[7] if len(source_basis) == 8 else 'X',   # ndo
+            source_basis[5] if len(source_basis) == 8 else 'W',   # pos
+            currency, cwt_farebasis,
             actual_origin, actual_destination, fare_direction,
             flt_nbr=flt_nbr
         )
