@@ -33,8 +33,8 @@ EXPECTED_COLUMNS = [
     "Yield_Threshold",
 ]
 
-# Lowercase -> camelCase lookup
-_HEADER_MAP = {col.lower(): col for col in EXPECTED_COLUMNS}
+# Lowercase -> camelCase lookup — keyed with all spaces removed for flexible matching
+_HEADER_MAP = {col.lower().replace(" ", ""): col for col in EXPECTED_COLUMNS}
 
 # Columns that must be numeric
 _NUMERIC_COLUMNS = [
@@ -84,8 +84,10 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
 
+    df.columns = df.columns.str.strip()
+
     # --- 1. Normalize headers ---
-    incoming_lower = {col.strip().lower(): col.strip() for col in df.columns}
+    incoming_lower = {col.lower().replace(" ", ""): col for col in df.columns}
     rename_map = {}
     for lower_key, original_col in incoming_lower.items():
         if lower_key in _HEADER_MAP:
