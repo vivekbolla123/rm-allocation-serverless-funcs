@@ -124,31 +124,9 @@ def lambda_handler(event, context):
 # --- Local testing: process ALL ladder codes for a route ---
 # messageBody = {
 #     "overrides": {
-#         "route": "D",
+#         "route": "I",
 #         "analyst": "Kenneth Menezes",
 #     },
-#     "modules": {"ladder_gen": 1}
-# }
-
-# --- Local testing: process SPECIFIC ladder codes (simulates SQS batch) ---
-# messageBody = {
-#     "overrides": {
-#         "route": "D",
-#         "analyst": "Kenneth Menezes",
-#         "ladder_codes": ["BOMDEL_MKT", "BOMBLR_BKG"],
-#         "run_id": "test-run-123"
-#     },
-#     "modules": {"ladder_gen": 1}
-# }
-
-# --- SQS format (sent by rm-pricing-fetch-inputs) ---
-# messageBody = {
-#     "route": "D",
-#     "analyst": "Kenneth Menezes",
-#     "run_id": "a1b2c3d4-...",
-#     "batch_index": 1,
-#     "batch_total": 6,
-#     "ladder_codes": ["BOMDEL_MKT", "BOMDEL_BKG", "BOMBLR_MKT"],
 #     "modules": {"ladder_gen": 1}
 # }
 
