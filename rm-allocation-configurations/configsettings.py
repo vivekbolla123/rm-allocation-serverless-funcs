@@ -57,7 +57,6 @@ param_names = [
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
     f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
-  
 ]
 
 
@@ -170,7 +169,7 @@ if env == 'uat':
     # NAV_DB_PASSWORD = credentials.get('/rm/prod/rm-allocation/NAV_DB_PASSWORD', '')
     MARKET_LIST_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list"
     RBD_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-rbds"
-    PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-pricing-triggers"
+    PRICING_TRIGGERS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/rm-allocation-queues_rm-pricing-triggers"
     FETCH_INPUTS_TRIGGER_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-fetch-inputs"
     NAV_API_URL="https://aanegtyddf.execute-api.ap-south-1.amazonaws.com/default/navitaire-webservice/v1/queries/output"
     NAV_BASE_URL= "https://qpecomapp-tbnk-reyalrb.qp.akasaair.com/test"

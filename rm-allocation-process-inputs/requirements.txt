@@ -8,3 +8,4 @@ numpy==1.26.4
 pymongo
 mysql-connector-python
 pymysql
+datadog-lambda

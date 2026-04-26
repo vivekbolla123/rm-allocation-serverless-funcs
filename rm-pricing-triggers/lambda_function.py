@@ -1,7 +1,6 @@
 import logging
 import boto3
 from pymongo import MongoClient
-import pymssql
 import configsettings
 import sys
 import json
@@ -9,6 +8,8 @@ import json
 from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
+from urllib.parse import quote_plus
+from common_utils import instrument_engine
 from constants_utils import ConstantsUtils
 from actionableSectors import ActionSectors
 from ladderGen import LadderGen
@@ -27,11 +28,12 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB)
     dw_conn = create_engine(DW_DB_CONN)
 
-    NavitaireConnection = pymssql.connect(
-            host=configsettings.NAV_DB_HOST,
-            user=configsettings.NAV_DB_USER,
-            password=configsettings.NAV_DB_PASSWORD
-        )
+    NavitaireConnection = create_engine(
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}"
+    )
+    instrument_engine(NavitaireConnection)
     
     mongo_client = MongoClient(
             host=configsettings.MONGO_URL,
@@ -85,7 +87,16 @@ def lambda_handler(event, context):
     params = {}
 
     if "overrides" in data:
+        # Direct invocation / local testing — overrides nested under 'overrides' key
         overrides = data["overrides"]
+    else:
+        # SQS message from rm-pricing-fetch-inputs — flat structure
+        # Build overrides from top-level keys
+        overrides = {
+            k: data[k] for k in ('route', 'analyst', 'run_id', 'batch_index',
+                                  'batch_total', 'ladder_codes')
+            if k in data
+        }
 
     for module_key in modules.keys():
         params["rdEsbConn"] = rm_rd_esb_conn
@@ -109,22 +120,22 @@ def lambda_handler(event, context):
 
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
+
+# --- Local testing: process ALL ladder codes for a route ---
+# messageBody = {
+#     "overrides": {
+#         "route": "I",
+#         "analyst": "Kenneth Menezes",
+#     },
+#     "modules": {"ladder_gen": 1}
+# }
+
 # messageBody = {
 #     "overrides": {
 #         "route": "I",
 #         "analyst": "Kenneth Menezes"
 #     },
 #     "modules": {"action_sect": 1}
-# }
-
-# messageBody = {
-#     "overrides": {
-#         "route": "D",
-#         "analyst": "Kenneth Menezes",
-#         "sector": ["BOMDEL", "NMILKO", "BLRDBR"],
-#         "fare_source_flag": "esb"
-#     },
-#     "modules": {"ladder_gen": 1}
 # }
 
 # messageBody = {
@@ -137,7 +148,8 @@ def lambda_handler(event, context):
 # messageBody = {
 #     "overrides": {
 #         "analyst": "Kenneth Menezes",
-#         "type": "Saver"
+#         "type": "Others",
+#         "route": "D"
 #     },
 #     "modules": {"fare_filing": 1}
 # }

@@ -13,3 +13,4 @@ pymssql
 waitress
 python-dotenv
 testcontainers.mysql
+ddtrace

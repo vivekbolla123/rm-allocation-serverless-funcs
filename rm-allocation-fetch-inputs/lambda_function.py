@@ -27,6 +27,7 @@ from pymssql import Error as PymssqlError
 from sqlalchemy.exc import OperationalError, DBAPIError
 from sqlalchemy.engine.base import Engine
 from urllib.parse import quote_plus
+from common_utils import instrument_engine
 import tracemalloc
 import gc
 
@@ -197,6 +198,7 @@ def create_navitaire_connection_pool():
             conn.execute(text("SELECT 1"))
     
     logger.info("Navitaire SQL Server connection pool established")
+    instrument_engine(engine)
     return engine
 
 @retry_on_connection_error(
@@ -207,15 +209,21 @@ def create_navitaire_connection_pool():
 )
 def create_navitaire_connection():
     """Create SQL Server connection with retry logic - FALLBACK IF NOT USING POOL"""
-    conn = pymssql.connect(
-        host=configsettings.NAV_DB_HOST,
-        user=configsettings.NAV_DB_USER,
-        password=configsettings.NAV_DB_PASSWORD,
-        timeout=0,          # Increased from 30 to 120 seconds
-        login_timeout=120      # Increased from 30 to 60 seconds
+    connection_string = (
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}"
     )
+    engine = create_engine(
+        connection_string,
+        connect_args={
+            'timeout': 0,
+            'login_timeout': 120
+        }
+    )
+    instrument_engine(engine)
     logger.info("Navitaire SQL Server connection established")
-    return conn
+    return engine
 
 def create_dw_connection():
     """Create MySQL connection with retry and pooling"""

@@ -1,23 +1,35 @@
 FROM public.ecr.aws/lambda/python:3.10
-
 ARG ENVN
-ENV env $ENVN
-
+ARG GIT_COMMIT_SHA
+ARG GIT_BRANCH
+ARG GIT_TAG
+ENV env=$ENVN
 RUN echo "Creating image for $env Environment"
-# Install the function's dependencies using file requirements.txt
-# from your project folder.
-COPY requirements.txt  .
-RUN yum install -y gcc freetds freetds-devel && \
-    pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}" && \
-    find "${LAMBDA_TASK_ROOT}" -type d \( -name "tests" -o -name "test" \) -exec rm -rf {} + || true && \
-    find "${LAMBDA_TASK_ROOT}" -type d -name "__pycache__" -exec rm -rf {} + || true && \
-    rm -rf "${LAMBDA_TASK_ROOT}/boto3"* "${LAMBDA_TASK_ROOT}/botocore"* && \
-    yum remove -y gcc freetds-devel && \
-    yum clean all && \
-    rm -rf /var/cache/yum
 
-# Copy function code
+RUN yum install -y gcc freetds-devel && \
+    yum clean all
+
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt --target "${LAMBDA_TASK_ROOT}"
+
+COPY --from=public.ecr.aws/datadog/lambda-extension:latest /opt/. /opt/
+
 COPY ./ ${LAMBDA_TASK_ROOT}/
 
-# Set the CMD to your handler (could also be done as a parameter override outside of the Dockerfile)
-CMD [ "lambda_function.lambda_handler" ] 
+# Datadog configuration
+# DD_API_KEY set in configsettings.py
+ENV DD_LAMBDA_HANDLER=lambda_function.lambda_handler
+ENV DD_SITE=datadoghq.com
+ENV DD_TRACE_ENABLED=true
+ENV DD_DATA_STREAMS_ENABLED=true
+ENV DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED=true
+ENV DD_SERVERLESS_LOGS_ENABLED=true
+ENV DD_LOGS_INJECTION=true
+ENV DD_COLD_START_TRACING=false
+ENV DD_APM_IGNORE_RESOURCES="aws.lambda.cold_start,aws.lambda.load.*"
+ENV DD_ENV=${ENVN}
+ENV DD_SERVICE=rm-process-inputs
+ENV DD_VERSION=${GIT_TAG}
+ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.branch:${GIT_BRANCH},Department:RM,team:RM"
+
+CMD ["datadog_lambda.handler.handler"]

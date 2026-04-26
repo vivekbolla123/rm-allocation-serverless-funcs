@@ -1,7 +1,10 @@
 from datetime import datetime
+import logging
 import pandas as pd
 import requests
 from Constants import *
+
+logger = logging.getLogger(__name__)
 
 class NavAPIHelper:
     def __init__(self,NAV_BASE_API_URL,NAV_OCP_SUBSCRIPTION_KEY,NAV_USERNAME,NAV_PWD,NAV_DOMAIN):
@@ -32,7 +35,7 @@ class NavAPIHelper:
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
             
         else:
-            print("Failed to get token")
+            logger.error("Failed to get token")
 
     def get_leg_nest_details(self,  dep_date, carrier_code, identifier, origin, destin ):
         dep_date=datetime.strptime(str(dep_date), DATE_FORMAT).date().strftime(DATE_FORMAT_2)
@@ -48,7 +51,7 @@ class NavAPIHelper:
                             nest_key,lid,nest_lid = self.get_nest_key(leg_key)
                             return leg_key,nest_key,lid,nest_lid
         else:
-            print("Failed to get leg and nest keys:"+ response.text)
+            logger.error("Failed to get leg and nest keys:"+ response.text)
         return None,None,None,None
     
     def get_nest_key(self, leg_key):
@@ -71,14 +74,14 @@ class NavAPIHelper:
     def update_leg(self, leg_key, lid):
         url = f"{self.base_url}/dcs/v1/inventory/legs/{leg_key}"
         data = {"lid": int(lid)}
-        print('lid api called '+ str(url))
-        print('payload sent '+ str(data))
+        logger.info('lid api called '+ str(url))
+        logger.info('payload sent '+ str(data))
         
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
-            print('lid changed sucessfully to '+ str(lid))
+            logger.info('lid changed sucessfully to '+ str(lid))
         else:
-            print("Failed to update leg :"+ response.text)
+            logger.error("Failed to update leg :"+ response.text)
            
         
     def update_leg_nest(self, leg_key, nest_key, lid):
@@ -86,9 +89,9 @@ class NavAPIHelper:
         data = {"lid": int(lid)}
         response = self.session.patch(url, json=data)
         if response.status_code == 200:
-            print('nest lid changed sucessfully to '+ str(lid))
+            logger.info('nest lid changed sucessfully to '+ str(lid))
         else:
-            print("Failed to update leg nest:"+ response.text)
+            logger.error("Failed to update leg nest:"+ response.text)
     
     
     def get_second_flight_dep(self,flightno1,flightno2,org,destin,depDate):
