@@ -833,6 +833,7 @@ class DynAlloc:
 							b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 							if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 								b2b_anchor_source = "B2CDiscounted"
+								self.outputSummaryRow_b2b.fareOffset = 0
 					else:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Fallback
 					self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
