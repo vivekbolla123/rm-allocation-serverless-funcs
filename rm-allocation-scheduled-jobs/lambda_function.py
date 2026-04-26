@@ -43,6 +43,7 @@ from mkt_cleanup import MarketListCleanup
 from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
+from fetchactiveflights import FetchActiveFlights
 
 def create_logger():
     logger = logging.getLogger()
@@ -131,7 +132,8 @@ module_map = {
     "mkt_cleanup": MarketListCleanup,
     "saleinv_baseload": SaleInvBaseloadCalc,
     "saleinv_rbl": SaleInvRBLCalc,
-    "saleinv_leanpeak_map": SaleInvLeanPeakMap
+    "saleinv_leanpeak_map": SaleInvLeanPeakMap,
+    "fetchactiveflights": FetchActiveFlights
 }
 
 
