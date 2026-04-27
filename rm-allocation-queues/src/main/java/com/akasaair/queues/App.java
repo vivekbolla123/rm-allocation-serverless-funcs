@@ -5304,9 +5304,7 @@ public class App implements CommandLineRunner {
                             .append("forecast_model", forecastModel)
                             .append("updated_at", new Date());
 
-                    if (!farecap.isEmpty()) {
-                        updateFields.append("farecap", farecap);
-                    }
+                    updateFields.append("farecap", farecap);
 
                     Document update = new Document("$set", updateFields);
 
