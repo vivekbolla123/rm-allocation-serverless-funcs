@@ -242,7 +242,7 @@ class MarketListCleanup:
                 f"{collection_name}: checked {total_checked} docs, "
                 f"deleted {deleted_count} (past dates or no matching Navitaire flight)"
             )
-            return {'checked': total_checked, 'deleted': deleted_count}
+            return f"checked: {total_checked}, deleted: {deleted_count}"
 
         except Exception as e:
             self.logger.error(f"Error cleaning up {collection_name}: {e}")
@@ -295,7 +295,7 @@ class MarketListCleanup:
                 f"{collection_name}: checked {total_checked} docs, "
                 f"deleted {deleted_count} (past dates or no matching Navitaire connection)"
             )
-            return {'checked': total_checked, 'deleted': deleted_count}
+            return f"checked: {total_checked}, deleted: {deleted_count}"
 
         except Exception as e:
             self.logger.error(f"Error cleaning up {collection_name}: {e}")
@@ -327,7 +327,7 @@ class MarketListCleanup:
             # Summary log
             summary_parts = []
             for coll, res in results.items():
-                summary_parts.append(f"{coll}: {res['deleted']}/{res['checked']} removed")
+                summary_parts.append(f"{coll}: {res}")
             self.logger.info(f"Market list cleanup complete — {', '.join(summary_parts)}")
 
             return results
