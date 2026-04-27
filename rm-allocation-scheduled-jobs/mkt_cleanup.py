@@ -54,6 +54,7 @@ class MarketListCleanup:
             FROM {self.nav_db_name}rez.InventoryLeg
             WHERE DepartureDate >= CAST(GETDATE() AS DATE)
             AND CarrierCode='QP' AND FlightNumber < 7000
+            AND Status <> 2
             """
             df = pd.read_sql(query, self.nav_conn)
             df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
