@@ -710,11 +710,7 @@ class RBDAllocations:
                         openbuketFlag = True
                         openingRBDPrice = price
 
-                    if cappedRBDIndex != -1 and b2bctr == cappedRBDIndex:
-                        currRec.set_class_attribute(brd_counter, 'class_au', int(totalCapacity))
-                        if openbuketFlag and ((b2bStatus == 0) or (b2bStatus == 2)):
-                            counter = counter + 1
-                    elif cappedRBDIndex != -1 and b2bctr > cappedRBDIndex:
+                    if cappedRBDIndex != -1 and b2bctr > cappedRBDIndex:
                         currRec.set_class_attribute(brd_counter, 'class_au', 0)
                         if openbuketFlag and ((b2bStatus == 0) or (b2bStatus == 2)):
                             counter = counter + 1
