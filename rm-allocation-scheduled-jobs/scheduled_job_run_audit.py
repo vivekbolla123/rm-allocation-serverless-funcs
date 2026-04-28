@@ -22,7 +22,7 @@ class AuditScheduledJob:
         self.start_time = start_time
     
     
-    def add_scheduled_job_audit(self, end_time):
+    def add_scheduled_job_audit(self, end_time, run_details=None):
         """
         Insert audit record for scheduled job run.
         
@@ -51,6 +51,11 @@ class AuditScheduledJob:
                 'end_time': end_time_dt,
                 'created_at': datetime.now()  # Optional: track when record was created
             }
+            
+            if isinstance(run_details, dict):
+                audit_document['run_details'] = run_details
+            elif run_details is not None:
+                audit_document['run_details'] = {'result': run_details}
             
             # Insert into MongoDB
             result = self.collection.insert_one(audit_document)
