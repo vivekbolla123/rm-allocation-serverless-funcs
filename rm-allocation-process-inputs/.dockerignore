@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+.git/
+.gitignore
+
+# Deployment scripts
+*.sh
+Dockerfile
+.dockerignore
+README.md
+
+# Tests and DB scripts
+testcases/
+dbscripts/

@@ -73,6 +73,7 @@ if env == 'prod':
     NAV_DB_HOST = "10.154.12.13:52900"
     NAV_DB_NAME = "[REZ0KOD01]."
     NAV_DB_DW_NAME = "[REZ0KDW01]."
+    NAV_CONN_DB_NAME = "[SCD0KOD01]."
     NAV_DB_WB_NAME = "[REZ0KWB01]."
     NAV_DB_REF_NAME = "[REF0KOD01]."
     NAV_DB_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD', '')
@@ -151,6 +152,7 @@ if env == 'uat':
     RM_DB_APPUSER_PASSWORD_READ=credentials.get('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     NAV_DB_HOST = "10.154.12.19:52900"
     NAV_DB_NAME = "[TST0KOD01]."
+    NAV_CONN_DB_NAME = "[TSTSCD0KOD01]."
     NAV_DB_DW_NAME = "[TST0KDW01]."
     NAV_DB_WB_NAME = "[TST0KWB01]."
     NAV_DB_REF_NAME = "[TSTREF0KOD01]."

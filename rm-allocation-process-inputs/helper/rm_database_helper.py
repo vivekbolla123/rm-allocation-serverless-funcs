@@ -241,6 +241,27 @@ class RMDatabaseHelper:
                             }
                         },
                         {"$unwind": {"path": "$sb", "preserveNullAndEmptyArrays": True}},
+                        # Lookup active_sectors
+                        {
+                            "$lookup": {
+                                "from": "active_sectors",
+                                "let": {
+                                    "org": "$Origin",
+                                    "dst": "$Destin"
+                                },
+                                "pipeline": [
+                                    {
+                                        "$match": {
+                                            "$expr": {
+                                                "$eq": ["$Sector", {"$concat": ["$$org", "$$dst"]}]
+                                            }
+                                        }
+                                    }
+                                ],
+                                "as": "act_sec"
+                            }
+                        },
+                        {"$unwind": {"path": "$act_sec", "preserveNullAndEmptyArrays": True}},
                         # Add fields from joined collections with proper null handling
                         {
                             "$addFields": {
@@ -272,7 +293,9 @@ class RMDatabaseHelper:
 "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
 "current_rbd_P": {"$ifNull": ["$cr.current_rbd_P", 0]},
 "total_series_seats": {"$ifNull": ["$sb.total_series_seats", 0]},
-    "NextFlight": 0
+    "NextFlight": 0,
+    "forecast_model": "$act_sec.Forecast_model",
+    "farecap": "$act_sec.Farecap"
 }
                         },
                         # Remove the temporary fields and nested objects
@@ -283,7 +306,8 @@ class RMDatabaseHelper:
                                 "bl": 0,
                                 "cr": 0,
                                 "fr": 0,
-                                "sb": 0
+                                "sb": 0,
+                                "act_sec": 0
                             }
                         }
                     ]
@@ -581,6 +605,31 @@ class RMDatabaseHelper:
         }
     },
     {
+        "$lookup": {
+            "from": "active_sectors",
+            "let": {
+                "s1Origin": "$sector1Origin",
+                "s2Dest": "$sector2Dest"
+            },
+            "pipeline": [
+                {
+                    "$match": {
+                        "$expr": {
+                            "$eq": ["$Sector", {"$concat": ["$$s1Origin", "$$s2Dest"]}]
+                        }
+                    }
+                }
+            ],
+            "as": "act_sec"
+        }
+    },
+    {
+        "$unwind": {
+            "path": "$act_sec",
+            "preserveNullAndEmptyArrays": True
+        }
+    },
+    {
         "$replaceRoot": {
             "newRoot": {
                 "$mergeObjects": [
@@ -622,7 +671,11 @@ class RMDatabaseHelper:
                         "DirectFlightOpeningRBDB2C": "$connections_details.DirectFlightOpeningRBDB2C",
                         
                         # Map SOSFlag to sosFlag
-                        "sosFlag": "$SOSFlag"
+                        "sosFlag": "$SOSFlag",
+                        
+                        # Active Sectors
+                        "forecast_model": "$act_sec.Forecast_model",
+                        "farecap": "$act_sec.Farecap"
                     }
                 ]
             }
@@ -646,7 +699,8 @@ class RMDatabaseHelper:
             "crb1_b2c": 0,
             "crb2_b2b": 0,
             "crb2_b2c": 0,
-            "connections_details": 0
+            "connections_details": 0,
+            "act_sec": 0
         }
     }
 ]
