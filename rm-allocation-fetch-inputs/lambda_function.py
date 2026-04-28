@@ -698,37 +698,36 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
 
 def get_connection_departure_dates(nav_helper, min_date, max_date):
     """Fetch second flight departure dates from ActiveJourneyView via SQL query
-    instead of making individual API calls per connection."""
+    instead of making individual API calls per connection.
+    Includes both Connecting (2 segments) and Through (1 segment, 2 legs) flights."""
     NAV_CONN_DB_NAME = configsettings.NAV_CONN_DB_NAME
     NAV_DB_NAME = configsettings.NAV_DB_NAME
     query = f"""
     WITH JourneyData AS (
+
+        -- CONNECTING flights (2 segments)
         SELECT
             a.ScheduleJourneyID,
             a.JourneyDepartureStation,
             a.JourneyArrivalStation,
             a.JourneyBeginDate,
-
-            -- Segment 1
+            'Connecting'                                                                                                AS JourneyType,
             LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber1,
-            s1.DepartureStation + s1.ArrivalStation                                                               AS Sector1,
+            s1.DepartureStation + s1.ArrivalStation                                                                     AS Sector1,
             CAST(a.JourneyBeginDate AS DATE)                                                                            AS DepartureDate1,
             RIGHT('0' + CAST(s1.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTD % 60 AS VARCHAR), 2)   AS STD1,
             RIGHT('0' + CAST(s1.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTA % 60 AS VARCHAR), 2)   AS STA1,
-
-            -- Segment 2
             LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber2,
-            s2.DepartureStation + s2.ArrivalStation                                                               AS Sector2,
+            s2.DepartureStation + s2.ArrivalStation                                                                     AS Sector2,
             DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))                                               AS DepartureDate2,
             RIGHT('0' + CAST(s2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTD % 60 AS VARCHAR), 2)   AS STD2,
             RIGHT('0' + CAST(s2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTA % 60 AS VARCHAR), 2)   AS STA2,
-
             ROW_NUMBER() OVER (
                 PARTITION BY
                     LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR))),
                     LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR))),
-                    s1.DepartureStation + '-' + s1.ArrivalStation,
-                    s2.DepartureStation + '-' + s2.ArrivalStation,
+                    s1.DepartureStation + s1.ArrivalStation,
+                    s2.DepartureStation + s2.ArrivalStation,
                     CAST(a.JourneyBeginDate AS DATE),
                     DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
                 ORDER BY a.ScheduleJourneyID
@@ -748,25 +747,94 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
         INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s1
             ON s1.ScheduleJourneyID = a.ScheduleJourneyID
             AND s1.SegmentNumber = 1
+            AND s1.LegNumber = 1
 
         INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView s2
             ON s2.ScheduleJourneyID = a.ScheduleJourneyID
             AND s2.SegmentNumber = 2
+            AND s2.LegNumber = 1
 
         INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il1
-            ON il1.CarrierCode       = s1.SegmentCarrierCode
-            AND il1.FlightNumber     = s1.SegmentFlightNumber
-            AND il1.DepartureStation = s1.DepartureStation
-            AND il1.ArrivalStation   = s1.ArrivalStation
+            ON il1.CarrierCode           = s1.SegmentCarrierCode
+            AND il1.FlightNumber         = s1.SegmentFlightNumber
+            AND il1.DepartureStation     = s1.DepartureStation
+            AND il1.ArrivalStation       = s1.ArrivalStation
             AND CAST(il1.DepartureDate AS DATE) = CAST(a.JourneyBeginDate AS DATE)
             AND il1.Status = 0
 
         INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il2
-            ON il2.CarrierCode       = s2.SegmentCarrierCode
-            AND il2.FlightNumber     = s2.SegmentFlightNumber
-            AND il2.DepartureStation = s2.DepartureStation
-            AND il2.ArrivalStation   = s2.ArrivalStation
+            ON il2.CarrierCode           = s2.SegmentCarrierCode
+            AND il2.FlightNumber         = s2.SegmentFlightNumber
+            AND il2.DepartureStation     = s2.DepartureStation
+            AND il2.ArrivalStation       = s2.ArrivalStation
             AND CAST(il2.DepartureDate AS DATE) = DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
+            AND il2.Status = 0
+
+        UNION ALL
+
+        -- THROUGH flights (1 segment, 2 legs, same flight number)
+        SELECT
+            a.ScheduleJourneyID,
+            a.JourneyDepartureStation,
+            a.JourneyArrivalStation,
+            a.JourneyBeginDate,
+            'Through'                                                                                                   AS JourneyType,
+            LTRIM(RTRIM(CAST(l1.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber1,
+            l1.DepartureStation + l1.ArrivalStation                                                                     AS Sector1,
+            CAST(a.JourneyBeginDate AS DATE)                                                                            AS DepartureDate1,
+            RIGHT('0' + CAST(l1.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l1.PaxSTD % 60 AS VARCHAR), 2)   AS STD1,
+            RIGHT('0' + CAST(l1.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l1.PaxSTA % 60 AS VARCHAR), 2)   AS STA1,
+            LTRIM(RTRIM(CAST(l2.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber2,
+            l2.DepartureStation + l2.ArrivalStation                                                                     AS Sector2,
+            DATEADD(DAY, l2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))                                               AS DepartureDate2,
+            RIGHT('0' + CAST(l2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l2.PaxSTD % 60 AS VARCHAR), 2)   AS STD2,
+            RIGHT('0' + CAST(l2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l2.PaxSTA % 60 AS VARCHAR), 2)   AS STA2,
+            ROW_NUMBER() OVER (
+                PARTITION BY
+                    LTRIM(RTRIM(CAST(l1.SegmentFlightNumber AS VARCHAR))),
+                    LTRIM(RTRIM(CAST(l2.SegmentFlightNumber AS VARCHAR))),
+                    l1.DepartureStation + l1.ArrivalStation,
+                    l2.DepartureStation + l2.ArrivalStation,
+                    CAST(a.JourneyBeginDate AS DATE),
+                    DATEADD(DAY, l2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
+                ORDER BY a.ScheduleJourneyID
+            ) AS rn
+
+        FROM (
+            SELECT DISTINCT
+                ScheduleJourneyID,
+                JourneyDepartureStation,
+                JourneyArrivalStation,
+                JourneyBeginDate
+            FROM {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView
+            WHERE JourneyBeginDate >= '{min_date}'
+              AND JourneyBeginDate <= '{max_date}'
+        ) a
+
+        INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView l1
+            ON l1.ScheduleJourneyID = a.ScheduleJourneyID
+            AND l1.SegmentNumber = 1
+            AND l1.LegNumber = 1
+
+        INNER JOIN {NAV_CONN_DB_NAME}Schedule.ActiveJourneyView l2
+            ON l2.ScheduleJourneyID = a.ScheduleJourneyID
+            AND l2.SegmentNumber = 1
+            AND l2.LegNumber = 2
+
+        INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il1
+            ON il1.CarrierCode           = l1.SegmentCarrierCode
+            AND il1.FlightNumber         = l1.SegmentFlightNumber
+            AND il1.DepartureStation     = l1.DepartureStation
+            AND il1.ArrivalStation       = l1.ArrivalStation
+            AND CAST(il1.DepartureDate AS DATE) = CAST(a.JourneyBeginDate AS DATE)
+            AND il1.Status = 0
+
+        INNER JOIN {NAV_DB_NAME}Rez.InventoryLeg il2
+            ON il2.CarrierCode           = l2.SegmentCarrierCode
+            AND il2.FlightNumber         = l2.SegmentFlightNumber
+            AND il2.DepartureStation     = l2.DepartureStation
+            AND il2.ArrivalStation       = l2.ArrivalStation
+            AND CAST(il2.DepartureDate AS DATE) = DATEADD(DAY, l2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
             AND il2.Status = 0
     )
 
@@ -775,6 +843,7 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
         JourneyDepartureStation,
         JourneyArrivalStation,
         JourneyBeginDate,
+        JourneyType,
         FlightNumber1,
         Sector1,
         DepartureDate1,
@@ -794,7 +863,7 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
     conn_df['FlightNumber2'] = conn_df['FlightNumber2'].astype(str).str.strip()
     conn_df['Sector1'] = conn_df['Sector1'].astype(str).str.strip()
     conn_df['Sector2'] = conn_df['Sector2'].astype(str).str.strip()
-    logger.info(f"Fetched {len(conn_df)} connection rows from ActiveJourneyView")
+    logger.info(f"Fetched {len(conn_df)} connection rows from ActiveJourneyView (Connecting + Through)")
     return conn_df
 
 
