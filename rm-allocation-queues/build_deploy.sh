@@ -2,10 +2,17 @@
 
 set -eu
 
+ENV=${1:-}
+
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 JAR_SRC=~/rm-allocation-serverless-funcs/rm-allocation-queues/target/rm-file-handler-1.0.jar
 JAR_DST=~/rm-file-handler/
-SERVICE=rm-file-handler
+
+if [ "$ENV" = "prod" ]; then
+  SERVICE=rm-file-handler-prod
+else
+  SERVICE=rm-file-handler
+fi
 
 log() {
     echo "[$TIMESTAMP] [INFO] $*"
