@@ -570,6 +570,139 @@ class NavDatabaseHelper:
         # Use retry mechanism
         return self._execute_query_with_retry(NavitaireQuery)
 
+def get_prev_last_selling_fares(mkt_list_df):
+    """
+    Fetch the most recent lastSellingFare per (Origin, Destin, FltNum, DepDate, Channel)
+    from qp_dw_rmalloc.run_summary, for only the flight-date-sectors present in mkt_list.
+
+    Strategy: query by date range (uses MongoDB index), then filter in pandas —
+    avoids a $or with potentially thousands of conditions.
+
+    Returns a DataFrame with columns:
+        Origin, Destin, FltNum, DepDate, prevLastSellingFare_B2B, prevLastSellingFare_B2C
+    """
+    try:
+        # Build date range from mkt_list for the MongoDB query
+        dep_dates = pd.to_datetime(mkt_list_df['DepartureDate'])
+        min_date_str = dep_dates.min().strftime('%m/%d/%Y')
+        max_date_str = dep_dates.max().strftime('%m/%d/%Y')
+
+        # Build a set of valid (Origin, Destin, FltNum_str, DepDate_str) tuples
+        # for fast pandas filtering after the fetch
+        mkt_list_df['_dep_date_str'] = dep_dates.dt.strftime('%m/%d/%Y')
+        mkt_list_df['_flt_num_str'] = mkt_list_df['FlightNumber'].astype(str)
+
+        valid_keys = set(
+            zip(
+                mkt_list_df['Origin'],
+                mkt_list_df['Destin'],
+                mkt_list_df['_flt_num_str'],
+                mkt_list_df['_dep_date_str']
+            )
+        )
+        logger.info(f"Unique flight-date-sectors in mkt_list: {len(valid_keys)}")
+
+        # Generate all MM/DD/YYYY date strings in the range for $in match
+        # This is much cheaper than a $or per sector
+        min_dt = dep_dates.min().date()
+        max_dt = dep_dates.max().date()
+        date_list = [
+            (min_dt + timedelta(days=i)).strftime('%m/%d/%Y')
+            for i in range((max_dt - min_dt).days + 1)
+        ]
+
+        pipeline = [
+            {
+                '$match': {
+                    'DepDate': {'$in': date_list},
+                    'Channel': {'$in': ['B2B', 'B2C']},
+                    'lastSellingFare': {'$nin': [None, 'NA', '']}
+                }
+            },
+            {
+                # Latest record per flight-date-sector-channel
+                '$sort': {'CreatedAt': -1}
+            },
+            {
+                '$group': {
+                    '_id': {
+                        'Origin': '$Origin',
+                        'Destin': '$Destin',
+                        'FltNum': '$FltNum',
+                        'DepDate': '$DepDate',
+                        'Channel': '$Channel'
+                    },
+                    'lastSellingFare': {'$first': '$lastSellingFare'}
+                }
+            },
+            {
+                '$project': {
+                    '_id': 0,
+                    'Origin': '$_id.Origin',
+                    'Destin': '$_id.Destin',
+                    'FltNum': '$_id.FltNum',
+                    'DepDate': '$_id.DepDate',
+                    'Channel': '$_id.Channel',
+                    'lastSellingFare': 1
+                }
+            }
+        ]
+
+        run_summary_collection = mongo_client['qp_dw_rmalloc']['run_summary']
+        results = list(run_summary_collection.aggregate(pipeline, allowDiskUse=True))
+
+        if not results:
+            logger.info("No previous lastSellingFare records found in run_summary for current date range.")
+            return pd.DataFrame(columns=[
+                'Origin', 'Destin', 'FltNum', 'DepDate',
+                'prevLastSellingFare_B2B', 'prevLastSellingFare_B2C'
+            ])
+
+        df = pd.DataFrame(results)
+        logger.info(f"run_summary raw fetch: {len(df)} records across {df['DepDate'].nunique()} dates")
+
+        # Filter in pandas to only sectors present in mkt_list
+        df['_key'] = list(zip(df['Origin'], df['Destin'], df['FltNum'].astype(str), df['DepDate']))
+        df = df[df['_key'].isin(valid_keys)].drop(columns=['_key'])
+        logger.info(f"After mkt_list sector filter: {len(df)} records")
+
+        if df.empty:
+            return pd.DataFrame(columns=[
+                'Origin', 'Destin', 'FltNum', 'DepDate',
+                'prevLastSellingFare_B2B', 'prevLastSellingFare_B2C'
+            ])
+
+        # Pivot B2B/B2C into separate columns
+        df_pivot = df.pivot_table(
+            index=['Origin', 'Destin', 'FltNum', 'DepDate'],
+            columns='Channel',
+            values='lastSellingFare',
+            aggfunc='first'
+        ).reset_index()
+
+        df_pivot.columns.name = None
+
+        rename_map = {}
+        if 'B2B' in df_pivot.columns:
+            rename_map['B2B'] = 'prevLastSellingFare_B2B'
+        if 'B2C' in df_pivot.columns:
+            rename_map['B2C'] = 'prevLastSellingFare_B2C'
+        df_pivot = df_pivot.rename(columns=rename_map)
+
+        for col in ['prevLastSellingFare_B2B', 'prevLastSellingFare_B2C']:
+            if col not in df_pivot.columns:
+                df_pivot[col] = 'NA'
+
+        logger.info(f"prevLastSellingFare ready: {len(df_pivot)} unique flight-date-sectors")
+        return df_pivot
+
+    except Exception as e:
+        logger.error(f"Error fetching prevLastSellingFare from run_summary: {str(e)}")
+        return pd.DataFrame(columns=[
+            'Origin', 'Destin', 'FltNum', 'DepDate',
+            'prevLastSellingFare_B2B', 'prevLastSellingFare_B2C'
+        ])
+
 # ==========================
 # DW Query with Retry
 # ==========================
@@ -1381,6 +1514,30 @@ def lambda_handler(event, context):
         log_memory("after merge bookings_count")
         logger.info(f"FINAL mkt_list shape: {mkt_list.shape}")
         logger.info(f"FINAL mkt_list columns: {list(mkt_list.columns)}")
+        
+        # Fetch previous run's last selling fares — scoped to filtered mkt_list sectors only
+        prev_last_selling_df = get_prev_last_selling_fares(mkt_list)
+        log_memory("after get_prev_last_selling_fares")
+        logger.info(f"prev_last_selling_df shape: {prev_last_selling_df.shape}")
+
+        if not prev_last_selling_df.empty:
+            mkt_list['_dep_date_str'] = pd.to_datetime(mkt_list['DepartureDate']).dt.strftime('%m/%d/%Y')
+            mkt_list['_flt_num_str'] = mkt_list['FlightNumber'].astype(str)
+            prev_last_selling_df['FltNum'] = prev_last_selling_df['FltNum'].astype(str)
+
+            mkt_list = mkt_list.merge(
+                prev_last_selling_df,
+                how='left',
+                left_on=['Origin', 'Destin', '_flt_num_str', '_dep_date_str'],
+                right_on=['Origin', 'Destin', 'FltNum', 'DepDate'],
+                suffixes=('', '_rs')
+            ).drop(columns=['FltNum', 'DepDate', '_dep_date_str', '_flt_num_str'], errors='ignore')
+        else:
+            mkt_list['prevLastSellingFare_B2B'] = 'NA'
+            mkt_list['prevLastSellingFare_B2C'] = 'NA'
+
+        log_memory("after merge prevLastSellingFare")
+        logger.info(f"mkt_list shape after prevLastSellingFare merge: {mkt_list.shape}")
         
     elif route_type == "connections":
         navapihelper = NavAPIHelper(configsettings.NAV_BASE_URL, configsettings.NAV_OCP_SUBSCRIPTION_KEY, configsettings.NAV_USERNAME, configsettings.NAV_PWD, configsettings.NAV_DOMAIN)

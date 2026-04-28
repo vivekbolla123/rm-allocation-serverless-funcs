@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare):
         hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
@@ -60,7 +60,7 @@ class DetermineRBD:
         toleranceValue = CONST_NA
 
         if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0 and Af_Nb_Allin != CONST_NA):
-            anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
+            anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare)
             howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
             
         else:
@@ -311,6 +311,11 @@ class DetermineRBD:
 
         # Y = MIN(Fare_1, Fare_2)
         Y = min(Fare1, Fare2)
+        temp_swap = 0
+        if X > Y:
+            temp_swap = X
+            X = Y
+            Y = temp_swap
 
         # F = Constant / PLF_Gain, capped at 1; if PLF_Gain > 60 then F = 0
         if PLF_Gain > PLF_GAIN_MAX_ZERO:
@@ -364,7 +369,7 @@ class DetermineRBD:
 
         return temp_fareanchor, howDetermined
 
-    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -454,8 +459,13 @@ class DetermineRBD:
                 return 0, ""
             
             anchorFare = func(valid_fares.values())
-            fareType = next(name for name, value in valid_fares.items() if value == anchorFare)
-            
+            matched = next((name for name, value in valid_fares.items() if value == anchorFare), None)
+            if matched:
+                fareType = matched
+            else:
+                # Build _AvgFare + all contributing fare names stripped of leading underscore
+                parts = "And".join(k.lstrip("_") for k in valid_fares.keys())
+                fareType = f"_AvgFare{parts}"
             return anchorFare, fareType
         
         def assign_b2b_factor(currParams, b2b_factor_value):
@@ -529,16 +539,12 @@ class DetermineRBD:
             }
 
             return hour_to_value.get(target_hour)
-        
-        if value_exist(lastSoldFare) and value_exist(last7AvgVal):
-            maxLastSoldFare = max(lastSoldFare, last7AvgVal)
-        elif value_exist(lastSoldFare):
+
+        if value_exist(lastSoldFare):
             maxLastSoldFare = lastSoldFare
-        elif value_exist(last7AvgVal):
-            maxLastSoldFare = last7AvgVal
         else:
             maxLastSoldFare = None
-        
+
         # ------
         if imp_forecast_band == 4:
 
@@ -551,7 +557,7 @@ class DetermineRBD:
             # Check if either lastSoldFare or last7AvgVal is the highest fare
             isLastSoldMax = value_exist(maxLastSoldFare) and is_greater(maxLastSoldFare, strategyFare, profileFare)
 
-            if float(BookingsInHour) > 0 and isLastSoldMax:
+            if float(BookingsInHour) > 0 and isLastSoldMax and maxLastSoldFare <= prevLastSellingFare:
                 upsell_value = upsell_by_per(anchorFare, 2.5)
                 anchorFare = max(upsell_value, anchorFare + 200)
                 howDetermined += '_UpsellY'
@@ -571,27 +577,29 @@ class DetermineRBD:
                 howDetermined += fareType + '_UpsellN'
             
             elif not value_exist(maxLastSoldFare):
-                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, profileFare=profileFare)
+                if value_exist(profileFare) and value_exist(strategyFare):
+                    if is_greater(profileFare, strategyFare):
+                        anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, profileFare=profileFare, func=statistics.mean)
+                    else:
+                        anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare)
+
                 howDetermined += fareType + '_UpsellN'
 
             elif not value_exist(profileFare):
-                avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
-                anchorFare, fareType = get_fare_and_type(avgLastSoldStrategy=avgLastSoldStrategy)
+                anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare, strategyFare=strategyFare, func=statistics.mean)
                 howDetermined += fareType + '_UpsellN'
 
             else:
                 # all 3 fares exist
                 if is_greater(strategyFare, maxLastSoldFare, profileFare):
-                    avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
+                    avgLastSoldStrategy, _ = get_fare_and_type(maxLastSoldFare=maxLastSoldFare, strategyFare=strategyFare, func=statistics.mean)
                     anchorFare, fareType = get_fare_and_type(profileFare=profileFare, avgLastSoldStrategy=avgLastSoldStrategy)
                         
                     howDetermined += fareType + '_UpsellN'
                     should_use_tolerance = True
 
                 elif is_greater(profileFare, strategyFare) and is_greater(strategyFare, maxLastSoldFare):
-                    avgLastSoldStrategy = (maxLastSoldFare + strategyFare) / 2
-                    anchorFare, fareType = get_fare_and_type(avgLastSoldStrategy=avgLastSoldStrategy)
-
+                    anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare, strategyFare=strategyFare, func=statistics.mean)
                     howDetermined += fareType + '_UpsellN'
                     should_use_tolerance = True
             
@@ -599,7 +607,7 @@ class DetermineRBD:
                     anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare)
                     howDetermined += fareType
 
-                    if float(BookingsInHour) > 0:
+                    if float(BookingsInHour) > 0 and maxLastSoldFare <= prevLastSellingFare:
                         upsell_value = upsell_by_per(anchorFare, 2.5)
                         anchorFare = max(upsell_value, anchorFare + 200)
                         howDetermined += '_UpsellY'
@@ -613,31 +621,40 @@ class DetermineRBD:
 
         elif imp_forecast_band == 1:
             howDetermined = 'AllocationY'
-            lowestFare, _ = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
-            
-            if (lowestFare == profileFare):
-                diff = get_imp_fcs_diff()
-                if value_exist(diff) and diff < -1: # imp_forecast drops by > 1% in last 6H
-                    avgStrategyProfile = (strategyFare + profileFare) / 2
-                    anchorFare, fareType = get_fare_and_type(avgStrategyProfile=avgStrategyProfile)
-
-                    howDetermined += fareType + '_UpsellN'
-
-                else:
-                    anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=statistics.median)
+            if not value_exist(maxLastSoldFare):
+                # Last Selling NA — apply spec logic
+                if is_greater(strategyFare, profileFare):  # Strategy > Profile
+                    diff = get_imp_fcs_diff()
+                    if value_exist(diff) and diff < -1:  # imp forecast dropping
+                        anchorFare, fareType = get_fare_and_type(profileFare=profileFare)
+                        howDetermined += fareType + '_UpsellN'
+                    else:  # imp forecast increasing or flat
+                        anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, profileFare=profileFare, func=statistics.mean)
+                        howDetermined += fareType + '_UpsellN'
+                else:  # Strategy < Profile
+                    anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare)
                     howDetermined += fareType + '_UpsellN'
 
             else:
-                anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
-                howDetermined += fareType + '_UpsellN'
-            
+                lowestFare, _ = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
+                if lowestFare == profileFare:
+                    diff = get_imp_fcs_diff()
+                    if value_exist(diff) and diff < -1:
+                        anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, profileFare=profileFare, func=statistics.mean)
+                        howDetermined += fareType + '_UpsellN'
+                    else:
+                        anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare,profileFare=profileFare, func=statistics.median)
+                        howDetermined += fareType + '_UpsellN'
+                else:
+                    anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare,profileFare=profileFare, func=min)
+                    howDetermined += fareType + '_UpsellN'
+
             assign_b2b_factor(currParams, b2b_factor_value)
             should_use_tolerance = True
 
         elif imp_forecast_band == 0:
             howDetermined = 'AllocationY'
-            anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,
-                                                          maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
+            anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare,maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
             howDetermined += fareType + '_UpsellN'
             
             assign_b2b_factor(currParams, b2b_factor_value)

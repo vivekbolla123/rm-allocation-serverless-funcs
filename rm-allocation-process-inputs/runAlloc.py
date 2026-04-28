@@ -697,6 +697,8 @@ class DynAlloc:
 			param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
 			param_b2b_tolerance = getattr(self.currParams, 'b2b_tolerance', 0) # Default tolerance
 			param_profileFares = getattr(self.currParams, 'profileFares', 1) # Default to 1 (enabled)
+			prevLastSellingFare_B2C = int(getattr(self.currParams, 'prevLastSellingFare_B2C', 0))
+			prevLastSellingFare_B2B = int(getattr(self.currParams, 'prevLastSellingFare_B2B', 0))
 
 			mkt_fare_flag = int(self.currParams.mkt_fare_flag)
 
@@ -766,7 +768,7 @@ class DynAlloc:
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 												overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val, 
-												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare_B2C
 											)
 
 				# Get B2C Opening Price for potential B2B derivation
@@ -843,7 +845,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare_B2B
 						)
 					
 				# Removed last_seven_avg_val from B2B Strategy Fare Calculation
