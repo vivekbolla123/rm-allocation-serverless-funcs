@@ -391,6 +391,8 @@ class RBDAllocations:
             except Exception as e:
                 self.logger.error(f"Error during spoilage reduction override: {e}")
         if cappedRBDIndex != -1:
+            # Ensure the capped RBD (final valid RBD under farecap) gets all seats
+            currRec.set_class_attribute(cappedRBDIndex + 1, 'class_au', int(totalCapacity))
             for i in range(cappedRBDIndex + 1, B2CRBDs.shape[0]):
                 currRec.set_class_attribute(i + 1, 'class_au', 0)
                 
