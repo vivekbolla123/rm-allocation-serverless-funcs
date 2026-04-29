@@ -43,6 +43,7 @@ from mkt_cleanup import MarketListCleanup
 from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
+from fetchactiveflights import FetchActiveFlights
 
 def create_logger():
     logger = logging.getLogger()
@@ -131,7 +132,8 @@ module_map = {
     "mkt_cleanup": MarketListCleanup,
     "saleinv_baseload": SaleInvBaseloadCalc,
     "saleinv_rbl": SaleInvRBLCalc,
-    "saleinv_leanpeak_map": SaleInvLeanPeakMap
+    "saleinv_leanpeak_map": SaleInvLeanPeakMap,
+    "fetchactiveflights": FetchActiveFlights
 }
 
 
@@ -180,9 +182,9 @@ def lambda_handler(event, context):
         logger.info(f"{module_key} :: START")
         audit_schedule_run = AuditScheduledJob(mongo_client, logger, module_key, datetime.now())
 
-        Module_obj.run()
+        run_result = Module_obj.run()
 
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
+        audit_schedule_run.add_scheduled_job_audit(datetime.now(), run_details=run_result)
         logger.info(f"{module_key} :: END")
 
     return {
@@ -227,7 +229,8 @@ def lambda_handler(event, context):
 #     "modules": {"saleinv_rbl": 1}
 # }
 # messageBody = {
-#     "modules": {"saleinv_baseload": 1}
+#     "overrides": {"cleanup": ["market_list", "market_list_connections"]},
+#     "modules": {"mkt_cleanup": 1}
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}

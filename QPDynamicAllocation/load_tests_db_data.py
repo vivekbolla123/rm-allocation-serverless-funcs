@@ -62,6 +62,7 @@ class Schema:
         self.load_generic_collection("market_fare_adjustments", "market_fare_adjustments.csv")
         self.load_generic_collection("city_pair", "city_pair.csv")
         self.load_generic_collection("market_fare_station_map", "market_fare_station_map.csv")
+        self.load_generic_collection("active_sectors", "active_sectors.csv")
         
         self.transformCollections()
 

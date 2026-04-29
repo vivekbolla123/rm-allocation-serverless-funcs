@@ -59,55 +59,55 @@ class DetermineRBD:
     
         toleranceValue = CONST_NA
 
-        if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0 and Af_Nb_Allin != CONST_NA):
-            anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare)
-            howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
-            
+        if channel == B2B_CHANNEL:
+            anchorFare = strategyFare
+            howDetermined = "Strategy"
+            upsell = CONST_NA
+            overBookingFare = 0
+            toleranceValue = CONST_NA
         else:
-            value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
-            if value.shape[0] != 0:
-                if channel == B2B_CHANNEL:
-                    anchorValue = value['B2BValue'][0]
-                if channel == B2C_CHANNEL:
-                    anchorValue = value['B2CValue'][0]
-            if anchorValue == 'C':
-                openResult['FareResult']=[f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"]
-                openResult['anchorFare']=['NA']
-                openResult['RBD']=['NA']
-                openResult['Fare']=['NA']
+            if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0 and Af_Nb_Allin != CONST_NA):
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
+                howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
                 
-                return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare, CONST_NA
-
-            self.logger.info("totalCapacity: " + str(totalCapacity))
-            self.logger.info("currBookedLoad: " + str(currBookedLoad))
-
-
-            if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
-                lastSoldFare = CONST_NA
+            else:
+                value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
+                if value.shape[0] != 0:
+                    if channel == B2B_CHANNEL:
+                        anchorValue = value['B2BValue'][0]
+                    if channel == B2C_CHANNEL:
+                        anchorValue = value['B2CValue'][0]
+                if anchorValue == 'C':
+                    openResult['FareResult']=[f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"]
+                    openResult['anchorFare']=['NA']
+                    openResult['RBD']=['NA']
+                    openResult['Fare']=['NA']
                     
-            # value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
-            # if value.shape[0] != 0:
-            #     if channel == B2B_CHANNEL:
-            #         anchorValue = value['B2BValue'][0]
-            #     if channel == B2C_CHANNEL:
-            #         anchorValue = value['B2CValue'][0]
+                    return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare, CONST_NA
 
-            self.logger.info("Last Sold Price: " + str(lastSoldFare))
-            self.logger.info("Profile Fare: " + str(profileFare))
-            self.logger.info("Startegy Fare: " + str(strategyFare))
-            
-            anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter)
-            if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
-                anchorFare = anchorFare+int(currParams.market_discount)
+                self.logger.info("totalCapacity: " + str(totalCapacity))
+                self.logger.info("currBookedLoad: " + str(currBookedLoad))
 
-            
+
+                if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount>0):
+                    lastSoldFare = CONST_NA
+                        
+                self.logger.info("Last Sold Price: " + str(lastSoldFare))
+                self.logger.info("Profile Fare: " + str(profileFare))
+                self.logger.info("Startegy Fare: " + str(strategyFare))
                 
-            if anchorValue == 'A':
-                howDetermined = f"V_{imp_forecast_band}_{dplfBand}_A_{howDetermined}"
-            elif anchorValue == 'B':
-                howDetermined = f"V_{imp_forecast_band}_{dplfBand}_B_{howDetermined}"
-            elif anchorValue == 'C':
-                howDetermined = f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter)
+                if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
+                    anchorFare = anchorFare+int(currParams.market_discount)
+
+                
+                    
+                if anchorValue == 'A':
+                    howDetermined = f"V_{imp_forecast_band}_{dplfBand}_A_{howDetermined}"
+                elif anchorValue == 'B':
+                    howDetermined = f"V_{imp_forecast_band}_{dplfBand}_B_{howDetermined}"
+                elif anchorValue == 'C':
+                    howDetermined = f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"
         
         if anchorValue!='C' and b2b_discount_fare:
                 howDetermined+=f"_Discounted_{discount_amount}"
