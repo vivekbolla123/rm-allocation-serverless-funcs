@@ -1,15 +1,18 @@
 import logging
 import boto3
 import configsettings
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, event
 from urllib.parse import quote_plus
 from common_utils import instrument_engine
 import sys
 import json
+import time
+from functools import wraps
 
 from redis import Redis
 from datetime import datetime
 from pymongo import MongoClient
+from pymssql import Error as PymssqlError
 
 from constants_utils import ConstantsUtils
 
@@ -65,6 +68,31 @@ CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
 CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
 cache_client = None
 
+# ==========================
+# NAVITAIRE CONNECTION FUNCTIONS WITH RETRY
+# ==========================
+
+def create_navitaire_connection_pool():
+    """Create SQL Server connection pool with SQLAlchemy"""
+    logger.info("[NAV_CONN] Creating Navitaire connection pool...")
+    connection_string = (
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}"
+    )
+
+    engine = create_engine(
+        connection_string,
+        pool_pre_ping=True,      # Validates connections before use
+        pool_recycle=3600,        # Recycle connections every hour
+        pool_size=5,
+        max_overflow=10,
+        connect_args={
+            'timeout': 0,         # Query timeout
+            'login_timeout': 120  # Login timeout
+        }
+    )
+
 try:
     # MongoDB connection (single connection for both read and write)
     mongo_client = MongoClient(
@@ -80,12 +108,7 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
     dw_conn = create_engine(DB_DW_WR_CONN_STRING) if hasattr(configsettings, 'DW_DB_USER') else None
 
-    NavitaireConnection = create_engine(
-        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
-        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
-        f"{configsettings.NAV_DB_HOST}"
-    )
-    instrument_engine(NavitaireConnection)
+    NavitaireConnection = create_navitaire_connection_pool()
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     
