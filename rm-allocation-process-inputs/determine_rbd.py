@@ -557,7 +557,7 @@ class DetermineRBD:
             # Check if either lastSoldFare or last7AvgVal is the highest fare
             isLastSoldMax = value_exist(maxLastSoldFare) and is_greater(maxLastSoldFare, strategyFare, profileFare)
 
-            if float(BookingsInHour) > 0 and isLastSoldMax and maxLastSoldFare <= prevLastSellingFare:
+            if float(BookingsInHour) > 0 and isLastSoldMax and value_exist(prevLastSellingFare) and maxLastSoldFare <= prevLastSellingFare:
                 upsell_value = upsell_by_per(anchorFare, 2.5)
                 anchorFare = max(upsell_value, anchorFare + 200)
                 howDetermined += '_UpsellY'
@@ -607,7 +607,7 @@ class DetermineRBD:
                     anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare)
                     howDetermined += fareType
 
-                    if float(BookingsInHour) > 0 and maxLastSoldFare <= prevLastSellingFare:
+                    if float(BookingsInHour) > 0 and value_exist(prevLastSellingFare) and maxLastSoldFare <= prevLastSellingFare:
                         upsell_value = upsell_by_per(anchorFare, 2.5)
                         anchorFare = max(upsell_value, anchorFare + 200)
                         howDetermined += '_UpsellY'

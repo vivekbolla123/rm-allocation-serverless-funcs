@@ -638,6 +638,10 @@ class DynAlloc:
 				redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
 				if self.cache_client.exists(redis_key_lsf):
 					fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
+					fare_manifest = json.loads(fare_manifest_str)
+					prevLastSellingFare_B2B = fare_manifest.get('prevLastSoldB2B', CONST_NA)
+					prevLastSellingFare_B2C = fare_manifest.get('prevLastSoldB2C', CONST_NA)
+					self.save_prev_last_sold(redis_key_lsf, fare_manifest_str)
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
 			
 			is_spoilage_reduction_active = False
@@ -697,8 +701,6 @@ class DynAlloc:
 			param_b2c_tolerance = getattr(self.currParams, 'b2c_tolerance', 0) # Default tolerance if not set
 			param_b2b_tolerance = getattr(self.currParams, 'b2b_tolerance', 0) # Default tolerance
 			param_profileFares = getattr(self.currParams, 'profileFares', 1) # Default to 1 (enabled)
-			prevLastSellingFare_B2C = int(getattr(self.currParams, 'prevLastSellingFare_B2C', 0))
-			prevLastSellingFare_B2B = int(getattr(self.currParams, 'prevLastSellingFare_B2B', 0))
 
 			mkt_fare_flag = int(self.currParams.mkt_fare_flag)
 
@@ -1746,3 +1748,35 @@ class DynAlloc:
 			return CONST_NA
 		except (ValueError, TypeError):
 			return CONST_NA
+
+	def save_prev_last_sold(self, redis_key_lsf, fare_manifest_str):
+		"""
+		Calculate the current last sold B2B/B2C from the fare manifest
+		and persist them as prevLastSoldB2B / prevLastSoldB2C in the same
+		Redis key. This is called BEFORE calculate_averages so the snapshot
+		reflects the state at the START of this allocation run, ready for
+		the NEXT run to consume.
+		"""
+		try:
+			fare_manifest = json.loads(fare_manifest_str) if isinstance(fare_manifest_str, str) else fare_manifest_str
+
+			current_b2b = self.calculate_average(fare_manifest.get('b2bfares', []))
+			current_b2c = self.calculate_average(fare_manifest.get('b2cfares', []))
+
+			updates = {}
+			if current_b2b != CONST_NA:
+				updates['prevLastSoldB2B'] = current_b2b
+			if current_b2c != CONST_NA:
+				updates['prevLastSoldB2C'] = current_b2c
+
+			if not updates:
+				return
+
+			# Read → update → write to preserve all other fields
+			existing = json.loads(self.cache_client.get(redis_key_lsf).decode('utf-8'))
+			existing.update(updates)
+			self.cache_client.set(redis_key_lsf, json.dumps(existing))
+
+		except Exception as e:
+			self.logger.error(f"Error saving prevLastSold to Redis for key {redis_key_lsf}: {e}")
+			# Non-fatal — allocation continues normally

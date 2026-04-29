@@ -215,35 +215,23 @@ class LastSoldFare:
             if existing_data:
                 # Parse existing data
                 existing_dict = json.loads(existing_data.decode('utf-8'))
-                
-                # Merge and deduplicate all fares
-                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7)
-                
-                # Separate and merge B2B and B2C fares
-                b2b_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2bfares', []), 
-                    filtered_b2b_fares, 
-                    3
-                )
-                
-                b2c_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2cfares', []), 
-                    filtered_b2c_fares, 
-                    3
-                )
-                
-                # Prepare final dictionary
+
                 final_data = {
-                    'allfares': merged_all_fares,
-                    'b2bfares': b2b_fares,
-                    'b2cfares': b2c_fares
+                    'allfares': self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7),
+                    'b2bfares': self._merge_and_limit_entries(existing_dict.get('b2bfares', []), filtered_b2b_fares, 3),
+                    'b2cfares': self._merge_and_limit_entries(existing_dict.get('b2cfares', []), filtered_b2c_fares, 3),
                 }
+
+                for field in ['prevLastSoldB2B', 'prevLastSoldB2C']:
+                    if field in existing_dict:
+                        final_data[field] = existing_dict[field]
             else:
-                # If no existing data, create new lists
                 final_data = {
                     'allfares': filtered_all_fares[:7],
                     'b2bfares': filtered_b2b_fares[:3],
                     'b2cfares': filtered_b2c_fares[:3]
+                    # prevLastSoldB2B / prevLastSoldB2C intentionally absent
+                    # until the first allocation run writes them
                 }
 
             # Store in Redis as JSON
