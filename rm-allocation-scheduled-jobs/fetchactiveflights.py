@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from constants_utils import ConstantsUtils
 import pandas as pd
 import configsettings
@@ -44,86 +44,19 @@ class FetchActiveFlights:
             raise
 
     def fetch_nav_connections(self):
-        """Fetch active connection keys from Navitaire."""
+        """Fetch active connection keys from Navitaire using SP_GetNavitaireJourneys."""
         try:
-            query = f"""
-            WITH JourneyData AS (
-                SELECT
-                    a.ScheduleJourneyID,
-                    a.JourneyDepartureStation,
-                    a.JourneyArrivalStation,
-                    a.JourneyBeginDate,
-
-                    -- Segment 1
-                    LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber1,
-                    s1.DepartureStation + s1.ArrivalStation                                                               AS Sector1,
-                    CAST(a.JourneyBeginDate AS DATE)                                                                            AS DepartureDate1,
-                    RIGHT('0' + CAST(s1.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTD % 60 AS VARCHAR), 2)   AS STD1,
-                    RIGHT('0' + CAST(s1.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s1.PaxSTA % 60 AS VARCHAR), 2)   AS STA1,
-
-                    -- Segment 2
-                    LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR)))                                                       AS FlightNumber2,
-                    s2.DepartureStation + s2.ArrivalStation                                                               AS Sector2,
-                    DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))                                               AS DepartureDate2,
-                    RIGHT('0' + CAST(s2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTD % 60 AS VARCHAR), 2)   AS STD2,
-                    RIGHT('0' + CAST(s2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTA % 60 AS VARCHAR), 2)   AS STA2,
-
-                    ROW_NUMBER() OVER (
-                        PARTITION BY
-                            LTRIM(RTRIM(CAST(s1.SegmentFlightNumber AS VARCHAR))),
-                            LTRIM(RTRIM(CAST(s2.SegmentFlightNumber AS VARCHAR))),
-                            s1.DepartureStation + '-' + s1.ArrivalStation,
-                            s2.DepartureStation + '-' + s2.ArrivalStation,
-                            CAST(a.JourneyBeginDate AS DATE),
-                            DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
-                        ORDER BY a.ScheduleJourneyID
-                    ) AS rn
-
-                FROM (
-                    SELECT DISTINCT
-                        ScheduleJourneyID,
-                        JourneyDepartureStation,
-                        JourneyArrivalStation,
-                        JourneyBeginDate
-                    FROM {self.nav_conn_db_name}Schedule.ActiveJourneyView
-                    WHERE JourneyBeginDate >= CAST(GETDATE() AS DATE)
-                ) a
-
-                INNER JOIN {self.nav_conn_db_name}Schedule.ActiveJourneyView s1
-                    ON s1.ScheduleJourneyID = a.ScheduleJourneyID
-                    AND s1.SegmentNumber = 1
-
-                INNER JOIN {self.nav_conn_db_name}Schedule.ActiveJourneyView s2
-                    ON s2.ScheduleJourneyID = a.ScheduleJourneyID
-                    AND s2.SegmentNumber = 2
-
-                INNER JOIN {self.nav_db_name}Rez.InventoryLeg il1
-                    ON il1.CarrierCode       = s1.SegmentCarrierCode
-                    AND il1.FlightNumber     = s1.SegmentFlightNumber
-                    AND il1.DepartureStation = s1.DepartureStation
-                    AND il1.ArrivalStation   = s1.ArrivalStation
-                    AND CAST(il1.DepartureDate AS DATE) = CAST(a.JourneyBeginDate AS DATE)
-                    AND il1.Status = 0
-
-                INNER JOIN {self.nav_db_name}Rez.InventoryLeg il2
-                    ON il2.CarrierCode       = s2.SegmentCarrierCode
-                    AND il2.FlightNumber     = s2.SegmentFlightNumber
-                    AND il2.DepartureStation = s2.DepartureStation
-                    AND il2.ArrivalStation   = s2.ArrivalStation
-                    AND CAST(il2.DepartureDate AS DATE) = DATEADD(DAY, s2.OnwardDays, CAST(a.JourneyBeginDate AS DATE))
-                    AND il2.Status = 0
-            )
-
-            SELECT DISTINCT
-                FlightNumber1 AS Flight1,
-                Sector1,
-                FlightNumber2 AS Flight2,
-                Sector2,
-                CONVERT(VARCHAR(10), DepartureDate1, 120) AS DepartureDate
-            FROM JourneyData
-            WHERE rn = 1
-            """
+            start_date = datetime.now().strftime('%Y-%m-%d')
+            end_date = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+            query = f"""EXEC {configsettings.NAV_DB_WB_NAME}[dbo].[SP_GetNavitaireJourneys]
+                        @StartDate = '{start_date}',
+                        @EndDate = '{end_date}'
+                    """
             df = pd.read_sql(query, self.nav_conn)
+            # Rename columns to match expected output
+            df = df.rename(columns={'FlightNumber1': 'Flight1', 'FlightNumber2': 'Flight2'})
+            df['DepartureDate'] = pd.to_datetime(df['DepartureDate1']).dt.strftime('%Y-%m-%d')
+            df = df[['Flight1', 'Sector1', 'Flight2', 'Sector2', 'DepartureDate']].drop_duplicates()
             df['Flight1'] = df['Flight1'].astype(str).str.strip()
             df['Sector1'] = df['Sector1'].astype(str).str.strip()
             df['Flight2'] = df['Flight2'].astype(str).str.strip()
