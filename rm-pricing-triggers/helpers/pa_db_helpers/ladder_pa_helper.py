@@ -674,6 +674,7 @@ class LadderPAHelper:
                         'route': ladder_result['route'],
                         'type': self.ladder_gen.type,
                         'channel': 'B2B',
+                        'currency': ladder_result['currency'],
                         'fare_point_number': i + 1,
                         'rbd_name': rbd_names_b2b[i],
                         'current_qp_base_fare': round(current_base, 2) if current_base else 0,

@@ -39,6 +39,8 @@ class ActionSectors:
         self.city_pair_data = None
         self.active_sectors = None
         self.currentVersion = None
+        self.B2B_RBD_LIST = self.constants.B2B_RBD_VALUES.split(',')
+        self.B2C_RBD_LIST = self.constants.B2C_RBD_VALUES.split(',')
 
     def collect_all_data(self, booking_days=30):
         """Collect all required data for actionable sectors analysis based on route."""
@@ -247,10 +249,15 @@ class ActionSectors:
             if channel_fares.empty:
                 self.logger.debug(f"No QP fares found for {channel} channel in sector {origin}-{destination}")
                 return None, None, None, None
-            
+            if channel == "B2C":
+                minRBD = self.B2C_RBD_LIST[0]
+                maxRBD = self.B2C_RBD_LIST[-1]
+            else:
+                minRBD = self.B2B_RBD_LIST[0]
+                maxRBD = self.B2B_RBD_LIST[-1]
             # Get min and max fare amounts
-            min_fare_amount = channel_fares['TOTAL'].min()
-            max_fare_amount = channel_fares['TOTAL'].max()
+            min_fare_amount = channel_fares['TOTAL'][minRBD]
+            max_fare_amount = channel_fares['TOTAL'][maxRBD]
             
             # Get the records for min and max fares
             min_fare_record = channel_fares[channel_fares['TOTAL'] == min_fare_amount].iloc[0]

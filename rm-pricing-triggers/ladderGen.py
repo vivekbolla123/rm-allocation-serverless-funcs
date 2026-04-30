@@ -1679,6 +1679,7 @@ class LadderGen:
                 'outliers_removed_b2b': outliers_b2b,
                 'ladder_fares_b2c': base_ladder_b2c,
                 'ladder_fares_b2b': base_ladder_b2b,
+                'currency': self.sector_currency if self.sector_currency is not None else "INR",
                 'generation_timestamp': datetime.now()
             }
             
