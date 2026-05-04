@@ -633,6 +633,8 @@ class DynAlloc:
 				if not farePrice_data.empty:
 					if "B2C_last3avg_fare" in farePrice_data.columns: lastSoldFareb2c_val = farePrice_data["B2C_last3avg_fare"].iloc[0]
 					if "B2B_last3avg_fare" in farePrice_data.columns: lastSoldFareb2b_val = farePrice_data["B2B_last3avg_fare"].iloc[0]
+					if "prevLastSoldB2B" in farePrice_data.columns: lastSoldFareb2b_val = farePrice_data["prevLastSoldB2B"].iloc[0]
+					if "prevLastSoldB2C" in farePrice_data.columns: lastSoldFareb2b_val = farePrice_data["prevLastSoldB2C"].iloc[0]
 					if "last7avg" in farePrice_data.columns: last_seven_avg_val = farePrice_data["last7avg"].iloc[0]
 			elif input_source_lsf == DB:
 				redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"

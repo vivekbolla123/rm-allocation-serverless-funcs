@@ -67,7 +67,34 @@ class DetermineRBD:
             toleranceValue = CONST_NA
         else:
             if (forecastAllocFlag == 1 and imp_forecast_band != CONST_NA and imp_forecast_band != 2) or (afForecastAllocFlag == 1 and af_forecast_band != CONST_NA and PLF_Gain >= 0 and Af_Nb_Allin != CONST_NA):
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(strategyFare, profileFare, lastSoldFare,last7AvgVal,hardAnchorFare, currParams,plf,overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf)
+                if imp_forecast_band == 2:
+                    value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
+                    if value.shape[0] != 0:
+                        anchorValue = value['B2CValue'][0] if channel == B2C_CHANNEL else value['B2BValue'][0]
+                    if anchorValue == 'C':
+                        openResult['FareResult'] = [f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"]
+                        openResult['anchorFare'] = ['NA']
+                        openResult['RBD'] = ['NA']
+                        openResult['Fare'] = ['NA']
+                        return openResult, lastSoldFare, strategyFare, CONST_NA, upsell, hardAnchorFare, overBookingFare, hardAnchorFare, CONST_NA
+ 
+                    lastSoldFareForAnchor = lastSoldFare
+                    if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount > 0):
+                        lastSoldFareForAnchor = CONST_NA
+ 
+                    anchorFare, _, _, _, _ = self.finalFareAnchor(
+                        strategyFare, profileFare, lastSoldFareForAnchor, hardAnchorFare,
+                        anchorValue, dPLF, toleranceFare, currParams, plf, overBookingCount,
+                        dplfBand, BookingsInHour, last7avg, isProfileAnchor,
+                        b2b_discount_fare, anchorFare, obfare, ndocounter
+                    )
+ 
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(
+                    strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
+                    plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
+                    anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
+                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf
+                )
                 howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
                 
             else:
@@ -617,7 +644,8 @@ class DetermineRBD:
             assign_b2b_factor(currParams, b2b_factor_value)
         
         elif imp_forecast_band == 2:
-            pass
+            anchorFare = float(anchorFareDiscounted)
+            howDetermined = 'AllocationY_Band2_FinalFareAnchor'
 
         elif imp_forecast_band == 1:
             howDetermined = 'AllocationY'
