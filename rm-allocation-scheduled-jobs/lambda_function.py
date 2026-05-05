@@ -74,7 +74,6 @@ cache_client = None
 
 def create_navitaire_connection():
     """Create SQL Server connection pool with SQLAlchemy"""
-    logger.info("[NAV_CONN] Creating Navitaire connection pool...")
     connection_string = (
         f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
         f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
@@ -91,6 +90,9 @@ def create_navitaire_connection():
             'login_timeout': 120  # Login timeout
         }
     )
+    instrument_engine(engine)
+    logger.info("Navitaire SQL Server connection established")
+    return engine
 
 try:
     # MongoDB connection (single connection for both read and write)
