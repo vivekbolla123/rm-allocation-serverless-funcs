@@ -106,5 +106,3 @@ class MarketListRow:
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
         self.market_station_mapping = currParams.get("market_station_mapping", 0)
         self.farecap = currParams.get("farecap", CONST_NA)
-        self.prevLastSellingFare_B2B = currParams.get("prevLastSellingFare_B2B", 0)
-        self.prevLastSellingFare_B2C = currParams.get("prevLastSellingFare_B2C", 0)
