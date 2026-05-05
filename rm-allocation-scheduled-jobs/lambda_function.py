@@ -72,7 +72,7 @@ cache_client = None
 # NAVITAIRE CONNECTION FUNCTIONS WITH RETRY
 # ==========================
 
-def create_navitaire_connection_pool():
+def create_navitaire_connection():
     """Create SQL Server connection pool with SQLAlchemy"""
     logger.info("[NAV_CONN] Creating Navitaire connection pool...")
     connection_string = (
@@ -84,9 +84,8 @@ def create_navitaire_connection_pool():
     engine = create_engine(
         connection_string,
         pool_pre_ping=True,      # Validates connections before use
-        pool_recycle=3600,        # Recycle connections every hour
-        pool_size=5,
-        max_overflow=10,
+        pool_size=1,
+        max_overflow=0,
         connect_args={
             'timeout': 0,         # Query timeout
             'login_timeout': 120  # Login timeout
@@ -108,7 +107,7 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
     dw_conn = create_engine(DB_DW_WR_CONN_STRING) if hasattr(configsettings, 'DW_DB_USER') else None
 
-    NavitaireConnection = create_navitaire_connection_pool()
+    NavitaireConnection = create_navitaire_connection()
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     
