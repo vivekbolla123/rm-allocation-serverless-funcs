@@ -30,11 +30,20 @@ class FileUploadWorker:
         """
         Normalize uploaded CSV column names to canonical names from config_column_names.
         Matching is case-insensitive and whitespace/underscore-insensitive.
-        Raises ValueError if any canonical column cannot be matched.
+
+        Args:
+            df: Raw DataFrame from CSV upload
+            table_name: Name of the table/collection
+
+        Returns:
+            DataFrame with canonical column names in canonical order
+
+        Raises:
+            ValueError: If any canonical column cannot be matched in the upload
         """
-        columns, _ = self.db_helper.get_column_headers(table_name)
-        
-        if not columns:
+        result = self.db_helper.get_column_headers(table_name)
+
+        if not result or not result[0]:
             logger.warning(
                 f"No config_column_names entry for '{table_name}', "
                 "applying basic strip/lowercase only."
@@ -42,6 +51,7 @@ class FileUploadWorker:
             df.columns = df.columns.str.strip().str.lower()
             return df
 
+        columns = result[0]
         canonical_cols = [col.strip() for col in columns.split(COMMA)]
 
         # Build lookup: stripped/lowercased/no-separators -> canonical name
@@ -79,13 +89,7 @@ class FileUploadWorker:
         uuid = self.obj_id
 
         try:
-            # Normalize columns FIRST — before any validation or processor logic
-            data = self.normalize_dataframe_columns(data, table_name)
-
-            columns, id_columns = self.db_helper.get_column_headers(table_name)
-            # NOTE: get_column_headers is called twice (once in normalize, once here).
-            # That's fine — it's a lightweight find_one. If you want to optimize,
-            # you can pass columns/id_columns down, but clarity wins here.
+            _, id_columns = self.db_helper.get_column_headers(table_name)
 
             if use_upsert and id_columns:
                 self.db_helper.upsert_data(data, table_name, id_columns)
@@ -117,8 +121,8 @@ class FileUploadWorker:
 
             if table == SALE_DATES_TABLE:
                 try:
-                    sales_df, discounts_df = pivot_sale_fares(csv_df)
-                    # Use upsert for both tables
+                    normalized_df = self.normalize_dataframe_columns(csv_df, SALE_DATES_TABLE)
+                    sales_df, discounts_df = pivot_sale_fares(normalized_df)
                     self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name, use_upsert=True)
                     self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name, use_upsert=True)
 
@@ -129,8 +133,8 @@ class FileUploadWorker:
                     raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
             elif table == SAVER_TABLE:
                 try:
-                    saver_df = format_saver_file(csv_df)
-                    # Use upsert for both tables
+                    normalized_df = self.normalize_dataframe_columns(csv_df, SAVER_TABLE)
+                    saver_df = format_saver_file(normalized_df)
                     self.insert_file_data(saver_df, SAVER_TABLE, user_name, use_upsert=True)
 
                     self.s3_helper.store_file(file_content, SAVER_TABLE, self.obj_id)
@@ -139,21 +143,22 @@ class FileUploadWorker:
                     raise RuntimeError(f"Error processing Saver content: {str(e)}")
             elif table == PRODUCT_UPSELL_TABLE:
                 try:
-                    product_upsell_df = validate_product_upsell(csv_df)
-                    # Use upsert for product upsell table
+                    normalized_df = self.normalize_dataframe_columns(csv_df, PRODUCT_UPSELL_TABLE)
+                    product_upsell_df = validate_product_upsell(normalized_df)
                     self.insert_file_data(product_upsell_df, PRODUCT_UPSELL_TABLE, user_name, use_upsert=True)
 
                     self.s3_helper.store_file(file_content, PRODUCT_UPSELL_TABLE, self.obj_id)
                 except ValueError as ve:
-                    # Specific handling for validation errors (like duplicates)
                     self.list_of_errors.append(f"Product Upsell Validation Failed: {str(ve)}")
                     raise RuntimeError(f"Product Upsell validation error: {str(ve)}")
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Product Upsell to DB")
                     raise RuntimeError(f"Error processing Product Upsell content: {str(e)}")
+
             elif table in MARKET_LIST_TABLES:
                 try:
-                    market_list_df = validate_market_list(csv_df)
+                    normalized_df = self.normalize_dataframe_columns(csv_df, table)
+                    market_list_df = validate_market_list(normalized_df)
                     self.insert_file_data(market_list_df, table, user_name, use_upsert=True)
                     self.s3_helper.store_file(file_content, table, self.obj_id)
                 except ValueError as ve:
@@ -164,11 +169,9 @@ class FileUploadWorker:
                     raise RuntimeError(f"Error processing Market List content: {str(e)}")
             else:
                 try:
-                    # Determine if we should use upsert or replace
-                    # For full refresh tables, use replace. For incremental, use upsert.
-                    use_upsert = table not in FULL_REPLACE_TABLES  # Define this constant
-                    
-                    self.insert_file_data(csv_df, table, user_name, use_upsert=use_upsert)
+                    normalized_df = self.normalize_dataframe_columns(csv_df, table)
+                    use_upsert = table not in FULL_REPLACE_TABLES
+                    self.insert_file_data(normalized_df, table, user_name, use_upsert=use_upsert)
                     self.s3_helper.store_file(file_content, table, self.obj_id)
                 except Exception as e:
                     raise RuntimeError(f"Error processing file content: {str(e)}")
@@ -215,7 +218,6 @@ class FileUploadWorker:
             status = UPLOAD_QUEUE_STATUS_DONE
         else:
             status = UPLOAD_QUEUE_STATUS_FAILED
-            # Ensure errors are added to database for failed uploads
             if self.list_of_errors:
                 self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
 
@@ -226,14 +228,13 @@ class FileUploadWorker:
         self.list_of_errors = self.db_helper.update_final_upload_info(
             status, end_time, self.num_of_rows, duration, self.obj_id, self.list_of_errors
         )
-        
-        # Ensure errors are added to database for any final errors that occurred
+
         if self.list_of_errors and status == UPLOAD_QUEUE_STATUS_FAILED:
             self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
 
         local_test_dir = "locals"
         s3_path_len = len(S3_FILE_PATH_NAME)
-        if final_key[s3_path_len:s3_path_len+len(local_test_dir)].lower() != local_test_dir:
+        if final_key[s3_path_len:s3_path_len + len(local_test_dir)].lower() != local_test_dir:
             self.s3_helper.delete_object(final_key)
 
         return {
