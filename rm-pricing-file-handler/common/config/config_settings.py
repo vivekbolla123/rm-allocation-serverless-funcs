@@ -39,8 +39,8 @@ if env=="preprod":
 param_names = [
     f'/rm/{creenv}/rm-allocation/RM_DB_APPUSER_PASSWORD',
     f'/rm/{creenv}/rm-allocation/RM_CACHE_PASSWORD',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/rm/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/rm/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
 ]
 
@@ -91,5 +91,5 @@ RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + creenv + '/rm-allocation/RM_DB
 S3_PREFIX = f"{S3_FILE_PATH_NAME}upload/"
 # Comment the blow line after testing
 # S3_PREFIX = f"{S3_FILE_PATH_NAME}locals/"
-RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + creenv + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
-RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + creenv + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/rm/' + creenv + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
+RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/rm/' + creenv + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
