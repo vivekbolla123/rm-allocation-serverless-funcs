@@ -645,7 +645,7 @@ class DetermineRBD:
         
         elif imp_forecast_band == 2:
             anchorFare = float(anchorFareDiscounted)
-            howDetermined = 'AllocationY_Band2_FinalFareAnchor'
+            howDetermined = 'AllocationY_Band2_V'
 
         elif imp_forecast_band == 1:
             howDetermined = 'AllocationY'
