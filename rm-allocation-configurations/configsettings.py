@@ -39,7 +39,7 @@ if env=="preprod":
 if env == "uat":
     app_name="rm"
 else:
-     app_name="qp"
+    app_name="qp"
 # List all parameter names you need to fetch
 param_names = [
     f'/rm/{creenv}/rm-allocation/RM_DB_APPUSER_PASSWORD',
