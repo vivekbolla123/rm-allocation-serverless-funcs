@@ -84,20 +84,33 @@ class FileUploadWorker:
         # Return only canonical columns in canonical order, drop any extras
         return df[canonical_cols]
 
-
     def insert_file_data(self, data, table_name, user_name, use_upsert=True):
-        uuid = self.obj_id
+        """
+        Insert data into MongoDB collection with optional upsert behavior.
+        Expects data to already have normalized canonical column names
+        from normalize_dataframe_columns.
 
+        Args:
+            data: DataFrame with already-normalized canonical column names
+            table_name: Name of the collection
+            user_name: Username for audit
+            use_upsert: If True, upsert based on ID columns. If False, replace all data.
+        """
+        uuid = self.obj_id
+        
         try:
             _, id_columns = self.db_helper.get_column_headers(table_name)
 
             if use_upsert and id_columns:
+                # Upsert mode: Update existing records, insert new ones
                 self.db_helper.upsert_data(data, table_name, id_columns)
             else:
+                # Replace mode: Clear collection and insert all data
                 self.db_helper.replace_collection_data(data, table_name)
-
+            
+            # Update audit
             self.db_helper.update_audit_statement(table_name, uuid)
-
+            
         except Exception as e:
             logger.error(f"Error in insert_file_data for {table_name}: {e}")
             raise
@@ -125,28 +138,27 @@ class FileUploadWorker:
                     sales_df, discounts_df = pivot_sale_fares(normalized_df)
                     self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name, use_upsert=True)
                     self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name, use_upsert=True)
-
                     self.s3_helper.store_file(file_content, SALE_DATES_TABLE, self.obj_id)
                     self.s3_helper.store_file(file_content, SALE_DISCOUNTS_TABLE, self.obj_id)
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Sale_fare_discount to DB")
                     raise RuntimeError(f"Error processing Sale_fare_discount content: {str(e)}")
+
             elif table == SAVER_TABLE:
                 try:
                     normalized_df = self.normalize_dataframe_columns(csv_df, SAVER_TABLE)
                     saver_df = format_saver_file(normalized_df)
                     self.insert_file_data(saver_df, SAVER_TABLE, user_name, use_upsert=True)
-
                     self.s3_helper.store_file(file_content, SAVER_TABLE, self.obj_id)
                 except Exception as e:
                     self.list_of_errors.append("Error Uploading Saver to DB")
                     raise RuntimeError(f"Error processing Saver content: {str(e)}")
+
             elif table == PRODUCT_UPSELL_TABLE:
                 try:
                     normalized_df = self.normalize_dataframe_columns(csv_df, PRODUCT_UPSELL_TABLE)
                     product_upsell_df = validate_product_upsell(normalized_df)
                     self.insert_file_data(product_upsell_df, PRODUCT_UPSELL_TABLE, user_name, use_upsert=True)
-
                     self.s3_helper.store_file(file_content, PRODUCT_UPSELL_TABLE, self.obj_id)
                 except ValueError as ve:
                     self.list_of_errors.append(f"Product Upsell Validation Failed: {str(ve)}")
@@ -167,6 +179,7 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append(f"Error Uploading {table} to DB")
                     raise RuntimeError(f"Error processing Market List content: {str(e)}")
+
             else:
                 try:
                     normalized_df = self.normalize_dataframe_columns(csv_df, table)
@@ -210,7 +223,6 @@ class FileUploadWorker:
             self.error_occurred = 1
             if not self.list_of_errors:
                 self.list_of_errors.append("Validation has failed while inserting data in table")
-            # Always add errors to database when an exception occurs
             self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
             logger.error(f"[{self.obj_id}] Error: {e}")
 
@@ -228,13 +240,13 @@ class FileUploadWorker:
         self.list_of_errors = self.db_helper.update_final_upload_info(
             status, end_time, self.num_of_rows, duration, self.obj_id, self.list_of_errors
         )
-
+        
         if self.list_of_errors and status == UPLOAD_QUEUE_STATUS_FAILED:
             self.db_helper.add_errors_to_table(self.list_of_errors, self.obj_id)
 
         local_test_dir = "locals"
         s3_path_len = len(S3_FILE_PATH_NAME)
-        if final_key[s3_path_len:s3_path_len + len(local_test_dir)].lower() != local_test_dir:
+        if final_key[s3_path_len:s3_path_len+len(local_test_dir)].lower() != local_test_dir:
             self.s3_helper.delete_object(final_key)
 
         return {
