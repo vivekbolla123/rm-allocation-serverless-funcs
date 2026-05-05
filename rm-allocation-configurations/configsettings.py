@@ -63,13 +63,6 @@ param_names = [
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
 ]
 
-
-# Print param names for debugging
-print("=== SSM Parameter Names Being Fetched ===")
-for name in param_names:
-    print(name)
-print("=========================================")
-
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
 
