@@ -915,7 +915,7 @@ class RMDatabaseHelper:
             return CONST_NA
 
     def get_imputed_forecast_band(self, imp_forecast):
-        rounded_imp_fcst = round(imp_forecast)
+        rounded_imp_fcst = round(imp_forecast, 2)
         try:
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
@@ -926,7 +926,7 @@ class RMDatabaseHelper:
             return CONST_NA
     
     def get_af_forecast_band(self, af_forecast):
-        rounded_af_fcst = round(af_forecast)
+        rounded_af_fcst = round(af_forecast, 2)
         try:
             result = self.db.imputed_forecast_bands.find_one(
                 {"start_af": {"$lte": rounded_af_fcst}, "end_af": {"$gte": rounded_af_fcst}}
