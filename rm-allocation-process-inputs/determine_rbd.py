@@ -83,8 +83,8 @@ class DetermineRBD:
                         lastSoldFareForAnchor = CONST_NA
  
                     anchorFare, _, _, _, _ = self.finalFareAnchor(
-                        strategyFare, profileFare, lastSoldFareForAnchor, hardAnchorFare,
-                        anchorValue, dPLF, toleranceFare, currParams, plf, overBookingCount,
+                        strategyFare, profileFare, lastSoldFareForAnchor, CONST_NA,
+                        anchorValue, dPLF, None, currParams, plf, overBookingCount,
                         dplfBand, BookingsInHour, last7avg, isProfileAnchor,
                         b2b_discount_fare, anchorFare, obfare, ndocounter
                     )
@@ -93,7 +93,7 @@ class DetermineRBD:
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
-                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf
+                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare
                 )
                 howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
                 

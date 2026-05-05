@@ -626,6 +626,7 @@ class DynAlloc:
 			
 			# Last Selling Fare
 			lastSoldFareb2c_val = CONST_NA; lastSoldFareb2b_val = CONST_NA; last_seven_avg_val = CONST_NA
+			prevLastSellingFare_B2B = CONST_NA; prevLastSellingFare_B2C = CONST_NA
 			input_source_lsf = self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) # Default to TEST_DATA if not set
 
 			if input_source_lsf == TEST_DATA:
