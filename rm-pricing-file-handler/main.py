@@ -26,41 +26,74 @@ class FileUploadWorker:
         self.obj_id = None
         self.num_of_rows = 0
 
+    def normalize_dataframe_columns(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        """
+        Normalize uploaded CSV column names to canonical names from config_column_names.
+        Matching is case-insensitive and whitespace/underscore-insensitive.
+        Raises ValueError if any canonical column cannot be matched.
+        """
+        columns, _ = self.db_helper.get_column_headers(table_name)
+        
+        if not columns:
+            logger.warning(
+                f"No config_column_names entry for '{table_name}', "
+                "applying basic strip/lowercase only."
+            )
+            df.columns = df.columns.str.strip().str.lower()
+            return df
+
+        canonical_cols = [col.strip() for col in columns.split(COMMA)]
+
+        # Build lookup: stripped/lowercased/no-separators -> canonical name
+        # e.g. "Rule Nbr", "rule_nbr", "RULE NBR", "RuleNbr" all -> "rulenbr" -> "rule_nbr"
+        canonical_lookup = {
+            col.lower().replace(" ", "").replace("_", ""): col
+            for col in canonical_cols
+        }
+
+        rename_map = {}
+        unmatched = []
+
+        for uploaded_col in df.columns:
+            normalized_key = uploaded_col.strip().lower().replace(" ", "").replace("_", "")
+            if normalized_key in canonical_lookup:
+                rename_map[uploaded_col] = canonical_lookup[normalized_key]
+            else:
+                unmatched.append(uploaded_col)
+
+        matched_canonical = set(rename_map.values())
+        missing_canonical = [col for col in canonical_cols if col not in matched_canonical]
+
+        if missing_canonical:
+            raise ValueError(
+                f"Uploaded file for '{table_name}' is missing required columns: {missing_canonical}. "
+                f"Unrecognized uploaded columns: {unmatched}"
+            )
+
+        df = df.rename(columns=rename_map)
+        # Return only canonical columns in canonical order, drop any extras
+        return df[canonical_cols]
+
+
     def insert_file_data(self, data, table_name, user_name, use_upsert=True):
-        """
-        Insert data into MongoDB collection with optional upsert behavior
-        
-        Args:
-            data: DataFrame with data to insert
-            table_name: Name of the collection
-            user_name: Username for audit
-            use_upsert: If True, upsert based on ID columns. If False, replace all data.
-        """
         uuid = self.obj_id
-        
+
         try:
+            # Normalize columns FIRST — before any validation or processor logic
+            data = self.normalize_dataframe_columns(data, table_name)
+
             columns, id_columns = self.db_helper.get_column_headers(table_name)
-            headers = [col.strip() for col in columns.split(COMMA)]
-            
-            # Validate column count
-            if len(data.columns) != len(headers):
-                raise ValueError(
-                    f"Mismatch between CSV columns ({len(data.columns)}) "
-                    f"and expected headers ({len(headers)})"
-                )
-            
-            data.columns = headers
-            
+            # NOTE: get_column_headers is called twice (once in normalize, once here).
+            # That's fine — it's a lightweight find_one. If you want to optimize,
+            # you can pass columns/id_columns down, but clarity wins here.
+
             if use_upsert and id_columns:
-                # Upsert mode: Update existing records, insert new ones
                 self.db_helper.upsert_data(data, table_name, id_columns)
             else:
-                # Replace mode: Clear collection and insert all data
                 self.db_helper.replace_collection_data(data, table_name)
-            
-            # Update audit
+
             self.db_helper.update_audit_statement(table_name, uuid)
-            
+
         except Exception as e:
             logger.error(f"Error in insert_file_data for {table_name}: {e}")
             raise
