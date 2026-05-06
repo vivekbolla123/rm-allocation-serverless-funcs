@@ -16,7 +16,7 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare):
         hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
@@ -93,7 +93,7 @@ class DetermineRBD:
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
-                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf
+                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare
                 )
                 howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
                 
@@ -396,7 +396,7 @@ class DetermineRBD:
 
         return temp_fareanchor, howDetermined
 
-    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSellingFare):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -584,7 +584,7 @@ class DetermineRBD:
             # Check if either lastSoldFare or last7AvgVal is the highest fare
             isLastSoldMax = value_exist(maxLastSoldFare) and is_greater(maxLastSoldFare, strategyFare, profileFare)
 
-            if float(BookingsInHour) > 0 and isLastSoldMax:
+            if float(BookingsInHour) > 0 and isLastSoldMax and value_exist(prevLastSellingFare) and maxLastSoldFare <= prevLastSellingFare:
                 upsell_value = upsell_by_per(anchorFare, 2.5)
                 anchorFare = max(upsell_value, anchorFare + 200)
                 howDetermined += '_UpsellY'
@@ -634,7 +634,7 @@ class DetermineRBD:
                     anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare)
                     howDetermined += fareType
 
-                    if float(BookingsInHour) > 0:
+                    if float(BookingsInHour) > 0 and value_exist(prevLastSellingFare) and maxLastSoldFare <= prevLastSellingFare:
                         upsell_value = upsell_by_per(anchorFare, 2.5)
                         anchorFare = max(upsell_value, anchorFare + 200)
                         howDetermined += '_UpsellY'

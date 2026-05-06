@@ -626,6 +626,7 @@ class DynAlloc:
 			
 			# Last Selling Fare
 			lastSoldFareb2c_val = CONST_NA; lastSoldFareb2b_val = CONST_NA; last_seven_avg_val = CONST_NA
+			prevLastSoldB2B = CONST_NA; prevLastSoldB2C = CONST_NA
 			input_source_lsf = self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) # Default to TEST_DATA if not set
 
 			if input_source_lsf == TEST_DATA:
@@ -633,11 +634,22 @@ class DynAlloc:
 				if not farePrice_data.empty:
 					if "B2C_last3avg_fare" in farePrice_data.columns: lastSoldFareb2c_val = farePrice_data["B2C_last3avg_fare"].iloc[0]
 					if "B2B_last3avg_fare" in farePrice_data.columns: lastSoldFareb2b_val = farePrice_data["B2B_last3avg_fare"].iloc[0]
+					if "prevLastSoldB2B" in farePrice_data.columns: prevLastSoldB2B = farePrice_data["prevLastSoldB2B"].iloc[0]
+					if "prevLastSoldB2C" in farePrice_data.columns: prevLastSoldB2C = farePrice_data["prevLastSoldB2C"].iloc[0]
 					if "last7avg" in farePrice_data.columns: last_seven_avg_val = farePrice_data["last7avg"].iloc[0]
 			elif input_source_lsf == DB:
 				redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
+				prev_key_lsf = f"PrevLastSold:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
 				if self.cache_client.exists(redis_key_lsf):
 					fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
+					fare_manifest = json.loads(fare_manifest_str)
+					prev_data = self.cache_client.get(prev_key_lsf)
+					if prev_data:
+						prev_dict = json.loads(prev_data.decode('utf-8'))
+						prevLastSoldB2B = prev_dict.get('prevLastSoldB2B', CONST_NA)
+						prevLastSoldB2C = prev_dict.get('prevLastSoldB2C', CONST_NA)
+						self.logger.info(f"PrevLastSold read for key {prev_key_lsf}: B2B={prevLastSoldB2B}, B2C={prevLastSoldB2C}")
+					self.save_prev_last_sold(redis_key_lsf, fare_manifest)
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
 			
 			is_spoilage_reduction_active = False
@@ -766,7 +778,7 @@ class DynAlloc:
 												dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 												b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 												overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val, 
-												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+												is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSoldB2C
 											)
 
 				# Get B2C Opening Price for potential B2B derivation
@@ -847,7 +859,7 @@ class DynAlloc:
 							dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams, 
 							b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 							overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+							False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, prevLastSoldB2B
 						)
 					
 				# Removed last_seven_avg_val from B2B Strategy Fare Calculation
@@ -1744,3 +1756,36 @@ class DynAlloc:
 			return CONST_NA
 		except (ValueError, TypeError):
 			return CONST_NA
+
+	def save_prev_last_sold(self, redis_key_lsf, fare_manifest):
+		"""
+		Snapshots current last sold B2B/B2C into a dedicated PrevLastSold: key.
+		Completely independent of LastSoldFare: key and EC2 script.
+		Key structure: PrevLastSold:{origin}{destin}{flight}_{date}
+		"""
+		try:
+			if isinstance(fare_manifest, str):
+				fare_manifest = json.loads(fare_manifest)
+
+			current_b2b = self.calculate_average(fare_manifest.get('b2bfares', []))
+			current_b2c = self.calculate_average(fare_manifest.get('b2cfares', []))
+
+			updates = {}
+			if current_b2b != CONST_NA:
+				updates['prevLastSoldB2B'] = float(current_b2b)
+			if current_b2c != CONST_NA:
+				updates['prevLastSoldB2C'] = float(current_b2c)
+
+			if not updates:
+				return
+			prev_key = redis_key_lsf.replace('LastSoldFare:', 'PrevLastSold:', 1)
+
+			existing_prev = self.cache_client.get(prev_key)
+			existing_prev_dict = json.loads(existing_prev.decode('utf-8')) if existing_prev else {}
+			existing_prev_dict.update(updates)
+
+			self.cache_client.set(prev_key, json.dumps(existing_prev_dict))
+			self.logger.info(f"PrevLastSold saved for key {prev_key}: {existing_prev_dict}")
+
+		except Exception as e:
+			self.logger.error(f"Error saving PrevLastSold for key {redis_key_lsf}: {e}")
