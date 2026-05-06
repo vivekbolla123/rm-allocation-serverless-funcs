@@ -169,9 +169,7 @@ class LastSoldFare:
         whereCondition = f"'{str(time)}'"
         if time is None:
             whereCondition = "DATEADD(HOUR, -960, GETDATE())"  # 40 days
-
-        self.cache_client.set("LastSoldFare:executionTime", datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
-        
+        final_time = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
         df = self.lastSoldQuery(whereCondition)
         if df.shape[0] != 0:
             df['FareBasis'] = df.groupby(['BookingID', 'PassengerID'])['FareBasis'].apply(
@@ -188,6 +186,7 @@ class LastSoldFare:
                 df['FareBasis'].notna() & (df['FareBasis'] != '')]
 
             self.updateValuesToRedis(df)
+        self.cache_client.set("LastSoldFare:executionTime", final_time)
 
         print("completed")
 
