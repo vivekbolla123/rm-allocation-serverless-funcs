@@ -192,11 +192,11 @@ class LastSoldFare:
         print("completed")
 
     def updateValuesToRedis(self, last_booking_df):
-        for (departure, arrival, flight, date), group in last_booking_df.groupby(['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']):
-            # Generate the composite key
+        for (departure, arrival, flight, date), group in last_booking_df.groupby(
+            ['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']
+        ):
             key = f"LastSoldFare:{departure}{arrival}{flight}_{date}"
-            
-            # Prepare all fares list
+
             new_all_fares = group.sort_values('BookingUTC', ascending=False).apply(lambda row: {
                 'BookingID': row['BookingID'],
                 'ClassOfService': row['ClassOfService'],
@@ -208,46 +208,25 @@ class LastSoldFare:
             filtered_all_fares = self.apply_filter(new_all_fares, 'allfares')
             filtered_b2b_fares = self.apply_filter(new_all_fares, 'b2bfares')
             filtered_b2c_fares = self.apply_filter(new_all_fares, 'b2cfares')
-            
-            # Check if key exists in Redis
-            existing_data = self.cache_client.get(key)
-            
-            if existing_data:
-                # Parse existing data
-                existing_dict = json.loads(existing_data.decode('utf-8'))
-                
-                # Merge and deduplicate all fares
-                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7)
-                
-                # Separate and merge B2B and B2C fares
-                b2b_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2bfares', []), 
-                    filtered_b2b_fares, 
-                    3
-                )
-                
-                b2c_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2cfares', []), 
-                    filtered_b2c_fares, 
-                    3
-                )
-                
-                # Prepare final dictionary
-                final_data = {
-                    'allfares': merged_all_fares,
-                    'b2bfares': b2b_fares,
-                    'b2cfares': b2c_fares
-                }
-            else:
-                # If no existing data, create new lists
-                final_data = {
-                    'allfares': filtered_all_fares[:7],
-                    'b2bfares': filtered_b2b_fares[:3],
-                    'b2cfares': filtered_b2c_fares[:3]
-                }
 
-            # Store in Redis as JSON
-            self.cache_client.set(key, json.dumps(final_data))
+            # Read existing fare fields only — not prevLastSold fields
+            existing_allfares = self.cache_client.hget(key, 'allfares')
+            existing_b2bfares = self.cache_client.hget(key, 'b2bfares')
+            existing_b2cfares = self.cache_client.hget(key, 'b2cfares')
+
+            existing_all = json.loads(existing_allfares.decode('utf-8')) if existing_allfares else []
+            existing_b2b = json.loads(existing_b2bfares.decode('utf-8')) if existing_b2bfares else []
+            existing_b2c = json.loads(existing_b2cfares.decode('utf-8')) if existing_b2cfares else []
+
+            merged_all = self._merge_and_limit_entries(existing_all, filtered_all_fares, 7)
+            merged_b2b = self._merge_and_limit_entries(existing_b2b, filtered_b2b_fares, 3)
+            merged_b2c = self._merge_and_limit_entries(existing_b2c, filtered_b2c_fares, 3)
+
+            self.cache_client.hset(key, mapping={
+                'allfares': json.dumps(merged_all),
+                'b2bfares': json.dumps(merged_b2b),
+                'b2cfares': json.dumps(merged_b2c),
+            })
     
     def _merge_and_limit_entries(self, existing_list, new_list, limit):
         # Combine lists and remove duplicates

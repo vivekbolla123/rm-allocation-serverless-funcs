@@ -639,18 +639,17 @@ class DynAlloc:
 					if "last7avg" in farePrice_data.columns: last_seven_avg_val = farePrice_data["last7avg"].iloc[0]
 			elif input_source_lsf == DB:
 				redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
-				prev_key_lsf = f"PrevLastSold:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
 				if self.cache_client.exists(redis_key_lsf):
-					fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
-					fare_manifest = json.loads(fare_manifest_str)
-					prev_data = self.cache_client.get(prev_key_lsf)
-					if prev_data:
-						prev_dict = json.loads(prev_data.decode('utf-8'))
-						prevLastSoldB2B = prev_dict.get('prevLastSoldB2B', CONST_NA)
-						prevLastSoldB2C = prev_dict.get('prevLastSoldB2C', CONST_NA)
-						self.logger.info(f"PrevLastSold read for key {prev_key_lsf}: B2B={prevLastSoldB2B}, B2C={prevLastSoldB2C}")
+					hash_data = self.cache_client.hgetall(redis_key_lsf)
+					fare_manifest = {
+						'allfares': json.loads(hash_data[b'allfares'].decode('utf-8')) if b'allfares' in hash_data else [],
+						'b2bfares': json.loads(hash_data[b'b2bfares'].decode('utf-8')) if b'b2bfares' in hash_data else [],
+						'b2cfares': json.loads(hash_data[b'b2cfares'].decode('utf-8')) if b'b2cfares' in hash_data else [],
+					}
+					prevLastSoldB2B = float(hash_data[b'prevLastSoldB2B'].decode('utf-8')) if b'prevLastSoldB2B' in hash_data else CONST_NA
+					prevLastSoldB2C = float(hash_data[b'prevLastSoldB2C'].decode('utf-8')) if b'prevLastSoldB2C' in hash_data else CONST_NA
 					self.save_prev_last_sold(redis_key_lsf, fare_manifest)
-					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest)
 			
 			is_spoilage_reduction_active = False
 			if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
@@ -1758,34 +1757,16 @@ class DynAlloc:
 			return CONST_NA
 
 	def save_prev_last_sold(self, redis_key_lsf, fare_manifest):
-		"""
-		Snapshots current last sold B2B/B2C into a dedicated PrevLastSold: key.
-		Completely independent of LastSoldFare: key and EC2 script.
-		Key structure: PrevLastSold:{origin}{destin}{flight}_{date}
-		"""
 		try:
-			if isinstance(fare_manifest, str):
-				fare_manifest = json.loads(fare_manifest)
-
 			current_b2b = self.calculate_average(fare_manifest.get('b2bfares', []))
 			current_b2c = self.calculate_average(fare_manifest.get('b2cfares', []))
 
-			updates = {}
 			if current_b2b != CONST_NA:
-				updates['prevLastSoldB2B'] = float(current_b2b)
+				self.cache_client.hset(redis_key_lsf, 'prevLastSoldB2B', float(current_b2b))
 			if current_b2c != CONST_NA:
-				updates['prevLastSoldB2C'] = float(current_b2c)
+				self.cache_client.hset(redis_key_lsf, 'prevLastSoldB2C', float(current_b2c))
 
-			if not updates:
-				return
-			prev_key = redis_key_lsf.replace('LastSoldFare:', 'PrevLastSold:', 1)
-
-			existing_prev = self.cache_client.get(prev_key)
-			existing_prev_dict = json.loads(existing_prev.decode('utf-8')) if existing_prev else {}
-			existing_prev_dict.update(updates)
-
-			self.cache_client.set(prev_key, json.dumps(existing_prev_dict))
-			self.logger.info(f"PrevLastSold saved for key {prev_key}: {existing_prev_dict}")
+			self.logger.info(f"PrevLastSold saved: B2B={current_b2b}, B2C={current_b2c}")
 
 		except Exception as e:
-			self.logger.error(f"Error saving PrevLastSold for key {redis_key_lsf}: {e}")
+			self.logger.error(f"Error saving prevLastSold for key {redis_key_lsf}: {e}")
