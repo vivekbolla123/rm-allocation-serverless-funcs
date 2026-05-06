@@ -35,7 +35,11 @@ creenv=env
 
 if env=="preprod":
     creenv="prod"
-
+    
+if env == "uat":
+    app_name="rm"
+else:
+    app_name="qp"
 # List all parameter names you need to fetch
 param_names = [
     f'/rm/{creenv}/rm-allocation/RM_DB_APPUSER_PASSWORD',
@@ -46,19 +50,18 @@ param_names = [
     f'/rm/{creenv}/rm-allocation/NAV_SFTP_PASSWORD',
     f'/rm/{creenv}/rm-allocation/RM_GW_APIKEY',
     f'/rm/{creenv}/rm-allocation/ESB_DB_PASSWORD',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
+    f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY',
     f'/glue_job/{creenv}/DW_DB_APPUSER_USERNAME',
     f'/glue_job/{creenv}/DW_DB_APPUSER_PASSWORD',
-    f'/copilot/qp/{creenv}/secrets/smtp/QP_ALERTS_PWD',
-    f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-User',
-    f'/copilot/qp/{creenv}/secrets/Qp-Forecast-DB-Pass',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
-    f'/copilot/qp/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
+    f'/copilot/{app_name}/{creenv}/secrets/smtp/QP_ALERTS_PWD',
+    f'/copilot/{app_name}/{creenv}/secrets/Qp-Forecast-DB-User',
+    f'/copilot/{app_name}/{creenv}/secrets/Qp-Forecast-DB-Pass',
+    f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD',
+    f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD',
+    f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
+    f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
 ]
-
 
 # Get all credentials at once
 credentials = get_multiple_credentials(param_names)
@@ -73,6 +76,7 @@ if env == 'prod':
     NAV_DB_HOST = "10.154.12.13:52900"
     NAV_DB_NAME = "[REZ0KOD01]."
     NAV_DB_DW_NAME = "[REZ0KDW01]."
+    NAV_CONN_DB_NAME = "[SCD0KOD01]."
     NAV_DB_WB_NAME = "[REZ0KWB01]."
     NAV_DB_REF_NAME = "[REF0KOD01]."
     NAV_DB_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_DB_PASSWORD', '')
@@ -151,6 +155,7 @@ if env == 'uat':
     RM_DB_APPUSER_PASSWORD_READ=credentials.get('/rm/uat/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     NAV_DB_HOST = "10.154.12.19:52900"
     NAV_DB_NAME = "[TST0KOD01]."
+    NAV_CONN_DB_NAME = "[TSTSCD0KOD01]."
     NAV_DB_DW_NAME = "[TST0KDW01]."
     NAV_DB_WB_NAME = "[TST0KWB01]."
     NAV_DB_REF_NAME = "[TSTREF0KOD01]."
@@ -183,8 +188,8 @@ if env == 'uat':
  
     ESB_HOST='172.24.87.43'
     ESB_PORT='3306'
-    ESB_USER=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-User', '')
-    ESB_PASSWORD=credentials.get('/copilot/qp/' + env + '/secrets/Qp-Forecast-DB-Pass', '')
+    ESB_USER=credentials.get(f'/copilot/{app_name}/' + env + '/secrets/Qp-Forecast-DB-User', '')
+    ESB_PASSWORD=credentials.get(f'/copilot/{app_name}/' + env + '/secrets/Qp-Forecast-DB-Pass', '')
     ESB_READ_SCHEMA='QP_DL_NAVDATA'
 
     ML_FORECAST_SCORE_S3_BUCKET_NAME = 'uat-qp-s3-fs'
@@ -207,7 +212,7 @@ if env == 'uat':
 
     ESB_DB_PASSWORD = credentials.get("/rm/" + env + "/rm-allocation/ESB_DB_PASSWORD")
     RM_GW_API_KEY = credentials.get('/rm/' + env + '/rm-allocation/RM_GW_APIKEY', '')
-    FETCH_INPUTS_ACCESS_KEY = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY', '')
+    FETCH_INPUTS_ACCESS_KEY = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_LAMBDA_ACCESS_KEY', '')
     RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
     
     SFTP_USERNAME = '0KTestr4x_sftp'
@@ -216,19 +221,19 @@ if env == 'uat':
     
     FETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs"
     PREFETCH_INPUTS_LAMBDA = "uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs"
-    RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
-    RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
-    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
-    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
+    RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
+    RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD = credentials.get(f'/copilot/{app_name}/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY', '')
 
-    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    SENDER_PASSWORD= credentials.get(f'/copilot/{app_name}/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     MONGO_USERNAME = "testuser"
     MONGO_DB = "qp_dw_rmalloc"
     MONGO_PASSWORD = "testpassword"
     MONGO_URL = "172.24.72.35"
     MONGO_AUTH_SOURCE="admin"
 
-    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    SENDER_PASSWORD= credentials.get(f'/copilot/{app_name}/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
     PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'

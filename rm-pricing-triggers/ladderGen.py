@@ -588,8 +588,8 @@ class LadderGen:
     def _fetch_data_by_ndo(self, ndo, channel, reverse_sector):
         """Fetch data using NDO. ESB looks backward, Market looks forward (0-365 default)."""
         if self.fare_source_flag.lower() == 'esb':
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=ndo)
+            end_date = datetime.now() - timedelta(days=335) if ndo == 365 else datetime.now()
+            start_date = end_date - timedelta(days=30 if ndo == 365 else ndo)
             return self._fetch_booking_data_esb(channel, reverse_sector,
                                                  start_date.strftime('%Y-%m-%d'),
                                                  end_date.strftime('%Y-%m-%d'))

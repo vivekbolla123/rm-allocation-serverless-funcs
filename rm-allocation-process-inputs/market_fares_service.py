@@ -328,14 +328,14 @@ class MarketFareService:
             lowmktFile = mktFareRange['mktFile'][0]
             himktFile = mktFareRange['mktFile'].iloc[-1]
             if ((criteria == MINO_FARE_ANCHOR or criteria == MAXO_FARE_ANCHOR or criteria == MINOC_FARE_ANCHOR) and (len(mktFareRange)>1)):
-                lowAirlineCode = mktfareRange_minomaxo['LowFare_airline_code'][0]
-                hiAirlineCode = mktfareRange_minomaxo['HiFare_airline_code'][0]
-                lowFilghtNum = mktfareRange_minomaxo['LowFare_outbound_flight'][0]
-                hiFilghtNum = mktfareRange_minomaxo['HiFare_outbound_flight'][0]
-                lowFare = mktfareRange_minomaxo['LowFare'][0]
-                hiFare = mktfareRange_minomaxo['HiFare'][0]
-                lowmktFile = mktfareRange_minomaxo['lowmktFile'][0]
-                himktFile = mktfareRange_minomaxo['himktFile'][0]
+                lowFare = mktfareRange_minomaxo['gross_fare'].iloc[0]
+                hiFare = mktfareRange_minomaxo['gross_fare'].iloc[-1]
+                lowAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[0]
+                hiAirlineCode = mktfareRange_minomaxo['outbound_airline_code'].iloc[-1]
+                lowFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[0]
+                hiFilghtNum = mktfareRange_minomaxo['outbound_flight'].iloc[-1]
+                lowmktFile = mktfareRange_minomaxo['mktFile'].iloc[0]
+                himktFile = mktfareRange_minomaxo['mktFile'].iloc[-1]
         
         return lowFare,hiFare,lowAirlineCode,hiAirlineCode,lowFilghtNum,hiFilghtNum,isMarketFareAvailable, criteria,lowmktFile,himktFile
 

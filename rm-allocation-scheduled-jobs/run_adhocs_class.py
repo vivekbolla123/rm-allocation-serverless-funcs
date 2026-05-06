@@ -1,4 +1,3 @@
-import sys
 import json
 import warnings
 from datetime import datetime
@@ -42,20 +41,30 @@ class SchedulerHandler:
 
     def run(self):
         self.logger.info("SUCCESS: Connection to MongoDB instance succeeded")
-        print("SUCCESS: Connection to MongoDB instance succeeded")
         
         if self.cache_client.ping():
             self.logger.info("Connected to Redis")
-            print("Connected to Redis")
 
         # main code
         scheduler_names = self.get_scheduler_names()
-        dic = {}
-        xz = self.get_shortest_run()
+        if not scheduler_names:
+            self.logger.warning("No scheduler names found. Exiting gracefully.")
+            return
 
+        xz = self.get_shortest_run()
+        if xz is None:
+            self.logger.info("No adhoc runs in queue.")
+            return
+
+        dic = {}
         for i in scheduler_names:
-            temp_time = str(self.check_event_schedule(i))
-            dic[temp_time] = i
+            temp_time = self.check_event_schedule(i)
+            if temp_time is not None:
+                dic[str(temp_time)] = i
+
+        if not dic:
+            self.logger.warning("No valid scheduler schedules found. Exiting gracefully.")
+            return
 
         dic_keys = list(dic.keys())
         dic_keys.sort()
@@ -69,14 +78,14 @@ class SchedulerHandler:
         approximate_number_of_messages_not_visible = int(response['Attributes']['ApproximateNumberOfMessagesNotVisible'])
         
         if approximate_number_of_messages + approximate_number_of_messages_not_visible == 0:
-            print("Scheduler Names:", dic)
+            # self.logger.info(f"Scheduler Names: {dic}")
             # Get current UTC time
             current_time_utc = datetime.now()
-            print("Current time: ", current_time_utc)
+            # self.logger.info(f"Current time: {current_time_utc}")
             time_obj = datetime.strptime(dic_keys[0], '%Y-%m-%d %H:%M:%S')
             time_diff = time_obj - current_time_utc
             total_minutes = time_diff.total_seconds() // 60
-            print("Time difference for", dic_keys[0], ":", total_minutes, "minutes")
+            # self.logger.info(f"Time difference for {dic_keys[0]}: {total_minutes} minutes")
             self.can_a_batch_run(total_minutes)
 
     def convert_quartz_to_cron(self, quartz_expression):
@@ -91,7 +100,7 @@ class SchedulerHandler:
             next_run_time = cron.get_next(datetime)
             return next_run_time
         except Exception as e:
-            print("Error:", e)
+            self.logger.error(f"Error getting next run time: {e}")
             return None
 
     def get_time(self, quartz_expression):
@@ -101,6 +110,7 @@ class SchedulerHandler:
             next_occurrence = aws_cron.occurrence(current_time).next()
             return next_occurrence.strftime('%Y-%m-%d %H:%M:%S')
         except Exception as e:
+            self.logger.error(f"Error parsing AWS cron expression: {e}")
             return None
 
     def extract_cron_expression(self, string):
@@ -119,10 +129,10 @@ class SchedulerHandler:
                 {'schedulerName': 1, '_id': 0}
             )
             scheduler_names = [doc['schedulerName'] for doc in cursor]
-            print(scheduler_names)
+            self.logger.info(f"Scheduler names: {scheduler_names}")
         except Exception as e:
-            self.logger.error(e)
-            sys.exit()
+            self.logger.error(f"Failed to fetch scheduler names: {e}")
+            return []
 
         return scheduler_names
 
@@ -137,7 +147,7 @@ class SchedulerHandler:
                 {'$inc': {'batch_completed': 1}}
             )
         except Exception as e:
-            print(e)
+            self.logger.error(f"Failed to update batch count for run {run_id}: {e}")
 
     def update_run_end(self, run_id):
         """
@@ -154,7 +164,7 @@ class SchedulerHandler:
                 }
             )
         except Exception as e:
-            print(e)
+            self.logger.error(f"Failed to update run end for {run_id}: {e}")
 
     def update_allocation_run_batch_audit(self, start_time, batch_id):
         """
@@ -172,9 +182,9 @@ class SchedulerHandler:
                     }
                 }
             )
-            print("Updated batch audit")
+            self.logger.info(f"Updated batch audit for {batch_id}")
         except Exception as e:
-            print(e)
+            self.logger.error(f"Failed to update batch audit for {batch_id}: {e}")
 
     def get_shortest_run(self):
         """
@@ -212,37 +222,33 @@ class SchedulerHandler:
             
             if result:
                 doc = result[0]
-                # Return tuple similar to SQL: (run_id, batch_completed, total_batch_size)
                 shortest_run = (doc['run_id'], doc['batch_completed'], doc['total_batch_size'])
                 return shortest_run
             else:
-                print("No shortest run found")
-                sys.exit()
+                self.logger.warning("No shortest run found")
+                return None
         except Exception as e:
-            self.logger.error(e)
-            print("Nothing to run")
-            sys.exit()
+            self.logger.error(f"Error fetching shortest run: {e}")
+            return None
 
     def check_event_schedule(self, rule_name):
         try:
             response = self.events.describe_rule(Name=rule_name)
             rule_details = response['Name']
             schedule_expression = response['ScheduleExpression']
-
-            print(f"Rule Name: {rule_name}")
-            print(f"Schedule Expression: {schedule_expression}")
+            self.logger.info(f"Rule Name: {rule_name}, Schedule Expression: {schedule_expression}")
         except self.events.exceptions.ResourceNotFoundException:
-            print(f"Rule '{rule_name}' not found.")
+            self.logger.warning(f"Rule '{rule_name}' not found.")
             return None
 
         cron_expression = self.extract_cron_expression(schedule_expression)
         
-        if self.get_time(cron_expression) == None:
-            print("This is the next job time: ", self.get_next_run_time(cron_expression))
-            return self.get_next_run_time(cron_expression)
-        
-        print("This is the next job time: ", self.get_time(cron_expression))
-        return self.get_time(cron_expression)
+        next_time = self.get_time(cron_expression)
+        if next_time is None:
+            next_time = self.get_next_run_time(cron_expression)
+
+        self.logger.info(f"Next job time for {rule_name}: {next_time}")
+        return next_time
 
     def smallest_batch(self, batch_names):
         run_ids = [batch_name.split('_batch_')[0] for batch_name in batch_names]
@@ -251,9 +257,24 @@ class SchedulerHandler:
 
         most_batches_run_id = min(run_id_counts, key=run_id_counts.get)
         min_batches_count = run_id_counts[most_batches_run_id]
-
-        print("Run_Id with the most number of batches:", most_batches_run_id)
+        self.logger.info(f"Run_Id with the fewest remaining batches: {most_batches_run_id}")
         return most_batches_run_id
+
+    def mark_run_done_if_complete(self, run_id):
+        """
+        Mark adhoc_run_status as DONE if all batches have been completed
+        """
+        try:
+            collection = self.db['allocation_run_audit']
+            collection.update_one(
+                {
+                    'run_id': run_id,
+                    '$expr': {'$eq': ['$total_batch_size', '$batch_completed']}
+                },
+                {'$set': {'adhoc_run_status': 'DONE'}}
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to mark run {run_id} as DONE: {e}")
 
     def get_avg_run_time(self):  # TO BE USED LATER
         unitTimePerBatch = self.totalTime / (self.totalFlightDaysInRun / self.concurrency)
@@ -267,12 +288,29 @@ class SchedulerHandler:
     def can_a_batch_run(self, next_run_time):
         if next_run_time >= self.threshold_time:
             smallest_batch_id = self.get_shortest_run()
+            if smallest_batch_id is None:
+                self.logger.warning("No adhoc runs in queue. Skipping batch.")
+                return
+
             start_time = datetime.utcnow()
             required_batch_id = self.get_required_batch(smallest_batch_id)
-            print("Processing batch: ", required_batch_id)
+            self.logger.info(f"Processing batch: {required_batch_id}")
             
             temp_list_of_values = self.cache_client.get(required_batch_id)
+
+            if temp_list_of_values is None:
+                self.logger.warning(f"Batch key '{required_batch_id}' not found in Redis — already processed or expired. Skipping.")
+                self.update_run_with_batches(smallest_batch_id[0])
+                self.mark_run_done_if_complete(smallest_batch_id[0])
+                return
+
             list_of_values = json.loads(temp_list_of_values)
+
+            if not list_of_values:
+                self.logger.warning(f"Batch key '{required_batch_id}' has empty data in Redis. Skipping.")
+                self.update_run_with_batches(smallest_batch_id[0])
+                self.mark_run_done_if_complete(smallest_batch_id[0])
+                return
 
             data_dict = list_of_values[0]
             queue_name = data_dict["queue"]
@@ -290,15 +328,6 @@ class SchedulerHandler:
                 self.update_run_end(smallest_batch_id[0])
             else:
                 self.update_run_with_batches(smallest_batch_id[0])
-            
-            print("SENT")
 
-            # Update adhoc_run_status to 'DONE' when all batches completed
-            collection = self.db['allocation_run_audit']
-            collection.update_one(
-                {
-                    'run_id': smallest_batch_id[0],
-                    '$expr': {'$eq': ['$total_batch_size', '$batch_completed']}
-                },
-                {'$set': {'adhoc_run_status': 'DONE'}}
-            )
+            self.logger.info(f"Batch {required_batch_id} sent to SQS")
+            self.mark_run_done_if_complete(smallest_batch_id[0])

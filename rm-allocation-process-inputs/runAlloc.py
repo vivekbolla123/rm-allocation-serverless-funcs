@@ -822,19 +822,23 @@ class DynAlloc:
 					# Add B2C opening price with discount if available
 					if B2C_opening_price_val and current_discount_amount:
 						b2b_anchor_candidates.append(B2C_opening_price_val - current_discount_amount)
-					if offset_flag:
-						self.outputSummaryRow_b2b.fareOffset=0
+					
 					# Set anchor fare to minimum of all available candidates
 					b2b_anchor_source = "Strategy"
 					if b2b_anchor_candidates:
 						self.outputSummaryRow_b2b.anchorFare = min(b2b_anchor_candidates)
+						offset_flag=False
 						# Check if winning anchor is the B2C discounted price
 						if B2C_opening_price_val and current_discount_amount:
+
 							b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 							if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 								b2b_anchor_source = "B2CDiscounted"
+								self.outputSummaryRow_b2b.fareOffset = 0
 					else:
 						self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Fallback
+					if offset_flag:
+						self.outputSummaryRow_b2b.fareOffset=0
 					self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 					openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
 					self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue = \

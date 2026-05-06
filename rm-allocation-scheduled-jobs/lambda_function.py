@@ -1,15 +1,18 @@
 import logging
 import boto3
 import configsettings
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text, event
 from urllib.parse import quote_plus
 from common_utils import instrument_engine
 import sys
 import json
+import time
+from functools import wraps
 
 from redis import Redis
 from datetime import datetime
 from pymongo import MongoClient
+from pymssql import Error as PymssqlError
 
 from constants_utils import ConstantsUtils
 
@@ -43,6 +46,7 @@ from mkt_cleanup import MarketListCleanup
 from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
+from fetchactiveflights import FetchActiveFlights
 
 def create_logger():
     logger = logging.getLogger()
@@ -64,6 +68,32 @@ CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
 CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
 cache_client = None
 
+# ==========================
+# NAVITAIRE CONNECTION FUNCTIONS WITH RETRY
+# ==========================
+
+def create_navitaire_connection():
+    """Create SQL Server connection pool with SQLAlchemy"""
+    connection_string = (
+        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
+        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
+        f"{configsettings.NAV_DB_HOST}"
+    )
+
+    engine = create_engine(
+        connection_string,
+        pool_pre_ping=True,      # Validates connections before use
+        pool_size=1,
+        max_overflow=0,
+        connect_args={
+            'timeout': 0,         # Query timeout
+            'login_timeout': 120  # Login timeout
+        }
+    )
+    instrument_engine(engine)
+    logger.info("Navitaire SQL Server connection established")
+    return engine
+
 try:
     # MongoDB connection (single connection for both read and write)
     mongo_client = MongoClient(
@@ -79,12 +109,7 @@ try:
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
     dw_conn = create_engine(DB_DW_WR_CONN_STRING) if hasattr(configsettings, 'DW_DB_USER') else None
 
-    NavitaireConnection = create_engine(
-        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
-        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
-        f"{configsettings.NAV_DB_HOST}"
-    )
-    instrument_engine(NavitaireConnection)
+    NavitaireConnection = create_navitaire_connection()
     
     cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
     
@@ -131,7 +156,8 @@ module_map = {
     "mkt_cleanup": MarketListCleanup,
     "saleinv_baseload": SaleInvBaseloadCalc,
     "saleinv_rbl": SaleInvRBLCalc,
-    "saleinv_leanpeak_map": SaleInvLeanPeakMap
+    "saleinv_leanpeak_map": SaleInvLeanPeakMap,
+    "fetchactiveflights": FetchActiveFlights
 }
 
 
@@ -180,9 +206,9 @@ def lambda_handler(event, context):
         logger.info(f"{module_key} :: START")
         audit_schedule_run = AuditScheduledJob(mongo_client, logger, module_key, datetime.now())
 
-        Module_obj.run()
+        run_result = Module_obj.run()
 
-        audit_schedule_run.add_scheduled_job_audit(datetime.now())
+        audit_schedule_run.add_scheduled_job_audit(datetime.now(), run_details=run_result)
         logger.info(f"{module_key} :: END")
 
     return {
@@ -227,7 +253,8 @@ def lambda_handler(event, context):
 #     "modules": {"saleinv_rbl": 1}
 # }
 # messageBody = {
-#     "modules": {"saleinv_baseload": 1}
+#     "overrides": {"cleanup": ["market_list", "market_list_connections"]},
+#     "modules": {"mkt_cleanup": 1}
 # }
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
