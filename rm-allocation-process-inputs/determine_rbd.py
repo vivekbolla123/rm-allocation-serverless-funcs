@@ -89,13 +89,32 @@ class DetermineRBD:
                         b2b_discount_fare, anchorFare, obfare, ndocounter
                     )
  
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, use_varience_logic = self.final_fare_anchor_forecast(
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
                     afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf
                 )
                 howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
+                
+                if use_varience_logic:
+                    value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
+                    if value.shape[0] != 0:
+                        anchorValue = value['B2CValue'][0] if channel == B2C_CHANNEL else value['B2BValue'][0]
+                    if anchorValue == 'C':
+                        openResult['FareResult'] = [f"V_{imp_forecast_band}_{dplfBand}_C_{howDetermined}"]
+                        openResult['anchorFare'] = ['NA']
+                        openResult['RBD'] = ['NA']
+                        openResult['Fare'] = ['NA']
+                        return openResult, lastSoldFare, strategyFare, CONST_NA, upsell, hardAnchorFare, overBookingFare, hardAnchorFare, CONST_NA
+ 
+                    lastSoldFareForAnchor = lastSoldFare
+                    if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount > 0):
+                        lastSoldFareForAnchor = CONST_NA
+ 
+                    anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter)
+                    if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
+                        anchorFare = anchorFare+int(currParams.market_discount)
                 
             else:
                 value = self.rmdatabasehelper.getRDBTable(startEndOfDayDplfBand, dplfBand, curTime, ndocounter)
@@ -239,6 +258,7 @@ class DetermineRBD:
         strategyFare = float(strategyFare)
         forecast_plf = float(forecast_plf)
         howDetermined = ''
+        use_varience_logic = False
 
         # Configurable guardrails
         PLF_FORECAST_CAP = self.constantsutils.AF_PLF_FORECAST_CAP
@@ -277,21 +297,10 @@ class DetermineRBD:
 
         # --- Variance based logic when PLF_Gain < 0 ---
         if PLF_Gain < 0:
-            howDetermined = f'AF_Forecast_PLFGainNeg_LowerBound'
+            howDetermined = f'AF_Forecast_PLFGainNeg_LowerBound_V'
             temp_fareanchor = forecastFareAnchor
-            # Apply tolerance
-            if has_tolerance(tolerance_per):
-                t2 = reduce_by_per(strategyFare, float(tolerance_per))
-                temp_fareanchor = max(temp_fareanchor, t2)
-                if temp_fareanchor == t2:
-                    howDetermined += '_ToleranceHit'
-            # Apply hard anchor cap
-            if has_hard_anchor():
-                capped = min(temp_fareanchor, float(hardAnchorFare))
-                if capped == float(hardAnchorFare):
-                    howDetermined = f'AF_Forecast_harAnchorfare'
-                temp_fareanchor = capped
-            return temp_fareanchor, howDetermined
+            use_varience_logic = True
+            return temp_fareanchor, howDetermined, use_varience_logic
 
         # --- AF_NB < 0 but PLF_Gain > 0: use ForecastFareAnchor as-is ---
         if Af_Nb_Allin < 0 and PLF_Gain > 0:
@@ -309,7 +318,7 @@ class DetermineRBD:
                 if capped == float(hardAnchorFare):
                     howDetermined = f'AF_Forecast_harAnchorfare'
                 temp_fareanchor = capped
-            return temp_fareanchor, howDetermined
+            return temp_fareanchor, howDetermined, use_varience_logic
 
         # --- All other cases: Interpolation logic ---
         howDetermined = 'AF_Forecast_Interpolated'
@@ -394,7 +403,7 @@ class DetermineRBD:
                 howDetermined = f'AF_Forecast_harAnchorfare'
             temp_fareanchor = capped
 
-        return temp_fareanchor, howDetermined
+        return temp_fareanchor, howDetermined, use_varience_logic
 
     def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf):
         anchorFare = 0
@@ -689,7 +698,7 @@ class DetermineRBD:
             should_use_tolerance = True
 
         if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:
-            anchorFare, howDetermined = self.final_fare_anchor_af_forecast(
+            anchorFare, howDetermined, use_varience_logic = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
                 hardAnchorFare, tolerance_per, imp_forecast_band
@@ -705,7 +714,7 @@ class DetermineRBD:
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
-        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue
+        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, use_varience_logic
     
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter):
         anchorFare = 0
