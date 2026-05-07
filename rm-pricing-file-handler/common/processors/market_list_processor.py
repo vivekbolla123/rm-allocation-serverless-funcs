@@ -55,26 +55,28 @@ _VALID_MARKET_FLAGS = {"y", "n"}
 
 
 def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
-    """Validate and normalize a market list CSV DataFrame.
+    """
+    Validate a market list DataFrame.
+    Column normalization and presence checks are handled upstream by normalize_dataframe_columns.
 
     Steps:
-        1. Normalize headers to camelCase (case-insensitive match)
-        2. Validate all expected columns are present
-        3. Validate Sector format (6 alpha chars)
-        4. Validate date columns (YYYY-MM-DD format)
-        5. Validate DateRangeStart <= DateRangeEnd
-        6. Validate date direction based on Type (Bookings=past, Market=future)
-        7. Validate numeric columns are numeric and non-negative
-        8. Validate MinThreshold < MaxThreshold for B2C and B2B
-        9. Validate Type is 'Bookings' or 'Market'
-        10. Validate MarketFlag is 'TRUE' or 'FALSE'
-        11. Check for duplicate sectors
+        1. Validate Sector format (6 alpha chars)
+        2. Validate LadderCode is not empty
+        3. Validate date columns (MM/DD/YYYY format)
+        4. Validate DateRangeStart <= DateRangeEnd
+        5. Validate date direction for Bookings type
+        6. Validate numeric columns are numeric and non-negative
+        7. Validate MinThreshold < MaxThreshold for B2C and B2B
+        8. Validate Type is 'Bookings' or 'Market'
+        9. Validate MarketFlag is 'Y' or 'N'
+        10. Check for duplicate LadderCode
+        11. Check for exact duplicate rows
 
     Args:
-        df: Raw DataFrame from CSV upload.
+        df: DataFrame with already-normalized column names
 
     Returns:
-        Validated DataFrame with camelCase column names.
+        Validated DataFrame
 
     Raises:
         ValueError: On any validation failure with descriptive message.
@@ -83,28 +85,9 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("Uploaded file is empty")
 
     df = df.copy()
-
-    df.columns = df.columns.str.strip()
-
-    # --- 1. Normalize headers ---
-    incoming_lower = {col.lower().replace(" ", ""): col for col in df.columns}
-    rename_map = {}
-    for lower_key, original_col in incoming_lower.items():
-        if lower_key in _HEADER_MAP:
-            rename_map[original_col] = _HEADER_MAP[lower_key]
-
-    df = df.rename(columns=rename_map)
-
-    # --- 2. Check all expected columns exist ---
-    missing = [col for col in EXPECTED_COLUMNS if col not in df.columns]
-    if missing:
-        raise ValueError(f"Missing required columns: {missing}")
-
-    # Keep only expected columns (drop any extras)
-    df = df[EXPECTED_COLUMNS].copy()
-
-    # --- 3. Sector format ---
     errors = []
+
+    # --- 1. Sector format ---
     for idx, val in df["Sector"].items():
         s = str(val).strip()
         if len(s) != 6 or not s.isalpha():
@@ -114,14 +97,14 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
 
     df["Sector"] = df["Sector"].astype(str).str.strip().str.upper()
 
-    # --- 3b. LadderCode must not be empty ---
+    # --- 2. LadderCode must not be empty ---
     df["LadderCode"] = df["LadderCode"].astype(str).str.strip()
     empty_codes = df[df["LadderCode"].isin(["", "nan", "None"])].index
     if len(empty_codes) > 0:
         details = [f"Row {r + 2}" for r in empty_codes]
         raise ValueError(f"Empty LadderCode in: {', '.join(details)}")
 
-    # --- 4. Date format (allow empty; expected mm/dd/yyyy) ---
+    # --- 3. Date format (MM/DD/YYYY) ---
     for date_col in _DATE_COLUMNS:
         non_empty = df[date_col].notna() & (df[date_col].astype(str).str.strip() != '')
         if non_empty.any():
@@ -133,7 +116,7 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
                     f"Invalid date format in {date_col} (expected MM/DD/YYYY): {'; '.join(bad_vals)}"
                 )
 
-    # --- 5. DateRangeStart <= DateRangeEnd (only when both are provided) ---
+    # --- 4. DateRangeStart <= DateRangeEnd ---
     both_present = (
         df["DateRangeStart"].notna() & (df["DateRangeStart"].astype(str).str.strip() != '') &
         df["DateRangeEnd"].notna() & (df["DateRangeEnd"].astype(str).str.strip() != '')
@@ -146,7 +129,7 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
             details = [f"Row {r + 2}" for r in bad]
             raise ValueError(f"DateRangeStart is after DateRangeEnd in: {', '.join(details)}")
 
-    # --- 6. Date direction: only validate for Bookings type with dates provided ---
+    # --- 5. Bookings type date direction ---
     today = pd.Timestamp(datetime.now().date())
     for idx, row in df.iterrows():
         row_type = str(row["Type"]).strip().lower()
@@ -156,11 +139,13 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
         if row_type == "bookings" and start_val and end_val:
             start = pd.Timestamp(start_val)
             if start > today:
-                errors.append(f"Row {idx + 2}: Type is 'Bookings' but DateRangeStart ({start_val}) is in the future")
+                errors.append(
+                    f"Row {idx + 2}: Type is 'Bookings' but DateRangeStart ({start_val}) is in the future"
+                )
     if errors:
         raise ValueError("; ".join(errors))
 
-    # --- 7. Numeric columns ---
+    # --- 6. Numeric columns: non-null and non-negative ---
     for col in _NUMERIC_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
         bad_rows = df[df[col].isna()].index
@@ -172,38 +157,36 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
             details = [f"Row {r + 2}" for r in neg_rows]
             raise ValueError(f"Negative value in {col}: {', '.join(details)}")
 
-    # --- 8. Min < Max thresholds ---
+    # --- 7. Min < Max thresholds ---
     for channel in ["B2C", "B2B"]:
         min_col = f"MinThreshold_{channel}"
         max_col = f"MaxThreshold_{channel}"
         bad = df[df[min_col] >= df[max_col]].index
         if len(bad) > 0:
             details = [f"Row {r + 2}" for r in bad]
-            raise ValueError(
-                f"{min_col} >= {max_col} in: {', '.join(details)}"
-            )
+            raise ValueError(f"{min_col} >= {max_col} in: {', '.join(details)}")
 
-    # --- 9. Type validation ---
+    # --- 8. Type validation ---
     df["Type"] = df["Type"].astype(str).str.strip()
     invalid_types = df[~df["Type"].str.lower().isin(_VALID_TYPES)].index
     if len(invalid_types) > 0:
         details = [f"Row {r + 2}: '{df.at[r, 'Type']}'" for r in invalid_types]
         raise ValueError(f"Invalid Type (expected 'Bookings' or 'Market'): {'; '.join(details)}")
 
-    # --- 10. MarketFlag validation ---
+    # --- 9. MarketFlag validation ---
     df["MarketFlag"] = df["MarketFlag"].astype(str).str.strip()
     invalid_flags = df[~df["MarketFlag"].str.upper().isin({"Y", "N"})].index
     if len(invalid_flags) > 0:
         details = [f"Row {r + 2}: '{df.at[r, 'MarketFlag']}'" for r in invalid_flags]
         raise ValueError(f"Invalid MarketFlag (expected 'Y' or 'N'): {'; '.join(details)}")
 
-    # --- 11. Duplicate LadderCode ---
+    # --- 10. Duplicate LadderCode ---
     dupes = df[df.duplicated(subset=["LadderCode"], keep=False)]
     if not dupes.empty:
         dup_codes = dupes["LadderCode"].unique().tolist()
         raise ValueError(f"Duplicate LadderCode entries found: {dup_codes}")
 
-    # --- 12. Exact duplicate rows ---
+    # --- 11. Exact duplicate rows ---
     exact_dupes = df[df.duplicated(keep=False)]
     if not exact_dupes.empty:
         dup_rows = [str(r + 2) for r in exact_dupes.index]
