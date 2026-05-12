@@ -37,6 +37,7 @@ class FareFiling:
         self.tax_master_dom_data = None
         self.tax_master_intl_data = None
         self.saver_data = None
+        self.footnote_master_data = None
         self.currentVersion = None
         self.isSaver = True if self.type == "Saver" else False
         self.city_pair_data = None
@@ -159,6 +160,8 @@ class FareFiling:
 
             self.product_rules_data = self.pa_helper.collect_product_rules_data()
             self.product_rules_dict = self.product_rules_data.set_index('rule_nbr')['letter'].to_dict()
+
+            self.footnote_master_data = self.pa_helper.collect_footnote_master_data()
 
             self.tax_master_dom_data, self.tax_master_intl_data, error = self.pa_helper.collect_tax_master_data()
             if error:
@@ -420,6 +423,155 @@ class FareFiling:
             return round(fare)
         return round(fare, int(self.constants.CURRENCY_ROUND_OFF_LIST[currency]))
 
+    def _parse_date(self, date_str):
+        """Parse a date string in MM/DD/YYYY format. Returns None if invalid/empty."""
+        if not date_str or (isinstance(date_str, str) and date_str.strip() == ''):
+            return None
+        if isinstance(date_str, str) and date_str.strip().lower() == 'open':
+            return None
+        try:
+            return datetime.strptime(date_str.strip(), '%m/%d/%Y').date()
+        except (ValueError, AttributeError):
+            return None
+
+    def _resolve_footnote(self, upsell_row):
+        """
+        Resolve the footnote for an upsell row.
+        
+        Priority:
+          1. If the upsell row has a non-empty 'footnote' value, use it directly.
+          2. Otherwise, use the sales/travel date range columns from the upsell row
+             to find a matching footnote in footnote_master.
+
+        Date range matching logic:
+          - If only sales_start/sales_end is provided, match footnote_master rows
+            that have only sales dates (travel dates empty).
+          - If only travel_start/travel_end is provided, match footnote_master rows
+            that have only travel dates (sales dates empty).
+          - If both are provided, match on both ranges.
+          - Empty start date -> treat as current date.
+          - Empty/Open end date -> treat as start date + 365 days.
+          - A footnote_master row matches if its date range overlaps with the
+            upsell row's date range (i.e. the upsell range falls within the master range).
+
+        Returns:
+            The resolved footnote string, or '' if no match found.
+        """
+        # Priority 1: direct footnote on upsell row
+        direct_footnote = upsell_row.get('footnote', '')
+        if pd.notna(direct_footnote) and str(direct_footnote).strip() != '':
+            return str(direct_footnote).strip()
+
+        # If no footnote master data loaded, return empty
+        if self.footnote_master_data is None or self.footnote_master_data.empty:
+            return ''
+
+        today = date.today()
+
+        # Extract upsell row date fields
+        u_sales_start = upsell_row.get('sales_start', '')
+        u_sales_end = upsell_row.get('sales_end', '')
+        u_travel_start = upsell_row.get('travel_start', '')
+        u_travel_end = upsell_row.get('travel_end', '')
+
+        # Normalize NaN to empty string
+        if pd.isna(u_sales_start):
+            u_sales_start = ''
+        if pd.isna(u_sales_end):
+            u_sales_end = ''
+        if pd.isna(u_travel_start):
+            u_travel_start = ''
+        if pd.isna(u_travel_end):
+            u_travel_end = ''
+
+        u_sales_start = str(u_sales_start).strip()
+        u_sales_end = str(u_sales_end).strip()
+        u_travel_start = str(u_travel_start).strip()
+        u_travel_end = str(u_travel_end).strip()
+
+        has_sales = (u_sales_start != '' or u_sales_end != '')
+        has_travel = (u_travel_start != '' or u_travel_end != '')
+
+        # If no date info at all, can't resolve
+        if not has_sales and not has_travel:
+            return ''
+
+        # Build effective upsell date ranges
+        def _effective_range(start_str, end_str):
+            """Convert start/end strings to effective date range."""
+            start_dt = self._parse_date(start_str)
+            end_dt = self._parse_date(end_str)
+
+            if start_dt is None:
+                start_dt = today
+            if end_dt is None:
+                end_dt = start_dt + timedelta(days=365)
+
+            return start_dt, end_dt
+
+        u_sales_range = _effective_range(u_sales_start, u_sales_end) if has_sales else None
+        u_travel_range = _effective_range(u_travel_start, u_travel_end) if has_travel else None
+
+        # Search footnote_master for a match
+        for _, fm_row in self.footnote_master_data.iterrows():
+            fm_sales_start = str(fm_row.get('sales_start', '')).strip() if pd.notna(fm_row.get('sales_start', '')) else ''
+            fm_sales_end = str(fm_row.get('sales_end', '')).strip() if pd.notna(fm_row.get('sales_end', '')) else ''
+            fm_travel_start = str(fm_row.get('travel_start', '')).strip() if pd.notna(fm_row.get('travel_start', '')) else ''
+            fm_travel_end = str(fm_row.get('travel_end', '')).strip() if pd.notna(fm_row.get('travel_end', '')) else ''
+
+            fm_has_sales = (fm_sales_start != '' or fm_sales_end != '')
+            fm_has_travel = (fm_travel_start != '' or (fm_travel_end != '' and fm_travel_end.lower() != 'open'))
+
+            # Match pattern: upsell row and master must have the same date type combination
+            # If upsell has only sales -> master must have sales dates
+            # If upsell has only travel -> master must have travel dates
+            # If upsell has both -> master must have both
+            if has_sales and not has_travel:
+                if not fm_has_sales:
+                    continue
+                # Master should not have meaningful travel dates for a sales-only match
+                if fm_has_travel:
+                    continue
+            elif has_travel and not has_sales:
+                if not fm_has_travel and fm_travel_start == '' and fm_travel_end.lower() != 'open':
+                    continue
+                # Master should not have meaningful sales dates for a travel-only match
+                if fm_has_sales:
+                    continue
+            else:
+                # Both: master must have both
+                if not fm_has_sales or (not fm_has_travel and fm_travel_start == '' and fm_travel_end.lower() != 'open'):
+                    continue
+
+            # Check sales range overlap
+            if has_sales and u_sales_range:
+                fm_s_range = _effective_range(fm_sales_start, fm_sales_end)
+                # Upsell sales range must fall within master sales range
+                if u_sales_range[0] < fm_s_range[0] or u_sales_range[1] > fm_s_range[1]:
+                    continue
+
+            # Check travel range overlap
+            if has_travel and u_travel_range:
+                fm_t_start_str = fm_travel_start
+                fm_t_end_str = fm_travel_end
+                # Handle "Open" end date for travel
+                fm_t_range = _effective_range(fm_t_start_str, fm_t_end_str)
+                # Upsell travel range must fall within master travel range
+                if u_travel_range[0] < fm_t_range[0] or u_travel_range[1] > fm_t_range[1]:
+                    continue
+
+            # Match found
+            matched_footnote = fm_row.get('footnote', '')
+            if pd.notna(matched_footnote) and str(matched_footnote).strip() != '':
+                return str(matched_footnote).strip()
+
+        # No match found
+        self.logger.warning(
+            f"No footnote master match for sales=({u_sales_start} to {u_sales_end}), "
+            f"travel=({u_travel_start} to {u_travel_end})"
+        )
+        return ''
+
     def _make_output_row(self, sector, rbd, rule_nbr, fare, sort_price,
                          ow_rt, footnote, ndo, pos, currency, farebasis,
                          actual_origin, actual_destination, fare_direction,
@@ -520,9 +672,7 @@ class FareFiling:
         if pd.isna(ndo) or ndo == '':
             ndo = 'X'
 
-        footnote = upsell_row.get('footnote', '')
-        if pd.isna(footnote):
-            footnote = ''
+        footnote = self._resolve_footnote(upsell_row)
 
         flt_nbr = upsell_row.get('flt_nbr', '')
         if pd.isna(flt_nbr):
