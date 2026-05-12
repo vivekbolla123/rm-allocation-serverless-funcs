@@ -255,21 +255,24 @@ class ActionSectors:
             else:
                 minRBD = self.B2B_RBD_LIST[0]
                 maxRBD = self.B2B_RBD_LIST[-1]
-            # Get min and max fare amounts
-            min_fare_amount = channel_fares['TOTAL'][minRBD]
-            max_fare_amount = channel_fares['TOTAL'][maxRBD]
+            # Get fare records for the specific RBDs
+            min_fare_records = channel_fares[channel_fares['RBD'] == minRBD]
+            max_fare_records = channel_fares[channel_fares['RBD'] == maxRBD]
             
-            # Get the records for min and max fares
-            min_fare_record = channel_fares[channel_fares['TOTAL'] == min_fare_amount].iloc[0]
-            max_fare_record = channel_fares[channel_fares['TOTAL'] == max_fare_amount].iloc[0]
+            if min_fare_records.empty or max_fare_records.empty:
+                self.logger.debug(f"No QP fares found for RBDs {minRBD}/{maxRBD} in {channel} channel for sector {origin}-{destination}")
+                return None, None, None, None
+            
+            min_fare_record = min_fare_records.iloc[0]
+            max_fare_record = max_fare_records.iloc[0]
             
             # Calculate gross fares for min and max
             min_base_fare = float(min_fare_record['TOTAL'])
             max_base_fare = float(max_fare_record['TOTAL'])
             min_currency = min_fare_record['currency']
             max_currency = max_fare_record['currency']
-            min_rbd = min_fare_record['RBD']
-            max_rbd = max_fare_record['RBD']
+            min_rbd = minRBD
+            max_rbd = maxRBD
             
             self.logger.debug(f"Min fare for {channel}: RBD={min_rbd}, Amount={min_base_fare}, Currency={min_currency}")
             self.logger.debug(f"Max fare for {channel}: RBD={max_rbd}, Amount={max_base_fare}, Currency={max_currency}")
