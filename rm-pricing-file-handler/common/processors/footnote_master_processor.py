@@ -1,30 +1,5 @@
 import pandas as pd
 
-
-def convert_footnote_master_data_types(df):
-    """
-    Convert footnote master data to proper data types for database storage.
-
-    Args:
-        df: DataFrame containing footnote master data
-
-    Returns:
-        DataFrame: Data with proper data types
-    """
-    if df.empty:
-        return df
-
-    df = df.copy()
-    df.columns = df.columns.str.lower()
-
-    string_columns = ['footnote', 'sales_start', 'sales_end', 'travel_start', 'travel_end']
-    for col in string_columns:
-        if col in df.columns:
-            df[col] = df[col].astype(str).replace('nan', '')
-
-    return df
-
-
 def validate_footnote_master(df: pd.DataFrame) -> pd.DataFrame:
     """
     Validate footnote master data for required columns, date formats, and duplicates.
