@@ -558,7 +558,7 @@ class DetermineRBD:
             else:
                 howDetermined += '_UpsellN'
             
-            assign_b2b_factor(currParams, b2b_factor_value)
+            # assign_b2b_factor(currParams, b2b_factor_value)
             should_use_tolerance = True
 
         
@@ -606,7 +606,7 @@ class DetermineRBD:
                     else:
                         howDetermined += '_UpsellN'
 
-            assign_b2b_factor(currParams, b2b_factor_value)
+            # assign_b2b_factor(currParams, b2b_factor_value)
         
         elif imp_forecast_band == 2:
             pass
@@ -631,7 +631,7 @@ class DetermineRBD:
                 anchorFare, fareType = get_fare_and_type(strategyFare=strategyFare, maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
                 howDetermined += fareType + '_UpsellN'
             
-            assign_b2b_factor(currParams, b2b_factor_value)
+            # assign_b2b_factor(currParams, b2b_factor_value)
             should_use_tolerance = True
 
         elif imp_forecast_band == 0:
@@ -640,7 +640,7 @@ class DetermineRBD:
                                                           maxLastSoldFare=maxLastSoldFare, profileFare=profileFare, func=min)
             howDetermined += fareType + '_UpsellN'
             
-            assign_b2b_factor(currParams, b2b_factor_value)
+            # assign_b2b_factor(currParams, b2b_factor_value)
             should_use_tolerance = True
 
         if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:

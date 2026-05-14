@@ -500,19 +500,19 @@ class DynAlloc:
 				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
 				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
 
-			ml_b2b_factor = self.currParams.b2b_factor
 			b2b_strategy = self.currParams.b2bStrategy
+			forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
 			skip_auto_b2b_factor = True
 
-			is_b2b_strategy_available = b2b_strategy != CONST_NA and b2b_strategy != "" and not pd.isna(b2b_strategy)
+			is_b2b_strategy_na = b2b_strategy == CONST_NA and b2b_strategy == "" and pd.isna(b2b_strategy)
 			try:
-				ml_b2b_factor = float(ml_b2b_factor)
-				skip_auto_b2b_factor = ml_b2b_factor <= 0
+				skip_auto_b2b_factor = forecastAllocFlag == 0 or is_b2b_strategy_na or imp_forecast_band == CONST_NA
 			except (ValueError, TypeError):
 				skip_auto_b2b_factor = True
 
-			if ((not skip_auto_b2b_factor) and is_b2b_strategy_available and forecastBand != CONST_NA):
-				auto_b2b_factor_value = self.rmdatabasehelper.getB2BStrategyValue(dplfBand_full, ndoBand_full, forecastBand, b2b_strategy)
+			# Assign B2B factor based on B2B Strategy if applicable
+			if not skip_auto_b2b_factor:
+				auto_b2b_factor_value = self.rmdatabasehelper.getB2BStrategyValue(ndoBand_full, imp_forecast_band, b2b_strategy)
 				if auto_b2b_factor_value is not None:
 					try:
 						self.currParams.b2b_factor = float(auto_b2b_factor_value)
