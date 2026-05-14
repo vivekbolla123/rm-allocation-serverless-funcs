@@ -987,11 +987,10 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def getB2BStrategyValue(self, dplfBand, ndoBand, forecastBand, name):
+    def getB2BStrategyValue(self, ndoBand, forecastBand, name):
         try:
             result = self.db.auto_b2b_factor.find_one({
                 "ndo_band": ndoBand,
-                "dplf_band": dplfBand,
                 "forecast_band": forecastBand,
                 "name": name
             })

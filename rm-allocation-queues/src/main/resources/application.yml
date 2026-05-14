@@ -35,7 +35,7 @@ spring:
       on-profile: uat
     import:
       - "aws-parameterstore:/rm/uat/rm-allocation/"
-      - "aws-parameterstore:/copilot/qp/uat/secrets/"
+      - "aws-parameterstore:/copilot/rm/uat/secrets/"
 
 rm:
   db:
