@@ -9,6 +9,7 @@ public interface TableNamesConstants {
     String STRATEGY_TABLE_NAME = "d1_d2_strategies";
     String AUTO_B2B_TABLE_NAME = "auto_b2b_factor";
     String FORECAST_BANDS_TABLE_NAME = "forecast_bands";
+    String IMP_FORECAST_BANDS_TABLE_NAME = "imputed_forecast_bands";
     String MARKET_LIST_TABLE_NAME = "market_list";
     String MARKET_LIST_TABLE_NAME_S3 = "market_list_s3";
     String MARKET_LIST_INTERNATIONAL_TABLE_NAME = "market_list_international";
