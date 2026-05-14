@@ -3397,6 +3397,11 @@ public class App implements CommandLineRunner {
 
         return strategyMap;
     }
+
+    public static String extractNumber(String input) {
+        return input.replaceAll("\\s*\\(.*\\)", "").trim();
+    }
+
     public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
                                                            Map<String, String> headerColumnMap) throws DataMismatchedException {
         Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
@@ -3410,10 +3415,10 @@ public class App implements CommandLineRunner {
             String nameKey = csvData.get(i).get(nameHeader);
             counter.add(nameKey);
 
-            String ndoBandKey = csvData.get(i).get(ndoBandHeader);
+            String ndoBandKey = extractNumber(csvData.get(i).get(ndoBandHeader));
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
-                String forecastBand = csvData.get(0).get(j);
+                String forecastBand = extractNumber(csvData.get(0).get(j));
                 String keyVal = nameKey + ndoBandKey + forecastBand;
                 if (!autob2bMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
@@ -3456,7 +3461,7 @@ public class App implements CommandLineRunner {
     private void findActualCountForAutoB2BFactor(Set<String> strategyCounter, int countTotalValues,
                                                  List<String> errorList) throws DataMismatchedException {
         int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
-        int forecastBand = getCountOfEntries(FORECAST_BANDS_TABLE_NAME);
+        int forecastBand = getCountOfEntries(IMP_FORECAST_BANDS_TABLE_NAME);
         int expectedValueCount = strategyCounter.size() * ndoBand * forecastBand;
         if (expectedValueCount != countTotalValues) {
             updateInputStatus(STRATEGY_TABLE_NAME);
