@@ -6,16 +6,19 @@ from bson import ObjectId
 class ActionPAHelper:
     """Handles Pricing/Analytics-related database operations using MongoDB."""
 
-    def __init__(self, mongo_db, fares_db, logger):
+    def __init__(self, mongo_db, fares_db, logger, master_db=None):
         """
         Initialize with MongoDB database instance.
         
         Args:
             mongo_db: MongoDB database instance (e.g., client['QP_DW_PRIAUT'])
+            fares_db: MongoDB database instance for fares (qp_dw_rmalloc)
             logger: Logger instance
+            master_db: MongoDB database instance for common collections (qp_rm_master)
         """
         self.db = mongo_db
         self.fares_db = fares_db
+        self.master_db = master_db if master_db is not None else mongo_db
         self.logger = logger
         
     def collect_qp_fares(self, route, active_sectors):
@@ -39,7 +42,7 @@ class ActionPAHelper:
                 base_match['Rule_Nbr'] = {'$in': ['1001', '2001']}
                 
                 # Get domestic stations
-                domestic_stations = list(self.db.config_station_master.find(
+                domestic_stations = list(self.master_db.config_station_master.find(
                     {'route': 'D'},
                     {'station': 1, '_id': 0}
                 ))
@@ -54,7 +57,7 @@ class ActionPAHelper:
                 base_match['Rule_Nbr'] = {'$in': ['M101', 'R101', 'M201', 'R201']}
                 
                 # Get international stations
-                intl_stations = list(self.db.config_station_master.find(
+                intl_stations = list(self.master_db.config_station_master.find(
                     {'route': 'I'},
                     {'station': 1, '_id': 0}
                 ))
@@ -167,7 +170,7 @@ class ActionPAHelper:
     def collect_tax_master_domestic(self):
         """Collect domestic tax master data from MongoDB."""
         try:
-            tax_master_data = list(self.db.tax_mast_dom.find(
+            tax_master_data = list(self.master_db.tax_mast_dom.find(
                 {},
                 {
                     '_id': 0,
@@ -192,7 +195,7 @@ class ActionPAHelper:
     def collect_tax_master_international(self):
         """Collect international tax master data from MongoDB."""
         try:
-            tax_master_data = list(self.db.tax_mast_intl.find(
+            tax_master_data = list(self.master_db.tax_mast_intl.find(
                 {},
                 {
                     '_id': 0,
@@ -335,10 +338,10 @@ class ActionPAHelper:
             
             # Execute pipeline on both collections
             self.logger.info("Aggregating market_fares_ag data...")
-            ag_results = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            ag_results = list(self.master_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
             
             self.logger.info("Aggregating market_fares_rg data...")
-            rg_results = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            rg_results = list(self.master_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
             
             # Combine results from both collections
             if not ag_results and not rg_results:

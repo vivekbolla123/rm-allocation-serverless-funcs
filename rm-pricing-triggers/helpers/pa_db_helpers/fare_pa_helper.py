@@ -6,15 +6,17 @@ from bson import ObjectId
 class FarePAHelper:
     """Handles Pricing/Analytics-related database operations using MongoDB."""
 
-    def __init__(self, mongo_db, logger):
+    def __init__(self, mongo_db, logger, master_db=None):
         """
         Initialize with MongoDB database instance.
         
         Args:
             mongo_db: MongoDB database instance (e.g., client['QP_DW_PRIAUT'])
             logger: Logger instance
+            master_db: MongoDB database instance for common collections (qp_rm_master)
         """
         self.db = mongo_db
+        self.master_db = master_db if master_db is not None else mongo_db
         self.logger = logger
         
     def collect_qp_fares(self, sectors, route, base_footnotes=None, base_ndos=None):
@@ -365,7 +367,7 @@ class FarePAHelper:
         """Collect both domestic and international tax master data from MongoDB."""
         try:
             # Domestic tax data
-            tax_master_dom = list(self.db.tax_mast_dom.find(
+            tax_master_dom = list(self.master_db.tax_mast_dom.find(
                 {},
                 {
                     '_id': 0,
@@ -382,7 +384,7 @@ class FarePAHelper:
             tax_master_dom_data = pd.DataFrame(tax_master_dom)
             
             # International tax data
-            tax_master_intl = list(self.db.tax_mast_intl.find(
+            tax_master_intl = list(self.master_db.tax_mast_intl.find(
                 {},
                 {
                     '_id': 0,

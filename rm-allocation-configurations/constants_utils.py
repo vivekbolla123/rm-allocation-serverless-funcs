@@ -4,7 +4,7 @@ import pandas as pd
 from Constants import *
 
 class ConstantsUtils:
-    def __init__(self, conn):
+    def __init__(self, conn, master_conn=None):
         self.MIN_D3_D4_VALUE = MIN_D3_D4_VALUE
         self.LINEAR_JUMP_VALUE = LINEAR_JUMP_VALUE
         self.PLF_CURVE_VALUE = PLF_CURVE_VALUE

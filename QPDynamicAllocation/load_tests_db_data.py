@@ -4,10 +4,18 @@ from datetime import datetime
 
 
 class Schema:
-    def __init__(self, mongo_db):
+    # Collections that belong to the master db
+    MASTER_COLLECTIONS = {
+        "config_station_master", "active_sectors",
+        "market_fares_ag", "market_fares_rg", "tax_mast_dom", "tax_mast_intl",
+        "active_flight_connections", "active_flight_legs", "cleanup_config",
+    }
+
+    def __init__(self, mongo_db, master_db=None):
         # Establish a connection to MongoDB
         self.db = mongo_db
         self.dw_db = mongo_db
+        self.master_db = master_db
 
     def initializTables(self):
         self.load_generic_collection("curves", "Curves.csv")
@@ -90,7 +98,12 @@ class Schema:
                 rawdata["outbound_stop"] = rawdata["outbound_stop"].apply(parse_time)
 
         # Select the appropriate database
-        db = self.dw_db if use_dw else self.db
+        if collectionName in self.MASTER_COLLECTIONS:
+            db = self.master_db
+        elif use_dw:
+            db = self.dw_db
+        else:
+            db = self.db
         
         # Drop the collection if it exists
         self.dropCollection(collectionName, use_dw)
@@ -106,7 +119,12 @@ class Schema:
 
     def dropCollection(self, collectionName, use_dw=False):
         """Drop a MongoDB collection if it exists"""
-        db = self.dw_db if use_dw else self.db
+        if collectionName in self.MASTER_COLLECTIONS:
+            db = self.master_db
+        elif use_dw:
+            db = self.dw_db
+        else:
+            db = self.db
         db[collectionName].drop()
 
     def transformCollections(self):

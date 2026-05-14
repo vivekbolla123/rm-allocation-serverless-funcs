@@ -1490,6 +1490,7 @@ class DynAlloc:
 
 		self.sqs = self.currParams.sqs
 		self.mongoclient = self.currParams.mongodbclient
+		self.mongo_master_db = self.currParams.mongo_master_db
 		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
 		if pd.isna(self.currParams.w0Flag):
@@ -1510,7 +1511,7 @@ class DynAlloc:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource)
+		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource,self.mongo_master_db)
 		self.constantsUtils = ConstantsUtils(self.mongoclient)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
