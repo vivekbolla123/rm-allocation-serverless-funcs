@@ -18,7 +18,7 @@ class defaultMarketlist:
         self.db = self.mongo_conn["qp_dw_rmalloc"]
         self.master_db = params['mongo_master_db']
         self.cache_client = params['cache_client']
-        self.constants = ConstantsUtils(self.mongo_conn)  # Pass mongo_conn to ConstantsUtils
+        self.constants = ConstantsUtils(self.db)
         self.default_list = json.loads(self.constants.DEFAULT_MARKET_LIST)
         self.max_days = self.constants.DEFAULT_MARKET_LIST_DAYS
         self.session = requests.Session()
