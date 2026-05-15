@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, date
 class LadderEsbHelper:
     """Handles Navitaire-related database operations and market fare collection."""
 
-    def __init__(self, rm_rd_esb_conn, db_fares, logger):
+    def __init__(self, rm_rd_esb_conn, db_fares, logger, master_db=None):
         self.rm_rd_esb_conn = rm_rd_esb_conn
         self.db_fares = db_fares
+        self.master_db = master_db if master_db is not None else db_fares
         self.logger = logger
         self.failure_reason = None
 
@@ -64,7 +65,7 @@ class LadderEsbHelper:
             all_results = []
 
             # Check which collections exist
-            collection_names = self.db_fares.list_collection_names()
+            collection_names = self.master_db.list_collection_names()
             ag_exists = 'market_fares_ag' in collection_names
             rg_exists = 'market_fares_rg' in collection_names
 
@@ -96,7 +97,7 @@ class LadderEsbHelper:
                         {"$addFields": {"data_source": "AG"}},
                         {"$project": {**projection, "data_source": 1}}
                     ]
-                    ag_cursor = self.db_fares.market_fares_ag.aggregate(ag_pipeline, allowDiskUse=True)
+                    ag_cursor = self.master_db.market_fares_ag.aggregate(ag_pipeline, allowDiskUse=True)
                     ag_results = list(ag_cursor)
                     all_results.extend(ag_results)
                     self.logger.info(f"Found {len(ag_results)} records from market_fares_ag")
@@ -122,7 +123,7 @@ class LadderEsbHelper:
                         {"$addFields": {"data_source": "RG"}},
                         {"$project": {**projection, "data_source": 1}}
                     ]
-                    rg_cursor = self.db_fares.market_fares_rg.aggregate(rg_pipeline, allowDiskUse=True)
+                    rg_cursor = self.master_db.market_fares_rg.aggregate(rg_pipeline, allowDiskUse=True)
                     rg_results = list(rg_cursor)
                     all_results.extend(rg_results)
                     self.logger.info(f"Found {len(rg_results)} records from market_fares_rg")

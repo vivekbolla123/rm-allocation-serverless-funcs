@@ -15,7 +15,7 @@ class ActiveSectors:
         self.logger = logger
         # Get MongoDB client and access the database
         self.mongo_client = params['mongoconn']
-        self.mongo_db = self.mongo_client['qp_dw_rmalloc']
+        self.mongo_master_db = params['mongo_master_db']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_conn = params['navconn']
         self.constants = ConstantsUtils(self.mongo_db)
@@ -40,7 +40,7 @@ class ActiveSectors:
     def get_existing_mongo_sectors(self):
         """Get all existing sectors from MongoDB (both Nav and Manual)."""
         try:
-            all_sectors = list(self.mongo_db.active_sectors.find(
+            all_sectors = list(self.mongo_master_db.active_sectors.find(
                 {},
                 {'sector': 1, 'source': 1, '_id': 0}
             ))
@@ -67,7 +67,7 @@ class ActiveSectors:
         try:
             updated_total = 0
             for field, default_value in self.default_sector_fields.items():
-                result = self.mongo_db.active_sectors.update_many(
+                result = self.mongo_master_db.active_sectors.update_many(
                     {field: {'$exists': False}},
                     {'$set': {field: default_value}}
                 )
@@ -116,13 +116,13 @@ class ActiveSectors:
                     }
                     for sector in sectors_to_add
                 ]
-                result = self.mongo_db.active_sectors.insert_many(records)
+                result = self.mongo_master_db.active_sectors.insert_many(records)
                 added_count = len(result.inserted_ids)
                 self.logger.info(f"Added {added_count} new Nav sectors with default fields")
            
             # Remove obsolete Nav sectors
             if sectors_to_remove:
-                result = self.mongo_db.active_sectors.delete_many({
+                result = self.mongo_master_db.active_sectors.delete_many({
                     'sector': {'$in': list(sectors_to_remove)},
                     'source': SOURCE_NAV
                 })

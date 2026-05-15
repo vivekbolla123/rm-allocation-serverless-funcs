@@ -11,6 +11,7 @@ from constants_utils import ConstantsUtils
 class RMDatabaseHelper:
     def __init__(self, mongo_db, dwconn, runId, inputSource, debugmode, cache_client, currParams):
         self.db = mongo_db  # MongoDB database instance
+        self.master_db = getattr(currParams, 'mongo_master_db', mongo_db) if hasattr(currParams, 'mongo_master_db') else mongo_db
         self.dwconn = dwconn  # Data warehouse MongoDB instance
         self.runId = runId
         self.logger = OwnLogger(runId, inputSource)
@@ -241,27 +242,6 @@ class RMDatabaseHelper:
                             }
                         },
                         {"$unwind": {"path": "$sb", "preserveNullAndEmptyArrays": True}},
-                        # Lookup active_sectors
-                        {
-                            "$lookup": {
-                                "from": "active_sectors",
-                                "let": {
-                                    "org": "$Origin",
-                                    "dst": "$Destin"
-                                },
-                                "pipeline": [
-                                    {
-                                        "$match": {
-                                            "$expr": {
-                                                "$eq": ["$Sector", {"$concat": ["$$org", "$$dst"]}]
-                                            }
-                                        }
-                                    }
-                                ],
-                                "as": "act_sec"
-                            }
-                        },
-                        {"$unwind": {"path": "$act_sec", "preserveNullAndEmptyArrays": True}},
                         # Add fields from joined collections with proper null handling
                         {
                             "$addFields": {
@@ -293,9 +273,7 @@ class RMDatabaseHelper:
 "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
 "current_rbd_P": {"$ifNull": ["$cr.current_rbd_P", 0]},
 "total_series_seats": {"$ifNull": ["$sb.total_series_seats", 0]},
-    "NextFlight": 0,
-    "forecast_model": "$act_sec.Forecast_model",
-    "farecap": "$act_sec.Farecap"
+    "NextFlight": 0
 }
                         },
                         # Remove the temporary fields and nested objects
@@ -306,8 +284,7 @@ class RMDatabaseHelper:
                                 "bl": 0,
                                 "cr": 0,
                                 "fr": 0,
-                                "sb": 0,
-                                "act_sec": 0
+                                "sb": 0
                             }
                         }
                     ]
@@ -320,6 +297,30 @@ class RMDatabaseHelper:
                         self.logger.warning("No results returned from aggregation pipeline")
                     
                     self.mktList = pd.DataFrame(results)
+                    
+                    # Enrich with active_sectors data from master db (cross-db join)
+                    if not self.mktList.empty and 'Origin' in self.mktList.columns and 'Destin' in self.mktList.columns:
+                        try:
+                            sectors = (self.mktList['Origin'] + self.mktList['Destin']).unique().tolist()
+                            act_sec_data = list(self.master_db.active_sectors.find(
+                                {"Sector": {"$in": sectors}},
+                                {"Sector": 1, "Forecast_model": 1, "Farecap": 1, "_id": 0}
+                            ))
+                            if act_sec_data:
+                                act_sec_df = pd.DataFrame(act_sec_data)
+                                self.mktList['_sector_key'] = self.mktList['Origin'] + self.mktList['Destin']
+                                self.mktList = self.mktList.merge(
+                                    act_sec_df.rename(columns={"Sector": "_sector_key", "Forecast_model": "forecast_model", "Farecap": "farecap"}),
+                                    on='_sector_key', how='left'
+                                )
+                                self.mktList.drop(columns=['_sector_key'], inplace=True)
+                            else:
+                                self.mktList['forecast_model'] = None
+                                self.mktList['farecap'] = None
+                        except Exception as e:
+                            self.logger.warning(f"Error enriching with active_sectors: {e}")
+                            self.mktList['forecast_model'] = None
+                            self.mktList['farecap'] = None
                     
                 except Exception as e:
                     self.logger.error(f"Error in direct route aggregation: {str(e)}")
@@ -605,31 +606,6 @@ class RMDatabaseHelper:
         }
     },
     {
-        "$lookup": {
-            "from": "active_sectors",
-            "let": {
-                "s1Origin": "$sector1Origin",
-                "s2Dest": "$sector2Dest"
-            },
-            "pipeline": [
-                {
-                    "$match": {
-                        "$expr": {
-                            "$eq": ["$Sector", {"$concat": ["$$s1Origin", "$$s2Dest"]}]
-                        }
-                    }
-                }
-            ],
-            "as": "act_sec"
-        }
-    },
-    {
-        "$unwind": {
-            "path": "$act_sec",
-            "preserveNullAndEmptyArrays": True
-        }
-    },
-    {
         "$replaceRoot": {
             "newRoot": {
                 "$mergeObjects": [
@@ -671,11 +647,7 @@ class RMDatabaseHelper:
                         "DirectFlightOpeningRBDB2C": "$connections_details.DirectFlightOpeningRBDB2C",
                         
                         # Map SOSFlag to sosFlag
-                        "sosFlag": "$SOSFlag",
-                        
-                        # Active Sectors
-                        "forecast_model": "$act_sec.Forecast_model",
-                        "farecap": "$act_sec.Farecap"
+                        "sosFlag": "$SOSFlag"
                     }
                 ]
             }
@@ -699,8 +671,7 @@ class RMDatabaseHelper:
             "crb1_b2c": 0,
             "crb2_b2b": 0,
             "crb2_b2c": 0,
-            "connections_details": 0,
-            "act_sec": 0
+            "connections_details": 0
         }
     }
 ]
@@ -713,6 +684,30 @@ class RMDatabaseHelper:
                         self.logger.warning("No results returned from connections aggregation pipeline")
                     
                     self.mktList = pd.DataFrame(results)
+                    
+                    # Enrich with active_sectors data from master db (cross-db join)
+                    if not self.mktList.empty and 'Sector1' in self.mktList.columns and 'Sector2' in self.mktList.columns:
+                        try:
+                            sectors = (self.mktList['Sector1'].str[:3] + self.mktList['Sector2'].str[3:]).unique().tolist()
+                            act_sec_data = list(self.master_db.active_sectors.find(
+                                {"Sector": {"$in": sectors}},
+                                {"Sector": 1, "Forecast_model": 1, "Farecap": 1, "_id": 0}
+                            ))
+                            if act_sec_data:
+                                act_sec_df = pd.DataFrame(act_sec_data)
+                                self.mktList['_sector_key'] = self.mktList['Sector1'].str[:3] + self.mktList['Sector2'].str[3:]
+                                self.mktList = self.mktList.merge(
+                                    act_sec_df.rename(columns={"Sector": "_sector_key", "Forecast_model": "forecast_model", "Farecap": "farecap"}),
+                                    on='_sector_key', how='left'
+                                )
+                                self.mktList.drop(columns=['_sector_key'], inplace=True)
+                            else:
+                                self.mktList['forecast_model'] = None
+                                self.mktList['farecap'] = None
+                        except Exception as e:
+                            self.logger.warning(f"Error enriching connections with active_sectors: {e}")
+                            self.mktList['forecast_model'] = None
+                            self.mktList['farecap'] = None
                     
                 except Exception as e:
                     self.logger.error(f"Error in connections route aggregation: {str(e)}")
@@ -1101,7 +1096,7 @@ class RMDatabaseHelper:
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
  
             # Check if collections exist
-            collection_names = self.db.list_collection_names()
+            collection_names = self.master_db.list_collection_names()
             ag_exists = 'market_fares_ag' in collection_names
             rg_exists = 'market_fares_rg' in collection_names
             
@@ -1210,7 +1205,7 @@ class RMDatabaseHelper:
                         }}
                     ]
                     
-                    ag_cursor = self.db.market_fares_ag.aggregate(ag_pipeline)
+                    ag_cursor = self.master_db.market_fares_ag.aggregate(ag_pipeline)
                     ag_results = list(ag_cursor)
                     all_results.extend(ag_results)
                     self.logger.info(f"Found {len(ag_results)} records from AG collection")
@@ -1257,7 +1252,7 @@ class RMDatabaseHelper:
                         }}
                     ]
                     
-                    rg_cursor = self.db.market_fares_rg.aggregate(rg_pipeline)
+                    rg_cursor = self.master_db.market_fares_rg.aggregate(rg_pipeline)
                     rg_results = list(rg_cursor)
                     all_results.extend(rg_results)
                     self.logger.info(f"Found {len(rg_results)} records from RG collection")
@@ -1332,7 +1327,7 @@ class RMDatabaseHelper:
             )
 
             # --- 2. Check for Collection Existence ---
-            collection_names = self.db.list_collection_names()
+            collection_names = self.master_db.list_collection_names()
             ag_exists = 'market_fares_ag' in collection_names
             rg_exists = 'market_fares_rg' in collection_names
 
@@ -1426,7 +1421,7 @@ class RMDatabaseHelper:
                         }},
                         {"$project": projection}
                     ]
-                    ag_cursor = self.db.market_fares_ag.aggregate(ag_pipeline)
+                    ag_cursor = self.master_db.market_fares_ag.aggregate(ag_pipeline)
                     ag_results = list(ag_cursor)
                     all_results.extend(ag_results)
                     self.logger.info(f"Found {len(ag_results)} connection records from AG collection.")
@@ -1445,7 +1440,7 @@ class RMDatabaseHelper:
                         }},
                         {"$project": projection}
                     ]
-                    rg_cursor = self.db.market_fares_rg.aggregate(rg_pipeline)
+                    rg_cursor = self.master_db.market_fares_rg.aggregate(rg_pipeline)
                     rg_results = list(rg_cursor)
                     all_results.extend(rg_results)
                     self.logger.info(f"Found {len(rg_results)} connection records from RG collection.")
@@ -2598,7 +2593,7 @@ class RMDatabaseHelper:
             sector2_dest = sector2[3:]
 
             # Query all 4 stations at once
-            results = list(self.db.config_station_master.find({
+            results = list(self.master_db.config_station_master.find({
                 "station": {"$in": [sector1_origin, sector1_dest, sector2_origin, sector2_dest]}
             }))
 

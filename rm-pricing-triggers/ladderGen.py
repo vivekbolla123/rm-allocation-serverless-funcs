@@ -26,6 +26,7 @@ class LadderGen:
         self.logger = logger
         self.db = params['mongo']
         self.db_fares = params['mongofares']
+        self.master_db = params.get('mongo_master', params['mongo'])
         self.nav_conn = params['navconn']
         self.rm_rd_esb_conn = params['rdEsbConn']
         self.dw_conn = params['dwconn']
@@ -36,7 +37,7 @@ class LadderGen:
         self.FILE_PATH = configsettings.PA_FILE_PATH
         self.constants = ConstantsUtils(self.db)
         self.nav_helper = LadderNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
-        self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, self.db_fares, logger)
+        self.esb_helper = LadderEsbHelper(self.rm_rd_esb_conn, self.db_fares, logger, self.master_db)
         self.dw_helper = LadderDWHelper(self.dw_conn, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']
@@ -118,7 +119,7 @@ class LadderGen:
 
         self.B2B_CHANNEL = "B2B"
         self.B2C_CHANNEL = "B2C"
-        self.pa_helper = LadderPAHelper(self, self.db, self.db_fares, logger, self.calculate_all_in_fare)
+        self.pa_helper = LadderPAHelper(self, self.db, self.db_fares, logger, self.calculate_all_in_fare, self.master_db)
 
         # Data containers
         self.tax_master_dom_data = None
