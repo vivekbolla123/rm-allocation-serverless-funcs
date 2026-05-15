@@ -971,6 +971,32 @@ class FareFiling:
                             )
                             primary_rows_for_rule.append(default_row)
 
+                    # ── Process non-flight default rows with different RBD ranges ─
+                    if not default_rows.empty:
+                        # Determine which RBDs are already covered by flight rows
+                        flt_rbd_set = set(r['RBD'] for r in flt_all_output)
+
+                        for (rbd_start, rbd_end), range_group in default_rows.groupby(
+                            ['rbd_start', 'rbd_end']
+                        ):
+                            rbd_range = self.get_rbd_range(rbd_start, rbd_end)
+                            if not rbd_range:
+                                continue
+
+                            # Only process RBDs not already covered by flight rows
+                            new_rbds = [r for r in rbd_range if r not in flt_rbd_set]
+                            if not new_rbds:
+                                continue
+
+                            for rbd in new_rbds:
+                                for _, upsell_row in range_group.iterrows():
+                                    result = self._process_single_upsell_row(
+                                        upsell_row, sector, rbd, rule_nbr,
+                                        origin, destination, currency, existing_sort_prices
+                                    )
+                                    if result is not None:
+                                        primary_rows_for_rule.append(result)
+
                 else:
                     # ── No flight rows — original path ────────────────────────────
                     for (rbd_start, rbd_end), range_group in default_rows.groupby(
