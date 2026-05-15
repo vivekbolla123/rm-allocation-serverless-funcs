@@ -2411,7 +2411,9 @@ public class App implements CommandLineRunner {
         }
 
         try {
-            for (String name : database.listCollectionNames()) {
+            // Check in the appropriate database (master or default)
+            MongoDatabase targetDb = getDbForCollection(collectionName);
+            for (String name : targetDb.listCollectionNames()) {
                 if (name.equals(collectionName.toLowerCase())) {
                     return 1;
                 }
