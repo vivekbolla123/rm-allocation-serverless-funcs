@@ -247,6 +247,7 @@ try:
     cache_client = create_redis_connection()
     mongo_client = get_mongo_connection()
     mongo_db = mongo_client[configsettings.MONGO_DB]
+    mongo_master_db = mongo_client[configsettings.MONGO_MASTER_DB]
     
     # OPTION 1: Use connection pool (RECOMMENDED)
     NavitaireConnection = create_navitaire_connection_pool()
@@ -1172,7 +1173,7 @@ def custom_serializer(obj):
 
 def get_sector_forecast_model_map():
     projection = {"sector": 1, "forecast_model": 1, "farecap": 1, "_id": 0 }
-    cursor = mongo_find_with_retry('active_sectors', {}, projection)
+    cursor = list(mongo_master_db['active_sectors'].find({}, projection))
     df = pd.DataFrame(cursor)
 
     if not df.empty:

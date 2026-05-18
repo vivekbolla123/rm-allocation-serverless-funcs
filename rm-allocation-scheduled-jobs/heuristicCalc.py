@@ -53,6 +53,7 @@ class FareStatisticalAnalysis:
         self.logger = logger
         self.mongo_conn = params['mongoconn']
         self.db = self.mongo_conn["qp_dw_rmalloc"]
+        self.master_db = params['mongo_master_db']
         self.s3_client = params['s3']
         self.bucket_name = config.S3_RM_BUCKET_NAME
         self.s3_file_path = config.S3_FILE_PATH
@@ -71,7 +72,7 @@ class FareStatisticalAnalysis:
     
     def _fetch_domestic_sectors(self) -> List[str]:
         """Fetch only domestic sectors from station master."""
-        collection = self.db['config_station_master']
+        collection = self.master_db['config_station_master']
         
         # MongoDB query
         pipeline = [

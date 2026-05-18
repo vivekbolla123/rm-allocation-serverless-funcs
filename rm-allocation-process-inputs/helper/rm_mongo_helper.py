@@ -4,8 +4,9 @@ from Constants import *
 import logging
 
 class MarketFareMongoDB:
-    def __init__(self,db,inputSource):
+    def __init__(self,db,inputSource,master_db=None):
         self.db = db
+        self.master_db = master_db if master_db is not None else db
         self.logger = logging.getLogger(__name__)
         self.gsi_name = 'ChannelDepartureDateGSI'
         self.inputSource=inputSource
@@ -72,7 +73,7 @@ class MarketFareMongoDB:
             self.logger.info(f"Searching market fares: {origin}-{destination}, Channel: {channel}, Date: {currFltDateStr}")
  
             # Check if collections exist
-            collection_names = self.db.list_collection_names()
+            collection_names = self.master_db.list_collection_names()
             ag_exists = 'market_fares_ag' in collection_names
             rg_exists = 'market_fares_rg' in collection_names
             
@@ -181,7 +182,7 @@ class MarketFareMongoDB:
                         }}
                     ]
                     
-                    ag_cursor = self.db.market_fares_ag.aggregate(ag_pipeline)
+                    ag_cursor = self.master_db.market_fares_ag.aggregate(ag_pipeline)
                     ag_results = list(ag_cursor)
                     all_results.extend(ag_results)
                     self.logger.info(f"Found {len(ag_results)} records from AG collection")
@@ -228,7 +229,7 @@ class MarketFareMongoDB:
                         }}
                     ]
                     
-                    rg_cursor = self.db.market_fares_rg.aggregate(rg_pipeline)
+                    rg_cursor = self.master_db.market_fares_rg.aggregate(rg_pipeline)
                     rg_results = list(rg_cursor)
                     all_results.extend(rg_results)
                     self.logger.info(f"Found {len(rg_results)} records from RG collection")
@@ -303,7 +304,7 @@ class MarketFareMongoDB:
             )
 
             # --- 2. Check for Collection Existence ---
-            collection_names = self.db.list_collection_names()
+            collection_names = self.master_db.list_collection_names()
             ag_exists = 'market_fares_ag' in collection_names
             rg_exists = 'market_fares_rg' in collection_names
 
@@ -379,7 +380,7 @@ class MarketFareMongoDB:
                         }},
                         {"$project": projection}
                     ]
-                    ag_cursor = self.db.market_fares_ag.aggregate(ag_pipeline)
+                    ag_cursor = self.master_db.market_fares_ag.aggregate(ag_pipeline)
                     ag_results = list(ag_cursor)
                     all_results.extend(ag_results)
                     self.logger.info(f"Found {len(ag_results)} connection records from AG collection.")
@@ -398,7 +399,7 @@ class MarketFareMongoDB:
                         }},
                         {"$project": projection}
                     ]
-                    rg_cursor = self.db.market_fares_rg.aggregate(rg_pipeline)
+                    rg_cursor = self.master_db.market_fares_rg.aggregate(rg_pipeline)
                     rg_results = list(rg_cursor)
                     all_results.extend(rg_results)
                     self.logger.info(f"Found {len(rg_results)} connection records from RG collection.")

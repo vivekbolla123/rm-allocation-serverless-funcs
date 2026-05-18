@@ -29,7 +29,7 @@ class ScheduleThirty:
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         
         # Update ConstantsUtils to use MongoDB
-        self.constants = ConstantsUtils(self.mongoconn)
+        self.constants = ConstantsUtils(self.db)
         self.booking_threshold = self.constants.BOOKINGS_THRESHOLD
         
         # Redis cache key structure with folder

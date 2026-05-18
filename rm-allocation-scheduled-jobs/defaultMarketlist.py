@@ -16,8 +16,9 @@ class defaultMarketlist:
         self.navconn = params['navconn']  # Keep SQL for Navitaire
         self.mongo_conn = params['mongoconn']  # Single MongoDB connection
         self.db = self.mongo_conn["qp_dw_rmalloc"]
+        self.master_db = params['mongo_master_db']
         self.cache_client = params['cache_client']
-        self.constants = ConstantsUtils(self.mongo_conn)  # Pass mongo_conn to ConstantsUtils
+        self.constants = ConstantsUtils(self.db)
         self.default_list = json.loads(self.constants.DEFAULT_MARKET_LIST)
         self.max_days = self.constants.DEFAULT_MARKET_LIST_DAYS
         self.session = requests.Session()
@@ -239,7 +240,7 @@ class defaultMarketlist:
     def _fetch_station_master(self):
         """Fetch station master from MongoDB."""
         try:
-            collection = self.db['config_station_master']
+            collection = self.master_db['config_station_master']
             cursor = collection.find({})
             df = pd.DataFrame(list(cursor))
             

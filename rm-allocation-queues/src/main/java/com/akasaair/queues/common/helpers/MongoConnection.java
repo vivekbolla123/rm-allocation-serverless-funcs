@@ -33,12 +33,16 @@ public class MongoConnection {
     @Value("${rm.db.dbname}")
     private String databaseName;
 
+    @Value("${rm.db.master-dbname}")
+    private String masterDatabaseName;
+
     @Value("${rm.db.auth-source}")
     private String authSource;
 
     // Singleton MongoClient instance (thread-safe with built-in connection pooling)
     private static volatile MongoClient mongoClient;
     public static volatile MongoDatabase database;
+    public static volatile MongoDatabase masterDatabase;
 
     // Private constructor to prevent instantiation
     public MongoConnection() {
@@ -72,6 +76,20 @@ public class MongoConnection {
             }
         }
         return database;
+    }
+
+    /**
+     * Get the master database instance for common/shared collections
+     */
+    public MongoDatabase getMasterDatabase() {
+        if (masterDatabase == null) {
+            synchronized (MongoConnection.class) {
+                if (masterDatabase == null) {
+                    masterDatabase = getClient().getDatabase(masterDatabaseName);
+                }
+            }
+        }
+        return masterDatabase;
     }
 
     /**
@@ -113,6 +131,7 @@ public class MongoConnection {
             mongoClient.close();
             mongoClient = null;
             database = null;
+            masterDatabase = null;
         }
     }
 }
