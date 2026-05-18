@@ -1,5 +1,48 @@
 import pandas as pd
 
+# Canonical static column names for sale fares
+SALE_FARE_CANONICAL_COLS = ['key', 'sector', 'type', 'currency', 'sale_start', 'sale_end']
+
+
+def _normalize_static_col(name):
+    """Normalize a column name for matching: lowercase, strip, remove spaces/underscores."""
+    return str(name).strip().lower().replace(" ", "").replace("_", "")
+
+
+def _build_static_col_mapping(raw_col_names):
+    """
+    Match raw static column names from the CSV to canonical names.
+    Uses the same case/whitespace/underscore-insensitive logic as
+    normalize_dataframe_columns in main.py.
+
+    Returns:
+        list of canonical column names in the order they appear in the CSV.
+
+    Raises:
+        ValueError if a canonical column cannot be matched.
+    """
+    canonical_lookup = {
+        _normalize_static_col(col): col for col in SALE_FARE_CANONICAL_COLS
+    }
+
+    mapped = []
+    unmatched = []
+    for raw in raw_col_names:
+        key = _normalize_static_col(raw)
+        if key in canonical_lookup:
+            mapped.append(canonical_lookup[key])
+        else:
+            unmatched.append(raw)
+
+    missing = [c for c in SALE_FARE_CANONICAL_COLS if c not in mapped]
+    if missing:
+        raise ValueError(
+            f"Sale fare file is missing required static columns: {missing}. "
+            f"Unrecognized columns: {unmatched}"
+        )
+    return mapped
+
+
 def pivot_sale_fares(df):
     # Number of static columns in CSV (columns before departure dates)
     # Columns: key, sector, type, currency, sale_start, sale_end
@@ -16,15 +59,18 @@ def pivot_sale_fares(df):
     
     # Get departure END dates from row 1 (date columns only)
     dept_end_dates = df.iloc[1, num_static_cols:].tolist()
+
+    # Normalize static column names from row 1 (the "real" header row)
+    raw_static_names = df.iloc[1, :num_static_cols].tolist()
+    normalized_static_cols = _build_static_col_mapping(raw_static_names)
     
     # Extract data rows (skip first 2 header rows)
     data_df = df.iloc[2:].reset_index(drop=True)
     
-    # Use position-based indexing to get static columns
-    # Positions: 0=Key, 1=Sector, 2=Type, 3=Currency, 4=SaleStart, 5=SaleEnd
+    # Use position-based indexing to get static columns, assign normalized names
     data_df_numeric = pd.DataFrame(
         data_df.iloc[:, :num_static_cols].values,
-        columns=['key', 'sector', 'type', 'currency', 'sale_start', 'sale_end']
+        columns=normalized_static_cols
     )
     
     # Create sale_id 

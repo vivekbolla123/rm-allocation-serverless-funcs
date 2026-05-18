@@ -135,8 +135,10 @@ class FileUploadWorker:
 
             if table == SALE_DATES_TABLE:
                 try:
-                    normalized_df = self.normalize_dataframe_columns(csv_df, SALE_DATES_TABLE)
-                    sales_df, discounts_df = pivot_sale_fares(normalized_df)
+                    # Sale fares CSV has a multi-row header structure that
+                    # pivot_sale_fares handles internally via positional indexing.
+                    # Skip normalize_dataframe_columns — it expects a single-header CSV.
+                    sales_df, discounts_df = pivot_sale_fares(csv_df)
                     self.insert_file_data(sales_df, SALE_DATES_TABLE, user_name, use_upsert=True)
                     self.insert_file_data(discounts_df, SALE_DISCOUNTS_TABLE, user_name, use_upsert=True)
                     self.s3_helper.store_file(file_content, SALE_DATES_TABLE, self.obj_id)
