@@ -16,12 +16,13 @@ class SalesFare:
         """Initialize with required connections and constants."""
         self.logger = logger
         self.db = params['mongo']
+        self.master_db = params.get('mongo_master', params['mongo'])
         self.nav_conn = params['navconn']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
         self.constants = ConstantsUtils(self.db)
-        self.pa_helper = SalesPAHelper(self.db, logger)
+        self.pa_helper = SalesPAHelper(self.db, logger, self.master_db)
         self.nav_helper = SalesNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.analystName = overrides['analyst']
         self.CONST_VALUE = 'VAL'

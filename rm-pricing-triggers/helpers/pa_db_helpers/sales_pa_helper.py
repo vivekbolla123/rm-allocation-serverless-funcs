@@ -4,9 +4,10 @@ from datetime import datetime, timedelta
 import traceback
 
 class SalesPAHelper:
-    def __init__(self, db, logger):
+    def __init__(self, db, logger, master_db=None):
         """Initialize with database connection and logger."""
         self.db = db
+        self.master_db = master_db if master_db is not None else db
         self.logger = logger
         self.CONST_VALUE = 'VAL'
     
@@ -91,7 +92,7 @@ class SalesPAHelper:
     def collect_station_master(self):
         """Collect station master data from MongoDB."""
         try:
-            station_data = list(self.db.config_station_master.find({}, {'_id': 0}))
+            station_data = list(self.master_db.config_station_master.find({}, {'_id': 0}))
             df = pd.DataFrame(station_data)
             
             self.logger.info(f"Collected {len(df)} station records")

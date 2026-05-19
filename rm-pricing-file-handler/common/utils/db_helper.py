@@ -5,7 +5,7 @@ from pymongo import UpdateOne
 
 from common.utils.logger import logger
 from common.constants.constants import UPLOAD_QUEUE_STATUS_IN_PROGRESS, DATABASE_ACCESS_ERROR_MESSAGE, UPLOAD_INFO_NOT_FOUND_ERROR_MESSAGE
-from common.config.db_config import get_mongo_db
+from common.config.db_config import get_mongo_db, get_mongo_master_db, get_db_for_collection
 from common.constants.query_constants import *
 
 class DbHelper:
@@ -73,7 +73,7 @@ class DbHelper:
         """
         try:
             with get_mongo_db() as db:
-                # Get all documents from temp collection
+                # Get all documents from temp collection (temp is always in default db)
                 temp_docs = list(db[temp_table_name].find())
                 
                 if temp_docs:
@@ -82,8 +82,9 @@ class DbHelper:
                         if '_id' in doc:
                             del doc['_id']
                     
-                    # Insert into main collection
-                    db[table_name].insert_many(temp_docs)
+                    # Insert into main collection (may be in master db)
+                    with get_db_for_collection(table_name)() as target_db:
+                        target_db[table_name].insert_many(temp_docs)
                     logger.info(f"Inserted {len(temp_docs)} records into {table_name}.")
                 else:
                     logger.info(f"No records to copy from {temp_table_name} to {table_name}.")
@@ -112,7 +113,7 @@ class DbHelper:
 
             batch_size = 10000
 
-            with get_mongo_db() as db:
+            with get_db_for_collection(table_name)() as db:
                 # Drop the collection if it exists (equivalent to replace)
                 db[table_name].drop()
                 
@@ -130,35 +131,37 @@ class DbHelper:
         try:
             with get_mongo_db() as db:
                 if id_columns is None:
-                    # Delete all documents
-                    result = db[table_name].delete_many({})
+                    # Delete all documents from the target collection (may be in master db)
+                    with get_db_for_collection(table_name)() as target_db:
+                        result = target_db[table_name].delete_many({})
                     logger.info(f"Deleted {result.deleted_count} records from {table_name}.")
                 else:
-                    # Get the ID values from temp table
+                    # Get the ID values from temp table (always in default db)
                     id_column_list = [col.strip() for col in id_columns.split(',')]
                     
                     # Get all documents from temp table
                     temp_docs = list(db[temp_table_name].find({}, {col: 1 for col in id_column_list}))
                     
                     if temp_docs:
-                        # Build delete criteria
-                        if len(id_column_list) == 1:
-                            # Single column - use $in
-                            id_col = id_column_list[0]
-                            id_values = [doc.get(id_col) for doc in temp_docs if doc.get(id_col) is not None]
-                            result = db[table_name].delete_many({id_col: {"$in": id_values}})
-                        else:
-                            # Multiple columns - use $or with multiple conditions
-                            delete_conditions = []
-                            for doc in temp_docs:
-                                condition = {col: doc.get(col) for col in id_column_list if doc.get(col) is not None}
-                                if condition:
-                                    delete_conditions.append(condition)
-                            
-                            if delete_conditions:
-                                result = db[table_name].delete_many({"$or": delete_conditions})
+                        with get_db_for_collection(table_name)() as target_db:
+                            # Build delete criteria
+                            if len(id_column_list) == 1:
+                                # Single column - use $in
+                                id_col = id_column_list[0]
+                                id_values = [doc.get(id_col) for doc in temp_docs if doc.get(id_col) is not None]
+                                result = target_db[table_name].delete_many({id_col: {"$in": id_values}})
                             else:
-                                result = type('obj', (object,), {'deleted_count': 0})()
+                                # Multiple columns - use $or with multiple conditions
+                                delete_conditions = []
+                                for doc in temp_docs:
+                                    condition = {col: doc.get(col) for col in id_column_list if doc.get(col) is not None}
+                                    if condition:
+                                        delete_conditions.append(condition)
+                                
+                                if delete_conditions:
+                                    result = target_db[table_name].delete_many({"$or": delete_conditions})
+                                else:
+                                    result = type('obj', (object,), {'deleted_count': 0})()
                         
                         logger.info(f"Deleted {result.deleted_count} records from {table_name}.")
                     else:
@@ -198,7 +201,7 @@ class DbHelper:
         Drops the given collection from the database.
         """
         try:
-            with get_mongo_db() as db:
+            with get_db_for_collection(table_name)() as db:
                 db[table_name].drop()
                 logger.info(f"Dropped collection '{table_name}'")
 
@@ -308,7 +311,7 @@ class DbHelper:
                     )
             
             if bulk_operations:
-                with get_mongo_db() as db:
+                with get_db_for_collection(table_name)() as db:
                     result = db[table_name].bulk_write(bulk_operations, ordered=False)
                     logger.info(
                         f"Upserted to {table_name}: "
@@ -343,7 +346,7 @@ class DbHelper:
 
             batch_size = 10000
 
-            with get_mongo_db() as db:
+            with get_db_for_collection(table_name)() as db:
                 # Delete all existing documents
                 delete_result = db[table_name].delete_many({})
                 logger.info(f"Deleted {delete_result.deleted_count} existing records from {table_name}")

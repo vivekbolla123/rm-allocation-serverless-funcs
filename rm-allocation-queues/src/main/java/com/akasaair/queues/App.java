@@ -97,6 +97,7 @@ public class App implements CommandLineRunner {
 
     private final MongoDatabase database;
     private final MongoDatabase database2;
+    private final MongoDatabase masterDatabase;
 
     private final S3FileStorageDao s3FileStorageDao;
     private final AuditHelper auditHelper;
@@ -119,7 +120,53 @@ public class App implements CommandLineRunner {
         this.s3Client = dependencyFactory.s3Client();
         this.database = mongoConnection.getDatabase();
         this.database2 = mongoConnection.getDatabase();
+        this.masterDatabase = mongoConnection.getMasterDatabase();
+        this.masterCollections = loadMasterCollections();
         this.auditHelper = auditHelper;
+    }
+
+    // Collections that reside in the master database (qp_rm_master).
+    // Loaded from master_collections_config collection at startup; falls back to hardcoded defaults.
+    private static final Set<String> MASTER_DB_COLLECTIONS;
+
+    static {
+        MASTER_DB_COLLECTIONS = Set.of(
+                "active_sectors", "config_station_master",
+                "market_fares_ag", "market_fares_rg", "tax_mast_dom", "tax_mast_intl",
+                "active_flight_connections", "active_flight_legs", "cleanup_config"
+        );
+    }
+
+    /**
+     * Load master collection names by listing collections that exist in qp_rm_master.
+     * Called after masterDatabase is initialized.
+     */
+    private Set<String> loadMasterCollections() {
+        try {
+            Set<String> collections = new HashSet<>();
+            for (String name : masterDatabase.listCollectionNames()) {
+                collections.add(name);
+            }
+            if (!collections.isEmpty()) {
+                return collections;
+            }
+        } catch (Exception e) {
+            log.warn("Failed to list collections from master db, using static fallback: " + e.getMessage());
+        }
+        return MASTER_DB_COLLECTIONS;
+    }
+
+    private final Set<String> masterCollections;
+
+    /**
+     * Returns the appropriate database for a given collection name.
+     * Common/shared collections go to masterDatabase, others to the default database.
+     */
+    private MongoDatabase getDbForCollection(String collectionName) {
+        if (masterCollections.contains(collectionName.toLowerCase())) {
+            return masterDatabase;
+        }
+        return database;
     }
 
     public static void main(String[] args) {
@@ -2364,7 +2411,9 @@ public class App implements CommandLineRunner {
         }
 
         try {
-            for (String name : database.listCollectionNames()) {
+            // Check in the appropriate database (master or default)
+            MongoDatabase targetDb = getDbForCollection(collectionName);
+            for (String name : targetDb.listCollectionNames()) {
                 if (name.equals(collectionName.toLowerCase())) {
                     return 1;
                 }
@@ -2396,7 +2445,7 @@ public class App implements CommandLineRunner {
     public String searchResults(String value) {
         String listObj = null;
         try {
-            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            MongoCollection<Document> collection = getDbForCollection(RM_PARAMS_TABLE_NAME).getCollection(RM_PARAMS_TABLE_NAME);
             Document doc = collection.find(eq("parameterKey", value)).first();
 
             if (doc != null) {
@@ -2412,7 +2461,7 @@ public class App implements CommandLineRunner {
     public String getAllRBDs() {
         String rbdList = null;
         try {
-            MongoCollection<Document> collection = database.getCollection("rm_parameter_values");
+            MongoCollection<Document> collection = getDbForCollection(RM_PARAMS_TABLE_NAME).getCollection(RM_PARAMS_TABLE_NAME);
             FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
 
             for (Document doc : docs) {
@@ -3108,7 +3157,7 @@ public class App implements CommandLineRunner {
     public void copyFromTempToMainTable(String collectionName, String tempCollectionName) {
         try {
             MongoCollection<Document> tempColl = database.getCollection(tempCollectionName.toLowerCase());
-            MongoCollection<Document> mainColl = database.getCollection(collectionName.toLowerCase());
+            MongoCollection<Document> mainColl = getDbForCollection(collectionName).getCollection(collectionName.toLowerCase());
 
             List<Document> docs = tempColl.find().into(new ArrayList<>());
             if (!docs.isEmpty()) {
@@ -3186,7 +3235,7 @@ public class App implements CommandLineRunner {
 
     public void insertStatement(List<Map<String, String>> data, List<String> columnHeaders, String collectionName) throws Exception {
         try {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            MongoCollection<Document> collection = getDbForCollection(collectionName).getCollection(collectionName.toLowerCase());
             List<Document> documents = new ArrayList<>();
 
             for (Map<String, String> dataMap : data) {
@@ -3844,7 +3893,7 @@ public class App implements CommandLineRunner {
 
     public void deleteValues(Set<String> value, String collectionName, String fieldName) {
         if (!value.isEmpty()) {
-            MongoCollection<Document> collection = database.getCollection(collectionName.toLowerCase());
+            MongoCollection<Document> collection = getDbForCollection(collectionName).getCollection(collectionName.toLowerCase());
 
             Bson filter;
 
@@ -4228,7 +4277,7 @@ public class App implements CommandLineRunner {
         List<Map<String, Object>> listObj = new ArrayList<>();
 
         try {
-            MongoCollection<Document> collection = database.getCollection("config_station_master");
+            MongoCollection<Document> collection = getDbForCollection(STATION_MASTER_TABLE_NAME).getCollection(STATION_MASTER_TABLE_NAME);
 
             // Build filter: station IN (origin, destination) AND route = flag
             Bson filter = and(
@@ -5480,7 +5529,7 @@ public class App implements CommandLineRunner {
         if (updates == null || updates.isEmpty()) {
             return;
         }
-        MongoCollection<Document> collection = database.getCollection(collectionName);
+        MongoCollection<Document> collection = getDbForCollection(collectionName).getCollection(collectionName);
         collection.bulkWrite(updates);
     }
 

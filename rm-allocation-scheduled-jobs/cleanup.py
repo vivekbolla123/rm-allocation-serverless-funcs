@@ -9,13 +9,14 @@ class CleanUpConfig:
         self.logger = logger
         # Get MongoDB client
         self.mongo_client = params['mongoconn']
+        self.master_db = params['mongo_master_db']
 
     def run(self):
         """This method gets configurations from cleanup_config collection and performs Delete operation on specified criteria"""
         try:
             # Access the database that contains cleanup_config
-            # Assuming it's in QP_DW_RMALLOC, adjust if needed
-            mongo_db = self.mongo_client['qp_dw_rmalloc']
+            # cleanup_config is in qp_rm_master
+            mongo_db = self.master_db
             
             # Get all cleanup configurations
             cleanup_configs = list(mongo_db.cleanup_config.find({}))

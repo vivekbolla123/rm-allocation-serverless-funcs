@@ -138,6 +138,7 @@ if env == 'prod':
     
     MONGO_USERNAME = "rmuser"
     MONGO_DB = "qp_dw_rmalloc"
+    MONGO_MASTER_DB = "qp_rm_master"
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
     MONGO_AUTH_SOURCE="admin"
@@ -229,6 +230,7 @@ if env == 'uat':
     SENDER_PASSWORD= credentials.get(f'/copilot/{app_name}/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     MONGO_USERNAME = "testuser"
     MONGO_DB = "qp_dw_rmalloc"
+    MONGO_MASTER_DB = "qp_rm_master"
     MONGO_PASSWORD = "testpassword"
     MONGO_URL = "172.24.72.35"
     MONGO_AUTH_SOURCE="admin"
@@ -304,6 +306,7 @@ if env == 'preprod':
     
     MONGO_USERNAME = "rmuser"
     MONGO_DB = "qp_dw_rmalloc"
+    MONGO_MASTER_DB = "qp_rm_master"
     MONGO_PASSWORD = credentials.get('/rm/' + credenv + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
     MONGO_AUTH_SOURCE="admin"

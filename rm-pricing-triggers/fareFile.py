@@ -18,8 +18,9 @@ class FareFiling:
         """Initialize with required connections and constants."""
         self.logger = logger
         self.db = params['mongo']
+        self.master_db = params.get('mongo_master', params['mongo'])
         self.constants = ConstantsUtils(self.db)
-        self.pa_helper = FarePAHelper(self.db, logger)
+        self.pa_helper = FarePAHelper(self.db, logger, self.master_db)
         self.type = overrides['type']
         self.route = overrides['route']
         self.analystName = overrides['analyst']
