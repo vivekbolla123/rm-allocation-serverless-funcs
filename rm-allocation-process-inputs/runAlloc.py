@@ -1212,12 +1212,12 @@ class DynAlloc:
 		bookingToday = 0
 		bookingLastHour = 0
 		# if bookings.shape[0] != 0:
-		if not pd.isna(self.currParams.BookingsCount):
-			lastBookloadTillMidnight = int(self.currParams.BookingsCount)
-		if not pd.isna(self.currParams.BookingToday):
+		# if not pd.isna(self.currParams.BookingsCount):
+		# 	lastBookloadTillMidnight = int(self.currParams.BookingsCount)
+		if not pd.isna(self.currParams.BookingToday) and self.currParams.BookingToday != CONST_NA:
 			bookingToday = int(self.currParams.BookingToday)
-		if not pd.isna(self.currParams.BookingsInHour):
-			bookingLastHour = int(self.currParams.BookingsInHour)
+		# if not pd.isna(self.currParams.BookingsInHour):
+		# 	bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
