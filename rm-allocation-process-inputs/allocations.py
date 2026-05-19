@@ -896,7 +896,12 @@ class RBDAllocations:
                         
                         # Calculate new price after discount
                         adjusted_price = original_price - discount_amount
-                        
+                        for _, row in tbf_rbds.iterrows():
+                            if row['TOTAL'] <= adjusted_price:
+                                latest_allocations[row['RBD']] = {
+                                    'index': None,
+                                    'min_other_diff': 0
+                                }
                         # Find the next highest RBD based on the adjusted price
                         next_rbd_differences = tbf_rbds['TOTAL'] - adjusted_price
                         next_rbd_differences = next_rbd_differences[next_rbd_differences > 0]  # Only higher prices
