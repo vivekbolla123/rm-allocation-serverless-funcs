@@ -16,6 +16,7 @@ from pymongo import MongoClient
 def testCase1():
     client = MongoClient('mongodb://localhost:27017/')
     db = client['rm_database']
+    master_db = client['qp_rm_master']
     
     
     inputData = {
@@ -51,6 +52,7 @@ def testCase1():
         "wrconn": None,
         "dwconn":None,
         "mongodbclient":db,
+        "mongo_master_db":master_db,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
@@ -61,7 +63,7 @@ def testCase1():
     }
     outputData = {}
 
-    schema = Schema(db)
+    schema = Schema(db, master_db)
     schema.initializTables()
 
     DynAlloc(inputData, currParams)

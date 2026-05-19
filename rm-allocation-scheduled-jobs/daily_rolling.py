@@ -10,6 +10,7 @@ class DailyRolling:
         self.logger = logger
         self.mongo_conn = params['mongoconn']  # Single MongoDB connection
         self.db = self.mongo_conn["qp_dw_rmalloc"]
+        self.master_db = params['mongo_master_db']
         self.nav_conn = params['navconn']  # Keep NAV SQL connection
 
     def run(self):
@@ -354,7 +355,7 @@ class DailyRolling:
         """
         # First get station list from MongoDB
         try:
-            collection = self.db['config_station_master']
+            collection = self.master_db['config_station_master']
             station_cursor = collection.find({'route': 'I'}, {'station': 1, '_id': 0})
             station_master = pd.DataFrame(list(station_cursor))
         except Exception as e:

@@ -6,6 +6,7 @@ sys.path.insert(1,path)
 import Constants
 import datetime
 from testcontainers.mysql import MySqlContainer
+from pymongo import MongoClient
 
 from sqlalchemy import create_engine
 from load_tests_db_data import Schema
@@ -16,6 +17,10 @@ from runAlloc_Connections import DynAllocConnections
 def testCase1():
     DB_WR_CONN_STRING = f"mysql+pymysql://root:12345678@localhost/localtest"
     conn = create_engine(DB_WR_CONN_STRING)
+
+    client = MongoClient('mongodb://localhost:27017/')
+    db = client['rm_database']
+    master_db = client['qp_rm_master']
 
     inputData = {
         "debugMode": False,
@@ -49,6 +54,8 @@ def testCase1():
         "dbconn": conn,
         "wrconn": conn,
         "dwconn":conn,
+        "mongodbclient":db,
+        "mongo_master_db":master_db,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
         "s3":None,
@@ -60,7 +67,7 @@ def testCase1():
     }
     outputData = {}
 
-    schema = Schema(conn)
+    schema = Schema(db, master_db)
     schema.initializTables()
 
     DynAlloc(inputData, currParams)

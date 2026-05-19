@@ -91,12 +91,15 @@ class MarketListRow:
         self.strategy = CONST_NA
         self.mongodb=currParams.get("mongodb",'0')
         self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
+        self.mongo_master_db=currParams.get("mongo_master_db",CONST_NA)
         
         self.saleinvflag = currParams.get("saleinvflag",0)
         self.defaultMlFlag = currParams.get("defaultMlFlag",0)
         self.forecastPLF = currParams.get("forecastPLF",CONST_NA)
         self.ForecastAF_Allin = currParams.get("ForecastAF_Allin", 0)
         self.ALLIN_AF = currParams.get("ALLIN_AF", 0)
+        self.ALLIN_AF_NB_LM = currParams.get("ALLIN_AF_NB_LM", 0)
+        self.ALLIN_AF_NB_LY = currParams.get("ALLIN_AF_NB_LY", 0)
         self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
         self.forecastAllocFlag = currParams.get("forecastAllocFlag", 0)

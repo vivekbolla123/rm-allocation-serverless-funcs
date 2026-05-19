@@ -59,6 +59,8 @@ class OutputSummary:
         self.ForecastAF_Allin=CONST_NA
         self.AF_Allin=CONST_NA
         self.AF_NB_Allin=CONST_NA
+        self.ALLIN_AF_NB_LM=CONST_NA
+        self.ALLIN_AF_NB_LY=CONST_NA
         self.FirstRBDAlloc=CONST_NA
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA

@@ -1077,6 +1077,8 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
 			self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 			self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+			self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
+			self.outputSummaryRow_b2c.ALLIN_AF_NB_LY = self.outputSummaryRow_b2b.ALLIN_AF_NB_LY = getattr(self.currParams, 'ALLIN_AF_NB_LY', CONST_NA)
 			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
@@ -1490,6 +1492,7 @@ class DynAlloc:
 
 		self.sqs = self.currParams.sqs
 		self.mongoclient = self.currParams.mongodbclient
+		self.mongo_master_db = self.currParams.mongo_master_db
 		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
 		if pd.isna(self.currParams.w0Flag):
@@ -1510,7 +1513,7 @@ class DynAlloc:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource)
+		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource,self.mongo_master_db)
 		self.constantsUtils = ConstantsUtils(self.mongoclient)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
