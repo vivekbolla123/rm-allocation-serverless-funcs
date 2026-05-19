@@ -97,6 +97,8 @@ class MarketListRow:
         self.forecastPLF = currParams.get("forecastPLF",CONST_NA)
         self.ForecastAF_Allin = currParams.get("ForecastAF_Allin", 0)
         self.ALLIN_AF = currParams.get("ALLIN_AF", 0)
+        self.ALLIN_AF_NB_LM = currParams.get("ALLIN_AF_NB_LM", 0)
+        self.ALLIN_AF_NB_LY = currParams.get("ALLIN_AF_NB_LY", 0)
         self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
         self.forecastAllocFlag = currParams.get("forecastAllocFlag", 0)
