@@ -10,67 +10,42 @@ GO
 
 ALTER PROCEDURE [dbo].[SP_LastBookingsCount]
     @DepartureStartDate DATE,
-    @DepartureEndDate DATE,
-    @ComparisonDate DATE,
-    @ComparisonDateTime DATETIME
+    @DepartureEndDate DATE
 AS
 BEGIN
-    WITH CommonCTE AS (
-    SELECT BP.PassengerID, 
+
+    DECLARE @curr_datetime_utc AS DATETIME = GETUTCDATE();
+    DECLARE @todaydate_ist AS DATE;
+    DECLARE @todaydatetime_utc AS DATETIME;
+
+    SET @todaydate_ist = CAST(@curr_datetime_utc AT TIME ZONE 'UTC' AT TIME ZONE 'India Standard Time' AS DATE);
+    SET @todaydatetime_utc = CAST(CAST(@todaydate_ist AS DATETIME) AT TIME ZONE 'India Standard Time' AT TIME ZONE 'UTC' AS DATETIME);
+
+    SELECT 
            IL.DepartureDate,
            IL.FlightNumber,
            IL.DepartureStation,
            IL.ArrivalStation,
-           CAST(SWITCHOFFSET(B.BookingUTC, DATEPART(TZOFFSET, B.BookingUTC AT TIME ZONE 'India Standard Time')) AS DATETIME) AS BookingDateTime
-    FROM rez.Booking B 
-    INNER JOIN rez.BookingPassenger BP ON BP.BookingID = B.BookingID 
-    INNER JOIN rez.PassengerJourneySegment PJS ON PJS.PassengerID = BP.PassengerID AND (PJS.FareBasis != 'SO7NBSOL' OR PJS.FareBasis IS NULL)
-    INNER JOIN rez.PassengerJourneyLeg PJL ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID 
-    INNER JOIN rez.InventoryLeg IL ON IL.InventoryLegId = PJL.InventoryLegID 
-    WHERE  IL.DepartureDate BETWEEN @DepartureStartDate AND @DepartureEndDate
-)
-SELECT 
-    IL.FlightNumber,
-    IL.DepartureStation,
-    IL.ArrivalStation,
-    IL.DepartureDate,
-    (SELECT COUNT(DISTINCT PassengerID) 
-     FROM CommonCTE 
-     WHERE FlightNumber = IL.FlightNumber 
-       AND DepartureStation = IL.DepartureStation 
-       AND ArrivalStation = IL.ArrivalStation 
-       AND DepartureDate = IL.DepartureDate
-       AND BookingDateTime >= DATEADD(HOUR, -1, @ComparisonDateTime)) AS BookingsInHour,
-    (SELECT COUNT(DISTINCT PassengerID) 
-     FROM CommonCTE 
-     WHERE FlightNumber = IL.FlightNumber 
-       AND DepartureStation = IL.DepartureStation 
-       AND ArrivalStation = IL.ArrivalStation 
-       AND DepartureDate = IL.DepartureDate
-       AND BookingDateTime <= @ComparisonDateTime) AS BookingsCount,
-    (SELECT COUNT(DISTINCT PassengerID) 
-     FROM CommonCTE 
-     WHERE FlightNumber = IL.FlightNumber 
-       AND DepartureStation = IL.DepartureStation 
-       AND ArrivalStation = IL.ArrivalStation 
-       AND DepartureDate = IL.DepartureDate
-       AND BookingDateTime >= CAST(GETDATE() AS DATE) 
-       AND NOT EXISTS (
-           SELECT 1 
-           FROM rez.PassengerJourneySegment PJS 
-           WHERE PJS.PassengerID = CommonCTE.PassengerID 
-           AND PJS.ClassOfService = 'S'
-       )) AS BookingToday
-FROM (
-    SELECT DISTINCT 
-        FlightNumber, 
-        DepartureStation, 
-        ArrivalStation, 
-        DepartureDate 
-    FROM CommonCTE
-) IL
-ORDER BY IL.DepartureDate, IL.FlightNumber, IL.DepartureStation, IL.ArrivalStation;
-     
+           COUNT(DISTINCT BP.PassengerID) BookingToday
+    FROM rez.Booking B WITH(NOLOCK)
+    INNER JOIN rez.BookingPassenger BP WITH(NOLOCK) ON BP.BookingID = B.BookingID 
+    INNER JOIN rez.PassengerJourneySegment PJS WITH(NOLOCK) ON PJS.PassengerID = BP.PassengerID 
+    INNER JOIN rez.PassengerJourneyLeg PJL WITH(NOLOCK) ON PJL.PassengerID = PJS.PassengerID AND PJL.SegmentID = PJS.SegmentID 
+    INNER JOIN rez.InventoryLeg IL WITH(NOLOCK) ON IL.InventoryLegId = PJL.InventoryLegID 
+    WHERE IL.DepartureDate BETWEEN @DepartureStartDate AND @DepartureEndDate
+      AND B.BookingUTC >= @todaydatetime_utc
+      AND
+      (
+          ClassOfService != 'S' 
+        OR FareBasis != 'SO7NBSOL' 
+        OR FareBasis IS NULL
+      )
+    GROUP BY 
+           IL.DepartureDate,
+           IL.FlightNumber,
+           IL.DepartureStation,
+           IL.ArrivalStation;
+
 END;
 GO
 

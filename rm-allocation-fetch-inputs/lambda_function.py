@@ -388,18 +388,15 @@ class NavDatabaseHelper:
                             """
         return self._execute_query_with_retry(NavitaireQuery)
     
-    def get_last_bookings_count(self, departure_start_date, departure_end_date, comparison_date, comparison_datetime):
+    def get_last_bookings_count(self, departure_start_date, departure_end_date):
         """Execute SP_LastBookingsCount stored procedure"""
         query = f"""
                 EXEC {self.NAV_DB_WB_NAME}[dbo].[SP_LastBookingsCount]
                     @DepartureStartDate = N'{departure_start_date}',
-                    @DepartureEndDate = N'{departure_end_date}',
-                    @ComparisonDate = N'{comparison_date}',
-                    @ComparisonDateTime = N'{comparison_datetime}'
+                    @DepartureEndDate = N'{departure_end_date}'
                 """
         df = self._execute_query_with_retry(query)
-        df.columns = ['FlightNumber', 'Origin', 'Destination', 
-                     'DepartureDate', 'BookingsInHour', 'BookingsCount', 'BookingToday']
+        df.columns = ['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'BookingToday']
         return df
 
     def get_seats_sold_by_class(self, min_date, max_date):
@@ -1342,9 +1339,7 @@ def lambda_handler(event, context):
 
         bookings_count = nav_helper.get_last_bookings_count(
             departure_start_date=min_date,
-            departure_end_date=max_date,
-            comparison_date=curr_date,
-            comparison_datetime=curr_datetime_str
+            departure_end_date=max_date
         )
         log_memory("after get_last_bookings_count")
         logger.info(f"bookings_count shape: {bookings_count.shape}")
