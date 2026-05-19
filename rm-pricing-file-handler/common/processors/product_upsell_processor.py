@@ -23,7 +23,8 @@ def convert_product_upsell_data_types(df):
     
     # String columns that should remain as strings
     string_columns = ['sector', 'rbd_start', 'rbd_end', 'flt_nbr', 'flt_tag', 'footnote', 'ow_rt', 'ndo', 'pos', 
-                     'type', 'base_all_in', 'base_footnote', 'base_ndo']
+                     'type', 'base_all_in', 'base_footnote', 'base_ndo',
+                     'sales_start', 'sales_end', 'travel_start', 'travel_end']
     for col in string_columns:
         if col in df.columns:
             # Convert to string, handling NaN values properly
@@ -64,7 +65,8 @@ def validate_product_upsell(df: pd.DataFrame) -> pd.DataFrame:
     # rule_nbr must always be string to prevent 1002 being stored as int
     df['rule_nbr'] = df['rule_nbr'].astype(str)
 
-    string_columns = ['sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos', 'flt_nbr', 'flt_tag']
+    string_columns = ['sector', 'rbd_start', 'rbd_end', 'footnote', 'ow_rt', 'ndo', 'pos', 'flt_nbr', 'flt_tag',
+                      'sales_start', 'sales_end', 'travel_start', 'travel_end']
     for col in string_columns:
         if col in df.columns:
             df[col] = df[col].astype(str).replace('nan', '')
@@ -73,6 +75,25 @@ def validate_product_upsell(df: pd.DataFrame) -> pd.DataFrame:
     for col in numeric_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    # Validate date format (MM/DD/YYYY) for date columns if present
+    date_columns = ['sales_start', 'sales_end', 'travel_start', 'travel_end']
+    invalid_dates = []
+    for col in date_columns:
+        if col in df.columns:
+            for idx, val in df[col].items():
+                if val and val.strip() != '' and val.strip().lower() != 'open':
+                    try:
+                        pd.to_datetime(val.strip(), format='%m/%d/%Y')
+                    except (ValueError, TypeError):
+                        invalid_dates.append(f"Row {idx + 2}: {col}='{val}'")
+
+    if invalid_dates:
+        raise ValueError(
+            f"VALIDATION FAILED: Invalid date format found. Expected MM/DD/YYYY or empty or 'Open'. "
+            f"Invalid entries: {'; '.join(invalid_dates[:10])}"
+            + (f" ... and {len(invalid_dates) - 10} more" if len(invalid_dates) > 10 else "")
+        )
 
     duplicates = df.duplicated(subset=key_columns, keep=False)
     if duplicates.any():

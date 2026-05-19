@@ -9,7 +9,7 @@ class FetchActiveFlights:
         """Initialize FetchActiveFlights with required connections."""
         self.logger = logger
         self.mongo_client = params['mongoconn']
-        self.mongo_db = self.mongo_client['qp_dw_rmalloc']
+        self.mongo_db = params['mongo_master_db']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_conn_db_name = configsettings.NAV_CONN_DB_NAME
         self.nav_conn = params['navconn']

@@ -19,13 +19,14 @@ class ActionSectors:
         self.logger = logger
         self.db = params['mongo']
         self.db_fares = params['mongofares']
+        self.master_db = params.get('mongo_master', params['mongo'])
         self.nav_conn = params['navconn']
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_db_dw_name = configsettings.NAV_DB_DW_NAME
         self.nav_db_wb_name = configsettings.NAV_DB_WB_NAME
         self.constants = ConstantsUtils(self.db)
         self.MARKET_FARE_MIN_YIELD = self.constants.MARKET_FARE_MIN_YIELD
-        self.pa_helper = ActionPAHelper(self.db, self.db_fares, logger)
+        self.pa_helper = ActionPAHelper(self.db, self.db_fares, logger, self.master_db)
         self.nav_helper = ActionNavHelper(self.nav_conn, self.nav_db_name, self.nav_db_dw_name, self.nav_db_wb_name, logger)
         self.route = overrides['route']
         self.analystName = overrides['analyst']

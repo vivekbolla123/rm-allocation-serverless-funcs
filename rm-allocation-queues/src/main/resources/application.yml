@@ -43,6 +43,7 @@ rm:
     port: 27017
     username: "testuser"
     dbname: "qp_dw_rmalloc"
+    master-dbname: "qp_rm_master"
     auth-source: "admin"
   file-path: test/rm-admin/
   upload-path: test/rm-admin/upload/
@@ -65,6 +66,7 @@ rm:
     port: 27017
     username: "rmuser"
     dbname: "qp_dw_rmalloc"
+    master-dbname: "qp_rm_master"
     auth-source: "admin"
   file-path: prod/rm-admin/
   upload-path: prod/rm-admin/upload/
@@ -88,6 +90,7 @@ rm:
     port: 27017
     username: "rmuser"
     dbname: "qp_dw_rmalloc"
+    master-dbname: "qp_rm_master"
     auth-source: "admin"
   file-path: preprod/rm-admin/
   upload-path: preprod/rm-admin/upload/

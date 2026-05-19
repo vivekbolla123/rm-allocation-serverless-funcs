@@ -15,6 +15,7 @@ from runAlloc_Connections import DynAllocConnections
 def testCase1():
     client = MongoClient('mongodb://localhost:27017/')
     db = client['rm_database']
+    master_db = client['qp_rm_master']
 
     inputData = {
         "debugMode": False,
@@ -46,6 +47,7 @@ def testCase1():
         "runSingleMarket": False,
         "NavitaireConnection": None,
         "mongodbclient":db,
+        "mongo_master_db":master_db,
         "dwconn":None,
         "sqs": None,
         "NavitaireUpdateMethod":Constants.S3,
@@ -57,7 +59,7 @@ def testCase1():
     }
     outputData = {}
 
-    schema = Schema(db)
+    schema = Schema(db, master_db)
     schema.initializTables()
 
     DynAllocConnections(inputData, currParams)

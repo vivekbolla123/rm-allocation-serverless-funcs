@@ -44,6 +44,7 @@ try:
         )
     db = mongo_client["qp_dw_priaut"]
     db_fares = mongo_client["qp_dw_rmalloc"]
+    db_master = mongo_client[configsettings.MONGO_MASTER_DB]
 
     sqs = boto3.client('sqs')
     
@@ -103,6 +104,7 @@ def lambda_handler(event, context):
         params["dwconn"] = dw_conn
         params["mongo"]=db
         params["mongofares"] = db_fares
+        params["mongo_master"] = db_master
         params['navconn'] = NavitaireConnection
         params['sqs'] = sqs
         params['s3'] = s3

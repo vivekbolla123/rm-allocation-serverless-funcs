@@ -85,6 +85,7 @@ if env == 'uat':
 
 MONGO_PASSWORD = credentials.get('/rm/' + creenv + '/rm-allocation/RM_MONGO_PASSWORD', '')
 MONGO_AUTHSOURCE = 'admin'
+MONGO_MASTER_DB = "qp_rm_master"
 RM_DB_SCHEMA_NAME = "QP_DW_PRIAUT"
 RM_DB_APPUSER_PASSWORD = credentials.get('/rm/' + creenv + '/rm-allocation/RM_DB_APPUSER_PASSWORD', '')
 

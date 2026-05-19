@@ -6,7 +6,7 @@ from bson import ObjectId
 class LadderPAHelper:
     """Handles Ladder Pricing/Analytics-related database operations using MongoDB."""
     
-    def __init__(self, ladder_gen, mongo_db, fares_db, logger, calculate_all_in_fare_func=None):
+    def __init__(self, ladder_gen, mongo_db, fares_db, logger, calculate_all_in_fare_func=None, master_db=None):
         """
         Initialize with MongoDB database instance.
         
@@ -15,9 +15,11 @@ class LadderPAHelper:
             mongo_db: MongoDB database instance (e.g., client['QP_DW_PRIAUT'])
             logger: Logger instance
             calculate_all_in_fare_func: Function to calculate all-in fares
+            master_db: MongoDB database instance for common collections (qp_rm_master)
         """
         self.db = mongo_db
         self.fares_db = fares_db
+        self.master_db = master_db if master_db is not None else mongo_db
         self.logger = logger
         self.failure_reason = None
         self.calculate_all_in_fare_func = calculate_all_in_fare_func
@@ -36,7 +38,7 @@ class LadderPAHelper:
         """Collect both domestic and international tax master data from MongoDB."""
         try:
             # Domestic tax data
-            tax_master_dom = list(self.db.tax_mast_dom.find(
+            tax_master_dom = list(self.master_db.tax_mast_dom.find(
                 {},
                 {
                     '_id': 0,
@@ -53,7 +55,7 @@ class LadderPAHelper:
             tax_master_dom_data = pd.DataFrame(tax_master_dom)
             
             # International tax data
-            tax_master_intl = list(self.db.tax_mast_intl.find(
+            tax_master_intl = list(self.master_db.tax_mast_intl.find(
                 {},
                 {
                     '_id': 0,
@@ -189,8 +191,8 @@ class LadderPAHelper:
                 {'$sort': {'channel': 1, 'gross_fare': 1}}
             ]
 
-            ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
-            rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            ag_data = list(self.master_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            rg_data = list(self.master_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
 
             combined_data = ag_data + rg_data
 
@@ -340,8 +342,8 @@ class LadderPAHelper:
                 {'$sort': {'channel': 1, 'gross_fare': 1}}
             ]
 
-            ag_data = list(self.fares_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
-            rg_data = list(self.fares_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
+            ag_data = list(self.master_db.market_fares_ag.aggregate(pipeline, allowDiskUse=True))
+            rg_data = list(self.master_db.market_fares_rg.aggregate(pipeline, allowDiskUse=True))
 
             combined_data = ag_data + rg_data
 
