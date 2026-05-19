@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 from bson import ObjectId
 
@@ -292,7 +292,11 @@ class FarePAHelper:
                     'base_footnote': 1,
                     'base_ndo': 1,
                     'flt_nbr': 1,
-                    'flt_tag': 1
+                    'flt_tag': 1,
+                    'sales_start': 1,
+                    'sales_end': 1,
+                    'travel_start': 1,
+                    'travel_end': 1
                 }
             ))
             
@@ -327,7 +331,11 @@ class FarePAHelper:
                     'base_footnote': 1,
                     'base_ndo': 1,
                     'flt_nbr': 1,
-                    'flt_tag': 1
+                    'flt_tag': 1,
+                    'sales_start': 1,
+                    'sales_end': 1,
+                    'travel_start': 1,
+                    'travel_end': 1
                 }
             ))
             
@@ -438,6 +446,33 @@ class FarePAHelper:
             self.logger.error(f"Error collecting product rules data: {str(e)}")
             raise
         
+    def collect_footnote_master_data(self):
+        """Collect footnote master data from MongoDB (footnote_master.config_footnote_master).
+        
+        Returns:
+            DataFrame with columns: footnote, sales_start, sales_end, travel_start, travel_end
+        """
+        try:
+            footnote_master = list(self.db.config_footnote_master.find(
+                {},
+                {
+                    '_id': 0,
+                    'footnote': 1,
+                    'sales_start': 1,
+                    'sales_end': 1,
+                    'travel_start': 1,
+                    'travel_end': 1
+                }
+            ))
+            
+            footnote_master_data = pd.DataFrame(footnote_master)
+            self.logger.info(f"Collected {len(footnote_master_data)} footnote master records")
+            return footnote_master_data
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting footnote master data: {str(e)}")
+            return pd.DataFrame()
+
     def _get_existing_sort_prices(self):
         """Get existing sort prices from QP fares for rules 5001, 5002, 5006."""
         try:
