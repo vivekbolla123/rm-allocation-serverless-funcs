@@ -192,6 +192,7 @@ class LastSoldFare:
         print("completed")
 
     def updateValuesToRedis(self, last_booking_df):
+        last_booking_df['FlightNumber'] = last_booking_df['FlightNumber'].astype(str).str.strip()
         for (departure, arrival, flight, date), group in last_booking_df.groupby(['DepartureStation', 'ArrivalStation', 'FlightNumber', 'DepartureDate']):
             # Generate the composite key
             key = f"LastSoldFare:{departure}{arrival}{flight}_{date}"
