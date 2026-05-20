@@ -951,7 +951,11 @@ class DynAllocConnections:
         self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
         self.dwconn = self.currParams.dwconn
         self.mongoclient = self.currParams.mongodbclient
-        self.mongo_master_db = self.currParams.mongo_master_db
+        self.mongo_master_db = (
+            self.currParams.mongo_master_db 
+            if getattr(self.currParams, 'mongo_master_db', CONST_NA) != CONST_NA 
+            else self.mongoclient.client['qp_rm_master']
+        )
         self.starttime = datetime.now()
         self.allocResults = []
         self.AUFileData = []
@@ -1067,7 +1071,7 @@ class DynAllocConnections:
     def _calculate_domestic_gross_fare(self, base_fare, origin, destination):
         """Calculate domestic gross fare: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + DUF + YQ + (YQ×GST)"""
         try:
-            tax_data = self.mongoclient['tax_mast_dom'].find_one({'Code': origin}, {'_id': 0})
+            tax_data = self.mongo_master_db['tax_mast_dom'].find_one({'Code': origin}, {'_id': 0})
             if not tax_data:
                 print(f"No domestic tax data found for origin: {origin}, returning base fare")
                 return base_fare
@@ -1110,7 +1114,7 @@ class DynAllocConnections:
         """Calculate international gross fare: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + (YQ×YQ_GST)"""
         try:
             sector_key = f"{origin}{destination}"
-            tax_data = self.mongoclient['tax_mast_intl'].find_one({'Sectors': sector_key}, {'_id': 0})
+            tax_data = self.mongo_master_db['tax_mast_intl'].find_one({'Sectors': sector_key}, {'_id': 0})
             if not tax_data:
                 print(f"No international tax data found for sector: {sector_key}, returning base fare")
                 return base_fare
