@@ -23,8 +23,8 @@
         <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
 
-        <!-- Updated for security - fixes CLIENT_CERT authentication vulnerability in Tomcat -->
-        <tomcat.version>10.1.54</tomcat.version>
+        <!-- Updated for security - fixes DIGEST authentication bypass (CVE-2025-31651) in Tomcat -->
+        <tomcat.version>10.1.55</tomcat.version>
 
         <!-- Updated dependency versions as per IT requirements -->
         <aws.java.sdk.version>2.25.16</aws.java.sdk.version>
