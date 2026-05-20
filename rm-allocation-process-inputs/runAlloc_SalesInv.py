@@ -50,6 +50,7 @@ class DynAllocSalesInv:
         self.dwconn = self.currParams.dwconn
         self.cache_client = self.currParams.cache_client
         self.mongoclient = self.currParams.mongodbclient
+        self.mongo_master_db = self.currParams.mongo_master_db
 
         self.allocResults = []
         self.AUFileData = []

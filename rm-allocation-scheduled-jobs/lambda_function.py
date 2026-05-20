@@ -104,6 +104,7 @@ try:
             authSource=configsettings.MONGO_AUTH_SOURCE
         )
     mongo_db = mongo_client["qp_dw_rmalloc"]
+    mongo_master_db = mongo_client[configsettings.MONGO_MASTER_DB]
     
     # Keep other connections if still needed
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
@@ -188,6 +189,7 @@ def lambda_handler(event, context):
     for module_key in modules.keys():
         # Single MongoDB connection for both read and write
         params["mongoconn"] = mongo_client
+        params["mongo_master_db"] = mongo_master_db
         
         # Keep other connections if still needed
         params["dwconn"] = dw_conn

@@ -951,6 +951,7 @@ class DynAllocConnections:
         self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
         self.dwconn = self.currParams.dwconn
         self.mongoclient = self.currParams.mongodbclient
+        self.mongo_master_db = self.currParams.mongo_master_db
         self.starttime = datetime.now()
         self.allocResults = []
         self.AUFileData = []

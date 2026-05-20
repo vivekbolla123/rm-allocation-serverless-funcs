@@ -32,6 +32,7 @@ mongoclient = MongoClient(
             authSource=configsettings.MONGO_AUTH_SOURCE
         )
 mongodb=mongoclient[configsettings.MONGO_DB]
+mongo_master_db=mongoclient[configsettings.MONGO_MASTER_DB]
 # DB settings
 WAIT_TIME = 30  # in seconds
 
@@ -115,6 +116,7 @@ def lambda_handler(event, context):
         is_sales_inventory = str(data.get("saleinvflag")) == "1"
 
         data["mongodbclient"]=mongodb
+        data["mongo_master_db"]=mongo_master_db
         status_df = getRunStatus(run_id)
         if (not status_df.empty):
             if (status_df.iloc[0]['run_status'] == 'DELETED'):

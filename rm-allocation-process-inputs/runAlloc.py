@@ -500,19 +500,19 @@ class DynAlloc:
 				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
 				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
 
-			ml_b2b_factor = self.currParams.b2b_factor
 			b2b_strategy = self.currParams.b2bStrategy
+			forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
 			skip_auto_b2b_factor = True
 
-			is_b2b_strategy_available = b2b_strategy != CONST_NA and b2b_strategy != "" and not pd.isna(b2b_strategy)
+			is_b2b_strategy_na = b2b_strategy == CONST_NA and b2b_strategy == "" and pd.isna(b2b_strategy)
 			try:
-				ml_b2b_factor = float(ml_b2b_factor)
-				skip_auto_b2b_factor = ml_b2b_factor <= 0
+				skip_auto_b2b_factor = forecastAllocFlag == 0 or is_b2b_strategy_na or imp_forecast_band == CONST_NA
 			except (ValueError, TypeError):
 				skip_auto_b2b_factor = True
 
-			if ((not skip_auto_b2b_factor) and is_b2b_strategy_available and forecastBand != CONST_NA):
-				auto_b2b_factor_value = self.rmdatabasehelper.getB2BStrategyValue(dplfBand_full, ndoBand_full, forecastBand, b2b_strategy)
+			# Assign B2B factor based on B2B Strategy if applicable
+			if not skip_auto_b2b_factor:
+				auto_b2b_factor_value = self.rmdatabasehelper.getB2BStrategyValue(ndoBand_full, imp_forecast_band, b2b_strategy)
 				if auto_b2b_factor_value is not None:
 					try:
 						self.currParams.b2b_factor = float(auto_b2b_factor_value)
@@ -1077,6 +1077,8 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
 			self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 			self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+			self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
+			self.outputSummaryRow_b2c.ALLIN_AF_NB_LY = self.outputSummaryRow_b2b.ALLIN_AF_NB_LY = getattr(self.currParams, 'ALLIN_AF_NB_LY', CONST_NA)
 			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
 
@@ -1210,12 +1212,12 @@ class DynAlloc:
 		bookingToday = 0
 		bookingLastHour = 0
 		# if bookings.shape[0] != 0:
-		if not pd.isna(self.currParams.BookingsCount):
-			lastBookloadTillMidnight = int(self.currParams.BookingsCount)
-		if not pd.isna(self.currParams.BookingToday):
+		# if not pd.isna(self.currParams.BookingsCount):
+		# 	lastBookloadTillMidnight = int(self.currParams.BookingsCount)
+		if not pd.isna(self.currParams.BookingToday) and self.currParams.BookingToday != CONST_NA:
 			bookingToday = int(self.currParams.BookingToday)
-		if not pd.isna(self.currParams.BookingsInHour):
-			bookingLastHour = int(self.currParams.BookingsInHour)
+		# if not pd.isna(self.currParams.BookingsInHour):
+		# 	bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
 		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
@@ -1490,6 +1492,7 @@ class DynAlloc:
 
 		self.sqs = self.currParams.sqs
 		self.mongoclient = self.currParams.mongodbclient
+		self.mongo_master_db = self.currParams.mongo_master_db
 		self.dwconn = self.currParams.dwconn
 		self.w0Flag = self.currParams.w0Flag
 		if pd.isna(self.currParams.w0Flag):
@@ -1510,7 +1513,7 @@ class DynAlloc:
 			self.log_time.update_run_id(self.currParams.run_id)
 		self.logger = OwnLogger(self.runId, self.inputSource)
 		self.rmdatabasehelper = RMDatabaseHelper(self.mongoclient,self.dwconn, self.runId, self.inputSource, self.debugMode, self.cache_client,self.currParams)
-		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource)
+		self.mongohelper=MarketFareMongoDB(self.mongoclient,self.inputSource,self.mongo_master_db)
 		self.constantsUtils = ConstantsUtils(self.mongoclient)
 		self.utils = Utils(self.inputSource)
 		self.mathutils = MathUtils(self.inputSource)
