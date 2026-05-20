@@ -10,3 +10,4 @@ pymysql
 pymongo
 psutil
 datadog-lambda
+cryptography
