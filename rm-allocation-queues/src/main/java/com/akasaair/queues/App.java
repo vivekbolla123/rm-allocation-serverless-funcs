@@ -2742,6 +2742,8 @@ public class App implements CommandLineRunner {
                 .carrierExclusionB2B(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2B))
                 .carrierExclusionB2C(record.get(CSV_HEADER_CONNECTIONS_CARRIEREXCLB2C))
                 .sosFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))
+                .domesticForecastThreshold(record.size() > CSV_HEADER_CONNECTIONS_DOMESTIC_FORECAST_THRESHOLD
+                        ? record.get(CSV_HEADER_CONNECTIONS_DOMESTIC_FORECAST_THRESHOLD) : "")
                 .build());
     }
 
@@ -3883,6 +3885,7 @@ public class App implements CommandLineRunner {
                 .append("DiscountFlag", toIntOrKeepSame(e.getDiscountFlag()))
                 .append("Offset", toIntOrKeepSame(e.getOffset()))
                 .append("sosFlag", toIntOrKeepSame(e.getSosFlag()))
+                .append("Domestic_ForecastThreshold", toIntOrKeepSame(e.getDomesticForecastThreshold()))
                 .append("createdAt", createdAt);
     }
 
@@ -4745,6 +4748,20 @@ public class App implements CommandLineRunner {
 
         if (!checkStrategyFlag(record.get(CSV_HEADER_CONNECTIONS_SOSFLAG))) {
             errorsFound.add(lineNum + "SOS Flag ("+ record.get(CSV_HEADER_CONNECTIONS_SOSFLAG) +") has value other than '0' or '1'.");
+        }
+        // Validate Domestic_ForecastThreshold if provided
+        if (record.size() > CSV_HEADER_CONNECTIONS_DOMESTIC_FORECAST_THRESHOLD) {
+            String domThreshold = record.get(CSV_HEADER_CONNECTIONS_DOMESTIC_FORECAST_THRESHOLD);
+            if (domThreshold != null && !domThreshold.trim().isEmpty() && !domThreshold.trim().equalsIgnoreCase("NA")) {
+                try {
+                    double val = Double.parseDouble(domThreshold.trim());
+                    if (val <= 0 || val > 100) {
+                        errorsFound.add(lineNum + "Domestic_ForecastThreshold (" + domThreshold + ") must be between 0 and 100.");
+                    }
+                } catch (NumberFormatException e) {
+                    errorsFound.add(lineNum + "Domestic_ForecastThreshold (" + domThreshold + ") is not a valid number.");
+                }
+            }
         }
         if (!isPositive(record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC))) {
             errorsFound.add(lineNum + "First Allocation ("+ record.get(CSV_HEADER_CONNECTIONS_FIRSTRBDALLOC) +") is not a positive number.");

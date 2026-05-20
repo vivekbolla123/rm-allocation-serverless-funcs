@@ -72,3 +72,4 @@ class MarketListConnectiosnsRow:
         self.DirectFlightDepTime = currParams.get("DirectFlightDepTime", CONST_NA)
         self.DirectFlightOpeningRBDB2B = currParams.get("DirectFlightOpeningRBDB2B", CONST_NA)
         self.DirectFlightOpeningRBDB2C = currParams.get("DirectFlightOpeningRBDB2C", CONST_NA)
+        self.domestic_forecast_threshold = currParams.get("Domestic_ForecastThreshold", CONST_NA)

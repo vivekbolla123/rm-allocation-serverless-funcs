@@ -72,6 +72,8 @@ public class MarketListConnectionsEntity {
     private String carrierExclusionB2C;
     @Column(name = "sosFlag")// New field
     private String sosFlag;
+    @Column(name = "Domestic_ForecastThreshold")
+    private String domesticForecastThreshold;
 
 }
 

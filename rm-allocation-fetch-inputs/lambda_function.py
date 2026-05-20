@@ -888,7 +888,7 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
             'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
             'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
-            'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
+            'fareAnchor','Offset','DiscountFlag','sosFlag','analystName','Domestic_ForecastThreshold'
         ]
 
         projection_cols = []

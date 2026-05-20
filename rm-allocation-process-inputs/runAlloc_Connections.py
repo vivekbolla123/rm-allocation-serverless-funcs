@@ -366,7 +366,12 @@ class DynAllocConnections:
         forecasted_varience_sector1 = self.currParams.forecast_variance1
         forecasted_varience_sector2 = self.currParams.forecast_variance2
         is_sector1_domestic, is_sector2_domestic = self.rmdatabasehelper.check_sector_types(sector1, sector2)
-        domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
+        # Use per-market domestic forecast threshold if available, else fall back to global constant
+        try:
+            mkt_dom_threshold = float(self.currParams.domestic_forecast_threshold)
+            domestic_plf_threshold = mkt_dom_threshold
+        except (ValueError, TypeError):
+            domestic_plf_threshold = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         international_plf_threshold = self.constantsUtils.INTERNATIONAL_PLF_THRESHOLD
         dow = self.currParams.dow
         B2CBackstop = int(self.currParams.b2c_backstop)
@@ -1042,7 +1047,11 @@ class DynAllocConnections:
         3. Neither meets threshold -> MarketFare (or Max(MarketFare, StrategyFare) for domestic)
         4. Direct flight exists -> Apply upsell if direct didn't meet threshold
         """
-        DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
+        # Use per-market domestic forecast threshold if available, else fall back to global constant
+        try:
+            DOM_FORECAST_THRESHOLD = float(self.currParams.domestic_forecast_threshold)
+        except (ValueError, TypeError):
+            DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
         
