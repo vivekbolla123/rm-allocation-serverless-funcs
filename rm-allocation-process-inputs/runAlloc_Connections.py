@@ -571,7 +571,9 @@ class DynAllocConnections:
                         sector2=sector2, is_sector1_domestic=is_sector1_domestic,
                         is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
                         forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
-                        bookload2=bookload2, ndocounter=ndocounter
+                        bookload2=bookload2, ndocounter=ndocounter,
+                        variance1=self.outputSummaryRow_b2c.variance1,
+                        variance2=self.outputSummaryRow_b2c.variance2
                     )
                 if self.currParams.currency != "INR":
                     b2cTotal = self.convert_currency('INR', self.currParams.currency, b2cTotal)
@@ -694,7 +696,9 @@ class DynAllocConnections:
                                 sector2=sector2, is_sector1_domestic=is_sector1_domestic,
                                 is_sector2_domestic=is_sector2_domestic, forecasted_plf1=alloc_forecast_plf_sector1,
                                 forecasted_plf2=alloc_forecast_plf_sector2, bookload1=bookload1,
-                                bookload2=bookload2, ndocounter=ndocounter
+                                bookload2=bookload2, ndocounter=ndocounter,
+                                variance1=self.outputSummaryRow_b2b.variance1,
+                                variance2=self.outputSummaryRow_b2b.variance2
                             )
                         if self.currParams.currency != "INR":
                             b2bTotal = self.convert_currency('INR', self.currParams.currency, b2bTotal)
@@ -947,7 +951,11 @@ class DynAllocConnections:
         self.NAV_DOMAIN = inputData["NAV_DOMAIN"]
         self.dwconn = self.currParams.dwconn
         self.mongoclient = self.currParams.mongodbclient
-        self.mongo_master_db = self.currParams.mongo_master_db
+        self.mongo_master_db = (
+            self.currParams.mongo_master_db 
+            if getattr(self.currParams, 'mongo_master_db', CONST_NA) != CONST_NA 
+            else self.mongoclient.client['qp_rm_master']
+        )
         self.starttime = datetime.now()
         self.allocResults = []
         self.AUFileData = []
@@ -1023,10 +1031,129 @@ class DynAllocConnections:
         except (ValueError, TypeError):
             return CONST_NA
 
+    def _get_yq_for_distance(self, distance):
+        """Get YQ based on distance (km) for domestic routes from YQ_DISTANCE_CONFIG."""
+        if distance <= 0:
+            return 0
+        try:
+            for min_dist, max_dist, yq_val in self.constantsUtils.YQ_DISTANCE_CONFIG:
+                if min_dist < distance <= max_dist:
+                    return float(yq_val)
+        except AttributeError:
+            print("YQ_DISTANCE_CONFIG not found in constants.")
+        return 0
+
+    def _calculate_base_to_gross_fare(self, base_fare, origin, destination, is_domestic):
+        """
+        Convert a base fare to gross (all-in) fare using the same formula as rm-pricing-triggers.
+        
+        Domestic formula: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + DUF + YQ + (YQ×GST)
+        International formula: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + (YQ×YQ_GST)
+        
+        Args:
+            base_fare: The base fare to convert
+            origin: 3-letter origin station code
+            destination: 3-letter destination station code
+            is_domestic: True if domestic sector, False if international
+            
+        Returns:
+            float: Gross fare (all-in fare)
+        """
+        try:
+            if is_domestic:
+                return self._calculate_domestic_gross_fare(base_fare, origin, destination)
+            else:
+                return self._calculate_international_gross_fare(base_fare, origin, destination)
+        except Exception as e:
+            print(f"Error converting base to gross fare for {origin}-{destination}: {e}")
+            return base_fare
+
+    def _calculate_domestic_gross_fare(self, base_fare, origin, destination):
+        """Calculate domestic gross fare: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + DUF + YQ + (YQ×GST)"""
+        try:
+            tax_data = self.mongo_master_db['tax_mast_dom'].find_one({'Code': origin}, {'_id': 0})
+            if not tax_data:
+                print(f"No domestic tax data found for origin: {origin}, returning base fare")
+                return base_fare
+
+            gst_rate = float(tax_data.get('GST', 0)) / 100
+            rcs = float(tax_data.get('RCS', 0)) if tax_data.get('RCS') is not None else 0
+            cute = float(tax_data.get('CUTE', 0)) if tax_data.get('CUTE') is not None else 0
+            asf = float(tax_data.get('ASF', 0)) if tax_data.get('ASF') is not None else 0
+            psf = float(tax_data.get('PSF', 0)) if tax_data.get('PSF') is not None else 0
+            udf_df = float(tax_data.get('UDF_DF', 0)) if tax_data.get('UDF_DF') is not None else 0
+
+            # RCS sector handling
+            if destination in self.constantsUtils.PRICING_RCS_SECTORS:
+                rcs = 0
+
+            # DUF sector handling
+            duf = 0
+            if destination in self.constantsUtils.PRICING_DUF_SECTORS:
+                duf = float(self.constantsUtils.PRICING_DUF_SECTORS[destination])
+
+            # GST exemption handling
+            if origin in self.constantsUtils.PRICING_GST_SECTORS or destination in self.constantsUtils.PRICING_GST_SECTORS:
+                gst_rate = 0
+
+            # YQ based on distance
+            stage_length = self.rmdatabasehelper.get_stage_length(origin, destination)
+            yq = self._get_yq_for_distance(stage_length)
+
+            # Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + DUF + YQ + (YQ×GST)
+            gross_fare = base_fare + asf + psf + udf_df + rcs + cute + gst_rate * (base_fare + rcs + cute) + duf + yq + (yq * gst_rate)
+            
+            print(f"Domestic base->gross: {origin}-{destination}: base={base_fare}, gross={gross_fare}, GST={gst_rate*100}%")
+            return gross_fare
+
+        except Exception as e:
+            print(f"Error calculating domestic gross fare for {origin}-{destination}: {e}")
+            return base_fare
+
+    def _calculate_international_gross_fare(self, base_fare, origin, destination):
+        """Calculate international gross fare: Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + (YQ×YQ_GST)"""
+        try:
+            sector_key = f"{origin}{destination}"
+            tax_data = self.mongo_master_db['tax_mast_intl'].find_one({'Sectors': sector_key}, {'_id': 0})
+            if not tax_data:
+                print(f"No international tax data found for sector: {sector_key}, returning base fare")
+                return base_fare
+
+            gst_rate = float(tax_data.get('GST', 0)) / 100
+            rcs = float(tax_data.get('RCS', 0)) if tax_data.get('RCS') is not None else 0
+            cute = float(tax_data.get('CUTE', 0)) if tax_data.get('CUTE') is not None else 0
+            asf = float(tax_data.get('ASF', 0)) if tax_data.get('ASF') is not None else 0
+            psf_adf = float(tax_data.get('PSF_ADF', 0)) if tax_data.get('PSF_ADF') is not None else 0
+            udf = float(tax_data.get('UDF', 0)) if tax_data.get('UDF') is not None else 0
+            psc_pz = float(tax_data.get('PSC_PZ', 0)) if tax_data.get('PSC_PZ') is not None else 0
+            rcs_cute = float(tax_data.get('RCS_CUTE', 0)) if tax_data.get('RCS_CUTE') is not None else 0
+            tax1 = float(tax_data.get('Tax1', 0)) if tax_data.get('Tax1') is not None else 0
+            tax2 = float(tax_data.get('Tax2', 0)) if tax_data.get('Tax2') is not None else 0
+            tax3 = float(tax_data.get('Tax3', 0)) if tax_data.get('Tax3') is not None else 0
+            tax4 = float(tax_data.get('Tax4', 0)) if tax_data.get('Tax4') is not None else 0
+            tax5 = float(tax_data.get('Tax5', 0)) if tax_data.get('Tax5') is not None else 0
+            yq = float(tax_data.get('YQ', 0)) if tax_data.get('YQ') is not None else 0
+            yq_gst_rate = float(tax_data.get('YQ_GST', 0)) / 100 if tax_data.get('YQ_GST') is not None else 0
+
+            # GST exemption handling
+            if origin in self.constantsUtils.PRICING_GST_SECTORS or destination in self.constantsUtils.PRICING_GST_SECTORS:
+                gst_rate = 0
+
+            # Gross Fare = Base Fare + (Base Fare × GST) + (GST×(RCS+CUTE)) + Other Taxes + YQ + (YQ×YQ_GST)
+            gst = gst_rate * (base_fare + rcs + cute)
+            gross_fare = base_fare + asf + psf_adf + udf + psc_pz + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
+
+            print(f"International base->gross: {origin}-{destination}: base={base_fare}, gross={gross_fare}, GST={gst_rate*100}%")
+            return gross_fare
+
+        except Exception as e:
+            print(f"Error calculating international gross fare for {origin}-{destination}: {e}")
+            return base_fare
+
     def _calculate_phase2_anchor_fare(self, channel, selling_fare1, selling_fare2, market_fare, 
                                        strategy_fare, sector1, sector2, is_sector1_domestic, 
                                        is_sector2_domestic, forecasted_plf1, forecasted_plf2,
-                                       bookload1, bookload2, ndocounter):
+                                       bookload1, bookload2, ndocounter, variance1=None, variance2=None):
         """
         Calculate anchor fare using Phase 2 logic.
         
@@ -1041,6 +1168,10 @@ class DynAllocConnections:
         2. One leg meets threshold -> Max(StrongLeg + YieldFactor*WeakLegStageLength, MarketFare)
         3. Neither meets threshold -> MarketFare (or Max(MarketFare, StrategyFare) for domestic)
         4. Direct flight exists -> Apply upsell if direct didn't meet threshold
+        
+        For NDO 30+ domestic legs, DPLF band is used instead of DOM_FORECAST_THRESHOLD.
+        If DPLF band falls within 3 to 6, the threshold is considered met; otherwise not.
+        International legs always use the existing PLF-based threshold regardless of NDO.
         """
         DOM_FORECAST_THRESHOLD = self.constantsUtils.DOMESTIC_PLF_THRESHOLD
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
@@ -1049,10 +1180,32 @@ class DynAllocConnections:
         plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
         plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
         
-        leg1_meets = (forecasted_plf1 >= DOM_FORECAST_THRESHOLD if is_sector1_domestic 
-                      else plf1 >= int_plf_threshold)
-        leg2_meets = (forecasted_plf2 >= DOM_FORECAST_THRESHOLD if is_sector2_domestic 
-                      else plf2 >= int_plf_threshold)
+        # For domestic legs at NDO 30+, use DPLF band (3-6 = meets threshold) instead of forecast PLF
+        if is_sector1_domestic and ndocounter >= 30 and variance1 is not None:
+            dplf_band1 = self.rmdatabasehelper.getdpflBand(variance1)
+            try:
+                dplf_band1_val = int(dplf_band1) if dplf_band1 is not None else 0
+            except (ValueError, TypeError):
+                dplf_band1_val = 0
+            leg1_meets = 3 <= dplf_band1_val <= 6
+            print(f"Domestic Leg1 NDO30+ threshold: DPLF band={dplf_band1}, meets={leg1_meets}")
+        elif is_sector1_domestic:
+            leg1_meets = forecasted_plf1 >= DOM_FORECAST_THRESHOLD
+        else:
+            leg1_meets = plf1 >= int_plf_threshold
+        
+        if is_sector2_domestic and ndocounter >= 30 and variance2 is not None:
+            dplf_band2 = self.rmdatabasehelper.getdpflBand(variance2)
+            try:
+                dplf_band2_val = int(dplf_band2) if dplf_band2 is not None else 0
+            except (ValueError, TypeError):
+                dplf_band2_val = 0
+            leg2_meets = 3 <= dplf_band2_val <= 6
+            print(f"Domestic Leg2 NDO30+ threshold: DPLF band={dplf_band2}, meets={leg2_meets}")
+        elif is_sector2_domestic:
+            leg2_meets = forecasted_plf2 >= DOM_FORECAST_THRESHOLD
+        else:
+            leg2_meets = plf2 >= int_plf_threshold
         
         sum_l1_l2 = selling_fare1 + selling_fare2
 
@@ -1079,11 +1232,17 @@ class DynAllocConnections:
             status_str = "One Leg Meets Threshold"
             if leg1_meets:
                 l2_stage_length = self.rmdatabasehelper.get_stage_length(sector2[:3], sector2[3:])
-                calculated_fare = selling_fare1 + (yield_factor * l2_stage_length)
+                weak_leg_base_fare = yield_factor * l2_stage_length
+                weak_leg_gross_fare = self._calculate_base_to_gross_fare(
+                    weak_leg_base_fare, sector2[:3], sector2[3:], is_sector2_domestic)
+                calculated_fare = selling_fare1 + weak_leg_gross_fare
                 anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
             elif leg2_meets:
                 l1_stage_length = self.rmdatabasehelper.get_stage_length(sector1[:3], sector1[3:])
-                calculated_fare = selling_fare2 + (yield_factor * l1_stage_length)
+                weak_leg_base_fare = yield_factor * l1_stage_length
+                weak_leg_gross_fare = self._calculate_base_to_gross_fare(
+                    weak_leg_base_fare, sector1[:3], sector1[3:], is_sector1_domestic)
+                calculated_fare = selling_fare2 + weak_leg_gross_fare
                 anchor_fare = max(calculated_fare, market_fare) if market_fare > 0 else calculated_fare
             else:
                 anchor_fare = market_fare if market_fare > 0 else sum_l1_l2
@@ -1105,13 +1264,19 @@ class DynAllocConnections:
 
         anchor_fare, how_determined = self._apply_direct_flight_upsell(
             channel, anchor_fare, sector1, sector2, is_sector1_domestic,
-            DOM_FORECAST_THRESHOLD, int_plf_threshold, how_determined, sector_type_str
+            DOM_FORECAST_THRESHOLD, int_plf_threshold, how_determined, sector_type_str,
+            ndocounter=ndocounter
         )
         return anchor_fare, how_determined
 
     def _apply_direct_flight_upsell(self, channel, anchor_fare, sector1, sector2, 
-                                     is_direct_domestic, dom_threshold, int_threshold, how_determined, sector_type_str):
-        """Apply direct flight upsell if applicable (Scenario 4)."""
+                                     is_direct_domestic, dom_threshold, int_threshold, how_determined, sector_type_str,
+                                     ndocounter=0):
+        """Apply direct flight upsell if applicable (Scenario 4).
+        
+        For NDO 30+ domestic direct flights, DPLF band is used instead of forecast threshold.
+        If DPLF band falls within 3 to 6, the threshold is considered met; otherwise not.
+        """
         rbd_attr = 'DirectFlightOpeningRBDB2C' if channel == 'B2C' else 'DirectFlightOpeningRBDB2B'
         direct_rbd = getattr(self.currParams, rbd_attr, CONST_NA)
         direct_forecast = self.currParams.DirectFlightForecast
@@ -1132,9 +1297,34 @@ class DynAllocConnections:
             
             if direct_fare <= 0:
                 return anchor_fare, how_determined
+            
+            # For NDO 30+ domestic direct flights, use DPLF band threshold
+            if is_direct_domestic and ndocounter >= 30:
+                # Compute direct flight variance for DPLF band lookup
+                direct_booked_pax = self.currParams.DirectFlightBookedPax
+                direct_lid = self.currParams.DirectFlightLid
+                try:
+                    direct_booked_pax = float(direct_booked_pax) if direct_booked_pax and not pd.isna(direct_booked_pax) else 0
+                    direct_lid = float(direct_lid) if direct_lid and not pd.isna(direct_lid) else 0
+                except (ValueError, TypeError):
+                    direct_booked_pax = 0
+                    direct_lid = 0
                 
-            meets_threshold = (direct_forecast >= dom_threshold if is_direct_domestic 
-                               else direct_plf >= int_threshold)
+                if direct_lid > 0:
+                    direct_variance = (direct_booked_pax / direct_lid * 100) - (direct_forecast)
+                    direct_dplf_band = self.rmdatabasehelper.getdpflBand(direct_variance)
+                    try:
+                        direct_dplf_band_val = int(direct_dplf_band) if direct_dplf_band is not None else 0
+                    except (ValueError, TypeError):
+                        direct_dplf_band_val = 0
+                    meets_threshold = 3 <= direct_dplf_band_val <= 6
+                    print(f"Direct flight NDO30+ DPLF band threshold: band={direct_dplf_band}, meets={meets_threshold}")
+                else:
+                    meets_threshold = False
+            elif is_direct_domestic:
+                meets_threshold = direct_forecast >= dom_threshold
+            else:
+                meets_threshold = direct_plf >= int_threshold
             
             if not meets_threshold:
                 upsell_pct = 1 + (self.constantsUtils.DIRECT_FLIGHT_UPSELL_PERCENT / 100)
@@ -1143,7 +1333,10 @@ class DynAllocConnections:
                 anchor_fare = max(anchor_fare, upsell_fare)
                 
                 if is_direct_domestic:
-                    how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Forecast < {dom_threshold}%"
+                    if ndocounter >= 30:
+                        how_determined = f"Matched and allocated {sector_type_str} - If Direct flight DPLF band not in 3-6"
+                    else:
+                        how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Forecast < {dom_threshold}%"
                 else:
                     how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Threshold < {int_threshold}%"
                 
