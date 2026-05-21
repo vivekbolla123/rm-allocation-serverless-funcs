@@ -142,8 +142,12 @@ if env == 'prod':
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
     MONGO_AUTH_SOURCE="admin"
-
-    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    
+    MONGO_DE_USERNAME = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_USERNAME', '')
+    MONGO_DE_DB = "FlightSchedule"
+    MONGO_DE_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_PASSWORD', '')
+    MONGO_DE_URL = "172.24.72.35"
+    MONGO_DE_AUTH_SOURCE="admin"
     
     PA_BUCKET_NAME = "qp-s3-fs"
     PA_FILE_PATH = 'prod/PA/'
@@ -234,9 +238,13 @@ if env == 'uat':
     MONGO_PASSWORD = "testpassword"
     MONGO_URL = "172.24.72.35"
     MONGO_AUTH_SOURCE="admin"
-
-    SENDER_PASSWORD= credentials.get(f'/copilot/{app_name}/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
+    MONGO_DE_USERNAME = "testuser"
+    MONGO_DE_DB = "test_db"
+    MONGO_DE_PASSWORD = "testpassword"
+    MONGO_DE_URL = "172.24.72.35"
+    MONGO_DE_AUTH_SOURCE="admin"   
+        
     PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'
     
