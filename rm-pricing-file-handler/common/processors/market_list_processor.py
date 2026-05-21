@@ -31,6 +31,7 @@ EXPECTED_COLUMNS = [
     "UP_B2B",
     "B2B_Threshold",
     "Yield_Threshold",
+    "DefaultFlag",
 ]
 
 # Lowercase -> camelCase lookup — keyed with all spaces removed for flexible matching
@@ -53,6 +54,9 @@ _VALID_TYPES = {"bookings", "market"}
 # Valid values for MarketFlag column
 _VALID_MARKET_FLAGS = {"y", "n"}
 
+# Valid values for DefaultFlag column
+_VALID_DEFAULT_FLAGS = {"Y", "N"}
+
 
 def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -69,8 +73,9 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
         7. Validate MinThreshold < MaxThreshold for B2C and B2B
         8. Validate Type is 'Bookings' or 'Market'
         9. Validate MarketFlag is 'Y' or 'N'
-        10. Check for duplicate LadderCode
-        11. Check for exact duplicate rows
+        10. Validate DefaultFlag is 'Y' or 'N'
+        11. Check for duplicate LadderCode
+        12. Check for exact duplicate rows
 
     Args:
         df: DataFrame with already-normalized column names
@@ -180,13 +185,20 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
         details = [f"Row {r + 2}: '{df.at[r, 'MarketFlag']}'" for r in invalid_flags]
         raise ValueError(f"Invalid MarketFlag (expected 'Y' or 'N'): {'; '.join(details)}")
 
-    # --- 10. Duplicate LadderCode ---
+    # --- 10. DefaultFlag validation ---
+    df["DefaultFlag"] = df["DefaultFlag"].astype(str).str.strip()
+    invalid_default_flags = df[~df["DefaultFlag"].str.upper().isin(_VALID_DEFAULT_FLAGS)].index
+    if len(invalid_default_flags) > 0:
+        details = [f"Row {r + 2}: '{df.at[r, 'DefaultFlag']}'" for r in invalid_default_flags]
+        raise ValueError(f"Invalid DefaultFlag (expected 'Y' or 'N'): {'; '.join(details)}")
+
+    # --- 11. Duplicate LadderCode ---
     dupes = df[df.duplicated(subset=["LadderCode"], keep=False)]
     if not dupes.empty:
         dup_codes = dupes["LadderCode"].unique().tolist()
         raise ValueError(f"Duplicate LadderCode entries found: {dup_codes}")
 
-    # --- 11. Exact duplicate rows ---
+    # --- 12. Exact duplicate rows ---
     exact_dupes = df[df.duplicated(keep=False)]
     if not exact_dupes.empty:
         dup_rows = [str(r + 2) for r in exact_dupes.index]
