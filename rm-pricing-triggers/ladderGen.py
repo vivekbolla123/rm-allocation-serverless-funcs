@@ -1958,9 +1958,22 @@ class LadderGen:
             # Setup currency conversion for this sector
             self._setup_currency_conversion()
             
-            # If default_flag is 'Y', skip data collection and use GP-based default ladder for both channels
+            # If default_flag is 'Y', skip market/booking data collection but still collect tax data for all-in fare calculation
             if self.default_flag == 'Y':
                 self.logger.info(f"DefaultFlag=Y for {self.ladder_code}, using GP-based default ladder generation")
+                
+                # Collect tax master data (needed for all-in fare calculation in save)
+                try:
+                    self.tax_master_dom_data, self.tax_master_intl_data, _ = self.pa_helper.collect_tax_master_data()
+                except Exception as e:
+                    self.logger.warning(f"Tax master data collection failed: {str(e)}")
+                
+                # Collect city pair data (needed for distance-based tax calculations)
+                try:
+                    self.city_pair_data = self.nav_helper.collect_city_pair_data(self.sector)
+                except Exception as e:
+                    self.logger.warning(f"City pair data collection failed: {str(e)}")
+                
                 ladder_result = self.generate_default_ladder()
                 
                 if not ladder_result:
