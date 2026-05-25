@@ -1840,25 +1840,28 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
+    
+    def getCluster(self, time_obj):
+        cluster = None
+        if datetime.strptime('02:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('07:30:00', '%H:%M:%S').time():
+            cluster = 0
+        elif datetime.strptime('07:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('11:00:00', '%H:%M:%S').time():
+            cluster = 1
+        elif datetime.strptime('11:00:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('14:30:00', '%H:%M:%S').time():
+            cluster = 2
+        elif datetime.strptime('14:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('18:00:00', '%H:%M:%S').time():
+            cluster = 3
+        elif datetime.strptime('18:00:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('21:00:00', '%H:%M:%S').time():
+            cluster = 4
+        else:
+            cluster = 5
+        return cluster
 
     def profileFaresExtract(self, origin, destin, month, dow, currTime):
         try:
             sector = origin + destin
             time_obj = datetime.strptime(currTime, '%H:%M').time()
-            
-            cluster = None
-            if datetime.strptime('02:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('07:30:00', '%H:%M:%S').time():
-                cluster = 0
-            elif datetime.strptime('07:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('11:00:00', '%H:%M:%S').time():
-                cluster = 1
-            elif datetime.strptime('11:00:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('14:30:00', '%H:%M:%S').time():
-                cluster = 2
-            elif datetime.strptime('14:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('18:00:00', '%H:%M:%S').time():
-                cluster = 3
-            elif datetime.strptime('18:00:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('21:00:00', '%H:%M:%S').time():
-                cluster = 4
-            else:
-                cluster = 5
+            cluster = self.getCluster(time_obj)
 
             result = self.db.config_profile_fares.find_one(
     {
@@ -2559,6 +2562,84 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(f"Error fetching group potential seats for sector {sector}, month {month}: {e}")
             return 0
+
+    def get_group_profile_fare_increments(self, sector, year, month_str, dow, cluster):
+        """
+        Fetch group profile fare increment factors from group_profile_fare_increments collection.
+        Returns a dict with keys I0, I1, ... I20 or None if not found.
+        """
+        try:
+            result = self.db.group_profile_fare_increments.find_one({
+                "sector": sector,
+                "year": int(year),
+                "month": month_str,
+                "dow": dow,
+                "cluster": int(cluster)
+            })
+            return result if result else None
+        except Exception as e:
+            self.logger.error(f"Error fetching group profile fare increments: {e}")
+            return None
+
+    def get_group_profile_fares(self, sector, year, month_str, dow, cluster, percentile):
+        """
+        Fetch group profile fare from group_profile_fares collection.
+        Uses year as additional filter compared to config_profile_fares.
+        Returns the fare value for the given percentile (Q0-Q20), or 0.0 if not found.
+        """
+        try:
+            result = self.db.group_profile_fares.find_one({
+                "sector": sector,
+                "year": int(year),
+                "month": month_str,
+                "dow": dow,
+                "cluster": int(cluster)
+            })
+            if result and percentile in result:
+                return float(result[percentile]) if result[percentile] is not None else 0.0
+            return 0.0
+        except Exception as e:
+            self.logger.error(f"Error fetching group profile fares for sector {sector}, year {year}, month {month_str}: {e}")
+            return 0.0
+
+    def get_group_forecast_band(self, imp_forecast):
+        """
+        Fetch group forecast band, b2c_discount, and fare_anchor_strategy from group_forecast_bands collection.
+        Returns a dict with 'band', 'b2c_discount', and 'fare_anchor_strategy' keys, or defaults.
+        """
+        try:
+            result = self.db.group_forecast_bands.find_one({
+                "start": {"$lte": float(imp_forecast)},
+                "end": {"$gte": float(imp_forecast)}
+            })
+            if result:
+                return {
+                    'band': int(result['band']),
+                    'b2c_discount': result.get('b2c_discount', 0),
+                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
+                }
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+        except Exception as e:
+            self.logger.error(f"Error fetching group forecast band for forecast {imp_forecast}: {e}")
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+
+    def get_group_b2c_discount_by_band(self, band):
+        """
+        Fetch b2c_discount and fare_anchor_strategy from group_forecast_bands collection using band number.
+        Used when band is already determined via dplf_bands (variance path).
+        Returns a dict with 'b2c_discount' and 'fare_anchor_strategy'.
+        """
+        try:
+            result = self.db.group_forecast_bands.find_one({"band": int(band)})
+            if result:
+                return {
+                    'b2c_discount': result.get('b2c_discount', 0),
+                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
+                }
+            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+        except Exception as e:
+            self.logger.error(f"Error fetching group b2c discount for band {band}: {e}")
+            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
 
     def get_tbf_seats_blocked(self, orgcode, departuredate):
         try:

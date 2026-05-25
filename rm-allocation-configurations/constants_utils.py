@@ -131,6 +131,9 @@ class ConstantsUtils:
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
         self.ACTIVE_SECTORS_DEFAULT_FIELDS = ACTIVE_SECTORS_DEFAULT_FIELDS
         self.CWT_UPSELL = CWT_UPSELL
+        self.GROUP_SCALING_FACTOR = GROUP_SCALING_FACTOR
+        self.GROUP_AU_BATCH = GROUP_AU_BATCH
+        self.GROUP_IMP_FORECAST_REDUCTION = GROUP_IMP_FORECAST_REDUCTION
 
 
         self.logger = logging.getLogger()
@@ -399,6 +402,12 @@ class ConstantsUtils:
                 self.AF_BAND_2_MULTIPLIERS = json.loads(parameter_value)
             elif parameter_key == CWT_UPSELL_KEY:
                 self.CWT_UPSELL = json.loads(parameter_value)
+            elif parameter_key == GROUP_SCALING_FACTOR_KEY:
+                self.GROUP_SCALING_FACTOR = json.loads(parameter_value)
+            elif parameter_key == GROUP_AU_BATCH_KEY:
+                self.GROUP_AU_BATCH = json.loads(parameter_value)
+            elif parameter_key == GROUP_IMP_FORECAST_REDUCTION_KEY:
+                self.GROUP_IMP_FORECAST_REDUCTION = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

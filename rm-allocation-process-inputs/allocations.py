@@ -6,6 +6,7 @@ import math
 
 import numpy as np
 from Constants import *
+from common.compute_utils import calculate_profilefare_quartile, calculate_variance_for_load, calculate_group_adjusted_load, calculate_group_fare_anchor
 import pandas as pd
 
 
@@ -739,99 +740,195 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell,B2CRBDs,openingRBDPrice,groupbookload,currBookedLoad,month,sector):
+    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
+        """
+        Group quotation allocation using iterative fare anchor approach.
+        
+        For every batch of 5 seats:
+        1. Calculate adjusted current load (using variance*scaling or imputed forecast - 95)
+        2. Get profile fare quartile and profile fare value
+        3. Apply increment factor from group_profile_fare_increments collection
+        4. Calculate discounted B2C selling fare using group_b2c_fare_discounts
+        5. Determine fare anchor: MIN(adj profile, disc B2C) for bands 0-2, MAX for bands 3+
+        6. Assign 5 seats to nearest higher group RBD
+        7. Repeat with +5 booked load until fare anchor > GA (highest RBD) or capacity reached
+        """
+
         rbd_list = list(json.loads(GROUP_QUOTATION).values())
         group_alloc_df = pd.DataFrame()
         if not B2CRBDs.empty:
             group_alloc_df = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
-            group_alloc_df=group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
+            group_alloc_df = group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
-        if int(autoGroup) == 1 and (not profilefarextract.empty):
-            potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector,month)
-            max_au = currBookedLoad-groupbookload+int(potential_seats)
-            max_au = min(adjustedCapacity-50, max_au)
-            profilefarextract = profilefarextract[[col for col in profilefarextract.columns if col in rbd_map]].rename(columns=rbd_map)
-            profilefarextract = profilefarextract.melt(var_name='RBD', value_name='TOTAL')
 
-            # Calculate base allocation unit
-            base_unit = math.ceil(adjustedCapacity / 10)
+        if int(autoGroup) == 1 and not group_alloc_df.empty:
             try:
-                upsell_value = int(upsell) if upsell and str(upsell).strip().upper() != 'NA' else 0
-            except (ValueError, TypeError):
-                upsell_value = 0
-                
-            profilefarextract['Upsell'] = profilefarextract['TOTAL'] * (1 + upsell_value / 100)
+                potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector, month)
+                max_au = currBookedLoad - groupbookload + int(potential_seats)
+                max_au = min(adjustedCapacity - 50, max_au)
 
-            # Sort the dataframe by original fares
-            profilefarextract = profilefarextract.sort_values(by='TOTAL').reset_index(drop=True)
+                # Get highest group RBD fare (GA is the highest)
+                max_group_fare = group_alloc_df['TOTAL'].max()
 
-            # Initialize allocation dictionary
-            allocation_dict = {RBD: {'allocation': 0, 'price_diff': 0} for RBD in profilefarextract['RBD']}
+                # Determine whether to use forecast or dplf(variance) for band calculation
+                use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast) and ndocounter <= 30)
 
-            # Initialize allocation counter
-            allocation_counter = 0
-            profilefarextract = profilefarextract.merge(
-            group_alloc_df[['RBD', 'TOTAL']],
-            on='RBD',
-            how='left',
-            suffixes=('', '_QP')
-        )
-            # Loop through upsell fares and allocate based on nearest original fare
-            for current_index, row in profilefarextract.iterrows():
-                upsell_price = row['Upsell']
-                # profilefarextract = profilefarextract[(profilefarextract['RBD'].map(lambda x: allocation_dict[x] == 0)) &
-                # (profilefarextract.index >= current_index)]
-                # Find the nearest original fare that hasn't been fully allocated
-                if profilefarextract.empty:
-                    break
-                nearest_index = (profilefarextract['TOTAL_QP'] - upsell_price).abs().idxmin()
-                nearest_price = profilefarextract['TOTAL'][nearest_index]
-                RBDLabel = profilefarextract['RBD'][nearest_index]
-                price_diff = openingRBDPrice - profilefarextract.loc[nearest_index, 'TOTAL_QP']
-                if RBDLabel == profilefarextract.iloc[-1]['RBD'] and allocation_dict[RBDLabel]['allocation'] > 0:
-                    continue
-                # Calculate allocation for this RBD
-                allocation = min((allocation_counter + 1) * base_unit, adjustedCapacity)
+                # Build month string for group_profile_fare_increments: "April_H1_May_H2" format
+                # Based on current date, take last 2 halves
+                today = datetime.now()
+                current_day = today.day
+                current_month_name = today.strftime('%B')  # e.g., "May"
 
-                # Set allocation
-                allocation_dict[RBDLabel] = {
-                    'allocation': allocation,
-                    'price_diff': price_diff
-                }
-
-                # Increment allocation counter
-                allocation_counter += 1
-
-                # Break if we've allocated all capacity
-                if allocation == adjustedCapacity:
-                    break
-            last_non_zero_allocation = 0
-            # Apply allocations to the current record
-            for RBDLabel, value in allocation_dict.items():
-                
-                price_diff = value['price_diff'] 
-                if price_diff<self.constantsutils.GROUP_DIFF_FARE:
-                    allocation = value['allocation']
+                if current_day <= 15:
+                    increment_month_str = f"{current_month_name}_H1"
                 else:
-                    allocation=0
-                if allocation == 0 and price_diff<self.constantsutils.GROUP_DIFF_FARE:
-                    # If it is, use the last non-zero allocation
-                    allocation = last_non_zero_allocation
-                else:
-                    # If it's not, update the last non-zero allocation
-                    last_non_zero_allocation = allocation
-                currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
-                allocation = min(allocation, max_au)
-                currRec.set_class_attribute(brd_counter, 'class_au', allocation)
-                brd_counter += 1
-        elif int(autoGroup) == 0 or profilefarextract.empty:
-            # Allocate all RBDs with -1
+                    increment_month_str = f"{current_month_name}_H2"
+
+                current_year = today.year
+
+                # Get cluster from departure time
+                try:
+                    time_obj = datetime.strptime(deptTime_str_hhmm, '%H:%M').time()
+                    cluster = self.rmdatabasehelper.getCluster(time_obj)
+                except Exception:
+                    cluster = 0
+
+                # Fetch increment factors
+                increment_doc = self.rmdatabasehelper.get_group_profile_fare_increments(
+                    sector, current_year, increment_month_str, dow_str_for_profile, cluster
+                )
+
+                # Get B2C selling fare as float
+                b2c_fare_numeric = 0.0
+                try:
+                    if b2c_selling_fare is not None and b2c_selling_fare != CONST_NA and str(b2c_selling_fare).strip() != '':
+                        b2c_fare_numeric = float(b2c_selling_fare)
+                except (ValueError, TypeError):
+                    b2c_fare_numeric = 0.0
+
+                # Initialize allocation dict for group RBDs (ordered low to high fare)
+                allocation_dict = {row['RBD']: 0 for _, row in group_alloc_df.iterrows()}
+
+                # Iterative allocation: 5 seats per batch
+                simulated_booked_load = float(currBookedLoad)
+
+                while simulated_booked_load < int(final_totalCapacity):
+                    # --- Step 1: Calculate adjusted current load ---
+                    adjusted_current_load = calculate_group_adjusted_load(
+                        simulated_booked_load, final_totalCapacity, ndocounter,
+                        sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs,
+                        imp_forecast, use_forecast, self.constantsutils
+                    )
+
+                    # --- Step 2: Get profile fare quartile and profile fare ---
+                    bookload_percentile = calculate_profilefare_quartile(
+                        final_totalCapacity, adjusted_current_load, self.mathutils
+                    )
+                    percentile_str = f'Q{str(int(bookload_percentile))}'
+
+                    # Fetch profile fare from group_profile_fares collection (uses year filter)
+                    flight_year = departure_year if departure_year else current_year
+                    profile_fare_value = self.rmdatabasehelper.get_group_profile_fares(
+                        sector, flight_year, increment_month_str, dow_str_for_profile, cluster, percentile_str
+                    )
+
+                    # --- Step 3: Apply increment factor from group_profile_fare_increments ---
+                    increment_str = f'I{str(int(bookload_percentile))}'
+                    increment_factor = 1.0
+                    if increment_doc and increment_str in increment_doc:
+                        try:
+                            increment_factor = float(increment_doc[increment_str])
+                        except (ValueError, TypeError):
+                            increment_factor = 1.0
+
+                    adjusted_profile_fare = profile_fare_value * increment_factor
+
+                    # --- Step 4: Calculate discounted B2C selling fare ---
+                    # Determine band (dplf or forecast-based)
+                    if use_forecast:
+                        # Adjust imputed forecast for simulated seats sold
+                        simulated_imp_forecast = imp_forecast + ((simulated_booked_load - float(currBookedLoad)) / final_totalCapacity) * 100
+                        band_result = self.rmdatabasehelper.get_group_forecast_band(simulated_imp_forecast)
+                        band = band_result['band']
+                        discount_pct = band_result['b2c_discount']
+                        fare_anchor_strategy = band_result['fare_anchor_strategy']
+                    else:
+                        var_for_band = calculate_variance_for_load(
+                            simulated_booked_load, final_totalCapacity, ndocounter,
+                            sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs
+                        )
+                        band = self.rmdatabasehelper.getdpflBand(var_for_band)
+                        if band is None:
+                            band = 0
+                        # Use dplf band to look up b2c_discount and fare_anchor_strategy from group_forecast_bands
+                        band_result = self.rmdatabasehelper.get_group_b2c_discount_by_band(band)
+                        discount_pct = band_result['b2c_discount']
+                        fare_anchor_strategy = band_result['fare_anchor_strategy']
+
+                    # Apply discount to B2C selling fare
+                    discounted_b2c_fare = b2c_fare_numeric * (1 - float(discount_pct) / 100) if b2c_fare_numeric > 0 else 0.0
+
+                    # --- Step 5: Determine fare anchor based on strategy ---
+                    fare_anchor = calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy)
+                    if fare_anchor is None:
+                        break
+
+                    # --- Step 6: Check if fare anchor exceeds highest group RBD fare ---
+                    if fare_anchor > max_group_fare:
+                        # Fare anchor crossed GA, stop iteration
+                        break
+
+                    # --- Step 7: Find nearest higher group RBD and assign seats ---
+                    # Find the nearest RBD with fare >= fare_anchor
+                    higher_rbds = group_alloc_df[group_alloc_df['TOTAL'] >= fare_anchor]
+                    if higher_rbds.empty:
+                        # No RBD at or above fare anchor, stop
+                        break
+
+                    # Pick the nearest higher (lowest fare that is >= fare_anchor)
+                    target_idx = higher_rbds['TOTAL'].idxmin()
+                    target_rbd = group_alloc_df.loc[target_idx, 'RBD']
+
+                    # Add 5 seats (or remaining to capacity) to this RBD's AU
+                    seats_to_add = min(self.constantsutils.GROUP_AU_BATCH, int(final_totalCapacity) - simulated_booked_load)
+                    if seats_to_add <= 0:
+                        break
+
+                    # Update allocation: all RBDs at or above target get at least this AU
+                    target_fare = group_alloc_df.loc[target_idx, 'TOTAL']
+                    allocation_dict[target_rbd] += seats_to_add
+
+                    # Simulate adding seats to booked load for next iteration
+                    simulated_booked_load += seats_to_add
+
+                    # Safety: don't exceed total capacity
+                    if simulated_booked_load >= int(final_totalCapacity):
+                        break
+
+                # Apply allocations to the AU grid
+                cummulative_au = currBookedLoad
+                for rbd_name in allocation_dict:
+                    currRec.set_class_attribute(brd_counter, 'class_of_service', rbd_name)
+                    cummulative_au += allocation_dict[rbd_name]
+                    currRec.set_class_attribute(brd_counter, 'class_au', cummulative_au)
+                    brd_counter += 1
+
+            except Exception as e:
+                self.logger.error(f"Error in group_quote_alloc: {e}")
+                # Fallback: set all group RBDs to 0
+                for rbd_name in rbd_list:
+                    currRec.set_class_attribute(brd_counter, 'class_of_service', rbd_name)
+                    currRec.set_class_attribute(brd_counter, 'class_au', 0)
+                    brd_counter += 1
+
+        elif int(autoGroup) == 0 or group_alloc_df.empty:
+            # Allocate all RBDs with 0
             for RBDLabel in rbd_map.values():
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
-        return  brd_counter
+        return brd_counter
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):
