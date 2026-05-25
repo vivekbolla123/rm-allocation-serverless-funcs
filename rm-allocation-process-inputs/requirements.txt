@@ -9,3 +9,4 @@ pymongo
 mysql-connector-python
 pymysql
 datadog-lambda
+cryptography

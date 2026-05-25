@@ -71,6 +71,8 @@ class Schema:
         self.load_generic_collection("city_pair", "city_pair.csv")
         self.load_generic_collection("market_fare_station_map", "market_fare_station_map.csv")
         self.load_generic_collection("active_sectors", "active_sectors.csv")
+        self.load_generic_collection("tax_mast_dom", "tax_mast_dom.csv")
+        self.load_generic_collection("tax_mast_intl", "tax_mast_intl.csv")
         self.load_generic_collection("group_forecast_bands", "group_forecast_bands.csv")
         self.load_generic_collection("group_profile_fare_increments", "group_profile_fare_increments.csv")
         self.load_generic_collection("group_profile_fares", "group_profile_fares.csv")
