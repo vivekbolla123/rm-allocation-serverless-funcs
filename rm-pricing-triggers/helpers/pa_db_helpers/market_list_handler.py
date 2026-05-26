@@ -42,6 +42,9 @@ class MarketListConfig:
         self.b2b_threshold = float(params.get("B2B_Threshold", 100))
         self.yield_threshold = float(params.get("Yield_Threshold", 1.4))
 
+        # Default ladder flag: when 'Y', always use GP-based default ladder generation
+        self.default_flag = str(params.get("DefaultFlag", "N")).strip().upper()
+
         # Derived: map Type to internal fare_source_flag
         raw_type = str(self.type or 'market').strip().lower()
         self.fare_source_flag = 'esb' if raw_type == 'bookings' else 'market'
