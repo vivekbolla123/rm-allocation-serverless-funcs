@@ -209,7 +209,9 @@ class ActionPAHelper:
                     'Tax2': 1,
                     'Tax3': 1,
                     'Tax4': 1,
-                    'Tax5': 1
+                    'Tax5': 1,
+                    'YQ': 1,
+                    'YQ_GST': 1
                 }
             ))
             
