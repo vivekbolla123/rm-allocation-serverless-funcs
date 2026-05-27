@@ -15,6 +15,9 @@ from actionableSectors import ActionSectors
 from ladderGen import LadderGen
 from salesFare import SalesFare
 from fareFile import FareFiling
+from tariffGen import TariffGen
+from sectorMonitor import SectorMonitor
+from fareMonitor import FareMonitor
 
 
 logger = logging.getLogger()
@@ -58,7 +61,10 @@ module_map = {
     'action_sect' : ActionSectors,
     'ladder_gen' : LadderGen,
     'sales_fare' : SalesFare,
-    'fare_filing': FareFiling
+    'fare_filing': FareFiling,
+    'tariff_gen': TariffGen,
+    'sector_monitor': SectorMonitor,
+    'fare_monitor': FareMonitor
 }
 
 

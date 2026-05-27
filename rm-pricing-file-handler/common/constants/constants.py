@@ -22,6 +22,8 @@ MARKET_LIST_TABLES = [MARKET_LIST_TABLE, MARKET_LIST_INTERNATIONAL_TABLE, MARKET
 DATABASE_ACCESS_ERROR_MESSAGE = 'Database access error'
 UPLOAD_INFO_NOT_FOUND_ERROR_MESSAGE = 'Data not found in file_upload_audit'
 
+LIVE_TARIFF_SHEET_TABLE = "live_tariff_sheet"
+
 # Define tables that should be fully replaced vs incrementally updated
 FULL_REPLACE_TABLES = [
     "config_station_master",

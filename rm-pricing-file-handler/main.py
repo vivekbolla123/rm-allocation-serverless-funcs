@@ -13,6 +13,7 @@ from common.processors.saver_processor import format_saver_file
 from common.processors.product_upsell_processor import validate_product_upsell
 from common.processors.market_list_processor import validate_market_list
 from common.processors.footnote_master_processor import validate_footnote_master
+from common.processors.tariff_sheet_processor import validate_tariff_sheet, format_tariff_sheet
 
 
 class FileUploadWorker:
@@ -192,6 +193,33 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append(f"Error Uploading {table} to DB")
                     raise RuntimeError(f"Error processing Market List content: {str(e)}")
+
+            elif table == LIVE_TARIFF_SHEET_TABLE:
+                try:
+                    # Tariff sheet has special format — comma-formatted numbers, display headers
+                    # Don't use normalize_dataframe_columns (headers are already known)
+                    validated_df = validate_tariff_sheet(csv_df)
+                    tariff_doc = format_tariff_sheet(validated_df)
+
+                    # Store as a single document (replace existing active sheet)
+                    self.db_helper.db.live_tariff_sheet.update_one(
+                        {'status': 'active'},
+                        {'$set': {
+                            'status': 'active',
+                            'fare_data': tariff_doc['fare_data'],
+                            'uploaded_at': datetime.now(),
+                            'uploaded_by': user_name,
+                            'version': (self.db_helper.db.live_tariff_sheet.count_documents({'status': 'active'}) or 0) + 1
+                        }},
+                        upsert=True
+                    )
+                    self.s3_helper.store_file(file_content, LIVE_TARIFF_SHEET_TABLE, self.obj_id)
+                except ValueError as ve:
+                    self.list_of_errors.append(f"Tariff Sheet Validation Failed: {str(ve)}")
+                    raise RuntimeError(f"Tariff Sheet validation error: {str(ve)}")
+                except Exception as e:
+                    self.list_of_errors.append("Error Uploading Live Tariff Sheet to DB")
+                    raise RuntimeError(f"Error processing Tariff Sheet content: {str(e)}")
 
             else:
                 try:

@@ -31,11 +31,7 @@ class ActionPAHelper:
                 'Fare_Direction': {'$in': ['F', 'T']},
                 'OW_RT': {'$in': ['O', 'C']},
                 'Fare_Basis_Code': { '$regex': '^[^W]' },
-                '$or': [
-                    {'Footnote': {'$exists': False}},
-                    {'Footnote': None},
-                    {'Footnote': ''}
-                ]
+                'Footnote': {'$in': [None, '']},
             }
             
             if route == 'D':
