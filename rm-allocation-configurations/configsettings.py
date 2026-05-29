@@ -61,6 +61,9 @@ param_names = [
     f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
     f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_ID',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_SECRET',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_TENANT_ID'
 ]
 
 # Get all credentials at once
@@ -151,6 +154,9 @@ if env == 'prod':
     
     PA_BUCKET_NAME = "qp-s3-fs"
     PA_FILE_PATH = 'prod/PA/'
+    ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
+    ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
+    ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "app_esb"
@@ -247,6 +253,9 @@ if env == 'uat':
         
     PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'
+    ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
+    ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
+    ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
     
 if env == 'preprod':
     credenv='prod'
