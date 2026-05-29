@@ -200,7 +200,7 @@ class TariffPAHelper:
             raise
 
     def save_generated_tariff(self, tariff_doc):
-        """Insert a document into the generated_tariff_sheet collection.
+        """Insert a document into the tariff_gen_output collection.
 
         Args:
             tariff_doc: Dictionary containing the generated tariff sheet data.
@@ -210,7 +210,7 @@ class TariffPAHelper:
         """
         try:
             tariff_doc['generated_at'] = datetime.now(pytz.timezone('Asia/Kolkata'))
-            result = self.db.generated_tariff_sheet.insert_one(tariff_doc)
+            result = self.db.tariff_gen_output.insert_one(tariff_doc)
             self.logger.info(f"Saved generated tariff sheet with ID: {result.inserted_id}")
             return str(result.inserted_id)
         except Exception as e:
@@ -266,13 +266,13 @@ class TariffPAHelper:
             raise
 
     def save_run_audit(self, analyst, run_id, status, module, error_message=None):
-        """Save audit record to pricing_run_audits collection.
+        """Save audit record to tariff_gen_audit collection.
 
         Args:
             analyst: Name of the analyst or system user who triggered the run.
             run_id: Unique identifier for this run.
             status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
-            module: Module name (e.g., 'tariff_gen', 'sector_monitor').
+            module: Module name (e.g., 'tariff_gen', 'sector_monitor', 'fare_monitor').
             error_message: Optional error message if the run failed.
         """
         try:
@@ -285,7 +285,7 @@ class TariffPAHelper:
                 'error_message': error_message
             }
 
-            self.db.pricing_run_audits.insert_one(audit_record)
+            self.db.tariff_gen_audit.insert_one(audit_record)
             self.logger.info(f"Saved audit record for run_id: {run_id}, module: {module}, status: {status}")
         except Exception as e:
             self.logger.error(f"Error saving run audit: {str(e)}")

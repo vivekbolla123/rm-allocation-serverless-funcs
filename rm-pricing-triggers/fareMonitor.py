@@ -1,4 +1,3 @@
-import boto3
 import pandas as pd
 import logging
 import traceback
@@ -7,6 +6,7 @@ import time
 import pytz
 from datetime import datetime, timedelta
 import configsettings
+from common_utils import GraphMailClient
 from helpers.pa_db_helpers.tariff_pa_helper import TariffPAHelper
 from helpers.nav_db_helpers.tariff_nav_helper import TariffNavHelper
 
@@ -45,15 +45,15 @@ class FareMonitor:
             logger
         )
 
-        # SES client for email alerts
-        self.ses_client = boto3.client('ses')
+        # Email client for alerts (Microsoft Graph API)
+        self.mail_client = GraphMailClient(logger)
 
         # Constants from rm_parameter_values (configurable via DB)
         self.constants = params['constantutils']
 
         # RBD classes to check in daily comparison (from constants)
         self.B2C_RBDS = self.constants.B2C_RBD_VALUES.split(',')
-        self.W_RBDS = ['W4', 'W5', 'W6']
+        self.W_RBDS = self.constants.W_RBD.split(',')
         self.TBF_RBDS = self.constants.TBF_RBD.split(',')
         self.ALL_MONITORED_RBDS = self.B2C_RBDS + self.W_RBDS + self.TBF_RBDS
 
@@ -423,23 +423,11 @@ class FareMonitor:
             </html>
             """
 
-            self.ses_client.send_email(
-                Source='noreply@akasaair.com',
-                Destination={
-                    'ToAddresses': [self.alert_email]
-                },
-                Message={
-                    'Subject': {
-                        'Data': f'Tariff Sheet - {check_label} Fare Discrepancy Alert',
-                        'Charset': 'UTF-8'
-                    },
-                    'Body': {
-                        'Html': {
-                            'Data': html_body,
-                            'Charset': 'UTF-8'
-                        }
-                    }
-                }
+            self.mail_client.send_email(
+                f'Tariff Sheet - {check_label} Fare Discrepancy Alert',
+                html_body,
+                self.alert_email,
+                is_html=True
             )
 
             self.logger.info(
@@ -485,23 +473,11 @@ class FareMonitor:
             </html>
             """
 
-            self.ses_client.send_email(
-                Source='noreply@akasaair.com',
-                Destination={
-                    'ToAddresses': [self.alert_email]
-                },
-                Message={
-                    'Subject': {
-                        'Data': 'Tariff Sheet - Fare Comparison Failed',
-                        'Charset': 'UTF-8'
-                    },
-                    'Body': {
-                        'Html': {
-                            'Data': html_body,
-                            'Charset': 'UTF-8'
-                        }
-                    }
-                }
+            self.mail_client.send_email(
+                'Tariff Sheet - Fare Comparison Failed',
+                html_body,
+                self.alert_email,
+                is_html=True
             )
 
             self.logger.info(f"Missing data alert sent to {self.alert_email}")

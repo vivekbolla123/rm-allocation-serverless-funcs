@@ -34,6 +34,7 @@ class ConstantsUtils:
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
+        self.W_RBD = W_RBD
         self.CUG_RBD = CUG_RBD
         self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
         self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
@@ -205,6 +206,8 @@ class ConstantsUtils:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
                 self.TBF_RBD = parameter_value
+            elif parameter_key == W_RBD_KEY:
+                self.W_RBD = parameter_value
             elif parameter_key == CUG_RBD_KEY:
                 self.CUG_RBD = parameter_value
             elif parameter_key == CUG_B2C_OPENING_THRESHOLD_KEY:

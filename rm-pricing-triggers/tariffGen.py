@@ -80,7 +80,7 @@ class TariffGen:
 
         # RBD definitions from constants (configurable via rm_parameter_values)
         self.B2C_RBDS = self.constants.B2C_RBD_VALUES.split(',')
-        self.W_RBDS = ['W4', 'W5', 'W6']
+        self.W_RBDS = self.constants.W_RBD.split(',')
         self.TBF_RBDS = self.constants.TBF_RBD.split(',')
 
         # Fare level constants
@@ -252,6 +252,7 @@ class TariffGen:
         """Extract B2C fares from the fare dump.
 
         Filters: rule_number == '1001' AND footnote is empty/null/NaN.
+        Excludes W-class and TBF RBDs (those are handled separately).
         Groups by sector, collects all distinct base_fare values.
 
         Returns:
@@ -272,6 +273,10 @@ class TariffGen:
                 (df['footnote'].astype(str).str.lower() == 'nan')
             ]
 
+        # Exclude W-class and TBF RBDs (handled by extract_w_fares and extract_tbf_fares)
+        excluded_rbds = set(self.W_RBDS + self.TBF_RBDS)
+        df = df[~df['rbd'].isin(excluded_rbds)]
+
         # Filter to active sectors only (sector column already exists from qp_fares query)
         df = df[df['sector'].isin(active_sector_codes)]
 
@@ -288,9 +293,15 @@ class TariffGen:
         return b2c_fares
 
     def extract_w_fares(self):
-        """Extract W4/W5/W6 fares from the fare dump.
+        """Extract W4/W5/W6 fares from qp_fares.
 
-        No rule_number or footnote filter. Takes MIN(base_fare) per sector per RBD.
+        W-class RBDs are identified by matching the first 2 characters of
+        Fare_Basis_Code to the W_RBD list (W4, W5, W6).
+        
+        No rule_number or footnote filter — W fares may have footnotes and
+        can exist under any rule number.
+        
+        Takes the LOWEST fare per sector per RBD (minimum of all available).
 
         Returns:
             dict: {sector_code: [min_fare_w4, min_fare_w5, min_fare_w6]} (only non-null)
@@ -300,13 +311,16 @@ class TariffGen:
 
         df = self.fare_dump_df.copy()
 
-        # Filter to W RBDs
+        # Filter to W RBDs by matching first 2 chars of fare_basis_code
         df = df[df['rbd'].isin(self.W_RBDS)]
+
+        # No footnote filter — W fares typically have footnotes
+        # No rule_number filter — W fares can be under any rule
 
         # Filter to active sectors
         df = df[df['sector'].isin(active_sector_codes)]
 
-        # Group by sector+rbd, take MIN(base_fare)
+        # Group by sector+rbd, take MIN(base_fare) — lowest available fare
         for sector, sector_group in df.groupby('sector'):
             sector_w_fares = []
             for rbd in self.W_RBDS:
@@ -322,9 +336,15 @@ class TariffGen:
         return w_fares
 
     def extract_tbf_fares(self):
-        """Extract TBF fares (TY, TB, TC, TD, TE, TF) from the fare dump.
+        """Extract TBF fares (TY, TB, TC, TD, TE, TF) from qp_fares.
 
-        No rule_number or footnote filter. Takes MAX(base_fare) per sector per RBD.
+        TBF RBDs are identified by matching the first 2 characters of
+        Fare_Basis_Code to the TBF_RBD list. They do not belong to a
+        specific rule number (not necessarily 1001/B2C) and may have
+        any footnote value.
+        
+        No rule_number or footnote filter.
+        Takes the HIGHEST fare per sector per RBD (maximum of all available).
 
         Returns:
             dict: {sector_code: [max_fare_ty, max_fare_tb, ...]} (only non-null)
@@ -334,13 +354,16 @@ class TariffGen:
 
         df = self.fare_dump_df.copy()
 
-        # Filter to TBF RBDs
+        # Filter to TBF RBDs by matching first 2 chars of fare_basis_code
         df = df[df['rbd'].isin(self.TBF_RBDS)]
+
+        # No rule_number filter — TBF fares are not tied to rule 1001
+        # No footnote filter — TBF fares can have any footnote
 
         # Filter to active sectors
         df = df[df['sector'].isin(active_sector_codes)]
 
-        # Group by sector+rbd, take MAX(base_fare)
+        # Group by sector+rbd, take MAX(base_fare) — highest available fare
         for sector, sector_group in df.groupby('sector'):
             sector_tbf_fares = []
             for rbd in self.TBF_RBDS:

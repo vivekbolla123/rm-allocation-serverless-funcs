@@ -1,4 +1,3 @@
-import boto3
 import pandas as pd
 import logging
 import traceback
@@ -7,6 +6,7 @@ import time
 import pytz
 from datetime import datetime
 import configsettings
+from common_utils import GraphMailClient
 from helpers.pa_db_helpers.tariff_pa_helper import TariffPAHelper
 from helpers.nav_db_helpers.tariff_nav_helper import TariffNavHelper
 
@@ -41,8 +41,8 @@ class SectorMonitor:
             logger
         )
 
-        # SES client for email alerts
-        self.ses_client = boto3.client('ses')
+        # Email client for alerts (Microsoft Graph API)
+        self.mail_client = GraphMailClient(logger)
 
         # Configuration
         self.analyst_name = overrides.get('analyst', 'system')
@@ -223,23 +223,11 @@ class SectorMonitor:
             </html>
             """
 
-            self.ses_client.send_email(
-                Source='noreply@akasaair.com',
-                Destination={
-                    'ToAddresses': [self.alert_email]
-                },
-                Message={
-                    'Subject': {
-                        'Data': 'Tariff Sheet - New Sectors Detected',
-                        'Charset': 'UTF-8'
-                    },
-                    'Body': {
-                        'Html': {
-                            'Data': html_body,
-                            'Charset': 'UTF-8'
-                        }
-                    }
-                }
+            self.mail_client.send_email(
+                'Tariff Sheet - New Sectors Detected',
+                html_body,
+                self.alert_email,
+                is_html=True
             )
 
             self.logger.info(
@@ -285,23 +273,11 @@ class SectorMonitor:
             </html>
             """
 
-            self.ses_client.send_email(
-                Source='noreply@akasaair.com',
-                Destination={
-                    'ToAddresses': [self.alert_email]
-                },
-                Message={
-                    'Subject': {
-                        'Data': 'Tariff Sheet - Sector Update Failed',
-                        'Charset': 'UTF-8'
-                    },
-                    'Body': {
-                        'Html': {
-                            'Data': html_body,
-                            'Charset': 'UTF-8'
-                        }
-                    }
-                }
+            self.mail_client.send_email(
+                'Tariff Sheet - Sector Update Failed',
+                html_body,
+                self.alert_email,
+                is_html=True
             )
 
             self.logger.info(f"Failure alert sent to {self.alert_email}")
