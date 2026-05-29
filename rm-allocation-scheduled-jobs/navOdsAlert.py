@@ -1,11 +1,10 @@
 import json
 import configsettings
 import pandas as pd
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import text
 from constants_utils import ConstantsUtils
+from common_utils import GraphMailClient
 import traceback
 import requests
 from Constants import AKASA_AIRLINE_CODE
@@ -24,6 +23,7 @@ class NavOdsAlert:
         self.constants = ConstantsUtils(self.mongoconn['qp_dw_rmalloc'])
         self.sector_list = json.loads(self.constants.NAVODS_ALERT_SECTOR_LIST)
         self.max_ndo = float(self.constants.NAVODS_ALERT_MAX_NDO)
+        self.mail_client = GraphMailClient(self.logger)
         self.session = requests.Session()
         self.session.headers.update(
    			 {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
@@ -108,21 +108,7 @@ class NavOdsAlert:
             self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
     
     def send_email_alert(self, subject, body, to_email):
-        msg = EmailMessage()
-        msg.set_content(body)
-        msg['Subject'] = subject
-        msg['From'] = configsettings.SENDER_EMAIL
-        msg['To'] = to_email
-
-        try:
-            with smtplib.SMTP(configsettings.SMTP_SERVER, configsettings.SMTP_PORT) as server:
-                server.starttls()
-                server.login(configsettings.SENDER_EMAIL, configsettings.SENDER_PASSWORD)
-                server.send_message(msg)
-                self.logger.info(f"Alert email sent to {to_email}")
-
-        except Exception as e:
-            self.logger.error(f"Failed to send email to {to_email}: {e}")
+        self.mail_client.send_email(subject, body, to_email, is_html=False)
     
     def get_token(self):
         url = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/token"
