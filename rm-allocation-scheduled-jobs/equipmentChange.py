@@ -45,7 +45,7 @@ class EQTAlloc:
         try:
             cutoff_time = datetime.utcnow() - timedelta(minutes=self.LOOKBACK_MINUTES)
 
-            collection = self.mongo_de_db['flight_event']
+            collection = self.mongo_de_db['flight_events']
 
             query = {
                 "eventType": self.EVENT_TYPE,
@@ -335,7 +335,7 @@ class EQTAlloc:
     def upload_to_s3(self, df, version_id):
         """Upload market_list_eqt data to S3."""
         try:
-            s3_client = boto3.client('s3')
+            s3_client = boto3.client('s3',region_name='ap-south-1')
             bucket_name = configsettings.S3_BUCKET_NAME
             s3_folder_path = f"{configsettings.S3_FILE_PATH}rm-admin/market_list_eqt"
             file_name = f"{version_id}_market_list_eqt"
