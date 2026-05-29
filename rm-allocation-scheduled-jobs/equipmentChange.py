@@ -2,6 +2,7 @@ import pandas as pd
 import logging
 import configsettings
 from constants_utils import ConstantsUtils
+from common_utils import GraphMailClient
 from datetime import datetime, timedelta
 import traceback
 import json
@@ -262,15 +263,14 @@ class EQTAlloc:
 
     def update_market_list_eqt(self, market_list_eqt_df):
         """
-        Upsert matched records into market_list_eqt collection.
-        Uses Origin+Destin+FlightNumber+PerStart as the composite key so that
-        repeated EQT events for the same flight update rather than duplicate.
+        Clear market_list_eqt collection and insert matched records fresh.
+        Each EQT cron run replaces the entire collection contents.
         """
         try:
             collection = self.db['market_list_eqt']
 
             if market_list_eqt_df.empty:
-                self.logger.info("No records to upsert into market_list_eqt")
+                self.logger.info("No records to insert into market_list_eqt")
                 return
 
             # Clean utility columns before persisting
@@ -280,28 +280,17 @@ class EQTAlloc:
                 axis=1
             )
 
-            upsert_count = 0
-            for _, row in market_list_eqt_df.iterrows():
-                record = row.to_dict()
+            # Clear existing data
+            delete_result = collection.delete_many({})
+            self.logger.info(f"Cleared {delete_result.deleted_count} existing records from market_list_eqt")
 
-                filter_key = {
-                    "Origin": record.get("Origin"),
-                    "Destin": record.get("Destin"),
-                    "FlightNumber": record.get("FlightNumber"),
-                    "PerStart": record.get("PerStart")
-                }
-
-                # Add processing metadata
+            # Insert all matched records
+            records = market_list_eqt_df.to_dict('records')
+            for record in records:
                 record['_eqt_processed_at'] = datetime.utcnow()
 
-                collection.update_one(
-                    filter_key,
-                    {"$set": record},
-                    upsert=True
-                )
-                upsert_count += 1
-
-            self.logger.info(f"Upserted {upsert_count} records into market_list_eqt")
+            collection.insert_many(records)
+            self.logger.info(f"Inserted {len(records)} records into market_list_eqt")
 
         except Exception as e:
             self.logger.error(f"Error updating market_list_eqt: {str(e)}")
@@ -399,6 +388,82 @@ class EQTAlloc:
             raise
 
     # -------------------------------------------------------------------------
+    # Email notification
+    # -------------------------------------------------------------------------
+
+    def send_eqt_notification(self, eqt_df):
+        """
+        Send an email notification summarizing detected EQT changes.
+
+        Groups events by departure date, then by config change label
+        (airline-oldAircraftType/newCabinConfig), listing each flight.
+        """
+        try:
+            if eqt_df.empty:
+                return
+
+            mail_client = GraphMailClient(self.logger)
+            recipients = [r.strip() for r in self.constants.EQT_RECIPIENTS.split(',')]
+
+            # Build config change label per event
+            def build_config_label(row):
+                old_config = row.get('oldConfig', {}) or {}
+                new_config = row.get('newConfig', {}) or {}
+                old_aircraft = old_config.get('aircraftType', '?')
+                # Build new cabin string like "Y197"
+                cabin_seats = new_config.get('cabinSeats', {}) or {}
+                cabin_parts = []
+                for cls, seats in cabin_seats.items():
+                    if cls != 'TOTAL':
+                        cabin_parts.append(f"{cls}{seats}")
+                new_cabin_str = ''.join(cabin_parts) if cabin_parts else str(cabin_seats.get('TOTAL', '?'))
+                return f"QP-{old_aircraft}/{new_cabin_str}"
+
+            eqt_df = eqt_df.copy()
+            eqt_df['config_label'] = eqt_df.apply(build_config_label, axis=1)
+            eqt_df['DepartureDate_DT'] = pd.to_datetime(eqt_df['DepartureDate'], errors='coerce')
+
+            # Collect unique dates for subject line
+            unique_dates = sorted(eqt_df['DepartureDate_DT'].dropna().dt.date.unique())
+            date_strs = [d.strftime("%d %B %Y").lstrip('0') if hasattr(d, 'strftime') else str(d) for d in unique_dates]
+
+            # Subject: first config label + date summary
+            first_label = eqt_df['config_label'].iloc[0]
+            subject = f"{first_label} - Equipment Change Alert"
+
+            # Build body
+            date_summary = " & ".join(date_strs) if len(date_strs) <= 3 else f"{date_strs[0]} to {date_strs[-1]}"
+            body_lines = []
+            body_lines.append(f"Dear All,<br><br>Following are the equipment changes for {date_summary}:<br><br>")
+
+            # Group by date, then by config label
+            for dep_date in unique_dates:
+                date_label = dep_date.strftime("%d %B %Y") if hasattr(dep_date, 'strftime') else str(dep_date)
+                date_group = eqt_df[eqt_df['DepartureDate_DT'].dt.date == dep_date]
+
+                body_lines.append(f"<b>Changes for {date_label}</b><br>")
+
+                for config_label, config_group in date_group.groupby('config_label'):
+                    body_lines.append(f"<b>{config_label}</b><br>")
+                    for _, row in config_group.iterrows():
+                        flight = row['FlightNumber']
+                        origin = row['DepartureStation']
+                        dest = row['ArrivalStation']
+                        body_lines.append(f"QP {flight} {origin} -{dest}<br>")
+                    body_lines.append("<br>")
+
+            html_body = "".join(body_lines)
+
+            for recipient in recipients:
+                mail_client.send_email(subject, html_body, recipient, is_html=True)
+
+            self.logger.info(f"EQT notification email sent to {len(recipients)} recipients")
+
+        except Exception as e:
+            self.logger.error(f"Error sending EQT notification email: {str(e)}")
+            traceback.print_exc()
+
+    # -------------------------------------------------------------------------
     # Main execution
     # -------------------------------------------------------------------------
 
@@ -413,6 +478,9 @@ class EQTAlloc:
             if eqt_df.empty:
                 self.logger.info("No EQT events to process. Exiting.")
                 return True
+
+            # Step 1.5: Send email notification about detected EQT changes
+            self.send_eqt_notification(eqt_df)
 
             # Step 2: Get combined market list
             market_list_df = self.get_combined_market_list()

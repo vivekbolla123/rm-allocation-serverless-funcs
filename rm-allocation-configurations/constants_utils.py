@@ -113,6 +113,7 @@ class ConstantsUtils:
         self.GDS_RBD_VALUES = GDS_RBD_VALUES
         self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
         self.WINDOW_MINUTES = WINDOW_MINUTES
+        self.EQT_RECIPIENTS = EQT_RECIPIENTS
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -399,6 +400,8 @@ class ConstantsUtils:
                 self.AF_BAND_2_MULTIPLIERS = json.loads(parameter_value)
             elif parameter_key == CWT_UPSELL_KEY:
                 self.CWT_UPSELL = json.loads(parameter_value)
+            elif parameter_key == EQT_RECIPIENTS_KEY:
+                self.EQT_RECIPIENTS = parameter_value
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
