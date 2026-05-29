@@ -60,7 +60,7 @@ class FareMonitor:
         # Configuration
         self.analyst_name = overrides.get('analyst', 'system')
         self.check_type = overrides.get('check_type', 'daily')
-        self.alert_email = 'pa.it.alerts@akasaair.com'
+        self.alert_email = self.constants.TARIFF_ALERT_MAIL_ID
 
     def run_daily_check(self):
         """Compare the latest fare dump against the live tariff sheet.

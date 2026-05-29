@@ -46,7 +46,8 @@ class SectorMonitor:
 
         # Configuration
         self.analyst_name = overrides.get('analyst', 'system')
-        self.alert_email = 'pa.it.alerts@akasaair.com'
+        self.constants = params['constantutils']
+        self.alert_email = self.constants.TARIFF_ALERT_MAIL_ID
         self.timeout_seconds = 300  # 5 minutes
 
     def compose_active_sectors(self):

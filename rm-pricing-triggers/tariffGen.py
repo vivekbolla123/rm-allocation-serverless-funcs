@@ -50,7 +50,7 @@ class TariffGen:
         Args:
             logger: Logger instance.
             params: dict with keys mongo, mongo_master, navconn, s3, etc.
-            overrides: dict with keys analyst, trigger_type, etc.
+            overrides: dict with keys analyst, etc.
             context: Lambda context object.
         """
         self.logger = logger
@@ -71,7 +71,6 @@ class TariffGen:
 
         # Configuration
         self.analyst_name = overrides.get('analyst', 'system')
-        self.trigger_type = overrides.get('trigger_type', 'adhoc')
         self.BUCKET_NAME = configsettings.PA_BUCKET_NAME
         self.FILE_PATH = configsettings.PA_FILE_PATH
 
@@ -110,7 +109,7 @@ class TariffGen:
         s3_key = None
         error_message = None
 
-        self.logger.info(f"TariffGen run started — run_id: {run_id}, trigger: {self.trigger_type}")
+        self.logger.info(f"TariffGen run started — run_id: {run_id}")
 
         try:
             # Save initial audit
@@ -767,7 +766,6 @@ class TariffGen:
         tariff_doc = {
             'generation_id': str(uuid.uuid4()),
             'triggered_by': self.analyst_name,
-            'trigger_type': self.trigger_type,
             'fare_data': fare_data,
             'info_text': info_text,
             'tax_data': tax_data,

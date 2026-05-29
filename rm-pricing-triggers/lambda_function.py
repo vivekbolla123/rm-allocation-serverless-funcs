@@ -161,6 +161,38 @@ def lambda_handler(event, context):
 #     },
 #     "modules": {"fare_filing": 1}
 # }
+
+# --- Tariff Sheet Automation modules ---
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes"
+#     },
+#     "modules": {"tariff_gen": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes"
+#     },
+#     "modules": {"sector_monitor": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes",
+#         "check_type": "daily"
+#     },
+#     "modules": {"fare_monitor": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes",
+#         "check_type": "weekly"
+#     },
+#     "modules": {"fare_monitor": 1}
+# }
  
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)
