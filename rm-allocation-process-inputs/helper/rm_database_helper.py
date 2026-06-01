@@ -2581,27 +2581,6 @@ class RMDatabaseHelper:
             self.logger.error(f"Error fetching group profile fare increments: {e}")
             return None
 
-    def get_group_profile_fares(self, sector, year, month_str, dow, cluster, percentile):
-        """
-        Fetch group profile fare from group_profile_fares collection.
-        Uses year as additional filter compared to config_profile_fares.
-        Returns the fare value for the given percentile (Q0-Q20), or 0.0 if not found.
-        """
-        try:
-            result = self.db.group_profile_fares.find_one({
-                "sector": sector,
-                "year": int(year),
-                "month": month_str,
-                "dow": dow,
-                "cluster": int(cluster)
-            })
-            if result and percentile in result:
-                return float(result[percentile]) if result[percentile] is not None else 0.0
-            return 0.0
-        except Exception as e:
-            self.logger.error(f"Error fetching group profile fares for sector {sector}, year {year}, month {month_str}: {e}")
-            return 0.0
-
     def get_group_forecast_band(self, imp_forecast):
         """
         Fetch group forecast band, b2c_discount, and fare_anchor_strategy from group_forecast_bands collection.

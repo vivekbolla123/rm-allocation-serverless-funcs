@@ -12,11 +12,12 @@ import pandas as pd
 
 class RBDAllocations:
 
-    def __init__(self, rmdatabasehelper, logger, constantsutils, mathutils):
+    def __init__(self, rmdatabasehelper, logger, constantsutils, mathutils, timeutils=None):
         self.rmdatabasehelper = rmdatabasehelper
         self.logger = logger
         self.constantsutils = constantsutils
         self.mathutils = mathutils
+        self.timeutils = timeutils
 
     def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
@@ -761,6 +762,11 @@ class RBDAllocations:
             group_alloc_df = group_alloc_df.sort_values(by='TOTAL').reset_index(drop=True)
         rbd_map = ast.literal_eval(self.constantsutils.GROUP_QUOTATION)
 
+        # First iteration metrics for output summary
+        first_iter_adjusted_profile_fare = CONST_NA
+        first_iter_adjusted_plf = CONST_NA
+        first_iter_fare_anchor = CONST_NA
+
         if int(autoGroup) == 1 and not group_alloc_df.empty:
             try:
                 potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector, month)
@@ -775,7 +781,7 @@ class RBDAllocations:
 
                 # Build month string for group_profile_fare_increments: "April_H1_May_H2" format
                 # Based on current date, take last 2 halves
-                today = datetime.now()
+                today = self.timeutils.getCurrentDateTime() if self.timeutils else datetime.now()
                 current_day = today.day
                 current_month_name = today.strftime('%B')  # e.g., "May"
 
@@ -811,40 +817,12 @@ class RBDAllocations:
 
                 # Iterative allocation: 5 seats per batch
                 simulated_booked_load = float(currBookedLoad)
+                is_first_iteration = True
 
                 while simulated_booked_load < int(final_totalCapacity):
-                    # --- Step 1: Calculate adjusted current load ---
-                    adjusted_current_load = calculate_group_adjusted_load(
-                        simulated_booked_load, final_totalCapacity, ndocounter,
-                        sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs,
-                        imp_forecast, use_forecast, self.constantsutils
-                    )
-
-                    # --- Step 2: Get profile fare quartile and profile fare ---
-                    bookload_percentile = calculate_profilefare_quartile(
-                        final_totalCapacity, adjusted_current_load, self.mathutils
-                    )
-                    percentile_str = f'Q{str(int(bookload_percentile))}'
-
-                    # Fetch profile fare from group_profile_fares collection (uses year filter)
-                    flight_year = departure_year if departure_year else current_year
-                    profile_fare_value = self.rmdatabasehelper.get_group_profile_fares(
-                        sector, flight_year, increment_month_str, dow_str_for_profile, cluster, percentile_str
-                    )
-
-                    # --- Step 3: Apply increment factor from group_profile_fare_increments ---
-                    increment_str = f'I{str(int(bookload_percentile))}'
-                    increment_factor = 1.0
-                    if increment_doc and increment_str in increment_doc:
-                        try:
-                            increment_factor = float(increment_doc[increment_str])
-                        except (ValueError, TypeError):
-                            increment_factor = 1.0
-
-                    adjusted_profile_fare = profile_fare_value * increment_factor
-
-                    # --- Step 4: Calculate discounted B2C selling fare ---
                     # Determine band (dplf or forecast-based)
+                    simulated_imp_forecast = CONST_NA
+                    var_for_band = CONST_NA
                     if use_forecast:
                         # Adjust imputed forecast for simulated seats sold
                         simulated_imp_forecast = imp_forecast + ((simulated_booked_load - float(currBookedLoad)) / final_totalCapacity) * 100
@@ -865,13 +843,55 @@ class RBDAllocations:
                         discount_pct = band_result['b2c_discount']
                         fare_anchor_strategy = band_result['fare_anchor_strategy']
 
+                    # --- Step 1: Calculate adjusted PLF (percentage) ---
+                    adjusted_plf = calculate_group_adjusted_load(
+                        simulated_booked_load, final_totalCapacity, adjustedCapacity, ndocounter,
+                        sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs,
+                        simulated_imp_forecast, use_forecast, self.constantsutils
+                    )
+
+                    # --- Step 2: Get profile fare quartile and profile fare from profilefarextract ---
+                    # Convert adjusted PLF back to load for quartile calculation
+                    adjusted_load_for_quartile = (adjusted_plf / 100) * adjustedCapacity
+                    bookload_percentile = calculate_profilefare_quartile(
+                        final_totalCapacity, adjusted_load_for_quartile, self.mathutils
+                    )
+                    percentile_str = f'Q{str(int(bookload_percentile))}'
+
+                    # Look up profile fare directly from profilefarextract DataFrame
+                    if percentile_str in profilefarextract.columns:
+                        profile_fare_value = float(profilefarextract[percentile_str].iloc[0])
+                    else:
+                        profile_fare_value = 0.0
+
+                    # --- Step 3: Apply increment factor from group_profile_fare_increments ---
+                    increment_str = f'I{str(int(bookload_percentile))}'
+                    increment_factor = 1.0
+                    if increment_doc and increment_str in increment_doc:
+                        try:
+                            increment_factor = float(increment_doc[increment_str])
+                        except (ValueError, TypeError):
+                            increment_factor = 1.0
+
+                    adjusted_profile_fare = profile_fare_value * increment_factor
+
+
+                    # --- Step 4: Calculate discounted B2C selling fare ---
                     # Apply discount to B2C selling fare
-                    discounted_b2c_fare = b2c_fare_numeric * (1 - float(discount_pct) / 100) if b2c_fare_numeric > 0 else 0.0
+                    discounted_b2c_fare = b2c_fare_numeric * (1 + float(discount_pct) / 100) if b2c_fare_numeric > 0 else 0.0
 
                     # --- Step 5: Determine fare anchor based on strategy ---
                     fare_anchor = calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy)
                     if fare_anchor is None:
                         break
+
+                    # Capture first iteration metrics for output summary
+                    if is_first_iteration:
+                        first_iter_adjusted_profile_fare = round(adjusted_profile_fare, 2)
+                        first_iter_adjusted_plf = round(adjusted_plf, 2)
+                        first_iter_fare_anchor = round(fare_anchor, 2)
+                        is_first_iteration = False
+
 
                     # --- Step 6: Check if fare anchor exceeds highest group RBD fare ---
                     if fare_anchor > max_group_fare:
@@ -900,6 +920,11 @@ class RBDAllocations:
 
                     # Simulate adding seats to booked load for next iteration
                     simulated_booked_load += seats_to_add
+                    # print(
+                    #     f"{adjusted_profile_fare=:.2f}, {adjusted_plf=:.2f}, "
+                    #     f"{fare_anchor=:.2f}, {target_rbd=}, {simulated_booked_load=}, "
+                    #     f"{simulated_imp_forecast=:}, {var_for_band=:}, "
+                    # )
 
                     # Safety: don't exceed total capacity
                     if simulated_booked_load >= int(final_totalCapacity):
@@ -928,7 +953,7 @@ class RBDAllocations:
                 currRec.set_class_attribute(brd_counter, 'class_au', 0)
                 brd_counter += 1
 
-        return brd_counter
+        return brd_counter, first_iter_adjusted_profile_fare, first_iter_adjusted_plf, first_iter_fare_anchor
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):

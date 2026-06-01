@@ -75,14 +75,16 @@ def calculate_variance_for_load(simulated_booked_load, total_capacity, ndocounte
     variance = ((simulated_booked_load - sod_tgt_booked_load) / total_capacity) * 100
   return variance
 
-def calculate_group_adjusted_load(simulated_booked_load, total_capacity, ndocounter, 
+def calculate_group_adjusted_load(simulated_booked_load, total_capacity, adjusted_capacity, ndocounter, 
                                    tgt_at_current_hour, sod_tgt_booked_load,
                                    imp_forecast, use_forecast, constantsutils):
   """
-  Calculate adjusted current load for group allocation.
-  If within NDO 30 and forecast available, uses (Imputed Forecast - GROUP_IMP_FORECAST_REDUCTION) * scaling_factor.
-  Otherwise uses variance * scaling_factor.
+  Calculate adjusted PLF for group allocation.
+  Converts simulated booked load to PLF (percentage), then adds adjustment.
+  Returns adjusted PLF as a percentage.
   """
+  simulated_plf = (simulated_booked_load / adjusted_capacity) * 100 if adjusted_capacity > 0 else 0
+
   if use_forecast:
     adjustment = (imp_forecast - constantsutils.GROUP_IMP_FORECAST_REDUCTION) * constantsutils.GROUP_SCALING_FACTOR
   else:
@@ -90,7 +92,7 @@ def calculate_group_adjusted_load(simulated_booked_load, total_capacity, ndocoun
       simulated_booked_load, total_capacity, ndocounter, tgt_at_current_hour, sod_tgt_booked_load
     )
     adjustment = current_variance * constantsutils.GROUP_SCALING_FACTOR
-  return simulated_booked_load + adjustment
+  return simulated_plf + adjustment
 
 def calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy):
   """

@@ -995,7 +995,7 @@ class DynAlloc:
 				b2c_selling_fare = safe_get_from_dict(openDataB2C_details, "Fare")
 				param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
 				group_bookings=self.currParams.group_bookings# Default
-				current_brd_counter = self.allocations.group_quote_alloc(
+				current_brd_counter, grp_adj_profile_fare, grp_adj_bookload, grp_fare_anchor = self.allocations.group_quote_alloc(
 					profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
 					base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
 					ndocounter=ndocounter, imp_forecast=imp_forecast,
@@ -1082,6 +1082,9 @@ class DynAlloc:
 			self.outputSummaryRow_b2c.ALLIN_AF_NB_LY = self.outputSummaryRow_b2b.ALLIN_AF_NB_LY = getattr(self.currParams, 'ALLIN_AF_NB_LY', CONST_NA)
 			self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 			self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
+			self.outputSummaryRow_b2c.grpAdjProfileFare = self.outputSummaryRow_b2b.grpAdjProfileFare = grp_adj_profile_fare
+			self.outputSummaryRow_b2c.grpAdjPLF = self.outputSummaryRow_b2b.grpAdjPLF = grp_adj_bookload
+			self.outputSummaryRow_b2c.grpFareAnchor = self.outputSummaryRow_b2b.grpFareAnchor = grp_fare_anchor
 
 			self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
 			self.outputSummaryRow_b2c.Destin = self.currParams.destin; self.outputSummaryRow_b2c.FltNum = str(currFlt)
@@ -1520,7 +1523,7 @@ class DynAlloc:
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
 		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils,self.mongohelper)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
-		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
+		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
 		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
