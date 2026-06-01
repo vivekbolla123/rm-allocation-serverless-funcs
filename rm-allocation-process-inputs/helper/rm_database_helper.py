@@ -854,7 +854,10 @@ class RMDatabaseHelper:
                 "forecastPLF": str(latest_row.forecastPLF),
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
                 "B2BFactor": str(latest_row.B2BFactor),
-                "toleranceValue": str(latest_row.toleranceValue)
+                "toleranceValue": str(latest_row.toleranceValue),
+                "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
+                "grpAdjPLF": str(latest_row.grpAdjPLF),
+                "grpFareAnchor": str(latest_row.grpFareAnchor)
             }
 
             try:
