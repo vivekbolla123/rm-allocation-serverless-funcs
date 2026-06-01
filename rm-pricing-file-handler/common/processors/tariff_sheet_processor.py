@@ -77,13 +77,14 @@ def validate_tariff_sheet(df: pd.DataFrame) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
 
-    # Check at least Fare_Level_1 exists
+    # Detect fare level columns — accept any number (Fare_Level_1, Fare_Level_2, ... up to N)
+    # The number of fare levels varies per tariff sheet based on calculation thresholds
     fare_level_cols = [col for col in df.columns if col.startswith("Fare_Level_")]
     if not fare_level_cols:
-        raise ValueError("No Fare_Level columns found (expected at least Fare_Level_1)")
-
-    if "Fare_Level_1" not in df.columns:
-        raise ValueError("Missing required column: Fare_Level_1")
+        raise ValueError(
+            "No Fare_Level columns found. Expected at least one column matching 'Fare_Level_N' pattern "
+            "(e.g., Fare_Level_1, Fare_Level_2, ...). The number of fare levels can vary."
+        )
 
     # Sort fare level columns by their numeric suffix for ordered processing
     fare_level_cols = sorted(

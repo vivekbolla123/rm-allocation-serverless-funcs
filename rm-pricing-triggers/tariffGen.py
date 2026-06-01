@@ -523,7 +523,7 @@ class TariffGen:
             return station_code
 
         # Try common column names for city
-        city_columns = ['city_name', 'city', 'City', 'CityName', 'CITY']
+        city_columns = ['name', 'city_name', 'city', 'City', 'CityName', 'CITY', 'Name']
         station_columns = ['station', 'Station', 'code', 'Code', 'station_code']
 
         station_col = None

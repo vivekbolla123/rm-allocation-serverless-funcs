@@ -196,23 +196,9 @@ class FileUploadWorker:
 
             elif table == LIVE_TARIFF_SHEET_TABLE:
                 try:
-                    # Tariff sheet has special format — comma-formatted numbers, display headers
-                    # Don't use normalize_dataframe_columns (headers are already known)
                     validated_df = validate_tariff_sheet(csv_df)
                     tariff_doc = format_tariff_sheet(validated_df)
-
-                    # Store as a single document (replace existing active sheet)
-                    self.db_helper.db.live_tariff_sheet.update_one(
-                        {'status': 'active'},
-                        {'$set': {
-                            'status': 'active',
-                            'fare_data': tariff_doc['fare_data'],
-                            'uploaded_at': datetime.now(),
-                            'uploaded_by': user_name,
-                            'version': (self.db_helper.db.live_tariff_sheet.count_documents({'status': 'active'}) or 0) + 1
-                        }},
-                        upsert=True
-                    )
+                    self.db_helper.replace_tariff_sheet(tariff_doc, user_name)
                     self.s3_helper.store_file(file_content, LIVE_TARIFF_SHEET_TABLE, self.obj_id)
                 except ValueError as ve:
                     self.list_of_errors.append(f"Tariff Sheet Validation Failed: {str(ve)}")
