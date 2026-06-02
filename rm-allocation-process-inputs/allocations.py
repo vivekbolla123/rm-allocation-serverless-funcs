@@ -818,6 +818,7 @@ class RBDAllocations:
                 # Iterative allocation: 5 seats per batch
                 simulated_booked_load = float(currBookedLoad)
                 is_first_iteration = True
+                last_target_idx = None  # Tracks last allocated RBD index (sorted low-to-high by fare)
 
                 while simulated_booked_load < int(final_totalCapacity):
                     # Determine band (dplf or forecast-based)
@@ -907,6 +908,12 @@ class RBDAllocations:
 
                     # Pick the nearest higher (lowest fare that is >= fare_anchor)
                     target_idx = higher_rbds['TOTAL'].idxmin()
+
+                    # Never step down to a lower-fare RBD than previously allocated.
+                    # If the new fare anchor points to a lower RBD, stay at the last allocated one.
+                    if last_target_idx is not None and target_idx < last_target_idx:
+                        target_idx = last_target_idx
+
                     target_rbd = group_alloc_df.loc[target_idx, 'RBD']
 
                     # Add 5 seats (or remaining to capacity) to this RBD's AU
@@ -917,6 +924,7 @@ class RBDAllocations:
                     # Update allocation: all RBDs at or above target get at least this AU
                     target_fare = group_alloc_df.loc[target_idx, 'TOTAL']
                     allocation_dict[target_rbd] += seats_to_add
+                    last_target_idx = target_idx
 
                     # Simulate adding seats to booked load for next iteration
                     simulated_booked_load += seats_to_add
