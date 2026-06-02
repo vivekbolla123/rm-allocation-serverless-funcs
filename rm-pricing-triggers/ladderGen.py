@@ -116,6 +116,8 @@ class LadderGen:
         self.MIN_MARKETFARES_THRESHOLD_B2C = None
         self.MAX_ESBFARES_THRESHOLD_B2B = None
         self.MAX_ESBFARES_THRESHOLD_B2C = None
+        self.MIN_ESBFARES_THRESHOLD_B2B = None
+        self.MIN_ESBFARES_THRESHOLD_B2C = None
 
         self.B2B_CHANNEL = "B2B"
         self.B2C_CHANNEL = "B2C"
@@ -158,6 +160,8 @@ class LadderGen:
         self.MAX_MARKETFARES_THRESHOLD_B2B = cfg.max_threshold_b2b
         self.MAX_ESBFARES_THRESHOLD_B2C = cfg.max_threshold_b2c
         self.MAX_ESBFARES_THRESHOLD_B2B = cfg.max_threshold_b2b
+        self.MIN_ESBFARES_THRESHOLD_B2C = cfg.min_threshold_b2c
+        self.MIN_ESBFARES_THRESHOLD_B2B = cfg.min_threshold_b2b
         self.default_flag = cfg.default_flag
 
         self.logger.info(f"Applied config for {ladder_code} (sector={cfg.sector}): "
@@ -567,6 +571,7 @@ class LadderGen:
     def _fetch_booking_data_esb(self, channel, reverse_sector, start_str, end_str):
         """Fetch ESB booking data for an explicit date range."""
         max_fare = self.MAX_ESBFARES_THRESHOLD_B2C if channel == self.B2C_CHANNEL else self.MAX_ESBFARES_THRESHOLD_B2B
+        min_fare = self.MIN_ESBFARES_THRESHOLD_B2C if channel == self.B2C_CHANNEL else self.MIN_ESBFARES_THRESHOLD_B2B
 
         combined_df = self.esb_helper.collect_combined_booking_data_bidirectional(
             start_str, end_str, self.sector, reverse_sector, channel
@@ -581,7 +586,8 @@ class LadderGen:
 
             before_count = len(combined_df)
             combined_df = combined_df[combined_df['Fare'] <= max_fare]
-            self.logger.info(f"ESB fare threshold {max_fare} INR: {before_count} -> {len(combined_df)} records")
+            combined_df = combined_df[combined_df['Fare'] >= min_fare]
+            self.logger.info(f"ESB fare threshold {min_fare} - {max_fare} INR: {before_count} -> {len(combined_df)} records")
 
             combined_df = combined_df.dropna(subset=['Fare'])
             combined_df = combined_df.sort_values('Fare', ascending=True).reset_index(drop=True)

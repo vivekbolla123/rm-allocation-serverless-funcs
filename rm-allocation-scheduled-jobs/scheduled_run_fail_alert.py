@@ -201,15 +201,18 @@ class ScheduledRunFailureAlert:
         hour_prev2 = hour_current - timedelta(hours=2)
 
         # Convert boundaries to string timestamps
-        ts_current = hour_current.strftime("%Y-%m-%d %H:%M:%S")
+        # Use now_utc as the upper bound so that runs which started slightly
+        # after the hour boundary (due to processing delays) are still fetched
+        # and matched against their cron hit, avoiding false "not started" alerts.
+        ts_upper = now_utc.strftime("%Y-%m-%d %H:%M:%S")
         ts_prev = hour_prev.strftime("%Y-%m-%d %H:%M:%S")
         ts_prev2 = hour_prev2.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Fetch only last 2 hours of runs
+        # Fetch runs from last 2 hours up to now
         cursor = runs_col.find(
             {
                 'type': {'$in': ["Scheduled", "Scheduled_Connections", "Scheduled_Thirty"]},
-                'start_time': {'$gte': ts_prev2, '$lt': ts_current}
+                'start_time': {'$gte': ts_prev2, '$lte': ts_upper}
             },
             {
                 'run_id': 1,
@@ -227,7 +230,7 @@ class ScheduledRunFailureAlert:
         run_docs = list(cursor)
 
         # Hour buckets
-        last_hour_runs = []       # prev → current
+        last_hour_runs = []       # prev → now (includes current partial hour)
         previous_hour_runs = []   # prev2 → prev
 
         for doc in run_docs:
@@ -236,7 +239,7 @@ class ScheduledRunFailureAlert:
             except:
                 doc["start_dt"] = None
 
-            if hour_prev <= doc["start_dt"] < hour_current:
+            if hour_prev <= doc["start_dt"] <= now_utc:
                 last_hour_runs.append(doc)
             elif hour_prev2 <= doc["start_dt"] < hour_prev:
                 previous_hour_runs.append(doc)

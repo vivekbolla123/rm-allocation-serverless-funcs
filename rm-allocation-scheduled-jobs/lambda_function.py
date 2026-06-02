@@ -47,6 +47,7 @@ from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
 from fetchactiveflights import FetchActiveFlights
+from equipmentChange import EQTAlloc
 
 def create_logger():
     logger = logging.getLogger()
@@ -103,8 +104,16 @@ try:
             password=configsettings.MONGO_PASSWORD,
             authSource=configsettings.MONGO_AUTH_SOURCE
         )
+    mongo_client2 = MongoClient(
+            host=configsettings.MONGO_DE_URL,
+            port=27017,
+            username=configsettings.MONGO_DE_USERNAME,
+            password=configsettings.MONGO_DE_PASSWORD,
+            authSource=configsettings.MONGO_DE_AUTH_SOURCE
+        )
     mongo_db = mongo_client["qp_dw_rmalloc"]
     mongo_master_db = mongo_client[configsettings.MONGO_MASTER_DB]
+    mongo_de_db = mongo_client2[configsettings.MONGO_DE_DB]
     
     # Keep other connections if still needed
     rm_rd_esb_conn = create_engine(ESB_DB) if hasattr(configsettings, 'ESB_USER') else None
@@ -158,7 +167,8 @@ module_map = {
     "saleinv_baseload": SaleInvBaseloadCalc,
     "saleinv_rbl": SaleInvRBLCalc,
     "saleinv_leanpeak_map": SaleInvLeanPeakMap,
-    "fetchactiveflights": FetchActiveFlights
+    "fetchactiveflights": FetchActiveFlights,
+    "eqt_alloc": EQTAlloc
 }
 
 
@@ -190,6 +200,7 @@ def lambda_handler(event, context):
         # Single MongoDB connection for both read and write
         params["mongoconn"] = mongo_client
         params["mongo_master_db"] = mongo_master_db
+        params["mongo_de_db"] = mongo_de_db
         
         # Keep other connections if still needed
         params["dwconn"] = dw_conn
