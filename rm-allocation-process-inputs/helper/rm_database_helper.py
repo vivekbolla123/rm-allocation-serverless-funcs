@@ -941,7 +941,7 @@ class RMDatabaseHelper:
         try:
             # Try to find specific flight/NDO combination
             result = self.db.config_pfl_threshold.find_one({
-                "flightNumber": str(flightNumber),
+                "flightNumber": flightNumber,
                 "NDO": int(ndocounter)
             })
             
