@@ -520,7 +520,7 @@ class FareMonitor:
             status = 'FAILED'
 
         # Save audit record
-        self.pa_helper.save_run_audit(
+        self.pa_helper.save_scheduled_job_audit(
             self.analyst_name, run_id, status, 'fare_monitor', error_message
         )
 

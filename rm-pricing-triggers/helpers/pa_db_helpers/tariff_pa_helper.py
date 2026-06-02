@@ -272,7 +272,7 @@ class TariffPAHelper:
             analyst: Name of the analyst or system user who triggered the run.
             run_id: Unique identifier for this run.
             status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
-            module: Module name (e.g., 'tariff_gen', 'sector_monitor', 'fare_monitor').
+            module: Module name (e.g., 'tariff_gen').
             error_message: Optional error message if the run failed.
         """
         try:
@@ -289,4 +289,32 @@ class TariffPAHelper:
             self.logger.info(f"Saved audit record for run_id: {run_id}, module: {module}, status: {status}")
         except Exception as e:
             self.logger.error(f"Error saving run audit: {str(e)}")
+            raise
+
+    def save_scheduled_job_audit(self, analyst, run_id, status, module, error_message=None):
+        """Save audit record to scheduled_job_run_audits collection.
+
+        Used by scheduled modules (sector_monitor, fare_monitor) that run on AWS cron.
+
+        Args:
+            analyst: Name of the analyst or system user who triggered the run.
+            run_id: Unique identifier for this run.
+            status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
+            module: Module name (e.g., 'sector_monitor', 'fare_monitor').
+            error_message: Optional error message if the run failed.
+        """
+        try:
+            audit_record = {
+                'run_id': run_id,
+                'analyst': analyst,
+                'module': module,
+                'status': status,
+                'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')),
+                'error_message': error_message
+            }
+
+            self.db.scheduled_job_run_audits.insert_one(audit_record)
+            self.logger.info(f"Saved scheduled job audit for run_id: {run_id}, module: {module}, status: {status}")
+        except Exception as e:
+            self.logger.error(f"Error saving scheduled job audit: {str(e)}")
             raise

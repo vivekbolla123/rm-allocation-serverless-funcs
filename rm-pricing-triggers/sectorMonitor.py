@@ -110,8 +110,26 @@ class SectorMonitor:
             combined_df = combined_df.drop_duplicates(subset='sector', keep='first')
             combined_df = combined_df.reset_index(drop=True)
 
+            # Step 7: Filter to domestic-only sectors using station master
+            # A sector is domestic if BOTH origin and destination are domestic stations (route='D')
+            station_master_df = self.pa_helper.get_station_master()
+            if station_master_df is not None and not station_master_df.empty:
+                domestic_stations = set(
+                    station_master_df[station_master_df['route'] == 'D']['station'].tolist()
+                )
+                before_filter = len(combined_df)
+                combined_df = combined_df[
+                    combined_df['origin'].isin(domestic_stations) &
+                    combined_df['destination'].isin(domestic_stations)
+                ].reset_index(drop=True)
+                filtered_out = before_filter - len(combined_df)
+                if filtered_out > 0:
+                    self.logger.info(f"Filtered out {filtered_out} non-domestic sectors (kept {len(combined_df)} domestic)")
+            else:
+                self.logger.warning("Station master unavailable — skipping domestic filter")
+
             self.logger.info(
-                f"Active sector list composed: {len(combined_df)} total sectors "
+                f"Active sector list composed: {len(combined_df)} domestic sectors "
                 f"({len(direct_df)} direct, {len(through_df)} through, "
                 f"{len(manual_df) if manual_df is not None and not manual_df.empty else 0} manual)"
             )
@@ -324,7 +342,7 @@ class SectorMonitor:
                 self.logger.error(error_message)
                 self.send_failure_alert(error_message)
                 status = 'FAILED'
-                self.pa_helper.save_run_audit(
+                self.pa_helper.save_scheduled_job_audit(
                     self.analyst_name, run_id, status, 'sector_monitor', error_message
                 )
                 return {
@@ -364,7 +382,7 @@ class SectorMonitor:
             status = 'FAILED'
 
         # Step 5: Save audit record
-        self.pa_helper.save_run_audit(
+        self.pa_helper.save_scheduled_job_audit(
             self.analyst_name, run_id, status, 'sector_monitor', error_message
         )
 
