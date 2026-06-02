@@ -1248,7 +1248,7 @@ def lambda_handler(event, context):
         type = data[run_type_key]
     if region_key in data:
         region = data[region_key]
-    if not type == "Adhoc":
+    if type not in ("Adhoc", "Equipment_Change"):
         is_connections_required = '1'
     if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]

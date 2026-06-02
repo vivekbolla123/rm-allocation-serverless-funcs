@@ -26,6 +26,8 @@ Usage:
 
 import re
 import logging
+import requests
+import configsettings
 
 logger = logging.getLogger(__name__)
 
@@ -169,3 +171,97 @@ def instrument_engine(engine, service_name="navitaire-mssql"):
                 span.finish()
     except Exception:
         logger.debug("Failed to attach ddtrace instrumentation to engine, tracing will be skipped")
+
+
+class GraphMailClient:
+    """
+    Sends emails via Microsoft Graph API using client credentials flow.
+    Reads tenant/client/secret from configsettings at call time.
+
+    Usage:
+        from common_utils import GraphMailClient
+        mail_client = GraphMailClient(logger)
+        mail_client.send_email("Subject", "<h1>Hello</h1>", "recipient@example.com", is_html=True)
+    """
+
+    def __init__(self, log):
+        self.logger = log
+
+    def _get_access_token(self):
+        """Obtain an access token from Microsoft identity platform using client credentials."""
+
+        token_url = f"https://login.microsoftonline.com/{configsettings.ALERTS_TENANT_ID}/oauth2/v2.0/token"
+
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": configsettings.ALERTS_CLIENT_ID,
+            "client_secret": configsettings.ALERTS_CLIENT_SECRET,
+            "scope": "https://graph.microsoft.com/.default"
+        }
+
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+        response = requests.post(token_url, data=payload, headers=headers)
+        response.raise_for_status()
+
+        return response.json()["access_token"]
+
+    def send_email(self, subject, body, recipient, is_html=False):
+        """
+        Send an email via Microsoft Graph API (draft + send pattern).
+
+        Args:
+            subject: Email subject line.
+            body: Email body content.
+            recipient: Recipient email address (single string).
+            is_html: If True, body is treated as HTML; otherwise plain text.
+        """
+
+        try:
+            # Step 1: Get access token
+            access_token = self._get_access_token()
+
+            user_id = configsettings.SENDER_EMAIL
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+
+            # Step 2: Draft the mail
+            content_type = "HTML" if is_html else "Text"
+            draft_payload = {
+                "subject": subject,
+                "importance": "Normal",
+                "body": {
+                    "contentType": content_type,
+                    "content": body
+                },
+                "toRecipients": [
+                    {
+                        "emailAddress": {
+                            "address": recipient
+                        }
+                    }
+                ]
+            }
+
+            draft_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
+            draft_response = requests.post(draft_url, headers=headers, json=draft_payload)
+            draft_response.raise_for_status()
+
+            draft_mail_id = draft_response.json()["id"]
+
+            # Step 3: Send the drafted mail
+            send_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/{draft_mail_id}/send"
+            send_response = requests.post(send_url, headers=headers)
+
+            if send_response.status_code == 202:
+                self.logger.info(f"Email sent to {recipient} successfully via Graph API.")
+            else:
+                self.logger.error(
+                    f"Failed to send email via Graph API. "
+                    f"Status: {send_response.status_code}, Response: {send_response.text}"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Failed to send email via Graph API: {e}")

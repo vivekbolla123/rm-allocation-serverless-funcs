@@ -1,10 +1,8 @@
 import json
 import configsettings
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from datetime import datetime, timedelta, timezone
 from constants_utils import ConstantsUtils
+from common_utils import GraphMailClient
 import traceback
 import boto3
 from aws_croniter import AwsCroniter
@@ -24,6 +22,7 @@ class ScheduledRunFailureAlert:
         self.cache_client = params['cache_client']
         self.constants = ConstantsUtils(self.mongoconn['qp_dw_rmalloc'])
         self.overrides = overrides or {}
+        self.mail_client = GraphMailClient(self.logger)
 
     def _get_simulated_time(self):
         """Return simulated UTC time if in test mode, otherwise current UTC time."""
@@ -202,15 +201,18 @@ class ScheduledRunFailureAlert:
         hour_prev2 = hour_current - timedelta(hours=2)
 
         # Convert boundaries to string timestamps
-        ts_current = hour_current.strftime("%Y-%m-%d %H:%M:%S")
+        # Use now_utc as the upper bound so that runs which started slightly
+        # after the hour boundary (due to processing delays) are still fetched
+        # and matched against their cron hit, avoiding false "not started" alerts.
+        ts_upper = now_utc.strftime("%Y-%m-%d %H:%M:%S")
         ts_prev = hour_prev.strftime("%Y-%m-%d %H:%M:%S")
         ts_prev2 = hour_prev2.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Fetch only last 2 hours of runs
+        # Fetch runs from last 2 hours up to now
         cursor = runs_col.find(
             {
                 'type': {'$in': ["Scheduled", "Scheduled_Connections", "Scheduled_Thirty"]},
-                'start_time': {'$gte': ts_prev2, '$lt': ts_current}
+                'start_time': {'$gte': ts_prev2, '$lte': ts_upper}
             },
             {
                 'run_id': 1,
@@ -228,7 +230,7 @@ class ScheduledRunFailureAlert:
         run_docs = list(cursor)
 
         # Hour buckets
-        last_hour_runs = []       # prev → current
+        last_hour_runs = []       # prev → now (includes current partial hour)
         previous_hour_runs = []   # prev2 → prev
 
         for doc in run_docs:
@@ -237,7 +239,7 @@ class ScheduledRunFailureAlert:
             except:
                 doc["start_dt"] = None
 
-            if hour_prev <= doc["start_dt"] < hour_current:
+            if hour_prev <= doc["start_dt"] <= now_utc:
                 last_hour_runs.append(doc)
             elif hour_prev2 <= doc["start_dt"] < hour_prev:
                 previous_hour_runs.append(doc)
@@ -502,25 +504,5 @@ class ScheduledRunFailureAlert:
 
         mail_body = ''.join(html_lines)
 
-        self.send_email_alert(subject, mail_body, self.constants.RM_ALERT_MAIL_ID, is_html=True)
-        # self.send_email_alert(subject, mail_body, "aarav.dubey@akasaair.com", is_html=True)
-
-    def send_email_alert(self, subject, body, recipient, is_html=False):
-        msg = MIMEMultipart()
-        msg['Subject'] = subject
-        msg['From'] = configsettings.SENDER_EMAIL
-        msg['To'] = recipient
-
-        if is_html:
-            msg.attach(MIMEText(body, 'html'))
-        else:
-            msg.attach(MIMEText(body, 'plain'))
-
-        try:
-            with smtplib.SMTP(configsettings.SMTP_SERVER, configsettings.SMTP_PORT) as server:
-                server.starttls()
-                server.login(configsettings.SENDER_EMAIL, configsettings.SENDER_PASSWORD)
-                server.sendmail(configsettings.SENDER_EMAIL, recipient, msg.as_string())
-            self.logger.info(f"Email sent to {recipient} successfully.")
-        except Exception as e:
-            self.logger.error(f"Failed to send email: {e}")
+        self.mail_client.send_email(subject, mail_body, self.constants.RM_ALERT_MAIL_ID, is_html=True)
+        # self.mail_client.send_email(subject, mail_body, "aarav.dubey@akasaair.com", is_html=True)

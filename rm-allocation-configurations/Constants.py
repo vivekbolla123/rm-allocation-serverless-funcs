@@ -478,3 +478,6 @@ GDS_MAPPING = {
 
 ACTIVE_SECTORS_DEFAULT_FIELDS = '{"forecast_model": "LB", "farecap": "30000"}'
 GDS_RBD_VALUES = "Y,B,C,D,E,F,H,I,J,K,M,N2,O2,P2,Q2,R2,T2,U2,V2,Z4,W6,L,X,A"
+
+EQT_RECIPIENTS = "FlightAnalyst@akasaair.com,rmsupport@akasaair.com,closed.rm.it@akasaair.com"
+EQT_RECIPIENTS_KEY = "EQT_RECIPIENTS"
