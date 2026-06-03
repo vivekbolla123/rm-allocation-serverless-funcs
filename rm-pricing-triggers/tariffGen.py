@@ -107,7 +107,7 @@ class TariffGen:
         """
         run_id = str(uuid.uuid4())
         s3_key = None
-        error_message = None
+        failure_reason = None
 
         self.logger.info(f"TariffGen run started — run_id: {run_id}")
 
@@ -140,35 +140,35 @@ class TariffGen:
                 'status': 'SUCCESS',
                 'run_id': run_id,
                 's3_key': s3_key,
-                'error': None
+                'failure_reason': None
             }
 
         except GenerationHaltError as e:
-            error_message = str(e)
-            self.logger.error(f"TariffGen halted — run_id: {run_id}, reason: {error_message}")
+            failure_reason = str(e)
+            self.logger.error(f"TariffGen halted — run_id: {run_id}, reason: {failure_reason}")
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'FAILED', 'tariff_gen', error_message
+                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason
             )
             return {
                 'status': 'FAILED',
                 'run_id': run_id,
                 's3_key': None,
-                'error': error_message
+                'failure_reason': failure_reason
             }
 
         except Exception as e:
-            error_message = f"Unexpected error: {str(e)}"
+            failure_reason = f"Unexpected error: {str(e)}"
             self.logger.error(
                 f"TariffGen failed — run_id: {run_id}\n{traceback.format_exc()}"
             )
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'FAILED', 'tariff_gen', error_message
+                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason
             )
             return {
                 'status': 'FAILED',
                 'run_id': run_id,
                 's3_key': None,
-                'error': error_message
+                'failure_reason': failure_reason
             }
 
     def collect_data(self):
@@ -619,6 +619,7 @@ class TariffGen:
 
         # Step 4: Build DataFrame rows
         rows = []
+        unmapped_sectors = []
         active_sector_codes = set(self.active_sectors_df['sector'].tolist())
 
         for _, sector_row in self.active_sectors_df.iterrows():
@@ -629,17 +630,30 @@ class TariffGen:
                 self.logger.info(f"Skipping sector {sector} — no fares extracted")
                 continue
 
-            # Skip sectors with unmapped stations
+            # Check for unmapped stations — collect all failures before halting
             origin = sector[:3]
             destination = sector[3:]
             if not self._is_station_mapped(origin) or not self._is_station_mapped(destination):
-                self.logger.warning(
-                    f"Skipping sector {sector} — station not in station master"
-                )
+                unmapped_origin = origin if not self._is_station_mapped(origin) else None
+                unmapped_dest = destination if not self._is_station_mapped(destination) else None
+                unmapped_codes = [c for c in [unmapped_origin, unmapped_dest] if c]
+                unmapped_sectors.append(f"{sector} (unmapped: {', '.join(unmapped_codes)})")
                 continue
 
-            # Market column
-            market = self.format_market(sector)
+            # Market column — check city name mapping
+            origin_name = self._get_city_name(origin)
+            destination_name = self._get_city_name(destination)
+            if origin_name == origin or destination_name == destination:
+                # Station exists but has no 'name' field
+                missing_names = []
+                if origin_name == origin:
+                    missing_names.append(origin)
+                if destination_name == destination:
+                    missing_names.append(destination)
+                unmapped_sectors.append(f"{sector} (no city name: {', '.join(missing_names)})")
+                continue
+
+            market = f"{origin_name} - {destination_name}"
 
             # Stops column
             stops = int(sector_row.get('stops', 0))
@@ -661,6 +675,15 @@ class TariffGen:
                 row[f'Fare_Level_{i}'] = fare
 
             rows.append(row)
+
+        # Fail the entire run if any sectors have unmapped stations or missing city names
+        if unmapped_sectors:
+            error_msg = (
+                f"Tariff generation failed — {len(unmapped_sectors)} sector(s) have stations "
+                f"not in station master or missing city name mapping: {', '.join(unmapped_sectors)}. "
+                f"Please update config_station_master with the missing stations/names."
+            )
+            raise GenerationHaltError(error_msg)
 
         # Create DataFrame and sort by Market
         tariff_df = pd.DataFrame(rows)

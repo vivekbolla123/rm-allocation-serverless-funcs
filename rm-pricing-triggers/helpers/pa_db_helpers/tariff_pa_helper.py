@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 
@@ -66,25 +66,155 @@ class TariffPAHelper:
             self.logger.error(f"Error saving active tariff sectors: {str(e)}")
             raise
 
-    def get_fare_dump(self):
-        """Retrieve the latest document with status='active' from fare_dump_tariff collection.
+    def get_fares_for_monitor(self, active_sectors, monitored_rbds, b2c_rbds):
+        """Collect QP fares for the daily fare monitor check.
+
+        The 'fare dump' is the qp_fares collection (same source as tariff generation).
+        Returns fares for the monitored RBDs on active sectors:
+          - B2C RBDs: rule 1001 only, empty footnote
+          - W / TBF RBDs: any rule, any footnote (matched by first 2 chars of Fare_Basis_Code)
+
+        Args:
+            active_sectors: list of 6-char active sector codes.
+            monitored_rbds: full list of RBDs to monitor (B2C + W + TBF).
+            b2c_rbds: list of B2C RBDs (these require rule 1001 + empty footnote).
 
         Returns:
-            dict or None: The active fare dump document, or None if not found.
+            pd.DataFrame with columns: sector, rbd, base_fare, rule_number, footnote
         """
         try:
-            fare_dump = self.db.fare_dump_tariff.find_one(
-                {'status': 'active'},
-                sort=[('uploaded_at', -1)]
+            fares_df = self.collect_qp_fares_for_tariff(active_sectors)
+            if fares_df is None or fares_df.empty:
+                return pd.DataFrame(columns=['sector', 'rbd', 'base_fare', 'rule_number', 'footnote'])
+
+            # Keep only monitored RBDs
+            df = fares_df[fares_df['rbd'].isin(monitored_rbds)].copy()
+
+            # For B2C RBDs, restrict to rule 1001 with empty footnote
+            b2c_set = set(b2c_rbds)
+            is_b2c = df['rbd'].isin(b2c_set)
+            footnote_empty = (
+                df['footnote'].isna() |
+                (df['footnote'].astype(str).str.strip() == '') |
+                (df['footnote'].astype(str).str.lower() == 'nan')
             )
-            if fare_dump:
-                self.logger.info(f"Retrieved active fare dump: {fare_dump.get('filename', 'unknown')}")
-            else:
-                self.logger.warning("No active fare dump found in fare_dump_tariff")
-            return fare_dump
+            keep_b2c = is_b2c & (df['rule_number'].astype(str) == '1001') & footnote_empty
+            keep_non_b2c = ~is_b2c
+
+            df = df[keep_b2c | keep_non_b2c].copy()
+            self.logger.info(f"Collected {len(df)} monitored fares for daily check across {df['sector'].nunique()} sectors")
+            return df
+
         except Exception as e:
-            self.logger.error(f"Error retrieving fare dump: {str(e)}")
+            self.logger.error(f"Error collecting fares for monitor: {str(e)}")
             raise
+
+    def get_weekly_selling_fares(self, active_sectors):
+        """Get min/max SellingFare per active sector from run_summary and run_summary_connections.
+
+        Sources (qp_dw_rmalloc database):
+          - run_summary (direct): sector = Origin + Destin
+          - run_summary_connections (through): sector = first 3 of Sector1 + last 3 of Sector2
+
+        Uses MongoDB aggregation ($match by CreatedAt last 7 days + sector, then $group)
+        for efficiency on large collections (2.1M+ run_summary, 526K+ connections).
+
+        Args:
+            active_sectors: set/list of 6-char active sector codes.
+
+        Returns:
+            dict: {sector: {'min_fare': float, 'max_fare': float, 'count': int}}
+        """
+        try:
+            active_set = set(active_sectors)
+            ist = pytz.timezone('Asia/Kolkata')
+            start_date = (datetime.now(ist) - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+
+            # run_summary lives in qp_dw_rmalloc — reach it via the shared client
+            db_rmalloc = self.db.client['qp_dw_rmalloc']
+
+            sector_fares = {}
+
+            # --- Direct sectors from run_summary ---
+            active_origins_destins = [{'Origin': s[:3], 'Destin': s[3:]} for s in active_set]
+            if active_origins_destins:
+                direct_pipeline = [
+                    {'$match': {
+                        'CreatedAt': {'$gte': start_date},
+                        '$or': active_origins_destins
+                    }},
+                    {'$addFields': {
+                        'sector': {'$concat': ['$Origin', '$Destin']},
+                        'selling_fare_num': {
+                            '$convert': {'input': '$SellingFare', 'to': 'double', 'onError': None, 'onNull': None}
+                        }
+                    }},
+                    {'$match': {'selling_fare_num': {'$ne': None, '$gt': 0}}},
+                    {'$group': {
+                        '_id': '$sector',
+                        'min_fare': {'$min': '$selling_fare_num'},
+                        'max_fare': {'$max': '$selling_fare_num'},
+                        'count': {'$sum': 1}
+                    }}
+                ]
+                direct_results = list(db_rmalloc.run_summary.aggregate(direct_pipeline, allowDiskUse=True))
+                for doc in direct_results:
+                    sector = doc['_id']
+                    if sector in active_set:
+                        sector_fares[sector] = {
+                            'min_fare': doc['min_fare'],
+                            'max_fare': doc['max_fare'],
+                            'count': doc['count']
+                        }
+                self.logger.info(f"Weekly direct: {len(direct_results)} sectors from run_summary")
+
+            # --- Through sectors from run_summary_connections ---
+            conn_pipeline = [
+                {'$match': {'CreatedAt': {'$gte': start_date}}},
+                {'$addFields': {
+                    'through_sector': {
+                        '$concat': [
+                            {'$substr': ['$Sector1', 0, 3]},
+                            {'$substr': ['$Sector2', 3, 3]}
+                        ]
+                    },
+                    'selling_fare_num': {
+                        '$convert': {'input': '$SellingFare', 'to': 'double', 'onError': None, 'onNull': None}
+                    }
+                }},
+                {'$match': {
+                    'through_sector': {'$in': list(active_set)},
+                    'selling_fare_num': {'$ne': None, '$gt': 0}
+                }},
+                {'$group': {
+                    '_id': '$through_sector',
+                    'min_fare': {'$min': '$selling_fare_num'},
+                    'max_fare': {'$max': '$selling_fare_num'},
+                    'count': {'$sum': 1}
+                }}
+            ]
+            conn_results = list(db_rmalloc.run_summary_connections.aggregate(conn_pipeline, allowDiskUse=True))
+            for doc in conn_results:
+                sector = doc['_id']
+                if sector in active_set:
+                    if sector in sector_fares:
+                        sector_fares[sector]['min_fare'] = min(sector_fares[sector]['min_fare'], doc['min_fare'])
+                        sector_fares[sector]['max_fare'] = max(sector_fares[sector]['max_fare'], doc['max_fare'])
+                        sector_fares[sector]['count'] += doc['count']
+                    else:
+                        sector_fares[sector] = {
+                            'min_fare': doc['min_fare'],
+                            'max_fare': doc['max_fare'],
+                            'count': doc['count']
+                        }
+            self.logger.info(f"Weekly connections: {len(conn_results)} through sectors from run_summary_connections")
+            self.logger.info(f"Weekly selling fares: {len(sector_fares)} total sectors")
+
+            return sector_fares
+
+        except Exception as e:
+            self.logger.error(f"Error fetching weekly selling fares: {str(e)}")
+            return {}
 
     def collect_qp_fares_for_tariff(self, active_sectors):
         """Collect QP fares from the qp_fares collection for tariff sheet generation.
@@ -265,7 +395,7 @@ class TariffPAHelper:
             self.logger.error(f"Error retrieving manual sectors: {str(e)}")
             raise
 
-    def save_run_audit(self, analyst, run_id, status, module, error_message=None):
+    def save_run_audit(self, analyst, run_id, status, module, failure_reason=None):
         """Save audit record to tariff_gen_audit collection.
 
         Args:
@@ -273,7 +403,7 @@ class TariffPAHelper:
             run_id: Unique identifier for this run.
             status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
             module: Module name (e.g., 'tariff_gen').
-            error_message: Optional error message if the run failed.
+            failure_reason: Optional failure reason if the run failed.
         """
         try:
             audit_record = {
@@ -282,7 +412,7 @@ class TariffPAHelper:
                 'module': module,
                 'status': status,
                 'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')),
-                'error_message': error_message
+                'failure_reason': failure_reason
             }
 
             self.db.tariff_gen_audit.insert_one(audit_record)
@@ -291,7 +421,7 @@ class TariffPAHelper:
             self.logger.error(f"Error saving run audit: {str(e)}")
             raise
 
-    def save_scheduled_job_audit(self, analyst, run_id, status, module, error_message=None):
+    def save_scheduled_job_audit(self, analyst, run_id, status, module, failure_reason=None):
         """Save audit record to scheduled_job_run_audits collection.
 
         Used by scheduled modules (sector_monitor, fare_monitor) that run on AWS cron.
@@ -301,7 +431,7 @@ class TariffPAHelper:
             run_id: Unique identifier for this run.
             status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
             module: Module name (e.g., 'sector_monitor', 'fare_monitor').
-            error_message: Optional error message if the run failed.
+            failure_reason: Optional failure reason if the run failed.
         """
         try:
             audit_record = {
@@ -310,7 +440,7 @@ class TariffPAHelper:
                 'module': module,
                 'status': status,
                 'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')),
-                'error_message': error_message
+                'failure_reason': failure_reason
             }
 
             self.db.scheduled_job_run_audits.insert_one(audit_record)

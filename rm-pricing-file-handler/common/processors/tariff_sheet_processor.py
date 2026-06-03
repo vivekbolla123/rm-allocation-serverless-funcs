@@ -171,7 +171,7 @@ def validate_tariff_sheet(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def format_tariff_sheet(df: pd.DataFrame) -> dict:
+def format_tariff_sheet(df: pd.DataFrame, station_master=None) -> dict:
     """
     Transform validated tariff sheet DataFrame into MongoDB storage format.
 
@@ -181,10 +181,10 @@ def format_tariff_sheet(df: pd.DataFrame) -> dict:
     {
         "fare_data": [
             {
-                "sector": "",
-                "market": "Mumbai - New Delhi",
+                "sector": "IXAGAU",
+                "market": "Agartala - Guwahati",
                 "stops": 0,
-                "yq": 299,
+                "yq": 199,
                 "fare_levels": [1402, 1502, 1550, ...]  # Int32 values, no commas, no empty padding
             },
             ...
@@ -196,13 +196,27 @@ def format_tariff_sheet(df: pd.DataFrame) -> dict:
     - Convert to int: "1402" → 1402
     - Empty/whitespace values are excluded from the fare_levels array
 
+    Sector derivation:
+    - Market "Agartala - Guwahati" → look up "Agartala" in station_master → IXA
+    - Look up "Guwahati" → GAU → sector = "IXAGAU"
+
     Args:
         df: Validated DataFrame with original CSV column names
+        station_master: list of dicts from config_station_master with keys 'station', 'name'
 
     Returns:
         dict with 'fare_data' key containing list of sector dicts
     """
     yq_col = "Fuel Charge (YQ) in INR"
+
+    # Build reverse lookup: city name (lowercase) → station code
+    name_to_code = {}
+    if station_master:
+        for entry in station_master:
+            name = entry.get('name', '')
+            code = entry.get('station', '')
+            if name and code:
+                name_to_code[name.strip().lower()] = code.strip()
 
     # Identify fare level columns in order
     fare_level_cols = sorted(
@@ -223,9 +237,21 @@ def format_tariff_sheet(df: pd.DataFrame) -> dict:
             if parsed is not None:
                 fare_levels.append(parsed)
 
+        # Derive sector code from market name using station master
+        market = str(row["Market"]).strip()
+        sector = ""
+        if " - " in market and name_to_code:
+            parts = market.split(" - ", 1)
+            origin_name = parts[0].strip().lower()
+            dest_name = parts[1].strip().lower()
+            origin_code = name_to_code.get(origin_name, "")
+            dest_code = name_to_code.get(dest_name, "")
+            if origin_code and dest_code:
+                sector = origin_code + dest_code
+
         record = {
-            "sector": "",
-            "market": str(row["Market"]).strip(),
+            "sector": sector,
+            "market": market,
             "stops": int(row["Stops"]),
             "yq": yq_val,
             "fare_levels": fare_levels,

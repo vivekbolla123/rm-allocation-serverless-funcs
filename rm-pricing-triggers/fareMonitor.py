@@ -9,18 +9,21 @@ import configsettings
 from common_utils import GraphMailClient
 from helpers.pa_db_helpers.tariff_pa_helper import TariffPAHelper
 from helpers.nav_db_helpers.tariff_nav_helper import TariffNavHelper
+from helpers.esb_db_helpers.tariff_esb_helper import TariffEsbHelper
 
 
 class FareMonitor:
-    """Handles daily fare discrepancy checks and weekly booking fare validation.
+    """Handles daily fare discrepancy checks and weekly fare validation.
 
-    Daily check: Compares the latest fare dump against the live tariff sheet
-    to detect fares outside the tariff range (below min or above max).
+    Daily check: Compares the latest fares (qp_fares) against the live tariff
+    sheet to detect fares outside the tariff range (below min or above max).
 
-    Weekly check: Compares bookings from the preceding 7 days against the
-    live tariff sheet to detect booking fares outside tariff boundaries.
+    Weekly check: Compares the output summary selling fares (run_summary /
+    run_summary_connections) AND bookings (ESB) from the preceding 7 days
+    against the live tariff sheet boundaries.
 
-    Sends SES email alerts when violations or missing data are detected.
+    Sends email alerts (via Microsoft Graph) when violations or missing data
+    are detected.
     """
 
     def __init__(self, logger, params, overrides, context):
@@ -28,7 +31,7 @@ class FareMonitor:
 
         Args:
             logger: Logger instance.
-            params: dict with keys mongo, mongo_master, navconn, etc.
+            params: dict with keys mongo, mongo_master, navconn, rdEsbConn, etc.
             overrides: dict with keys analyst, check_type ('daily'|'weekly'), etc.
             context: Lambda context object.
         """
@@ -44,6 +47,7 @@ class FareMonitor:
             configsettings.NAV_DB_WB_NAME,
             logger
         )
+        self.esb_helper = TariffEsbHelper(params['rdEsbConn'], logger)
 
         # Email client for alerts (Microsoft Graph API)
         self.mail_client = GraphMailClient(logger)
@@ -63,27 +67,18 @@ class FareMonitor:
         self.alert_email = self.constants.TARIFF_ALERT_MAIL_ID
 
     def run_daily_check(self):
-        """Compare the latest fare dump against the live tariff sheet.
+        """Compare the latest fares (qp_fares) against the live tariff sheet.
 
-        Retrieves the most recent fare dump and the live tariff sheet,
-        then checks each fare entry (B2C, W4, W5, W6, TBF RBDs) against
-        the corresponding sector's min/max fare levels in the tariff.
+        Retrieves monitored fares from qp_fares (the "fare dump") for active
+        sectors and checks each fare (B2C, W4, W5, W6, TBF RBDs) against the
+        corresponding sector's min/max in the live tariff sheet.
 
         Sends an alert email if violations or unmatched entries are found.
-        Sends a missing data alert if fare dump or live tariff is unavailable.
 
         Returns:
             dict: Result with keys [violations_count, unmatched_count, status].
         """
         self.logger.info("Starting daily fare discrepancy check")
-
-        # Get latest fare dump
-        fare_dump = self.pa_helper.get_fare_dump()
-        if fare_dump is None or not fare_dump.get('records'):
-            reason = "Daily fare comparison could not be completed — fare dump unavailable or empty."
-            self.logger.warning(reason)
-            self.send_missing_data_alert(reason)
-            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_DATA'}
 
         # Get live tariff sheet
         live_sheet = self.pa_helper.get_live_tariff_sheet()
@@ -91,8 +86,24 @@ class FareMonitor:
             self.logger.warning("Live tariff sheet unavailable — cannot perform daily check")
             return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_TARIFF'}
 
-        # Convert fare dump records to DataFrame
-        fare_df = pd.DataFrame(fare_dump['records'])
+        # Get active sectors
+        active_sectors_df = self.pa_helper.get_active_sectors()
+        if active_sectors_df is None or active_sectors_df.empty:
+            self.logger.warning("No active sectors — cannot perform daily check")
+            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_SECTORS'}
+
+        active_sector_codes = active_sectors_df['sector'].tolist()
+
+        # Get monitored fares from qp_fares (the "fare dump")
+        fare_df = self.pa_helper.get_fares_for_monitor(
+            active_sector_codes, self.ALL_MONITORED_RBDS, self.B2C_RBDS
+        )
+
+        if fare_df is None or fare_df.empty:
+            reason = "Daily fare comparison could not be completed — no fares found in qp_fares for active sectors."
+            self.logger.warning(reason)
+            self.send_missing_data_alert(reason)
+            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_DATA'}
 
         # Build tariff lookup: {sector: {fare_levels: [...], min_fare, max_fare}}
         tariff_lookup = self._build_tariff_lookup(live_sheet)
@@ -100,11 +111,8 @@ class FareMonitor:
         violations = []
         unmatched = []
 
-        # Filter to monitored RBDs
-        monitored_fares = fare_df[fare_df['rbd'].isin(self.ALL_MONITORED_RBDS)]
-
-        for _, row in monitored_fares.iterrows():
-            sector = row.get('origin', '') + row.get('destination', '')
+        for _, row in fare_df.iterrows():
+            sector = row.get('sector', '')
             rbd = row.get('rbd', '')
             fare_value = row.get('base_fare', 0)
 
@@ -158,17 +166,20 @@ class FareMonitor:
         }
 
     def run_weekly_check(self):
-        """Compare bookings from the preceding 7 days against the live tariff sheet.
+        """Compare selling fares AND bookings from the preceding 7 days against the live tariff.
 
-        Queries booking fares from the past week and checks each against the
-        corresponding sector's min/max fare levels in the live tariff.
+        Two data sources, both checked against the live tariff sheet min/max per sector:
+          1. Output summary selling fares — run_summary (direct) and
+             run_summary_connections (through) in qp_dw_rmalloc.
+          2. Bookings — ESB QP_DL_FLOWNDATAPAX and QP_DL_BOOKEDDATAPAX.
 
-        Sends an alert email if violations are found.
+        For each active sector, if any selling/booking fare is below the lowest
+        tariff level or above the highest tariff level, it is flagged.
 
         Returns:
             dict: Result with keys [violations_count, unmatched_count, status].
         """
-        self.logger.info("Starting weekly booking fare validation")
+        self.logger.info("Starting weekly fare validation (selling fares + bookings)")
 
         # Get live tariff sheet
         live_sheet = self.pa_helper.get_live_tariff_sheet()
@@ -176,12 +187,23 @@ class FareMonitor:
             self.logger.warning("Live tariff sheet unavailable — cannot perform weekly check")
             return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_TARIFF'}
 
-        # Query bookings from preceding 7 days
-        bookings = self._get_weekly_bookings()
+        # Get active sectors for filtering
+        active_sectors_df = self.pa_helper.get_active_sectors()
+        if active_sectors_df is None or active_sectors_df.empty:
+            self.logger.warning("No active sectors — skipping weekly check")
+            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_SECTORS'}
 
-        if bookings is None or bookings.empty:
-            self.logger.info("No bookings found for the preceding 7 days — skipping comparison")
-            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_BOOKINGS'}
+        active_sector_codes = set(active_sectors_df['sector'].tolist())
+
+        # Source 1: selling fares from output summary (run_summary + connections)
+        selling_fares = self.pa_helper.get_weekly_selling_fares(active_sector_codes)
+
+        # Source 2: bookings from ESB (flown + booked pax)
+        booking_fares = self.esb_helper.collect_weekly_booking_fares(active_sector_codes, days=7)
+
+        if not selling_fares and not booking_fares:
+            self.logger.info("No selling fare or booking data found for the preceding 7 days — skipping")
+            return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_DATA'}
 
         # Build tariff lookup
         tariff_lookup = self._build_tariff_lookup(live_sheet)
@@ -189,43 +211,40 @@ class FareMonitor:
         violations = []
         unmatched = []
 
-        for _, row in bookings.iterrows():
-            sector = row.get('sector', '')
-            fare_value = row.get('fare', 0)
-            booking_ref = row.get('booking_ref', '')
+        # Check both sources against tariff boundaries
+        for source_label, sector_fares in (('Selling Fare', selling_fares), ('Booking', booking_fares)):
+            for sector, fares in sector_fares.items():
+                if sector not in tariff_lookup:
+                    unmatched.append({
+                        'sector': sector,
+                        'rbd': source_label,
+                        'fare_value': f"min={fares['min_fare']}, max={fares['max_fare']}"
+                    })
+                    continue
 
-            if not sector or fare_value is None:
-                continue
+                tariff_entry = tariff_lookup[sector]
+                tariff_min = tariff_entry['min_fare']
+                tariff_max = tariff_entry['max_fare']
 
-            # Find matching sector in live tariff
-            if sector not in tariff_lookup:
-                unmatched.append({
-                    'sector': sector,
-                    'fare_value': fare_value,
-                    'booking_ref': booking_ref
-                })
-                continue
+                # Below the lowest tariff level
+                if fares['min_fare'] < tariff_min:
+                    violations.append({
+                        'sector': sector,
+                        'rbd': f"{source_label} (count={fares['count']})",
+                        'fare_value': fares['min_fare'],
+                        'boundary': tariff_min,
+                        'violation_type': 'below_min'
+                    })
 
-            tariff_entry = tariff_lookup[sector]
-            min_fare = tariff_entry['min_fare']
-            max_fare = tariff_entry['max_fare']
-
-            if fare_value > max_fare:
-                violations.append({
-                    'sector': sector,
-                    'fare_value': fare_value,
-                    'boundary': max_fare,
-                    'violation_type': 'above_max',
-                    'booking_ref': booking_ref
-                })
-            elif fare_value < min_fare:
-                violations.append({
-                    'sector': sector,
-                    'fare_value': fare_value,
-                    'boundary': min_fare,
-                    'violation_type': 'below_min',
-                    'booking_ref': booking_ref
-                })
+                # Above the highest tariff level
+                if fares['max_fare'] > tariff_max:
+                    violations.append({
+                        'sector': sector,
+                        'rbd': f"{source_label} (count={fares['count']})",
+                        'fare_value': fares['max_fare'],
+                        'boundary': tariff_max,
+                        'violation_type': 'above_max'
+                    })
 
         # Send alert if violations found
         if violations or unmatched:
@@ -242,47 +261,6 @@ class FareMonitor:
             'unmatched_count': len(unmatched),
             'status': 'COMPLETED'
         }
-
-    def _get_weekly_bookings(self):
-        """Query booking fares from the preceding 7 days.
-
-        Attempts to retrieve from the MongoDB 'booking_fares' collection.
-        Falls back to logging a placeholder if the collection is not yet available.
-
-        Returns:
-            pd.DataFrame or None: DataFrame with columns [sector, fare, booking_ref],
-                                  or None if no data available.
-        """
-        try:
-            ist = pytz.timezone('Asia/Kolkata')
-            end_date = datetime.now(ist)
-            start_date = end_date - timedelta(days=7)
-
-            # Query from MongoDB booking_fares collection
-            bookings = list(self.pa_helper.db.booking_fares.find(
-                {
-                    'booking_date': {
-                        '$gte': start_date,
-                        '$lte': end_date
-                    }
-                },
-                {'_id': 0, 'sector': 1, 'fare': 1, 'booking_ref': 1}
-            ))
-
-            if bookings:
-                bookings_df = pd.DataFrame(bookings)
-                self.logger.info(f"Retrieved {len(bookings_df)} booking records from preceding 7 days")
-                return bookings_df
-            else:
-                self.logger.info("No booking records found for the preceding 7 days")
-                return None
-
-        except Exception as e:
-            self.logger.warning(
-                f"Booking query not yet fully implemented or collection unavailable: {str(e)}. "
-                f"Skipping weekly booking comparison."
-            )
-            return None
 
     def _build_tariff_lookup(self, live_sheet):
         """Build a lookup dictionary from the live tariff sheet's fare_data.
