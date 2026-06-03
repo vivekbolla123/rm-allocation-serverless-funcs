@@ -1,5 +1,6 @@
 import sys
 import logging
+from zoneinfo import ZoneInfo
 import boto3
 import json
 import warnings
@@ -561,7 +562,7 @@ class NavDatabaseHelper:
                 ArrivalStation Destination,
                 TRIM(FlightNumber) as FlightNumber,
                 DepartureDate,
-                FORMAT(STDUTC, 'HH:mm') as DepartureTimeUTC
+                FORMAT(STD, 'HH:mm') as DepartureTime
             FROM {self.NAV_DB_NAME}rez.inventoryleg
             WHERE DepartureDate = '{current_date.strftime("%Y-%m-%d")}'
         """
@@ -750,11 +751,11 @@ def create_flight_lookup_map(flights_df):
     flight_map = {}
     for _, flight in flights_df.iterrows():
         key = f"{flight['FlightNumber']}_{flight['Origin']}_{flight['Destination']}_{flight['DepartureDate']}"
-        flight_map[key] = flight['DepartureTimeUTC']
+        flight_map[key] = flight['DepartureTime']
     return flight_map
 
 def filter_market_list(market_list_df, ndo0_map):
-    current_datetime = datetime.now(timezone.utc)
+    current_datetime = datetime.now(ZoneInfo("Asia/Kolkata"))
     logger.info(f"Current time: {current_datetime}")
     logger.info(f"skipping time delta: {str(constantsutils.TIME_BEFORE_DEPARTURE)}")
     cutoff_time = (current_datetime + timedelta(minutes=constantsutils.TIME_BEFORE_DEPARTURE)).strftime("%H:%M")
