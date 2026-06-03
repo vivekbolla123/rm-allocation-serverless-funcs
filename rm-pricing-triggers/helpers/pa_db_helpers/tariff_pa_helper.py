@@ -395,28 +395,47 @@ class TariffPAHelper:
             self.logger.error(f"Error retrieving manual sectors: {str(e)}")
             raise
 
-    def save_run_audit(self, analyst, run_id, status, module, failure_reason=None):
+    def save_run_audit(self, analyst, run_id, status, module, failure_reason=None, start_time=None, end_time=None):
         """Save audit record to tariff_gen_audit collection.
+
+        Follows the same pattern as ladderGen audits:
+        - Initial call with status='IN_PROGRESS' and start_time
+        - Final call with status='SUCCESS' or 'FAILED', end_time, and failure_reason
 
         Args:
             analyst: Name of the analyst or system user who triggered the run.
             run_id: Unique identifier for this run.
-            status: Run status (e.g., 'IN_PROGRESS', 'SUCCESS', 'FAILED').
+            status: Run status ('IN_PROGRESS', 'SUCCESS', 'FAILED').
             module: Module name (e.g., 'tariff_gen').
             failure_reason: Optional failure reason if the run failed.
+            start_time: Run start timestamp (IST).
+            end_time: Run end timestamp (IST). Set on completion.
         """
         try:
-            audit_record = {
-                'run_id': run_id,
-                'analyst': analyst,
-                'module': module,
-                'status': status,
-                'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')),
-                'failure_reason': failure_reason
-            }
+            if status == 'IN_PROGRESS':
+                # Initial audit record
+                audit_record = {
+                    'run_id': run_id,
+                    'analyst': analyst,
+                    'module': module,
+                    'status': status,
+                    'start_time': start_time or datetime.now(pytz.timezone('Asia/Kolkata')),
+                    'end_time': None,
+                    'failure_reason': None
+                }
+                self.db.tariff_gen_audit.insert_one(audit_record)
+            else:
+                # Update existing record with final status
+                update_doc = {
+                    '$set': {
+                        'status': status,
+                        'end_time': end_time or datetime.now(pytz.timezone('Asia/Kolkata')),
+                        'failure_reason': failure_reason
+                    }
+                }
+                self.db.tariff_gen_audit.update_one({'run_id': run_id}, update_doc)
 
-            self.db.tariff_gen_audit.insert_one(audit_record)
-            self.logger.info(f"Saved audit record for run_id: {run_id}, module: {module}, status: {status}")
+            self.logger.info(f"Audit [{status}] for run_id: {run_id}, module: {module}")
         except Exception as e:
             self.logger.error(f"Error saving run audit: {str(e)}")
             raise

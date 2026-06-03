@@ -108,13 +108,15 @@ class TariffGen:
         run_id = str(uuid.uuid4())
         s3_key = None
         failure_reason = None
+        ist = pytz.timezone('Asia/Kolkata')
+        start_time = datetime.now(ist)
 
         self.logger.info(f"TariffGen run started — run_id: {run_id}")
 
         try:
-            # Save initial audit
+            # Save initial audit with IN_PROGRESS
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'IN_PROGRESS', 'tariff_gen'
+                self.analyst_name, run_id, 'IN_PROGRESS', 'tariff_gen', start_time=start_time
             )
 
             # Step 1: Collect all required data
@@ -131,7 +133,7 @@ class TariffGen:
 
             # Success audit
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'SUCCESS', 'tariff_gen'
+                self.analyst_name, run_id, 'SUCCESS', 'tariff_gen', end_time=datetime.now(ist)
             )
 
             self.logger.info(f"TariffGen run completed — run_id: {run_id}, s3_key: {s3_key}")
@@ -147,7 +149,7 @@ class TariffGen:
             failure_reason = str(e)
             self.logger.error(f"TariffGen halted — run_id: {run_id}, reason: {failure_reason}")
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason
+                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason=failure_reason, end_time=datetime.now(ist)
             )
             return {
                 'status': 'FAILED',
@@ -162,7 +164,7 @@ class TariffGen:
                 f"TariffGen failed — run_id: {run_id}\n{traceback.format_exc()}"
             )
             self.pa_helper.save_run_audit(
-                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason
+                self.analyst_name, run_id, 'FAILED', 'tariff_gen', failure_reason=failure_reason, end_time=datetime.now(ist)
             )
             return {
                 'status': 'FAILED',
@@ -784,7 +786,7 @@ class TariffGen:
 
         # Save to MongoDB
         tariff_doc = {
-            'generation_id': str(uuid.uuid4()),
+            'run_id': str(uuid.uuid4()),
             'triggered_by': self.analyst_name,
             'fare_data': fare_data,
             'info_text': info_text,
