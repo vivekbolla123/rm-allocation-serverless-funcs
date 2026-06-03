@@ -4,6 +4,7 @@ import traceback
 import uuid
 import time
 import pytz
+import io
 from datetime import datetime, timedelta
 import configsettings
 from common_utils import GraphMailClient
@@ -305,112 +306,73 @@ class FareMonitor:
         return tariff_lookup
 
     def send_discrepancy_alert(self, violations, unmatched, check_type):
-        """Send SES email alert for fare discrepancies.
+        """Send email alert for fare discrepancies with CSV attachment.
+
+        Instead of embedding a large HTML table (can be 5k+ rows), generates
+        a CSV file with the violations and sends it as an attachment.
 
         Args:
-            violations: List of dicts with keys [sector, rbd/booking_ref, fare_value, boundary, violation_type].
-            unmatched: List of dicts with keys [sector, rbd/booking_ref, fare_value].
+            violations: List of dicts with keys [sector, rbd, fare_value, boundary, violation_type].
+            unmatched: List of dicts with keys [sector, rbd, fare_value].
             check_type: 'daily' or 'weekly'.
         """
         try:
             ist = pytz.timezone('Asia/Kolkata')
             timestamp = datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S IST')
+            date_str = datetime.now(ist).strftime('%Y%m%d')
             check_label = 'Daily' if check_type == 'daily' else 'Weekly'
 
-            # Build violations table rows
-            violation_rows = ""
+            # Build CSV content for violations
+            csv_buffer = io.StringIO()
+            csv_buffer.write("Sector,RBD/Source,Fare Value,Tariff Boundary,Violation Type\n")
             for v in violations:
-                violation_type_label = "Below Min" if v['violation_type'] == 'below_min' else "Above Max"
-                rbd_or_ref = v.get('rbd', v.get('booking_ref', 'N/A'))
-                violation_rows += (
-                    f"<tr>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{v['sector']}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{rbd_or_ref}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{v['fare_value']}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{v['boundary']}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd; color: #cc0000;'>{violation_type_label}</td>"
-                    f"</tr>"
-                )
+                rbd_or_ref = v.get('rbd', 'N/A')
+                violation_label = "Below Min" if v['violation_type'] == 'below_min' else "Above Max"
+                csv_buffer.write(f"{v['sector']},{rbd_or_ref},{v['fare_value']},{v['boundary']},{violation_label}\n")
 
-            # Build unmatched table rows
-            unmatched_rows = ""
-            for u in unmatched:
-                rbd_or_ref = u.get('rbd', u.get('booking_ref', 'N/A'))
-                unmatched_rows += (
-                    f"<tr>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{u['sector']}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{rbd_or_ref}</td>"
-                    f"<td style='padding: 8px; border: 1px solid #ddd;'>{u['fare_value']}</td>"
-                    f"</tr>"
-                )
+            # Encode CSV as base64 for attachment
+            csv_content = csv_buffer.getvalue()
+            filename = f"tariff_discrepancies_{check_type}_{date_str}.csv"
 
-            # Build HTML body
-            violations_section = ""
-            if violations:
-                violations_section = f"""
-                <h3>Fare Violations ({len(violations)})</h3>
-                <table style='border-collapse: collapse; width: 100%;'>
-                    <thead>
-                        <tr style='background-color: #f2f2f2;'>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Sector</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>RBD / Booking Ref</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Fare Value</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Tariff Boundary</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Violation Type</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {violation_rows}
-                    </tbody>
-                </table>
-                """
-
-            unmatched_section = ""
-            if unmatched:
-                unmatched_section = f"""
-                <h3>Unmatched Entries ({len(unmatched)})</h3>
-                <p>The following entries have no corresponding sector in the live tariff sheet:</p>
-                <table style='border-collapse: collapse; width: 100%;'>
-                    <thead>
-                        <tr style='background-color: #f2f2f2;'>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Sector</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>RBD / Booking Ref</th>
-                            <th style='padding: 8px; border: 1px solid #ddd;'>Fare Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {unmatched_rows}
-                    </tbody>
-                </table>
-                """
-
+            # Build a summary HTML body (lightweight, no huge tables)
             html_body = f"""
             <html>
             <body>
                 <h2>Tariff Sheet - {check_label} Fare Discrepancy Alert</h2>
                 <p><strong>Check Time:</strong> {timestamp}</p>
-                <p>The {check_label.lower()} fare comparison has detected discrepancies
-                between {'the fare dump' if check_type == 'daily' else 'booking fares'}
-                and the live tariff sheet.</p>
-                {violations_section}
-                {unmatched_section}
-                <p style='margin-top: 20px; color: #666;'>
-                    Please review the above discrepancies and take corrective action if needed.
+                <p>The {check_label.lower()} fare comparison has detected discrepancies.</p>
+                <table style='border-collapse: collapse;'>
+                    <tr>
+                        <td style='padding: 8px; font-weight: bold;'>Violations:</td>
+                        <td style='padding: 8px; color: #cc0000;'>{len(violations)}</td>
+                    </tr>
+                </table>
+                <p style='margin-top: 20px;'>
+                    Please find the detailed discrepancy report in the attached CSV file.
                 </p>
             </body>
             </html>
             """
 
+            # Send email with CSV attachment
+            attachments = [{
+                'filename': filename,
+                'content': csv_content,
+                'file_type': 'csv'
+            }]
+
             self.mail_client.send_email(
                 f'Tariff Sheet - {check_label} Fare Discrepancy Alert',
                 html_body,
                 self.alert_email,
-                is_html=True
+                is_html=True,
+                attachments=attachments
             )
 
             self.logger.info(
                 f"{check_label} discrepancy alert sent to {self.alert_email} — "
-                f"{len(violations)} violation(s), {len(unmatched)} unmatched"
+                f"{len(violations)} violation(s), {len(unmatched)} unmatched, "
+                f"attached as {filename}"
             )
 
         except Exception as e:

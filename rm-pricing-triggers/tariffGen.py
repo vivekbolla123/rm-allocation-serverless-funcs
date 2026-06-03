@@ -782,17 +782,12 @@ class TariffGen:
         # Get info text from live tariff sheet
         info_text = self.live_tariff_sheet.get('info_text', '') if self.live_tariff_sheet else ''
 
-        # Get tax data from domestic tax master
-        tax_data = self.tax_master_df.to_dict('records') if self.tax_master_df is not None else []
-
         # Save to MongoDB
         tariff_doc = {
             'generation_id': str(uuid.uuid4()),
             'triggered_by': self.analyst_name,
             'fare_data': fare_data,
             'info_text': info_text,
-            'tax_data': tax_data,
-            's3_key': s3_key,
             'status': 'success',
             'error_message': None,
             'sector_count': len(fare_data)

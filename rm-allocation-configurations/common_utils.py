@@ -25,6 +25,7 @@ Usage:
 """
 
 import re
+import base64
 import logging
 import requests
 import configsettings
@@ -206,7 +207,7 @@ class GraphMailClient:
 
         return response.json()["access_token"]
 
-    def send_email(self, subject, body, recipient, is_html=False):
+    def send_email(self, subject, body, recipient, is_html=False, attachments=None):
         """
         Send an email via Microsoft Graph API (draft + send pattern).
 
@@ -215,6 +216,10 @@ class GraphMailClient:
             body: Email body content.
             recipient: Recipient email address (single string).
             is_html: If True, body is treated as HTML; otherwise plain text.
+            attachments: Optional list of dicts with keys:
+                - 'filename': Name of the file (e.g., 'report.csv')
+                - 'content': Raw string content of the file
+                - 'file_type': Type of file ('csv' or 'txt'). Used for encoding.
         """
 
         try:
@@ -251,7 +256,15 @@ class GraphMailClient:
 
             draft_mail_id = draft_response.json()["id"]
 
-            # Step 3: Send the drafted mail
+            # Step 3: Add attachments if provided
+            if attachments:
+                for attachment in attachments:
+                    encoded_content = self._encode_file_content(
+                        attachment['content'], attachment.get('file_type', 'csv')
+                    )
+                    self._add_attachment(draft_mail_id, attachment['filename'], encoded_content, headers)
+
+            # Step 4: Send the drafted mail
             send_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/{draft_mail_id}/send"
             send_response = requests.post(send_url, headers=headers)
 
@@ -265,3 +278,56 @@ class GraphMailClient:
 
         except Exception as e:
             self.logger.error(f"Failed to send email via Graph API: {e}")
+
+    @staticmethod
+    def _encode_file_content(content, file_type='csv'):
+        """
+        Encode file content to base64 for Graph API attachment.
+
+        Args:
+            content: Raw string content of the file.
+            file_type: Type of file ('csv' or 'txt'). Both use UTF-8 encoding.
+
+        Returns:
+            Base64-encoded string suitable for Graph API contentBytes field.
+        """
+        # Both csv and txt are text-based, encode as UTF-8
+        if isinstance(content, str):
+            content_bytes = content.encode('utf-8')
+        else:
+            content_bytes = content
+
+        return base64.b64encode(content_bytes).decode('utf-8')
+
+    def _add_attachment(self, draft_mail_id, filename, content_bytes, headers):
+        """
+        Add a file attachment to a draft email via Graph API.
+
+        Args:
+            draft_mail_id: The ID of the draft message.
+            filename: Name of the attachment file (e.g., 'violations.csv').
+            content_bytes: Base64-encoded file content string.
+            headers: Authorization headers dict.
+        """
+        try:
+            user_id = configsettings.SENDER_EMAIL
+            attachment_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages/{draft_mail_id}/attachments"
+
+            attachment_body = {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": filename,
+                "contentBytes": content_bytes
+            }
+
+            response = requests.post(attachment_url, json=attachment_body, headers=headers)
+
+            if response.status_code == 201:
+                self.logger.info(f"Attachment '{filename}' added to draft {draft_mail_id}")
+            else:
+                self.logger.error(
+                    f"Failed to add attachment '{filename}'. "
+                    f"Status: {response.status_code}, Response: {response.text}"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Error adding attachment '{filename}': {e}")
