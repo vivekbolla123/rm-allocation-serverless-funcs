@@ -149,7 +149,7 @@ if env == 'prod':
     MONGO_DE_USERNAME = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_USERNAME', '')
     MONGO_DE_DB = "FlightSchedule"
     MONGO_DE_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_PASSWORD', '')
-    MONGO_DE_URL = "172.24.72.35"
+    MONGO_DE_URL = "10.16.6.153"
     MONGO_DE_AUTH_SOURCE="admin"
     
     PA_BUCKET_NAME = "qp-s3-fs"

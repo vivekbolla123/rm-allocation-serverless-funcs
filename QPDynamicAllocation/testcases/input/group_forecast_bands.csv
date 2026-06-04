@@ -1,0 +1,7 @@
+band,start,end,b2c_discount,fare_anchor_strategy
+0,-9999,79.99,-15,min
+1,80,84.99,-10,min
+2,85,89.99,-5,min
+3,90,94.99,5,max
+4,95,99.99,10,max
+5,100,9999,15,max
