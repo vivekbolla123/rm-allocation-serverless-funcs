@@ -377,6 +377,62 @@ class TariffPAHelper:
             self.logger.error(f"Error retrieving domestic tax master: {str(e)}")
             raise
 
+    
+    def collect_tax_master_data(self):
+        """Collect both domestic and international tax master data from MongoDB."""
+        try:
+            # Domestic tax data
+            tax_master_dom = list(self.master_db.tax_mast_dom.find(
+                {},
+                {
+                    '_id': 0,
+                    'Station': 1,
+                    'Code': 1,
+                    'ASF': 1,
+                    'CUTE': 1,
+                    'PSF': 1,
+                    'RCS': 1,
+                    'UDF_DF': 1,
+                    'GST': 1
+                }
+            ))
+            tax_master_dom_data = pd.DataFrame(tax_master_dom)
+            
+            # International tax data
+            tax_master_intl = list(self.master_db.tax_mast_intl.find(
+                {},
+                {
+                    '_id': 0,
+                    'Currency': 1,
+                    'Sectors': 1,
+                    'GST': 1,
+                    'CUTE': 1,
+                    'ASF': 1,
+                    'PSF_ADF': 1,
+                    'UDF': 1,
+                    'PSC_PZ': 1,
+                    'RCS_CUTE': 1,
+                    'RCS': 1,
+                    'Tax1': 1,
+                    'Tax2': 1,
+                    'Tax3': 1,
+                    'Tax4': 1,
+                    'Tax5': 1
+                }
+            ))
+            tax_master_intl_data = pd.DataFrame(tax_master_intl)
+            
+            if tax_master_dom_data.empty and tax_master_intl_data.empty:
+                self.failure_reason = "No tax master data available"
+                return None, None, self.failure_reason
+            
+            return tax_master_dom_data, tax_master_intl_data, None
+            
+        except Exception as e:
+            self.logger.error(f"Error collecting tax master data: {str(e)}")
+            self.failure_reason = f"Tax master data collection failed: {str(e)}"
+            return None, None, self.failure_reason
+        
     def get_manual_sectors(self):
         """Retrieve sectors with source='manual' from active_sectors_tariff.
 

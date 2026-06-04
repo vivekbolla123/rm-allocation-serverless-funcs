@@ -8,6 +8,7 @@ import io
 from datetime import datetime, timedelta
 import configsettings
 from common_utils import GraphMailClient
+from constants_utils import ConstantsUtils
 from helpers.pa_db_helpers.tariff_pa_helper import TariffPAHelper
 from helpers.nav_db_helpers.tariff_nav_helper import TariffNavHelper
 from helpers.esb_db_helpers.tariff_esb_helper import TariffEsbHelper
@@ -54,7 +55,7 @@ class FareMonitor:
         self.mail_client = GraphMailClient(logger)
 
         # Constants from rm_parameter_values (configurable via DB)
-        self.constants = params['constantutils']
+        self.constants = ConstantsUtils(params['mongo'])
 
         # RBD classes to check in daily comparison (from constants)
         self.B2C_RBDS = self.constants.B2C_RBD_VALUES.split(',')
@@ -66,6 +67,90 @@ class FareMonitor:
         self.analyst_name = overrides.get('analyst', 'system')
         self.check_type = overrides.get('check_type', 'daily')
         self.alert_email = self.constants.TARIFF_ALERT_MAIL_ID
+        self.tax_master_dom_data = None
+        self.tax_master_intl_data = None
+        self.city_pair_data = None
+
+    def collect_all_data(self):
+        success_count = 0
+        try:
+            self.tax_master_dom_data, self.tax_master_intl_data, failure_reason = self.pa_helper.collect_tax_master_data()
+            if failure_reason:
+                self.failure_reason = failure_reason
+            else:
+                success_count += 1
+        except Exception as e:
+            self.logger.error(f"Tax master data collection failed: {str(e)}")
+            if not self.failure_reason:
+                self.failure_reason = f"Tax master data collection failed: {str(e)}"
+        
+        # Non-critical data collections
+            try:
+                self.city_pair_data = self.nav_helper.collect_city_pair_data(self.sector)
+                success_count += 1
+            except Exception as e:
+                self.logger.error(f"City pair data collection failed (non-critical): {str(e)}")
+            
+            # Collect distance-based fare cap (DOM only)
+            try:
+                if self.route == 'D':
+                    origin = self.sector[:3]
+                    destination = self.sector[3:]
+                    # Get distance from Navitaire CityPair data collected above
+                    sector_distance = None
+                    if self.city_pair_data is not None and not self.city_pair_data.empty:
+                        # Find matching forward sector
+                        match = self.city_pair_data[
+                            (self.city_pair_data['DepartureStation'] == origin) & 
+                            (self.city_pair_data['ArrivalStation'] == destination)
+                        ]
+                        if not match.empty:
+                            sector_distance = float(match.iloc[0]['ActualDistance'])
+                        else:
+                            # Try reverse sector as fallback
+                            reverse_match = self.city_pair_data[
+                                (self.city_pair_data['DepartureStation'] == destination) & 
+                                (self.city_pair_data['ArrivalStation'] == origin)
+                            ]
+                            if not reverse_match.empty:
+                                sector_distance = float(reverse_match.iloc[0]['ActualDistance'])
+                    
+                    if sector_distance is not None:
+                        gross_fare_cap = self._get_fare_cap_for_distance(sector_distance)
+                        # Fare cap includes base fare + RCS + CUTE
+                        # For bidirectional consistency, average both origins' RCS/CUTE
+                        rcs_fwd = cute_fwd = rcs_rev = cute_rev = 0
+                        if self.tax_master_dom_data is not None and not self.tax_master_dom_data.empty:
+                            # Forward origin taxes
+                            fwd_tax = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
+                            if not fwd_tax.empty:
+                                rcs_fwd = float(fwd_tax.iloc[0].get('RCS', 0) or 0)
+                                cute_fwd = float(fwd_tax.iloc[0].get('CUTE', 0) or 0)
+                            # Reverse origin taxes
+                            rev_tax = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == destination]
+                            if not rev_tax.empty:
+                                rcs_rev = float(rev_tax.iloc[0].get('RCS', 0) or 0)
+                                cute_rev = float(rev_tax.iloc[0].get('CUTE', 0) or 0)
+                            self.logger.info(f"Tax deductions - {origin}: RCS={rcs_fwd}, CUTE={cute_fwd}; {destination}: RCS={rcs_rev}, CUTE={cute_rev}")
+                        
+                        # Average both origins for bidirectional consistency
+                        avg_rcs = (rcs_fwd + rcs_rev) / 2
+                        avg_cute = (cute_fwd + cute_rev) / 2
+                        self.fare_cap_value = gross_fare_cap - avg_rcs - avg_cute
+                        self.logger.info(f"Distance-based fare cap for {self.sector}: "
+                                       f"distance={sector_distance} km, gross_cap={gross_fare_cap}, "
+                                       f"avg_RCS={avg_rcs}, avg_CUTE={avg_cute}, "
+                                       f"effective_base_fare_cap={self.fare_cap_value}")
+                    else:
+                        self.fare_cap_value = None
+                        self.logger.warning(f"No distance found for sector {self.sector}, fare cap not applied")
+                else:
+                    # No fare cap for international routes
+                    self.fare_cap_value = None
+                    self.logger.info(f"Fare cap not applied for international route {self.sector}")
+            except Exception as e:
+                self.logger.error(f"Fare cap distance lookup failed (non-critical): {str(e)}")
+                self.fare_cap_value = None
 
     def run_daily_check(self):
         """Compare the latest fares (qp_fares) against the live tariff sheet.
@@ -165,17 +250,155 @@ class FareMonitor:
             'unmatched_count': len(unmatched),
             'status': 'COMPLETED'
         }
+    
+    def _get_distance(self, origin, destination):
+        """Get distance for sector."""
+        # Collect city pair data (needed for distance-based tax calculations)
+        try:
+            self.city_pair_data = self.nav_helper.collect_city_pair_data(self.sector)
+        except Exception as e:
+            self.logger.warning(f"City pair data collection failed: {str(e)}")
+        try:
+            if self.city_pair_data is None or self.city_pair_data.empty:
+                return 0
+            distance_data = self.city_pair_data[
+                (self.city_pair_data['DepartureStation'] == origin) &
+                (self.city_pair_data['ArrivalStation'] == destination)
+            ]
+            return float(distance_data.iloc[0]['ActualDistance']) if not distance_data.empty else 0
+        except Exception:
+            return 0
+
+    def _get_yq_for_distance(self, distance):
+        """Get YQ based on distance (km) for domestic routes from config."""
+        if distance <= 0:
+            return 0
+            
+        try:
+            for min_dist, max_dist, yq_val in self.constants.YQ_DISTANCE_CONFIG:
+                if min_dist < distance <= max_dist:
+                    return float(yq_val)
+        except AttributeError:
+            self.logger.warning("YQ_DISTANCE_CONFIG not found in constants.")
+            
+        return 0
+
+    def _calculate_taxes_domestic(self, base_fare, origin, destination):
+        """Calculate all taxes for domestic fare to get all-in fare."""
+        try:
+            if self.tax_master_dom_data is None or self.tax_master_dom_data.empty:
+                return 0
+                
+            tax_data = self.tax_master_dom_data[self.tax_master_dom_data['Code'] == origin]
+            if tax_data.empty:
+                return 0
+            
+            tax_row = tax_data.iloc[0]
+            gst_rate = float(tax_row.get('GST', 0)) / 100
+            rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
+            cute = float(tax_row.get('CUTE', 0)) if pd.notna(tax_row.get('CUTE')) else 0
+            asf = float(tax_row.get('ASF', 0)) if pd.notna(tax_row.get('ASF')) else 0
+            psf = float(tax_row.get('PSF', 0)) if pd.notna(tax_row.get('PSF')) else 0
+            udf_df = float(tax_row.get('UDF_DF', 0)) if pd.notna(tax_row.get('UDF_DF')) else 0
+            
+            # Apply special handling for RCS sectors
+            if destination in self.constants.PRICING_RCS_SECTORS:
+                rcs = 0
+            
+            # Add DUF for specific sectors
+            duf = 0
+            if destination in self.constants.PRICING_DUF_SECTORS:
+                duf = float(self.constants.PRICING_DUF_SECTORS[destination])
+            
+            # Calculate GST
+            if origin in self.constants.PRICING_GST_SECTORS or destination in self.constants.PRICING_GST_SECTORS:
+                gst = 0
+            else:
+                gst = gst_rate * (base_fare + rcs + cute)
+            
+            # Calculate YQ based on distance
+            distance = self._get_distance(origin, destination)
+            yq = self._get_yq_for_distance(distance)
+            
+            total_taxes = asf + psf + udf_df + rcs + cute + gst + duf + yq + (yq*gst_rate)
+            return total_taxes
+            
+        except Exception:
+            return 0
+
+    def _calculate_taxes_international(self, base_fare, origin, destination):
+        """Calculate all taxes for international fare to get all-in fare."""
+        try:
+            if self.tax_master_intl_data is None or self.tax_master_intl_data.empty:
+                return 0
+                
+            sector_key = f"{origin}{destination}"
+            tax_data = self.tax_master_intl_data[self.tax_master_intl_data['Sectors'] == sector_key]
+            if tax_data.empty:
+                return 0
+            
+            tax_row = tax_data.iloc[0]
+            
+            # Extract all tax components
+            gst_rate = float(tax_row.get('GST', 0)) / 100
+            cute = float(tax_row.get('CUTE', 0)) if pd.notna(tax_row.get('CUTE')) else 0
+            asf = float(tax_row.get('ASF', 0)) if pd.notna(tax_row.get('ASF')) else 0
+            psf_adf = float(tax_row.get('PSF_ADF', 0)) if pd.notna(tax_row.get('PSF_ADF')) else 0
+            udf = float(tax_row.get('UDF', 0)) if pd.notna(tax_row.get('UDF')) else 0
+            psc_pz = float(tax_row.get('PSC_PZ', 0)) if pd.notna(tax_row.get('PSC_PZ')) else 0
+            rcs_cute = float(tax_row.get('RCS_CUTE', 0)) if pd.notna(tax_row.get('RCS_CUTE')) else 0
+            rcs = float(tax_row.get('RCS', 0)) if pd.notna(tax_row.get('RCS')) else 0
+            
+            # Additional taxes
+            tax1 = float(tax_row.get('Tax1', 0)) if pd.notna(tax_row.get('Tax1')) else 0
+            tax2 = float(tax_row.get('Tax2', 0)) if pd.notna(tax_row.get('Tax2')) else 0
+            tax3 = float(tax_row.get('Tax3', 0)) if pd.notna(tax_row.get('Tax3')) else 0
+            tax4 = float(tax_row.get('Tax4', 0)) if pd.notna(tax_row.get('Tax4')) else 0
+            tax5 = float(tax_row.get('Tax5', 0)) if pd.notna(tax_row.get('Tax5')) else 0
+            
+            # YQ and YQ_GST from tax master international
+            yq = float(tax_row.get('YQ', 0)) if pd.notna(tax_row.get('YQ')) else 0
+            yq_gst_rate = float(tax_row.get('YQ_GST', 0)) / 100 if pd.notna(tax_row.get('YQ_GST')) else 0
+            
+            # Calculate GST
+            gst = gst_rate * (base_fare + rcs + cute + rcs_cute)
+            
+            total_taxes = asf + psf_adf + udf + psc_pz + rcs_cute + rcs + cute + gst + tax1 + tax2 + tax3 + tax4 + tax5 + yq + (yq * yq_gst_rate)
+            return total_taxes
+            
+        except Exception:
+            return 0
+
+    def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
+        """Calculate all-in fare based on route type."""
+        try:
+            if self.route == 'D':
+                taxes = self._calculate_taxes_domestic(base_fare, origin, destination)
+            else:
+                taxes = self._calculate_taxes_international(base_fare, origin, destination)
+            
+            if ftype == "current":
+                return base_fare + taxes
+            else:
+                return base_fare - taxes
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating all-in fare: {str(e)}")
+            return base_fare
 
     def run_weekly_check(self):
         """Compare selling fares AND bookings from the preceding 7 days against the live tariff.
 
         Two data sources, both checked against the live tariff sheet min/max per sector:
-          1. Output summary selling fares — run_summary (direct) and
-             run_summary_connections (through) in qp_dw_rmalloc.
-          2. Bookings — ESB QP_DL_FLOWNDATAPAX and QP_DL_BOOKEDDATAPAX.
+        1. Output summary selling fares — run_summary (direct) and
+            run_summary_connections (through) in qp_dw_rmalloc.
+        2. Bookings — ESB QP_DL_FLOWNDATAPAX and QP_DL_BOOKEDDATAPAX.
 
         For each active sector, if any selling/booking fare is below the lowest
         tariff level or above the highest tariff level, it is flagged.
+
+        Selling fares are in base fare form and are converted to all-in before
+        comparison (tariff boundaries are already all-in).
 
         Returns:
             dict: Result with keys [violations_count, unmatched_count, status].
@@ -209,11 +432,52 @@ class FareMonitor:
         # Build tariff lookup
         tariff_lookup = self._build_tariff_lookup(live_sheet)
 
+        # Build sector → route type lookup from active_sectors_df
+        # Expected column: 'route' with values 'D' (domestic) or 'I' (international)
+        sector_route_map = {}
+        if 'route' in active_sectors_df.columns:
+            sector_route_map = dict(
+                zip(active_sectors_df['sector'], active_sectors_df['route'])
+            )
+        else:
+            self.logger.warning(
+                "active_sectors_df has no 'route' column — "
+                "all-in fare conversion will default to domestic for selling fares"
+            )
+
+        # Convert selling fare min/max from base fare to all-in fare before comparison.
+        # Tariff boundaries are already all-in; selling fares come in as base fare only.
+        converted_selling_fares = {}
+        for sector, fares in selling_fares.items():
+            origin = sector[:3]
+            destination = sector[3:]
+            self.route = sector_route_map.get(sector, 'D')
+            try:
+                allin_min = self.calculate_all_in_fare(fares['min_fare'], origin, destination, ftype="current")
+                allin_max = self.calculate_all_in_fare(fares['max_fare'], origin, destination, ftype="current")
+                converted_selling_fares[sector] = {
+                    'min_fare': allin_min,
+                    'max_fare': allin_max,
+                    'count': fares.get('count', 0)
+                }
+                self.logger.debug(
+                    f"[WeeklyCheck] {sector} selling fare converted — "
+                    f"base min={fares['min_fare']} → allin min={allin_min}, "
+                    f"base max={fares['max_fare']} → allin max={allin_max}"
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"[WeeklyCheck] All-in conversion failed for selling fare {sector}, "
+                    f"using base fare as fallback: {str(e)}"
+                )
+                converted_selling_fares[sector] = fares
+
         violations = []
         unmatched = []
 
-        # Check both sources against tariff boundaries
-        for source_label, sector_fares in (('Selling Fare', selling_fares), ('Booking', booking_fares)):
+        # selling fares use converted_selling_fares (all-in).
+        # booking_fares assumed to already be all-in (ESB flown/booked fares).
+        for source_label, sector_fares in (('Selling Fare', converted_selling_fares), ('Booking', booking_fares)):
             for sector, fares in sector_fares.items():
                 if sector not in tariff_lookup:
                     unmatched.append({
