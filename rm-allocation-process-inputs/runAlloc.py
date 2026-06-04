@@ -434,7 +434,10 @@ class DynAlloc:
 		month_str_for_profile = currFltDate_dt.strftime(MONTH)
 		if not mappedMonth_df.empty and 'mappedMonth' in mappedMonth_df.columns and pd.notna(mappedMonth_df['mappedMonth'].iloc[0]):
 			month_str_for_profile = mappedMonth_df['mappedMonth'].iloc[0]
-		
+
+		grp_adj_profile_fare = CONST_NA
+		grp_adj_bookload = CONST_NA
+		grp_fare_anchor = CONST_NA
 		
 		self.logger.info("Running in Full Dynamic Allocation mode.")
 
