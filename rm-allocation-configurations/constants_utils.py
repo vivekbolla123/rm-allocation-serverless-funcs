@@ -406,11 +406,11 @@ class ConstantsUtils:
             elif parameter_key == EQT_RECIPIENTS_KEY:
                 self.EQT_RECIPIENTS = parameter_value
             elif parameter_key == GROUP_SCALING_FACTOR_KEY:
-                self.GROUP_SCALING_FACTOR = json.loads(parameter_value)
+                self.GROUP_SCALING_FACTOR = float(parameter_value)
             elif parameter_key == GROUP_AU_BATCH_KEY:
-                self.GROUP_AU_BATCH = json.loads(parameter_value)
+                self.GROUP_AU_BATCH = float(parameter_value)
             elif parameter_key == GROUP_IMP_FORECAST_REDUCTION_KEY:
-                self.GROUP_IMP_FORECAST_REDUCTION = json.loads(parameter_value)
+                self.GROUP_IMP_FORECAST_REDUCTION = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
