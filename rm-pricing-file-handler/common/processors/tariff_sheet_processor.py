@@ -157,18 +157,6 @@ def validate_tariff_sheet(df: pd.DataFrame) -> pd.DataFrame:
         if not has_at_least_one:
             errors.append(f"Row {idx + 2}: Must have at least one fare level value")
 
-        # --- 6. Ascending order check ---
-        if len(row_fares) >= 2:
-            for i in range(1, len(row_fares)):
-                prev_col, prev_val = row_fares[i - 1]
-                curr_col, curr_val = row_fares[i]
-                if curr_val <= prev_val:
-                    errors.append(
-                        f"Row {idx + 2}: Fare levels not strictly ascending — "
-                        f"{prev_col}={prev_val} >= {curr_col}={curr_val}"
-                    )
-                    break  # One error per row is enough
-
     if errors:
         raise ValueError("; ".join(errors))
 
