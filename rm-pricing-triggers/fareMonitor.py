@@ -70,6 +70,8 @@ class FareMonitor:
         self.tax_master_dom_data = None
         self.tax_master_intl_data = None
         self.city_pair_data = None
+        self.fare_cap_value = None
+        self.failure_reason = None
 
     def collect_all_data(self):
         success_count = 0
@@ -81,7 +83,7 @@ class FareMonitor:
                 success_count += 1
         except Exception as e:
             self.logger.error(f"Tax master data collection failed: {str(e)}")
-            if not self.failure_reason:
+            if not hasattr(self, 'failure_reason') or not self.failure_reason:
                 self.failure_reason = f"Tax master data collection failed: {str(e)}"
         
         # Non-critical data collections
@@ -380,9 +382,13 @@ class FareMonitor:
             return 0
 
     def calculate_all_in_fare(self, base_fare, origin, destination, ftype):
-        """Calculate all-in fare based on route type."""
+        """Calculate all-in fare based on route type — derived from sector."""
         try:
-            if self.route == 'D':
+            # Derive route from sector: domestic if both stations are Indian (3-letter IATA)
+            # Use station master or simply check against known domestic stations
+            route = self._derive_route(origin, destination)
+            
+            if route == 'D':
                 taxes = self._calculate_taxes_domestic(base_fare, origin, destination)
             else:
                 taxes = self._calculate_taxes_international(base_fare, origin, destination)
@@ -395,6 +401,22 @@ class FareMonitor:
         except Exception as e:
             self.logger.warning(f"Error calculating all-in fare: {str(e)}")
             return base_fare
+
+    def _derive_route(self, origin, destination):
+        """Derive route type (D=domestic, I=international) from station codes.
+        
+        Uses tax_master_dom_data — if both origin and destination exist in
+        the domestic tax master, it's a domestic sector.
+        Falls back to international if either is not found.
+        """
+        try:
+            if self.tax_master_dom_data is not None and not self.tax_master_dom_data.empty:
+                dom_codes = set(self.tax_master_dom_data['Code'].tolist())
+                if origin in dom_codes and destination in dom_codes:
+                    return 'D'
+            return 'I'
+        except Exception:
+            return 'D'  # default to domestic for Akasa (primarily domestic carrier)
 
     def run_weekly_check(self):
         """Compare selling fares AND bookings from the preceding 7 days against the live tariff.
