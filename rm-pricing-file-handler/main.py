@@ -13,7 +13,7 @@ from common.processors.saver_processor import format_saver_file
 from common.processors.product_upsell_processor import validate_product_upsell
 from common.processors.market_list_processor import validate_market_list
 from common.processors.footnote_master_processor import validate_footnote_master
-from common.processors.tariff_sheet_processor import validate_tariff_sheet, format_tariff_sheet
+from common.processors.tariff_sheet_processor import clean_tariff_sheet_df, validate_tariff_sheet, format_tariff_sheet
 from common.config.db_config import get_mongo_master_db
 
 
@@ -197,6 +197,7 @@ class FileUploadWorker:
 
             elif table == LIVE_TARIFF_SHEET_TABLE:
                 try:
+                    csv_df = clean_tariff_sheet_df(csv_df)
                     validated_df = validate_tariff_sheet(csv_df)
                     with get_mongo_master_db() as master_db:
                         station_master = list(master_db.config_station_master.find(

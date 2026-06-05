@@ -11,7 +11,27 @@ This processor:
 
 import pandas as pd
 import numpy as np
+import re
 
+def clean_tariff_sheet_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Pre-process tariff sheet DataFrame before validation:
+    1. Drop any unnamed/empty columns (e.g. extra empty column after Market)
+    2. Normalize Market column spacing around ' - ' separator
+    """
+    # 1. Drop columns that are entirely unnamed (e.g. "Unnamed: 1")
+    #    These come from extra empty columns in the CSV
+    df = df.loc[:, ~df.columns.str.match(r'^Unnamed:')]
+
+    # 2. Normalize Market: collapse any spacing around '-' to exactly ' - '
+    #    Handles: "A-B", "A- B", "A -B", "A  -  B" → "A - B"
+    if "Market" in df.columns:
+        df["Market"] = df["Market"].astype(str).str.strip()
+        df["Market"] = df["Market"].apply(
+            lambda v: re.sub(r'\s*-\s*', ' - ', v) if pd.notna(v) and v.lower() != 'nan' else v
+        )
+
+    return df
 
 def _parse_fare_value(val) -> int | None:
     """

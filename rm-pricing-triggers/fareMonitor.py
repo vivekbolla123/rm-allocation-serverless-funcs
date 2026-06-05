@@ -390,15 +390,12 @@ class FareMonitor:
         """Compare selling fares AND bookings from the preceding 7 days against the live tariff.
 
         Two data sources, both checked against the live tariff sheet min/max per sector:
-        1. Output summary selling fares — run_summary (direct) and
-            run_summary_connections (through) in qp_dw_rmalloc.
-        2. Bookings — ESB QP_DL_FLOWNDATAPAX and QP_DL_BOOKEDDATAPAX.
+          1. Output summary selling fares — run_summary (direct) and
+             run_summary_connections (through) in qp_dw_rmalloc.
+          2. Bookings — ESB QP_DL_FLOWNDATAPAX and QP_DL_BOOKEDDATAPAX.
 
         For each active sector, if any selling/booking fare is below the lowest
         tariff level or above the highest tariff level, it is flagged.
-
-        Selling fares are in base fare form and are converted to all-in before
-        comparison (tariff boundaries are already all-in).
 
         Returns:
             dict: Result with keys [violations_count, unmatched_count, status].
@@ -432,53 +429,14 @@ class FareMonitor:
         # Build tariff lookup
         tariff_lookup = self._build_tariff_lookup(live_sheet)
 
-        # Build sector → route type lookup from active_sectors_df
-        # Expected column: 'route' with values 'D' (domestic) or 'I' (international)
-        sector_route_map = {}
-        if 'route' in active_sectors_df.columns:
-            sector_route_map = dict(
-                zip(active_sectors_df['sector'], active_sectors_df['route'])
-            )
-        else:
-            self.logger.warning(
-                "active_sectors_df has no 'route' column — "
-                "all-in fare conversion will default to domestic for selling fares"
-            )
-
-        # Convert selling fare min/max from base fare to all-in fare before comparison.
-        # Tariff boundaries are already all-in; selling fares come in as base fare only.
-        converted_selling_fares = {}
-        for sector, fares in selling_fares.items():
-            origin = sector[:3]
-            destination = sector[3:]
-            self.route = sector_route_map.get(sector, 'D')
-            try:
-                allin_min = self.calculate_all_in_fare(fares['min_fare'], origin, destination, ftype="current")
-                allin_max = self.calculate_all_in_fare(fares['max_fare'], origin, destination, ftype="current")
-                converted_selling_fares[sector] = {
-                    'min_fare': allin_min,
-                    'max_fare': allin_max,
-                    'count': fares.get('count', 0)
-                }
-                self.logger.debug(
-                    f"[WeeklyCheck] {sector} selling fare converted — "
-                    f"base min={fares['min_fare']} → allin min={allin_min}, "
-                    f"base max={fares['max_fare']} → allin max={allin_max}"
-                )
-            except Exception as e:
-                self.logger.warning(
-                    f"[WeeklyCheck] All-in conversion failed for selling fare {sector}, "
-                    f"using base fare as fallback: {str(e)}"
-                )
-                converted_selling_fares[sector] = fares
-
         violations = []
         unmatched = []
 
-        # selling fares use converted_selling_fares (all-in).
-        # booking_fares assumed to already be all-in (ESB flown/booked fares).
-        for source_label, sector_fares in (('Selling Fare', converted_selling_fares), ('Booking', booking_fares)):
+        # Check both sources against tariff boundaries
+        for source_label, sector_fares in (('Selling Fare', selling_fares), ('Booking', booking_fares)):
             for sector, fares in sector_fares.items():
+                origin = sector[:3]
+                destination = sector[3:]
                 if sector not in tariff_lookup:
                     unmatched.append({
                         'sector': sector,
@@ -488,8 +446,9 @@ class FareMonitor:
                     continue
 
                 tariff_entry = tariff_lookup[sector]
-                tariff_min = tariff_entry['min_fare']
-                tariff_max = tariff_entry['max_fare']
+                # self.calculate_all_in_fare(tariff_entry['min_fare'], origin, destination, ftype="current")
+                tariff_min = self.calculate_all_in_fare(tariff_entry['min_fare'], origin, destination, ftype="current")
+                tariff_max = self.calculate_all_in_fare(tariff_entry['max_fare'], origin, destination, ftype="current")
 
                 # Below the lowest tariff level
                 if fares['min_fare'] < tariff_min:
@@ -527,6 +486,7 @@ class FareMonitor:
             'status': 'COMPLETED'
         }
 
+    
     def _build_tariff_lookup(self, live_sheet):
         """Build a lookup dictionary from the live tariff sheet's fare_data.
 
