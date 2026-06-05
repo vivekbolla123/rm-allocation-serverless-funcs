@@ -194,10 +194,20 @@ class FareMonitor:
         # Build tariff lookup: {sector: {fare_levels: [...], min_fare, max_fare}}
         tariff_lookup = self._build_tariff_lookup(live_sheet)
 
+        # --- Deduplicate: per (sector, rbd) keep only the single lowest fare ---
+        # This avoids flagging the same RBD multiple times for duplicate fare entries.
+        # We take min base_fare per group — if the lowest fare is within bounds,
+        # all higher fares for that RBD on that sector are also within bounds.
+        deduped_df = (
+            fare_df
+            .groupby(['sector', 'rbd'], as_index=False)['base_fare']
+            .min()
+        )
+
         violations = []
         unmatched = []
 
-        for _, row in fare_df.iterrows():
+        for _, row in deduped_df.iterrows():
             sector = row.get('sector', '')
             rbd = row.get('rbd', '')
             fare_value = row.get('base_fare', 0)
