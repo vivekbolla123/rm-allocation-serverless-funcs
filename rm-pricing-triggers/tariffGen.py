@@ -129,7 +129,7 @@ class TariffGen:
             csv_content = self.generate_csv(tariff_df)
 
             # Step 4: Save output to S3 and MongoDB
-            s3_key = self.save_output(tariff_df, csv_content)
+            s3_key = self.save_output(run_id, tariff_df, csv_content)
 
             # Success audit
             self.pa_helper.save_run_audit(
@@ -733,12 +733,13 @@ class TariffGen:
         self.logger.info(f"CSV generated: {len(csv_content)} bytes")
         return csv_content
 
-    def save_output(self, tariff_df, csv_content):
+    def save_output(self, run_id, tariff_df, csv_content):
         """Save generated tariff sheet to S3 and MongoDB.
 
         Uploads CSV to S3 and saves metadata to generated_tariff_sheet collection.
 
         Args:
+            run_id: Unique identifier for the tariff generation run.
             tariff_df: DataFrame with tariff sheet data.
             csv_content: CSV string content.
 
@@ -786,7 +787,7 @@ class TariffGen:
 
         # Save to MongoDB
         tariff_doc = {
-            'run_id': str(uuid.uuid4()),
+            'run_id': run_id,
             'triggered_by': self.analyst_name,
             'fare_data': fare_data,
             'info_text': info_text,
