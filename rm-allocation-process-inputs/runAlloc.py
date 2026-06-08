@@ -1983,9 +1983,10 @@ class DynAlloc:
 	def recommend_action(self, row):
 		try:
 			def safe_float(value):
-				if value is None or str(value).strip().upper() == 'NA':
+				val_str = str(value).strip().upper()
+				if value is None or val_str in ['NA', 'NONE', '']:
 					return 0.0
-				return float(str(value).strip())
+				return float(val_str)
 
 			mkt_fare_min = safe_float(row.MktFare_Min)
 			backstop = safe_float(row.Backstop)
