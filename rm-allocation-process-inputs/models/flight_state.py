@@ -181,6 +181,9 @@ class FlightState:
 	first_rbd_alloc: Any = None
 	other_rbd_alloc: Any = None
 	current_nav_update_method_full: str = ""
+	grp_adj_profile_fare: Any = None
+	grp_adj_bookload: Any = None
+	grp_fare_anchor: Any = None
 
 	# Phase K (anchor) — additional locals threaded into Phase L/N
 	hardfareb2c_updated: Any = None

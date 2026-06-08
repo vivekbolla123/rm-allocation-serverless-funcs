@@ -554,9 +554,9 @@ class DynAlloc:
 		if not mappedMonth_df.empty and 'mappedMonth' in mappedMonth_df.columns and pd.notna(mappedMonth_df['mappedMonth'].iloc[0]):
 			month_str_for_profile = mappedMonth_df['mappedMonth'].iloc[0]
 
-		grp_adj_profile_fare = CONST_NA
-		grp_adj_bookload = CONST_NA
-		grp_fare_anchor = CONST_NA
+		state.grp_adj_profile_fare = CONST_NA
+		state.grp_adj_bookload = CONST_NA
+		state.grp_fare_anchor = CONST_NA
 		
 		self.logger.info("Running in Full Dynamic Allocation mode.")
 
@@ -1238,6 +1238,10 @@ class DynAlloc:
 		b2b_backstop_final = state.b2b_backstop_final
 		openDataB2C_details = state.openDataB2C_details
 		openDataB2B_details = state.openDataB2B_details
+		final_plf = state.final_plf
+		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
+		sod_startOfDayBookLoad_factor = state.sod_startOfDayBookLoad_factor
+		sod_startOfDayTgtBookedLoad_abs = state.sod_startOfDayTgtBookedLoad_abs
 
 		# --- AU Grid Allocation (Full Mode) ---
 		currRec_fullalloc = AuGridRow(self.AU_COLUMN_LENGTH) # AU_COLUMN_LENGTH from _initialize_params
@@ -1351,7 +1355,7 @@ class DynAlloc:
 			b2c_selling_fare = safe_get_from_dict(openDataB2C_details, "Fare")
 			param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
 			group_bookings=self.currParams.group_bookings# Default
-			current_brd_counter, grp_adj_profile_fare, grp_adj_bookload, grp_fare_anchor = self.allocations.group_quote_alloc(
+			current_brd_counter, state.grp_adj_profile_fare, state.grp_adj_bookload, state.grp_fare_anchor = self.allocations.group_quote_alloc(
 				profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
 				base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
 				ndocounter=ndocounter, imp_forecast=imp_forecast,
@@ -1449,6 +1453,9 @@ class DynAlloc:
 		openDataB2C_details = state.openDataB2C_details
 		openDataB2B_details = state.openDataB2B_details
 		b2b_anchor_source = state.b2b_anchor_source
+		grp_adj_profile_fare = state.grp_adj_profile_fare
+		grp_adj_bookload = state.grp_adj_bookload
+		grp_fare_anchor = state.grp_fare_anchor
 		param_profileFares = getattr(self.currParams, 'profileFares', 1)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
