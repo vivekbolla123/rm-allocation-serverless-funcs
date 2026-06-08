@@ -1,4 +1,5 @@
 from Constants import *
+from common.compute_utils import parse_numeric
 
 
 class MarketListRow:
@@ -58,13 +59,6 @@ class MarketListRow:
         self.capacity = currParams.get("capacity",CONST_NA)
         self.adjustedCapacity = currParams.get("adjustedCapacity",CONST_NA)
         self.tbf_bookings = currParams.get("tbf_bookings",CONST_NA)
-        def parse_numeric(val, default=0):
-            try:
-                if val == CONST_NA or val == "" or val is None:
-                    return default
-                return float(val)
-            except (ValueError, TypeError):
-                return default
 
         self.seats_sold_L = parse_numeric(currParams.get("seats_sold_L", 0))
         self.seats_sold_P = parse_numeric(currParams.get("seats_sold_P", 0))

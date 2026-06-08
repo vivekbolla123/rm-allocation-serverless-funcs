@@ -116,3 +116,11 @@ def safe_get_from_dict(d, key, default=CONST_NA, index=0):
   if isinstance(val_list, list) and len(val_list) > index:
     return val_list[index]
   return default
+
+def parse_numeric(val, default=0):
+  try:
+    if val == CONST_NA or val == "" or val is None:
+      return default
+    return float(val)
+  except (ValueError, TypeError):
+    return default
