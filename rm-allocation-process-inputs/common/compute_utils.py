@@ -124,3 +124,14 @@ def parse_numeric(val, default=0):
     return float(val)
   except (ValueError, TypeError):
     return default
+
+def parse_int_flag(val, default=0):
+  try:
+    if val == CONST_NA or val == "" or val is None:
+      return default
+    val_float = float(val)
+    if math.isnan(val_float):
+      return default
+    return int(val_float)
+  except (ValueError, TypeError):
+    return default

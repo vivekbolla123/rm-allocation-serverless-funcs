@@ -1,5 +1,5 @@
 from Constants import *
-from common.compute_utils import parse_numeric
+from common.compute_utils import parse_numeric, parse_int_flag
 
 
 class MarketListRow:
@@ -31,28 +31,28 @@ class MarketListRow:
         self.obFare = currParams.get("obFare", CONST_NA)
         self.skipping_factor = currParams.get("SkippingFactor", CONST_NA)
         self.day_span = currParams.get("DaySpan", CONST_NA)
-        self.auto_time_range_flag = currParams.get("AutoTimeRangeFlag", CONST_NA)
+        self.auto_time_range_flag = parse_int_flag(currParams.get("AutoTimeRangeFlag"), CONST_NA)
         self.analyst_name = currParams.get("analystName", CONST_NA)
         self.opening_fares = currParams.get("openingFares", CONST_NA)
         self.over_booking = currParams.get("OverBooking", CONST_NA)
         self.profileFares = currParams.get("profileFares", CONST_NA)
-        self.rbdPushFlag = currParams.get("rbdPushFlag", CONST_NA)
+        self.rbdPushFlag = parse_int_flag(currParams.get("rbdPushFlag"), CONST_NA)
         self.b2c_tolerance = currParams.get("B2CTolerance", CONST_NA)
         self.b2b_tolerance = currParams.get("B2BTolerance", CONST_NA)
-        self.distressInventoryFlag = currParams.get("distressInventoryFlag", CONST_NA)
+        self.distressInventoryFlag = parse_int_flag(currParams.get("distressInventoryFlag"), CONST_NA)
         self.seriesBlock = currParams.get("seriesBlock", CONST_NA)
         self.autoGroup = currParams.get("autoGroup", CONST_NA)
-        self.autoBackstopFlag = currParams.get("autoBackstopFlag", CONST_NA)
-        self.tbfFlag = currParams.get("tbfFlag", CONST_NA)
-        self.w0Flag = currParams.get("w0_value",'0')
-        self.directFlag = currParams.get("directFlag",'1')
-        self.cug_mkt_flag = currParams.get("CugFlag",CONST_NA)
-        self.mkt_fare_flag = currParams.get("MktFareFlag",CONST_NA)
-        self.tbfenhflag = currParams.get("TBFEnhFlag",CONST_NA)
-        self.outboundstop = currParams.get("Outbound_Stop",CONST_NA)
-        self.market_discount = currParams.get("Marketfare_Upsell",CONST_NA)
+        self.autoBackstopFlag = parse_int_flag(currParams.get("autoBackstopFlag"), CONST_NA)
+        self.tbfFlag = parse_int_flag(currParams.get("tbfFlag"), CONST_NA)
+        self.w0Flag = parse_int_flag(currParams.get("w0_value"), 0)
+        self.directFlag = parse_int_flag(currParams.get("directFlag"), 1)
+        self.cug_mkt_flag = parse_int_flag(currParams.get("CugFlag"), CONST_NA)
+        self.mkt_fare_flag = parse_int_flag(currParams.get("MktFareFlag"), CONST_NA)
+        self.tbfenhflag = parse_int_flag(currParams.get("TBFEnhFlag"), CONST_NA)
+        self.outboundstop = parse_int_flag(currParams.get("Outbound_Stop"), CONST_NA)
+        self.market_discount = parse_int_flag(currParams.get("Marketfare_Upsell"), CONST_NA)
         
-        self.saleflag = currParams.get("saleflag",CONST_NA)
+        self.saleflag = parse_int_flag(currParams.get("saleflag"), CONST_NA)
         
         self.DepartureTime = currParams.get("DepartureTime",CONST_NA)
         self.bookedPax = currParams.get("bookedPax",CONST_NA)
@@ -74,7 +74,7 @@ class MarketListRow:
         self.WC_bookings = currParams.get("WC_bookings",CONST_NA)
         self.WD_bookings = currParams.get("WD_bookings",CONST_NA)
         self.WE_bookings = currParams.get("WE_bookings",CONST_NA)	
-        self.cug_flag = currParams.get("cug_alloc",'1')	
+        self.cug_flag = parse_int_flag(currParams.get("cug_alloc"), 1)	
         self.group_bookings = currParams.get("group_bookings",CONST_NA)
         
         self.run_id = currParams.get("runId", CONST_NA)
@@ -91,12 +91,12 @@ class MarketListRow:
         self.time_logger = currParams.get("timelogger", CONST_NA)        
         self.route_type=currParams.get("route_type",CONST_NA)
         self.strategy = CONST_NA
-        self.mongodb=currParams.get("mongodb",'0')
+        self.mongodb = parse_int_flag(currParams.get("mongodb"), 0)
         self.mongodbclient=currParams.get("mongodbclient",CONST_NA)
         self.mongo_master_db=currParams.get("mongo_master_db",CONST_NA)
         
-        self.saleinvflag = currParams.get("saleinvflag",0)
-        self.defaultMlFlag = currParams.get("defaultMlFlag",0)
+        self.saleinvflag = parse_int_flag(currParams.get("saleinvflag"), 0)
+        self.defaultMlFlag = parse_int_flag(currParams.get("defaultMlFlag"), 0)
         self.forecastPLF = currParams.get("forecastPLF",CONST_NA)
         self.ForecastAF_Allin = currParams.get("ForecastAF_Allin", 0)
         self.ALLIN_AF = currParams.get("ALLIN_AF", 0)
@@ -104,16 +104,16 @@ class MarketListRow:
         self.ALLIN_AF_NB_LY = currParams.get("ALLIN_AF_NB_LY", 0)
         self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
-        self.forecastAllocFlag = currParams.get("forecastAllocFlag", 0)
-        self.afForecastAllocFlag = currParams.get("afForecastAllocFlag", 0)
-        self.Spoilage_Flag = currParams.get("Spoilage_Flag", 0)
-        self.CanAdjustedForecast = currParams.get("CanAdjustedForecast", 0)
+        self.forecastAllocFlag = parse_int_flag(currParams.get("forecastAllocFlag"), 0)
+        self.afForecastAllocFlag = parse_int_flag(currParams.get("afForecastAllocFlag"), 0)
+        self.Spoilage_Flag = parse_int_flag(currParams.get("Spoilage_Flag"), 0)
+        self.CanAdjustedForecast = parse_int_flag(currParams.get("CanAdjustedForecast"), 0)
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
-        self.market_station_mapping = currParams.get("market_station_mapping", 0)
+        self.market_station_mapping = parse_int_flag(currParams.get("market_station_mapping"), 0)
         self.farecap = currParams.get("farecap", CONST_NA)
 
         # Portfolio count
         self.portfolio_count = currParams.get("portfolio_count", CONST_NA)
 
         # Portfolio-only flag — set to 1 for sibling records used only for portfolio calc and not allocated
-        self.portfolio_only = currParams.get("portfolio_only", 0)
+        self.portfolio_only = parse_int_flag(currParams.get("portfolio_only"), 0)
