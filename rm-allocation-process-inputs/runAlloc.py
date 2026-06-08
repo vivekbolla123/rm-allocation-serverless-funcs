@@ -649,36 +649,36 @@ class DynAlloc:
 		sod_eodTgtBookedLoad_abs = state.sod_eodTgtBookedLoad_abs
 		sod_dplfBand = state.sod_dplfBand
 
-			variance_full = calculateVariance(
-				float(currBookedLoad), final_totalCapacity, ndocounter,
-				sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
-			)
-			self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
+		variance_full = calculateVariance(
+			float(currBookedLoad), final_totalCapacity, ndocounter,
+			sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
+		)
+		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
-			# Use forecast data only if within 30 NDOs
-			imp_forecast = CONST_NA
-			PLF_Gain = CONST_NA
-			Af_Nb_Allin = CONST_NA
-			if ndocounter <= 30:
-				imp_forecast = getParsedImputedForecast(self, variance_full)
-			if(imp_forecast != CONST_NA):
-				Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
-				PLF_Gain = ((imp_forecast) - round(final_plf,2))
+		# Use forecast data only if within 30 NDOs
+		imp_forecast = CONST_NA
+		PLF_Gain = CONST_NA
+		Af_Nb_Allin = CONST_NA
+		if ndocounter <= 30:
+			imp_forecast = getParsedImputedForecast(self, variance_full)
+		if(imp_forecast != CONST_NA):
+			Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
+			PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
 
-			forecast_plf = forecastBand = CONST_NA
-			if ndocounter <= 30:
-				forecast_plf = getParsedForecast(self)
-			if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
-				forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
-			
-			imp_forecast_band = CONST_NA
-			af_forecast_band = CONST_NA
-			if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
-				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
-				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
+		forecast_plf = forecastBand = CONST_NA
+		if ndocounter <= 30:
+			forecast_plf = getParsedForecast(self)
+		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
+			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
+		
+		imp_forecast_band = CONST_NA
+		af_forecast_band = CONST_NA
+		if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
+			imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
+			af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
 
 		b2b_strategy = self.currParams.b2bStrategy
 		forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
