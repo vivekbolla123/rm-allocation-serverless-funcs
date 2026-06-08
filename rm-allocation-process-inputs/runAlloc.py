@@ -2541,12 +2541,45 @@ class DynAlloc:
 			currFltDepartureTime = self.currParams.DepartureTime
 		if currBookedLoad is None:
 			currBookedLoad = self.currParams.bookedPax
-		if tgtBookedLoadPercent is None:
-			tgtBookedLoadPercent = 0.0
-		if ndocounter is None:
-			ndocounter = 0
-		if dow is None:
-			dow = 0
+		# SQS payload dispatch omits positional arguments.
+		# Mimic the legacy orchestrator loop exactly to ensure 100% behavioral parity.
+		short_circuit_reason = None
+		if ndocounter is None or dow is None or tgtBookedLoadPercent is None:
+			try:
+				currDate = self.timeutils.getCurrentDate()
+				if isinstance(currDate, datetime):
+					currDate = currDate.date()
+				flightDate = datetime.strptime(currFltDate, DATE_FORMAT).date()
+				
+				computed_ndo = (flightDate - currDate).days
+				computed_dow = int(flightDate.strftime(WEEK_DAY))
+
+				if ndocounter is None:
+					ndocounter = computed_ndo
+				if dow is None:
+					dow = computed_dow
+
+				if tgtBookedLoadPercent is None:
+					curveId = getattr(self.currParams, 'curve_id', None)
+					if curveId is not None and str(curveId).strip() not in ('', 'nan', 'None', 'NA'):
+						tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
+						if len(tgtBookedLoadList) > 0:
+							tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
+						else:
+							tgtBookedLoadPercent = 0.0
+							short_circuit_reason = HD_NO_REF_CURVE
+					else:
+						tgtBookedLoadPercent = 0.0
+						short_circuit_reason = HD_NO_REF_CURVE
+
+			except Exception as e:
+				self.logger.error(f"Could not create params from currFltDate '{currFltDate}': {e}")
+				if ndocounter is None:
+					ndocounter = 0
+				if dow is None:
+					dow = 0
+				if tgtBookedLoadPercent is None:
+					tgtBookedLoadPercent = 0.0
 
 		state = FlightState(
 			currFlt=currFlt,
@@ -2563,6 +2596,11 @@ class DynAlloc:
 			portfolio_count=int(getattr(self.currParams, 'portfolio_count', 1) or 1)
 				if str(getattr(self.currParams, 'portfolio_count', '')).strip() not in ('', 'NA') else 1,
 		)
+
+		if short_circuit_reason:
+			state.aborted = True
+			state.is_failure = True
+			state.failure_reason = short_circuit_reason
 
 		self._phaseA_initFlightContext(state)
 		if state.aborted:
