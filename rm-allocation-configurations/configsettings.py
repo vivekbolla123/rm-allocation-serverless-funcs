@@ -61,6 +61,11 @@ param_names = [
     f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY',
     f'/copilot/{app_name}/{creenv}/secrets/RM_WEBSERVICE_AWS_SECRET_KEY',
     f'/rm/{creenv}/rm-allocation/RM_MONGO_PASSWORD',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_ID',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_CLIENT_SECRET',
+    f'/rm/{creenv}/rm-allocation/RM_ALERTS_TENANT_ID',
+    f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_USERNAME',
+    f'/rm/{creenv}/rm-allocation/RM_DE_DB_APPUSER_PASSWORD'
 ]
 
 # Get all credentials at once
@@ -142,11 +147,18 @@ if env == 'prod':
     MONGO_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_MONGO_PASSWORD', '')
     MONGO_URL = "10.16.6.179"
     MONGO_AUTH_SOURCE="admin"
-
-    SENDER_PASSWORD= credentials.get('/copilot/qp/' + env + '/secrets/smtp/QP_ALERTS_PWD')
+    
+    MONGO_DE_USERNAME = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_USERNAME', '')
+    MONGO_DE_DB = "FlightSchedule"
+    MONGO_DE_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/RM_DE_DB_APPUSER_PASSWORD', '')
+    MONGO_DE_URL = "10.16.6.153"
+    MONGO_DE_AUTH_SOURCE="admin"
     
     PA_BUCKET_NAME = "qp-s3-fs"
     PA_FILE_PATH = 'prod/PA/'
+    ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
+    ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
+    ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
     
 if env == 'uat':
     RM_DB_APPUSER_USERNAME = "app_esb"
@@ -234,11 +246,18 @@ if env == 'uat':
     MONGO_PASSWORD = "testpassword"
     MONGO_URL = "172.24.72.35"
     MONGO_AUTH_SOURCE="admin"
-
-    SENDER_PASSWORD= credentials.get(f'/copilot/{app_name}/' + env + '/secrets/smtp/QP_ALERTS_PWD')
     
+    MONGO_DE_USERNAME = "testuser"
+    MONGO_DE_DB = "test_db"
+    MONGO_DE_PASSWORD = "testpassword"
+    MONGO_DE_URL = "172.24.72.35"
+    MONGO_DE_AUTH_SOURCE="admin"   
+        
     PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'
+    ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
+    ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
+    ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
     
 if env == 'preprod':
     credenv='prod'

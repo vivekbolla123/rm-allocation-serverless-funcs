@@ -35,6 +35,7 @@ from utilities.utils import Utils
 from utilities.math_utils import MathUtils
 from utilities.time_utils import TimeUtils
 from constants_utils import ConstantsUtils
+from common.compute_utils import *
 
 from models.market_list_row import MarketListRow
 from models.input_source import InputSource
@@ -553,7 +554,10 @@ class DynAlloc:
 		if not mappedMonth_df.empty and 'mappedMonth' in mappedMonth_df.columns and pd.notna(mappedMonth_df['mappedMonth'].iloc[0]):
 			month_str_for_profile = mappedMonth_df['mappedMonth'].iloc[0]
 
-
+		grp_adj_profile_fare = CONST_NA
+		grp_adj_bookload = CONST_NA
+		grp_fare_anchor = CONST_NA
+		
 		self.logger.info("Running in Full Dynamic Allocation mode.")
 
 		state.final_totalCapacity = final_totalCapacity
@@ -645,36 +649,36 @@ class DynAlloc:
 		sod_eodTgtBookedLoad_abs = state.sod_eodTgtBookedLoad_abs
 		sod_dplfBand = state.sod_dplfBand
 
-		variance_full = self.calculateVariance(
-			float(currBookedLoad), final_totalCapacity, ndocounter,
-			sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
-		)
-		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
+			variance_full = calculateVariance(
+				float(currBookedLoad), final_totalCapacity, ndocounter,
+				sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
+			)
+			self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
-		# Use forecast data only if within 30 NDOs
-		imp_forecast = CONST_NA
-		PLF_Gain = CONST_NA
-		Af_Nb_Allin = CONST_NA
-		if ndocounter <= 30:
-			imp_forecast = self.getParsedImputedForecast(variance_full)
-		if(imp_forecast != CONST_NA):
-			Af_Nb_Allin = self.calculateAfNbAllin(min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
-			PLF_Gain = ((imp_forecast) - round(final_plf,2))
+			# Use forecast data only if within 30 NDOs
+			imp_forecast = CONST_NA
+			PLF_Gain = CONST_NA
+			Af_Nb_Allin = CONST_NA
+			if ndocounter <= 30:
+				imp_forecast = getParsedImputedForecast(self, variance_full)
+			if(imp_forecast != CONST_NA):
+				Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
+				PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
 		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
 
-		forecast_plf = forecastBand = CONST_NA
-		if ndocounter <= 30:
-			forecast_plf = self.getParsedForecast()
-		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
-			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
-
-		imp_forecast_band = CONST_NA
-		af_forecast_band = CONST_NA
-		if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
-			imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
-			af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
+			forecast_plf = forecastBand = CONST_NA
+			if ndocounter <= 30:
+				forecast_plf = getParsedForecast(self)
+			if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
+				forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
+			
+			imp_forecast_band = CONST_NA
+			af_forecast_band = CONST_NA
+			if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
+				imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
+				af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
 
 		b2b_strategy = self.currParams.b2bStrategy
 		forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
@@ -1257,12 +1261,14 @@ class DynAlloc:
 		)
 		profileFares_list_sorted_fullalloc = []
 		if not profileExtract_df_fullalloc.empty:
-			profileFares_list_sorted_fullalloc = sorted(profileExtract_df_fullalloc.transpose().values.flatten().tolist())
+			profileFares_list_sorted_fullalloc = sorted(pd.to_numeric(
+					profileExtract_df_fullalloc.transpose().values.flatten(),
+					errors='coerce'
+			).tolist())
 
 		# Proceed with AU allocation if B2C determination was somewhat successful
 		# Check if 'statusInd' key exists before trying to access its value
 		b2c_status_ind = openDataB2C_details.get('statusInd', [1])[0] if isinstance(openDataB2C_details.get('statusInd'), list) and openDataB2C_details.get('statusInd') else 1
-
 		Af_Nb_Allin = state.Af_Nb_Allin
 		if b2c_status_ind in [0, 2]:
 			# Booked deficit for B2C allocation (target based on original Lid from params)
@@ -1270,7 +1276,7 @@ class DynAlloc:
 			remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
 			Af_Nb_Allin = CONST_NA
 			if imp_forecast != CONST_NA:
-				Af_Nb_Allin = self.calculateAfNbAllin(min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(state.final_plf,2)))
+				Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
 			b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 				self.allocations.b2CAllocation(
 					float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
@@ -1342,11 +1348,17 @@ class DynAlloc:
 			)
 
 			# Group Quote allocation
+			b2c_selling_fare = safe_get_from_dict(openDataB2C_details, "Fare")
 			param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
 			group_bookings=self.currParams.group_bookings# Default
-			current_brd_counter = self.allocations.group_quote_alloc(
+			current_brd_counter, grp_adj_profile_fare, grp_adj_bookload, grp_fare_anchor = self.allocations.group_quote_alloc(
 				profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
-				base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full
+				base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
+				ndocounter=ndocounter, imp_forecast=imp_forecast,
+				sod_tgtAtCurrentHour_abs=sod_tgtAtCurrentHour_abs,
+				sod_startOfDayBookLoad_factor=sod_startOfDayBookLoad_factor,
+				sod_startOfDayTgtBookedLoad_abs=sod_startOfDayTgtBookedLoad_abs,
+				departure_year=currFltDate_dt.year
 			)
 
 			# TBF allocation needs alloc_df from b2CAllocations (plural)
@@ -1467,14 +1479,17 @@ class DynAlloc:
 
 		self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
-		self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = self.getParsedForecast()
-		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = self.getParsedImputedForecast(variance_full)
+		self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = getParsedForecast(self)
+		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(self, variance_full)
 		self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 		self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
 		self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
 		self.outputSummaryRow_b2c.ALLIN_AF_NB_LY = self.outputSummaryRow_b2b.ALLIN_AF_NB_LY = getattr(self.currParams, 'ALLIN_AF_NB_LY', CONST_NA)
 		self.outputSummaryRow_b2c.AF_NB_Allin = self.outputSummaryRow_b2b.AF_NB_Allin = Af_Nb_Allin
 		self.outputSummaryRow_b2c.B2BFactor = self.outputSummaryRow_b2b.B2BFactor = self.currParams.b2b_factor
+		self.outputSummaryRow_b2c.grpAdjProfileFare = self.outputSummaryRow_b2b.grpAdjProfileFare = grp_adj_profile_fare
+		self.outputSummaryRow_b2c.grpAdjPLF = self.outputSummaryRow_b2b.grpAdjPLF = grp_adj_bookload
+		self.outputSummaryRow_b2c.grpFareAnchor = self.outputSummaryRow_b2b.grpFareAnchor = grp_fare_anchor
 
 		self.outputSummaryRow_b2c.RunId = self.runId; self.outputSummaryRow_b2c.Origin = self.currParams.origin
 		self.outputSummaryRow_b2c.Destin = self.currParams.destin; self.outputSummaryRow_b2c.FltNum = str(currFlt)
@@ -1651,12 +1666,6 @@ class DynAlloc:
 		self.logger.info("endOfDayTgtBookedLoad is: " + str(endOfDayTgtBookedLoad))
 
 		return startEndOfDayDplfBand, bookingToday,bookingLastHour, endOfDayTgtBookedLoad, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad
-
-	def calculateVariance(self, currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad):
-		variance = ((currBookedLoad / totalCapacity) - (tgtAtCurrentHour / totalCapacity)) * 100
-		if ndocounter >= 22:
-			variance = ((currBookedLoad - (startOfDayTgtBookedLoad)) / totalCapacity) * 100
-		return variance
 
 	def calculateDplf(self, currBookedLoad, tgtBookloadFactor, totalCapacity):
 		dPLF = (currBookedLoad/totalCapacity) - tgtBookloadFactor
@@ -1921,7 +1930,7 @@ class DynAlloc:
 		self.dynamictimed2 = GetDynamicTimeD2(self.rmdatabasehelper)
 		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils,self.mongohelper)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
-		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils)
+		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
 		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
@@ -2096,53 +2105,6 @@ class DynAlloc:
 		lastsoldb2c = self.calculate_average(b2c_fares)
 		
 		return last_seven_avg, lastsoldb2b, lastsoldb2c
-	
-	def getParsedForecast(self):
-		# Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
-		can_adjusted = getattr(self.currParams, 'CanAdjustedForecast', 0)
-		if can_adjusted == 1 or can_adjusted == '1':
-			value = getattr(self.currParams, 'adjustedPLF', CONST_NA)
-		else:
-			value = getattr(self.currParams, 'forecastPLF', CONST_NA)
-		try:
-			value = float(value)
-			if not math.isnan(value):
-				return value
-			return CONST_NA
-		except (ValueError, TypeError):
-			return CONST_NA
-
-	def getParsedImputedForecast(self,variance):
-		# Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
-		can_adjusted = getattr(self.currParams, 'CanAdjustedForecast', 0)
-		if can_adjusted == 1 or can_adjusted == '1':
-			forecastPLF = getattr(self.currParams, 'adjustedPLF', CONST_NA)
-		else:
-			forecastPLF = getattr(self.currParams, 'forecastPLF', CONST_NA)
-		forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
-		IMP_FORECAST_DEDUCTION = self.constantsUtils.IMP_FORECAST_DEDUCTION
-
-		try:
-			forecastPLF = float(forecastPLF)
-			forecast_variance = float(forecast_variance)
-			IMP_FORECAST_DEDUCTION = float(IMP_FORECAST_DEDUCTION)
-			if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
-				return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
-			return CONST_NA
-		except (ValueError, TypeError):
-			return CONST_NA
-
-	def calculateAfNbAllin(self,imputed_plf,curr_plf):
-		Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
-		ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
-		try:
-			imputed_plf = float(imputed_plf)
-			curr_plf = float(curr_plf)
-			if not math.isnan(Af_allin) and not math.isnan(ForecastAF_Allin):
-				return ((ForecastAF_Allin * imputed_plf)-(Af_allin * curr_plf))/(imputed_plf-curr_plf)
-			return CONST_NA
-		except (ValueError, TypeError):
-			return CONST_NA
 
 	# ==================================================================
 	# Portfolio anchor split — slice 7

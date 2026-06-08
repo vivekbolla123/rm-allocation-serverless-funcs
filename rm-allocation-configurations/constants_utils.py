@@ -113,6 +113,7 @@ class ConstantsUtils:
         self.GDS_RBD_VALUES = GDS_RBD_VALUES
         self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
         self.WINDOW_MINUTES = WINDOW_MINUTES
+        self.EQT_RECIPIENTS = EQT_RECIPIENTS
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -131,6 +132,9 @@ class ConstantsUtils:
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
         self.ACTIVE_SECTORS_DEFAULT_FIELDS = ACTIVE_SECTORS_DEFAULT_FIELDS
         self.CWT_UPSELL = CWT_UPSELL
+        self.GROUP_SCALING_FACTOR = GROUP_SCALING_FACTOR
+        self.GROUP_AU_BATCH = GROUP_AU_BATCH
+        self.GROUP_IMP_FORECAST_REDUCTION = GROUP_IMP_FORECAST_REDUCTION
         self.W_PLF = W_PLF
         self.W_AF = W_AF
         self.W_ANCHOR = W_ANCHOR
@@ -405,6 +409,14 @@ class ConstantsUtils:
                 self.AF_BAND_2_MULTIPLIERS = json.loads(parameter_value)
             elif parameter_key == CWT_UPSELL_KEY:
                 self.CWT_UPSELL = json.loads(parameter_value)
+            elif parameter_key == EQT_RECIPIENTS_KEY:
+                self.EQT_RECIPIENTS = parameter_value
+            elif parameter_key == GROUP_SCALING_FACTOR_KEY:
+                self.GROUP_SCALING_FACTOR = float(parameter_value)
+            elif parameter_key == GROUP_AU_BATCH_KEY:
+                self.GROUP_AU_BATCH = float(parameter_value)
+            elif parameter_key == GROUP_IMP_FORECAST_REDUCTION_KEY:
+                self.GROUP_IMP_FORECAST_REDUCTION = float(parameter_value)
             elif parameter_key == W_PLF_KEY:
                 self.W_PLF = float(parameter_value)
             elif parameter_key == W_AF_KEY:
