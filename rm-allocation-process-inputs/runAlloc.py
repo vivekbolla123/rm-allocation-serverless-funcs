@@ -397,6 +397,8 @@ class DynAlloc:
 		currFltDepartureTime = state.currFltDepartureTime
 		currAdjustedCapacity = state.currAdjustedCapacity
 
+		self.currParams.strategy = self.currParams.fare_anchor
+
 		# --- Ensure outputSummaryRow objects are fresh for this flight-day ---
 		self.outputSummaryRow_b2b = OutputSummary()
 		self.outputSummaryRow_b2c = OutputSummary()
