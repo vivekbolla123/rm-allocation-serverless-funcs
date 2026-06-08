@@ -65,3 +65,12 @@ class OutputSummary:
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
         self.toleranceValue=CONST_NA
+
+        # Portfolio anchor split (R9) — populated for direct-route rows by
+        # ``DynAlloc._phaseN_writeSummary``; left as ``CONST_NA`` for
+        # connections / sales-inventory rows.
+        self.z_score_composite = CONST_NA
+        self.Portfolio_Anchor = CONST_NA
+        self.z_score88 = CONST_NA
+        self.Portfolio88_Anchor = CONST_NA
+        self.portfolio_count = CONST_NA

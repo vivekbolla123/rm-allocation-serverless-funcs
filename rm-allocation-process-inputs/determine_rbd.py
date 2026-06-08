@@ -5,6 +5,7 @@ import pandas as pd
 from Constants import *
 import random
 import statistics
+from models.anchor_result import AnchorResult
 
 class DetermineRBD:
     
@@ -17,6 +18,39 @@ class DetermineRBD:
         self.redishelper = redisHelper
 
     def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+        """Backwards-compatible wrapper. Delegates to ``computeFinalAnchor`` then
+        ``applyAnchorToLadder`` so the existing call-sites in ``runAlloc.py`` and
+        ``runAlloc_Connections.py`` keep producing byte-identical output.
+        """
+        anchor_result = self.computeFinalAnchor(
+            anchorFare, offset, channel, currFltDate, dplfBand, ndocounter,
+            currBookedLoad, totalCapacity, currParams, backstop, currenttime,
+            startEndOfDayDplfBand, dPLF, toleranceFare, plf, overBookingCount,
+            hardAnchorFare, hardoffset, BookingsInHour, lastSoldFare, last7AvgVal,
+            last7avg, b2b_discount_fare, discount_amount, w0Flag, directFlag,
+            obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band,
+            strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+        )
+        return self.applyAnchorToLadder(
+            anchor_result, currParams, backstop, offset, strategy_criteria,
+        )
+
+    def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+        """Phase K head: candidate-selection + ``final_fare_anchor_*`` / ``finalFareAnchor`` calls.
+
+        Performs the initial price-ladder lookup that establishes ``strategyFare``, runs
+        the forecast / RDB-driven anchor selection, applies the manual-inventory override
+        (``w0Flag`` / ``directFlag``), and returns an :class:`AnchorResult` describing
+        every value the ladder-lookup tail needs.
+
+        When the anchor-selection block hits one of the four short-circuit returns
+        present in today's ``determineRBDToOpen`` (no rbddata, ``strategyFare == NA``,
+        ``anchorValue == 'C'`` in the forecast branch, or ``anchorValue == 'C'`` in the
+        else branch), the result is flagged ``early_return = True`` and the exact
+        9-tuple to return is captured in ``early_return_tuple``. ``applyAnchorToLadder``
+        will return that tuple verbatim, preserving byte-for-byte compatibility with
+        the legacy method (R2.2, R11).
+        """
         hard_anchor_flag = False
         origin = currParams.origin
         destin = currParams.destin
@@ -37,9 +71,43 @@ class DetermineRBD:
             elif  hardAnchorFare!=CONST_NA:
                 hardopenResult = self.getFares(origin, destin, hardAnchorFare, hardoffset, channel,  hardopenResult, hardrbddata, howDetermined, 'L')
             hardAnchorFare=hardopenResult['Fare'][0]
-            
+
+        # Helper: build the early-return tuple in the exact slot order the legacy
+        # ``determineRBDToOpen`` returns. The slot layout matches the unpacking at the
+        # call sites in ``runAlloc.py`` (openData, lastSellingFare, strategyFare,
+        # profileFare, hardAnchorFare, upsell, overBookingFare, hard_anchor_flag,
+        # toleranceValue) but reproduces today's quirky values verbatim so callers see
+        # byte-identical results (R2.2, R11.1).
+        def _build_early_return(open_result_value, current_strategy_fare):
+            return (
+                open_result_value,
+                lastSoldFare,
+                current_strategy_fare,
+                CONST_NA,
+                upsell,
+                hardAnchorFare,
+                overBookingFare,
+                hardAnchorFare,
+                CONST_NA,
+            )
+
         if rbddata is None:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare, CONST_NA
+            return AnchorResult(
+                anchorFare=anchorFare,
+                strategyFare=strategyFare,
+                profileFare=CONST_NA,
+                lastSellingFare=lastSoldFare,
+                hardAnchorFare=hardAnchorFare,
+                hard_anchor_flag=hard_anchor_flag,
+                toleranceValue=CONST_NA,
+                anchor_source=howDetermined,
+                channel=channel,
+                upsell=upsell,
+                overBookingFare=overBookingFare,
+                openResult=openResult,
+                early_return=True,
+                early_return_tuple=_build_early_return(openResult, strategyFare),
+            )
         if rbddata.shape[0] == 0:
             openResult = self.extremeFaresSkipping(origin, destin, anchorFare, offset, channel, backstop,  openResult, 'L')
             
@@ -53,8 +121,23 @@ class DetermineRBD:
         
         strategyFare = openResult['Fare'][0]
         if strategyFare == CONST_NA:
-            return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare, CONST_NA
-        
+            return AnchorResult(
+                anchorFare=anchorFare,
+                strategyFare=strategyFare,
+                profileFare=CONST_NA,
+                lastSellingFare=lastSoldFare,
+                hardAnchorFare=hardAnchorFare,
+                hard_anchor_flag=hard_anchor_flag,
+                toleranceValue=CONST_NA,
+                anchor_source=howDetermined,
+                channel=channel,
+                upsell=upsell,
+                overBookingFare=overBookingFare,
+                openResult=openResult,
+                early_return=True,
+                early_return_tuple=_build_early_return(openResult, strategyFare),
+            )
+
         anchorValue = ''
     
         toleranceValue = CONST_NA
@@ -76,8 +159,23 @@ class DetermineRBD:
                         openResult['anchorFare'] = ['NA']
                         openResult['RBD'] = ['NA']
                         openResult['Fare'] = ['NA']
-                        return openResult, lastSoldFare, strategyFare, CONST_NA, upsell, hardAnchorFare, overBookingFare, hardAnchorFare, CONST_NA
- 
+                        return AnchorResult(
+                            anchorFare=anchorFare,
+                            strategyFare=strategyFare,
+                            profileFare=CONST_NA,
+                            lastSellingFare=lastSoldFare,
+                            hardAnchorFare=hardAnchorFare,
+                            hard_anchor_flag=hard_anchor_flag,
+                            toleranceValue=CONST_NA,
+                            anchor_source=howDetermined,
+                            channel=channel,
+                            upsell=upsell,
+                            overBookingFare=overBookingFare,
+                            openResult=openResult,
+                            early_return=True,
+                            early_return_tuple=_build_early_return(openResult, strategyFare),
+                        )
+
                     lastSoldFareForAnchor = lastSoldFare
                     if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount > 0):
                         lastSoldFareForAnchor = CONST_NA
@@ -109,8 +207,23 @@ class DetermineRBD:
                     openResult['anchorFare']=['NA']
                     openResult['RBD']=['NA']
                     openResult['Fare']=['NA']
-                    
-                    return openResult, lastSoldFare, strategyFare, CONST_NA, upsell,hardAnchorFare, overBookingFare,hardAnchorFare, CONST_NA
+
+                    return AnchorResult(
+                        anchorFare=anchorFare,
+                        strategyFare=strategyFare,
+                        profileFare=CONST_NA,
+                        lastSellingFare=lastSoldFare,
+                        hardAnchorFare=hardAnchorFare,
+                        hard_anchor_flag=hard_anchor_flag,
+                        toleranceValue=CONST_NA,
+                        anchor_source=howDetermined,
+                        channel=channel,
+                        upsell=upsell,
+                        overBookingFare=overBookingFare,
+                        openResult=openResult,
+                        early_return=True,
+                        early_return_tuple=_build_early_return(openResult, strategyFare),
+                    )
 
                 self.logger.info("totalCapacity: " + str(totalCapacity))
                 self.logger.info("currBookedLoad: " + str(currBookedLoad))
@@ -145,7 +258,52 @@ class DetermineRBD:
             anchorFare =  0
         if anchorFare == hardAnchorFare:
             hard_anchor_flag = True
+
+        # Anchor selection complete. Bundle the resolved values into an AnchorResult so
+        # the ladder-lookup tail can run separately (R2.1).
+        return AnchorResult(
+            anchorFare=anchorFare,
+            strategyFare=strategyFare,
+            profileFare=profileFare,
+            lastSellingFare=lastSoldFare,
+            hardAnchorFare=hardAnchorFare,
+            hard_anchor_flag=hard_anchor_flag,
+            toleranceValue=toleranceValue,
+            anchor_source=howDetermined,
+            channel=channel,
+            upsell=upsell,
+            overBookingFare=overBookingFare,
+            openResult=openResult,
+            early_return=False,
+            early_return_tuple=None,
+        )
+
+    def applyAnchorToLadder(self, anchor_result, currParams, backstop, offset=0, strategy_criteria=None):
+        """Phase K tail: ``getValueWithOffset`` / ``extremeFaresSkipping`` /
+        ``getFaresWithBackstop`` for the resolved anchor fare, then the calculated
+        overbooking-fare-and-status block (already applied inside ``computeFinalAnchor``
+        through ``final_fare_anchor_forecast`` / ``finalFareAnchor``).
+
+        Returns the same 9-tuple ``determineRBDToOpen`` returns today
+        ``(openData, lastSellingFare, strategyFare, profileFare, hardAnchorFare,
+          upsell, overBookingFare, hard_anchor_flag, toleranceValue)``.
+
+        When ``anchor_result.early_return`` is True the captured legacy tuple is
+        returned verbatim, keeping byte-for-byte parity with the pre-refactor method
+        (R2.2, R11.1).
+        """
+        if anchor_result.early_return:
+            return anchor_result.early_return_tuple
+
+        anchorFare = anchor_result.anchorFare
+        howDetermined = anchor_result.anchor_source
+        channel = anchor_result.channel
+        openResult = anchor_result.openResult
+        origin = currParams.origin
+        destin = currParams.destin
+
         if anchorFare != 0:
+            # Final ladder lookup uses offset=0 in today's code; preserve that exactly.
             offset = 0
             openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
             if rbddata.shape[0] == 0:
@@ -154,7 +312,18 @@ class DetermineRBD:
                 openResult = self.getFaresWithBackstop(origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'L')
         else:
             openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [1]}
-        return openResult, lastSoldFare, strategyFare, profileFare,hardAnchorFare, upsell, overBookingFare,hard_anchor_flag, toleranceValue
+
+        return (
+            openResult,
+            anchor_result.lastSellingFare,
+            anchor_result.strategyFare,
+            anchor_result.profileFare,
+            anchor_result.hardAnchorFare,
+            anchor_result.upsell,
+            anchor_result.overBookingFare,
+            anchor_result.hard_anchor_flag,
+            anchor_result.toleranceValue,
+        )
 
     def calculate_overbooking_fare_and_status(
         self,

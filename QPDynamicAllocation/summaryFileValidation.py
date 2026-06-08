@@ -93,8 +93,14 @@ def compare_csv_files():
         df1 = df1.drop(columns=['Id'], errors='ignore')
         df2 = df2.drop(columns=['Id', 'marketFaresSummary', 'bookingsToday'], errors='ignore')
 
-        # align column order
-        df2 = df2.reindex(columns=df1.columns)
+        # track column differences before alignment
+        cols_added = [c for c in df1.columns if c not in df2.columns and c not in COMPOSITE_KEY]
+        cols_removed = [c for c in df2.columns if c not in df1.columns and c not in COMPOSITE_KEY]
+
+        # align to only common columns (excluding key columns handled separately)
+        common_cols = [c for c in df1.columns if c in df2.columns]
+        df1 = df1[common_cols]
+        df2 = df2.reindex(columns=common_cols)
 
         progress.update(t, description="Files loaded")
         time.sleep(0.15)
@@ -255,6 +261,27 @@ def compare_csv_files():
 
     console.print("  " + "   [dim]|[/dim]   ".join(summary_parts))
     console.print()
+
+    # ── Column schema changes ─────────────────────────────────────────────────
+    if cols_added or cols_removed:
+        console.print(Rule("[bold magenta]COLUMN SCHEMA CHANGES[/bold magenta]", style="magenta"))
+        console.print()
+
+        if cols_added:
+            console.print(
+                f"  [bold bright_green]+ Added columns[/bold bright_green]"
+                f"  [dim]({len(cols_added)})[/dim]  "
+                + "  ".join(f"[bright_green]{c}[/bright_green]" for c in cols_added)
+            )
+
+        if cols_removed:
+            console.print(
+                f"  [bold yellow]- Removed columns[/bold yellow]"
+                f"  [dim]({len(cols_removed)})[/dim]  "
+                + "  ".join(f"[yellow]{c}[/yellow]" for c in cols_removed)
+            )
+
+        console.print()
 
     # ── Export mismatched rows ───────────────────────────────────────────────
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)

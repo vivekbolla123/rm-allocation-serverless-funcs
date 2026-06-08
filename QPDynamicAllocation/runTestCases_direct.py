@@ -5,7 +5,7 @@ sys.path.append('./rm-allocation-configurations')
 sys.path.insert(1, path)
 import Constants
 import datetime
-from testcontainers.mysql import MySqlContainer
+# from testcontainers.mysql import MySqlContainer
 
 from sqlalchemy import create_engine
 from load_tests_db_data import Schema

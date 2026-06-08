@@ -58,10 +58,18 @@ class MarketListRow:
         self.capacity = currParams.get("capacity",CONST_NA)
         self.adjustedCapacity = currParams.get("adjustedCapacity",CONST_NA)
         self.tbf_bookings = currParams.get("tbf_bookings",CONST_NA)
-        self.seats_sold_L = currParams.get("seats_sold_L",CONST_NA)
-        self.seats_sold_P = currParams.get("seats_sold_P",CONST_NA)
-        self.current_rbd_L = currParams.get("current_rbd_L",CONST_NA)
-        self.current_rbd_P = currParams.get("current_rbd_P",CONST_NA)
+        def parse_numeric(val, default=0):
+            try:
+                if val == CONST_NA or val == "" or val is None:
+                    return default
+                return float(val)
+            except (ValueError, TypeError):
+                return default
+
+        self.seats_sold_L = parse_numeric(currParams.get("seats_sold_L", 0))
+        self.seats_sold_P = parse_numeric(currParams.get("seats_sold_P", 0))
+        self.current_rbd_L = parse_numeric(currParams.get("current_rbd_L", 0))
+        self.current_rbd_P = parse_numeric(currParams.get("current_rbd_P", 0))
         self.total_series_seats = currParams.get("total_series_seats",CONST_NA)
         self.NextFlight = currParams.get("NextFlight",CONST_NA)
         self.BookingsInHour = currParams.get("BookingsInHour",CONST_NA)
@@ -109,3 +117,9 @@ class MarketListRow:
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
         self.market_station_mapping = currParams.get("market_station_mapping", 0)
         self.farecap = currParams.get("farecap", CONST_NA)
+
+        # Portfolio count
+        self.portfolio_count = currParams.get("portfolio_count", CONST_NA)
+
+        # Portfolio-only flag — set to 1 for sibling records used only for portfolio calc and not allocated
+        self.portfolio_only = currParams.get("portfolio_only", 0)

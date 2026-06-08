@@ -854,7 +854,15 @@ class RMDatabaseHelper:
                 "forecastPLF": str(latest_row.forecastPLF),
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
                 "B2BFactor": str(latest_row.B2BFactor),
-                "toleranceValue": str(latest_row.toleranceValue)
+                "toleranceValue": str(latest_row.toleranceValue),
+                # Portfolio anchor split (R9) — direct-route rows get real
+                # values; connections / sales-inventory rows leave them as
+                # ``CONST_NA``.
+                "z_score_composite": str(latest_row.z_score_composite),
+                "Portfolio_Anchor": str(latest_row.Portfolio_Anchor),
+                "z_score88": str(latest_row.z_score88),
+                "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
+                "portfolio_count": str(latest_row.portfolio_count)
             }
 
             try:
