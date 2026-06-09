@@ -154,7 +154,11 @@ class TariffPAHelper:
                         '_id': '$sector',
                         'min_fare': {'$min': '$selling_fare_num'},
                         'max_fare': {'$max': '$selling_fare_num'},
-                        'count': {'$sum': 1}
+                        'count': {'$sum': 1},
+                        'departure_date': {'$first': '$DepDate'},
+                        'flight_number': {'$first': '$FltNum'},
+                        'open_rbd': {'$first': '$OpenRBD'},
+                        'run_id': {'$first': '$RunId'}
                     }}
                 ]
                 direct_results = list(db_rmalloc.run_summary.aggregate(direct_pipeline, allowDiskUse=True))
@@ -164,7 +168,11 @@ class TariffPAHelper:
                         sector_fares[sector] = {
                             'min_fare': doc['min_fare'],
                             'max_fare': doc['max_fare'],
-                            'count': doc['count']
+                            'count': doc['count'],
+                            'departure_date': doc.get('departure_date', ''),
+                            'flight_number': doc.get('flight_number', ''),
+                            'open_rbd': doc.get('open_rbd', ''),
+                            'run_id': doc.get('run_id', '')
                         }
                 self.logger.info(f"Weekly direct: {len(direct_results)} sectors from run_summary")
 
@@ -190,7 +198,11 @@ class TariffPAHelper:
                     '_id': '$through_sector',
                     'min_fare': {'$min': '$selling_fare_num'},
                     'max_fare': {'$max': '$selling_fare_num'},
-                    'count': {'$sum': 1}
+                    'count': {'$sum': 1},
+                    'departure_date': {'$first': '$DepDate'},
+                    'flight_number': {'$first': '$FltNum'},
+                    'open_rbd': {'$first': '$OpenRBD'},
+                    'run_id': {'$first': '$RunId'}
                 }}
             ]
             conn_results = list(db_rmalloc.run_summary_connections.aggregate(conn_pipeline, allowDiskUse=True))
@@ -205,7 +217,11 @@ class TariffPAHelper:
                         sector_fares[sector] = {
                             'min_fare': doc['min_fare'],
                             'max_fare': doc['max_fare'],
-                            'count': doc['count']
+                            'count': doc['count'],
+                            'departure_date': doc.get('departure_date', ''),
+                            'flight_number': doc.get('flight_number', ''),
+                            'open_rbd': doc.get('open_rbd', ''),
+                            'run_id': doc.get('run_id', '')
                         }
             self.logger.info(f"Weekly connections: {len(conn_results)} through sectors from run_summary_connections")
             self.logger.info(f"Weekly selling fares: {len(sector_fares)} total sectors")

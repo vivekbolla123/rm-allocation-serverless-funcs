@@ -473,7 +473,13 @@ class FareMonitor:
                     unmatched.append({
                         'sector': sector,
                         'rbd': source_label,
-                        'fare_value': f"min={fares['min_fare']}, max={fares['max_fare']}"
+                        'fare_value': f"min={fares['min_fare']}, max={fares['max_fare']}",
+                        'departure_date': fares.get('departure_date', ''),
+                        'flight_number': fares.get('flight_number', ''),
+                        'pnr': fares.get('pnr', ''),
+                        'fare_basis': fares.get('fare_basis', ''),
+                        'open_rbd': fares.get('open_rbd', ''),
+                        'run_id': fares.get('run_id', '')
                     })
                     continue
 
@@ -482,24 +488,34 @@ class FareMonitor:
                 tariff_min = self.calculate_all_in_fare(tariff_entry['min_fare'], origin, destination, ftype="current")
                 tariff_max = self.calculate_all_in_fare(tariff_entry['max_fare'], origin, destination, ftype="current")
 
-                # Below the lowest tariff level
                 if fares['min_fare'] < tariff_min:
                     violations.append({
                         'sector': sector,
                         'rbd': f"{source_label} (count={fares['count']})",
                         'fare_value': fares['min_fare'],
                         'boundary': tariff_min,
-                        'violation_type': 'below_min'
+                        'violation_type': 'below_min',
+                        'departure_date': fares.get('departure_date', ''),
+                        'flight_number': fares.get('flight_number', ''),
+                        'pnr': fares.get('pnr', ''),
+                        'fare_basis': fares.get('fare_basis', ''),
+                        'open_rbd': fares.get('open_rbd', ''),
+                        'run_id': fares.get('run_id', '')
                     })
 
-                # Above the highest tariff level
                 if fares['max_fare'] > tariff_max:
                     violations.append({
                         'sector': sector,
                         'rbd': f"{source_label} (count={fares['count']})",
                         'fare_value': fares['max_fare'],
                         'boundary': tariff_max,
-                        'violation_type': 'above_max'
+                        'violation_type': 'above_max',
+                        'departure_date': fares.get('departure_date', ''),
+                        'flight_number': fares.get('flight_number', ''),
+                        'pnr': fares.get('pnr', ''),
+                        'fare_basis': fares.get('fare_basis', ''),
+                        'open_rbd': fares.get('open_rbd', ''),
+                        'run_id': fares.get('run_id', '')
                     })
 
         # Send alert if violations found
@@ -580,11 +596,11 @@ class FareMonitor:
 
             # Build CSV content for violations
             csv_buffer = io.StringIO()
-            csv_buffer.write("Sector,RBD/Source,Fare Value,Tariff Boundary,Violation Type\n")
+            csv_buffer.write("Sector,RBD/Source,Fare Value,Tariff Boundary,Violation Type,DepartureDate,FlightNumber,PNR,FareBasis,OpenRBD,RunID\n")
             for v in violations:
                 rbd_or_ref = v.get('rbd', 'N/A')
                 violation_label = "Below Min" if v['violation_type'] == 'below_min' else "Above Max"
-                csv_buffer.write(f"{v['sector']},{rbd_or_ref},{v['fare_value']},{v['boundary']},{violation_label}\n")
+                csv_buffer.write(f"{v['sector']},{rbd_or_ref},{v['fare_value']},{v['boundary']},{violation_label},{v.get('departure_date', '')},{v.get('flight_number', '')},{v.get('pnr', '')},{v.get('fare_basis', '')},{v.get('open_rbd', '')},{v.get('run_id', '')}\n")
 
             # Encode CSV as base64 for attachment
             csv_content = csv_buffer.getvalue()

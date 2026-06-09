@@ -55,20 +55,24 @@ class TariffEsbHelper:
                 CONCAT(Origin, Destination) AS sector,
                 MIN(Fare) AS min_fare,
                 MAX(Fare) AS max_fare,
-                COUNT(*) AS fare_count
+                COUNT(*) AS fare_count,
+                PNR, FareBasis, DepartureDate, FlightNumber
             FROM (
                 SELECT
                     PX.DiscountedBaseFare_Pro AS Fare,
-                    PX.Origin, PX.Destination
+                    PX.Origin, PX.Destination, PX.PNR,
+                    PX.FareBasis, IL.DepartureDate, IL.FlightNumber
                 FROM QP_DL_NAVDATA.QP_DL_FLOWNDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID
                 {where_condition}
+
 
                 UNION ALL
 
                 SELECT
                     PX.DiscountedBaseFare_Pro AS Fare,
-                    PX.Origin, PX.Destination
+                    PX.Origin, PX.Destination, PX.PNR,
+                    PX.FareBasis, IL.DepartureDate, IL.FlightNumber
                 FROM QP_DL_NAVDATA.QP_DL_BOOKEDDATAPAX PX
                 JOIN QP_DL_NAVDATA.QP_DL_InventoryLeg IL ON PX.InventoryLegID = IL.InventoryLegID
                 {where_condition}
@@ -85,7 +89,11 @@ class TariffEsbHelper:
                 sector_fares[sector] = {
                     'min_fare': float(row['min_fare']),
                     'max_fare': float(row['max_fare']),
-                    'count': int(row['fare_count'])
+                    'count': int(row['fare_count']),
+                    'pnr': str(row.get('PNR', '')),
+                    'fare_basis': str(row.get('FareBasis', '')),
+                    'departure_date': str(row.get('DepartureDate', '')),
+                    'flight_number': str(row.get('FlightNumber', ''))
                 }
 
             self.logger.info(
