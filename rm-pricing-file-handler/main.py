@@ -13,6 +13,8 @@ from common.processors.saver_processor import format_saver_file
 from common.processors.product_upsell_processor import validate_product_upsell
 from common.processors.market_list_processor import validate_market_list
 from common.processors.footnote_master_processor import validate_footnote_master
+from common.processors.tariff_sheet_processor import clean_tariff_sheet_df, validate_tariff_sheet, format_tariff_sheet
+from common.config.db_config import get_mongo_master_db
 
 
 class FileUploadWorker:
@@ -192,6 +194,25 @@ class FileUploadWorker:
                 except Exception as e:
                     self.list_of_errors.append(f"Error Uploading {table} to DB")
                     raise RuntimeError(f"Error processing Market List content: {str(e)}")
+
+            elif table == LIVE_TARIFF_SHEET_TABLE:
+                try:
+                    csv_df = clean_tariff_sheet_df(csv_df)
+                    validated_df = validate_tariff_sheet(csv_df)
+                    with get_mongo_master_db() as master_db:
+                        station_master = list(master_db.config_station_master.find(
+                            {}, {'_id': 0, 'station': 1, 'name': 1}
+                        ))
+
+                    tariff_doc = format_tariff_sheet(validated_df, station_master=station_master)
+                    self.db_helper.replace_tariff_sheet(tariff_doc, user_name)
+                    self.s3_helper.store_file(file_content, LIVE_TARIFF_SHEET_TABLE, self.obj_id)
+                except ValueError as ve:
+                    self.list_of_errors.append(f"Tariff Sheet Validation Failed: {str(ve)}")
+                    raise RuntimeError(f"Tariff Sheet validation error: {str(ve)}")
+                except Exception as e:
+                    self.list_of_errors.append("Error Uploading Live Tariff Sheet to DB")
+                    raise RuntimeError(f"Error processing Tariff Sheet content: {str(e)}")
 
             else:
                 try:
