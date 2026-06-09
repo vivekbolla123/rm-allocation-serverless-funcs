@@ -15,6 +15,9 @@ from actionableSectors import ActionSectors
 from ladderGen import LadderGen
 from salesFare import SalesFare
 from fareFile import FareFiling
+from tariffGen import TariffGen
+from sectorMonitor import SectorMonitor
+from fareMonitor import FareMonitor
 
 
 logger = logging.getLogger()
@@ -58,7 +61,10 @@ module_map = {
     'action_sect' : ActionSectors,
     'ladder_gen' : LadderGen,
     'sales_fare' : SalesFare,
-    'fare_filing': FareFiling
+    'fare_filing': FareFiling,
+    'tariff_gen': TariffGen,
+    'sector_monitor': SectorMonitor,
+    'fare_monitor': FareMonitor
 }
 
 
@@ -154,6 +160,38 @@ def lambda_handler(event, context):
 #         "route": "D"
 #     },
 #     "modules": {"fare_filing": 1}
+# }
+
+# --- Tariff Sheet Automation modules ---
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes"
+#     },
+#     "modules": {"tariff_gen": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes"
+#     },
+#     "modules": {"sector_monitor": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes",
+#         "check_type": "daily"
+#     },
+#     "modules": {"fare_monitor": 1}
+# }
+
+# messageBody = {
+#     "overrides": {
+#         "analyst": "Kenneth Menezes",
+#         "check_type": "weekly"
+#     },
+#     "modules": {"fare_monitor": 1}
 # }
  
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
