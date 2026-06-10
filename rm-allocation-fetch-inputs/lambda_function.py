@@ -1229,6 +1229,8 @@ def lambda_handler(event, context):
     cug_alloc = "0"
     mongodb = "0"
     salesinv = "0"
+    min_date = None
+    max_date = None
 
     # Overrides
     if route_type_key in data:
@@ -1758,6 +1760,12 @@ def lambda_handler(event, context):
     run_id = data.get('run_id') or str(uuid4())
     overall_start = data.get('overall_start', start_interval)
     overall_end = data.get('overall_end', end_interval)
+
+    if type in ("Adhoc", "Adhoc_Connections"):
+        if pd.notnull(min_date):
+            overall_start = (min_date - curr_date).days
+        if pd.notnull(max_date):
+            overall_end = (max_date - curr_date).days
 
     log_time.update_run_id(run_id)
 
