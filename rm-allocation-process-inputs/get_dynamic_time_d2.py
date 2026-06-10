@@ -24,9 +24,14 @@ class GetDynamicTimeD2:
                 hard_time_range = '0'
                 
         dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+        if dynamicTimeList.empty or 'time_range' not in dynamicTimeList.columns:
+            return str(startTime), str(endTime), str(time_range), str(hardstartTime), str(hardendTime)
+        
         time_range = dynamicTimeList['time_range'][0]
 
         rangeList = self.rmdatabasehelper.getTimeRange(time_range)
+        if rangeList.empty or 'type' not in rangeList.columns:
+            return str(startTime), str(endTime), str(time_range), str(hardstartTime), str(hardendTime)
 
         if rangeList['type'][0] == CONST_ABSOLUTE:
             if DaySpan < 0:
@@ -41,9 +46,10 @@ class GetDynamicTimeD2:
             startTime, endTime = self.getRelativeTimeValue(currParams, rangeList, DaySpan)
 
         if rangeList['type'][0] == CONST_REFERENCE:
-            rangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
-            startTime = rangeList['ar_start'][0]
-            endTime = rangeList['ar_end'][0]
+            refRangeList = self.rmdatabasehelper.getTimeReferenceValue(currParams)
+            if not refRangeList.empty and 'ar_start' in refRangeList.columns and 'ar_end' in refRangeList.columns:
+                startTime = refRangeList['ar_start'][0]
+                endTime = refRangeList['ar_end'][0]
                 
             
             
@@ -83,9 +89,12 @@ class GetDynamicTimeD2:
                 hardoffset = currParams.fare_offset
                 
         dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
-        criteria = dynamicD2List['criteria'][0]
-        offset = dynamicD2List['offset'][0]
-        strategy = dynamicD2List['strategy'][0]
+        if dynamicD2List.empty:
+            return CONST_NA, hardcriteria, CONST_NA, hardoffset, currParams.strategy, fare
+            
+        criteria = dynamicD2List['criteria'][0] if 'criteria' in dynamicD2List.columns else CONST_NA
+        offset = dynamicD2List['offset'][0] if 'offset' in dynamicD2List.columns else CONST_NA
+        strategy = dynamicD2List['strategy'][0] if 'strategy' in dynamicD2List.columns else currParams.strategy
         
         if self.check_int(currParams.hardanchor):
             threshold_value = float(str(currParams.plfthreshold).replace('%', ''))

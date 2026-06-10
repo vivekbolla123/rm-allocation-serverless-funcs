@@ -1019,9 +1019,9 @@ class DynAlloc:
 
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0]!="":
-				profileFare = profileFaresData['price'][0]
+				profileFare = float(profileFaresData['price'][0])
 				if upsellValue_full != 0:
-					profileFare = (float(profileFare) * (1 + float(upsellValue_full)/100))
+					profileFare = (profileFare * (1 + float(upsellValue_full)/100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -2168,9 +2168,9 @@ class DynAlloc:
 
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0] != "":
-				profileFare = profileFaresData['price'][0]
+				profileFare = float(profileFaresData['price'][0])
 				if upsellValue_full != 0:
-					profileFare = (float(profileFare) * (1 + float(upsellValue_full) / 100))
+					profileFare = (profileFare * (1 + float(upsellValue_full) / 100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -2684,7 +2684,12 @@ class DynAlloc:
 		"""
 		instance = cls.__new__(cls)
 		instance._initialize_params(inputData, currParams)
-		entry = instance.runFareAnchorPass()
+		try:
+			entry = instance.runFareAnchorPass()
+		except Exception as e:
+			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}", exc_info=True)
+			entry = instance._build_fallback_portfolio_entry(e)
+
 		if instance._maybeShortCircuitSingleFlight(entry):
 			return instance
 		# Multi-flight portfolio (portfolio_count > 1): coordinate the
@@ -2692,6 +2697,25 @@ class DynAlloc:
 		# allocation-pass messages (R3 — Slice 11).
 		instance._coordinatePortfolioTrigger(entry)
 		return instance
+
+	def _build_fallback_portfolio_entry(self, error):
+		"""Synthesize a failure portfolio entry when runFareAnchorPass crashes.
+		Ensures Redis triggers still fire and Phase 2 correctly fast-fails.
+		"""
+		from models.anchor_result import AnchorResult
+		from dataclasses import asdict
+		entry = self._serialisableMarketListRow()
+		entry["pass"] = "allocation"
+		entry["portfolio_count"] = int(getattr(self.currParams, 'portfolio_count', 1))
+		entry["is_failure"] = True
+		entry["failure_reason"] = f"Unhandled exception in Phase 1: {str(error)}"
+		
+		# Send skipped anchors so downstream logic doesn't KeyError on missing dict keys
+		ar_b2c = AnchorResult(is_skipped=True, anchor_source='Error')
+		ar_b2b = AnchorResult(is_skipped=True, anchor_source='Error')
+		entry["b2c_anchor_result"] = asdict(ar_b2c)
+		entry["b2b_anchor_result"] = asdict(ar_b2b)
+		return entry
 
 	@classmethod
 	def from_allocation_payload(cls, inputData, currParams):
@@ -2978,7 +3002,7 @@ class DynAlloc:
 		* ``dep_date``  — the departure date the portfolio is grouped on;
 		  ``rm-allocation-fetch-inputs`` groups by ``PerStart`` (R13.1),
 		  so we key on the same field.
-		* ``flight_uid``— ``"{flight_number}_{dep_date}"`` (R3.1), the
+		* ``flight_uid``— ``"{flight_number}"`` (R3.1), the
 		  ``HSET`` field name; redelivered messages for the same flight
 		  overwrite the same field without growing the hash (R3.2).
 		"""
@@ -2991,7 +3015,7 @@ class DynAlloc:
 		flight_number = entry.get("FlightNumber")
 		if flight_number in (None, ""):
 			flight_number = entry.get("currFlt", self.currParams.flight_number)
-		flight_uid = f"{flight_number}_{dep_date}"
+		flight_uid = f"{flight_number}"
 		return sector, dep_date, flight_uid
 
 	# ------------------------------------------------------------------
