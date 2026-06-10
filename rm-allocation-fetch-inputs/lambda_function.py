@@ -1509,6 +1509,8 @@ def lambda_handler(event, context):
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
+        mkt_list = mkt_list.drop_duplicates(subset=['Origin', 'Destin', 'FlightNumber', 'PerStart'])
+
         log_memory("after merge bookings_count")
         logger.info(f"FINAL mkt_list shape: {mkt_list.shape}")
         logger.info(f"FINAL mkt_list columns: {list(mkt_list.columns)}")
