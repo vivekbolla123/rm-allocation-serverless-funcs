@@ -965,7 +965,7 @@ class RBDAllocations:
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):
-        max_au = currBookedLoad-currtbfBookedLoad+int(self.constantsutils.TBF_SEATS)
+        max_au = currBookedLoad+int(self.constantsutils.TBF_SEATS)
         rbd_list = self.constantsutils.TBF_RBD.split(',')
         blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE,depdate)
         alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
