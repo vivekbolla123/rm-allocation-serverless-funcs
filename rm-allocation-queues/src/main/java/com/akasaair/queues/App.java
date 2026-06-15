@@ -4074,7 +4074,6 @@ public class App implements CommandLineRunner {
             return and(
                     eq("Origin", entity.getOrigin()),
                     eq("Destin", entity.getDestination()),
-                    eq("analystName", entity.getAnalystName()),
                     eq("PerStart", entity.getStartDate()),
                     eq("FlightNumber", flightNumber)
             );
@@ -4096,7 +4095,6 @@ public class App implements CommandLineRunner {
             Bson filter = and(
                     eq("Origin", marketListEntity.getOrigin()),
                     eq("Destin", marketListEntity.getDestination()),
-                    eq("analystName", marketListEntity.getAnalystName()),
                     eq("PerStart", marketListEntity.getStartDate()),
                     eq("FlightNumber", flightNumber)
             );
@@ -4411,6 +4409,10 @@ public class App implements CommandLineRunner {
 
                 }
                 if (!roles.contains(MANAGER) && !roles.contains(ADMIN)) {
+                    if (user == null || user.trim().isEmpty()) {
+                        listOfErrors.get().add(lineNum + "Sector isn't assigned to any analyst.");
+                        return "";
+                    }
                     if (!userName.split(SPACE)[0].toUpperCase().equals(user)) {
                         listOfErrors.get().add(lineNum + "you don't have access for sector " + sector);
                     }
@@ -4419,6 +4421,10 @@ public class App implements CommandLineRunner {
                         user = getSectors(sector, SECTOR_MAP_USER1_COLUMN_NAME);
                     } else {
                         user = getSectors(sector, SECTOR_MAP_USER2_COLUMN_NAME);
+                    }
+                    if (user == null || user.trim().isEmpty()) {
+                        listOfErrors.get().add(lineNum + "Sector isn't assigned to any analyst.");
+                        return "";
                     }
                 }
                 if (formattedEndDate.isBefore(formattedStartDate)) {
@@ -4814,7 +4820,8 @@ public class App implements CommandLineRunner {
         } else if (user2 != null) {
             analystNameToStore = user2;
         } else {
-            analystNameToStore = "NO_MAPPING_FOUND";
+            errorsFound.add(lineNum + "Sector isn't assigned to any analyst.");
+            return "";
         }
 
         if (permissions.contains(PERMISSION_UPDATE_MARKET_LIST_TILL_30_DAYS)) {
