@@ -325,6 +325,33 @@ class DbHelper:
             logger.error(f"Failed to upsert data into {table_name}: {e}")
             raise
 
+    def replace_tariff_sheet(self, tariff_doc, user_name):
+        """
+        Store the live tariff sheet as a single active document.
+        Upserts on status='active' so only one active sheet exists at a time.
+        """
+        try:
+            with get_mongo_db() as db:
+                current_count = db.live_tariff_sheet.count_documents({'status': 'active'})
+                new_version = (current_count or 0) + 1
+
+                db.live_tariff_sheet.update_one(
+                    {'status': 'active'},
+                    {'$set': {
+                        'status': 'active',
+                        'fare_data': tariff_doc['fare_data'],
+                        'uploaded_at': datetime.now(),
+                        'uploaded_by': user_name,
+                        'version': new_version
+                    }},
+                    upsert=True
+                )
+                logger.info(f"Live tariff sheet updated — version {new_version}, {len(tariff_doc['fare_data'])} sectors")
+
+        except Exception as e:
+            logger.error(f"Failed to replace live tariff sheet: {e}")
+            raise
+
     def replace_collection_data(self, data_df, table_name):
         """
         Replace all data in a MongoDB collection.

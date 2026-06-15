@@ -34,6 +34,7 @@ class ConstantsUtils:
         self.MARKET_FARES_THRESHOLD=MARKET_FARES_THRESHOLD
         self.GROUP_QUOTATION = GROUP_QUOTATION
         self.TBF_RBD = TBF_RBD
+        self.W_RBD = W_RBD
         self.CUG_RBD = CUG_RBD
         self.CUG_B2C_OPENING_THRESHOLD = CUG_B2C_OPENING_THRESHOLD
         self.CUG_SEATS_PERCENT = CUG_SEATS_PERCENT
@@ -87,6 +88,7 @@ class ConstantsUtils:
         self.D3_MAX_RULES = json.loads(D3_MAX_RULES)
         self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
+        self.TARIFF_ALERT_MAIL_ID = TARIFF_ALERT_MAIL_ID
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
         self.MARKET_FLAG_DOMESTIC = MARKET_FLAG_DOMESTIC
@@ -215,6 +217,8 @@ class ConstantsUtils:
                 self.GROUP_QUOTATION = parameter_value
             elif parameter_key == TBF_RBD_KEY:
                 self.TBF_RBD = parameter_value
+            elif parameter_key == W_RBD_KEY:
+                self.W_RBD = parameter_value
             elif parameter_key == CUG_RBD_KEY:
                 self.CUG_RBD = parameter_value
             elif parameter_key == CUG_B2C_OPENING_THRESHOLD_KEY:
@@ -309,6 +313,8 @@ class ConstantsUtils:
                 self.RM_ALERT_MAIL_ID = parameter_value
             elif parameter_key == CLOSED_RM_ALERT_MAIL_ID_KEY:
                 self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
+            elif parameter_key == TARIFF_ALERT_MAIL_ID_KEY:
+                self.TARIFF_ALERT_MAIL_ID = parameter_value
             elif parameter_key == UP_B2C_KEY:
                 self.UP_B2C = int(parameter_value)
             elif parameter_key == UP_B2B_KEY:

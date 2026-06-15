@@ -980,7 +980,7 @@ class RBDAllocations:
             tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
             tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
         latest_allocations = {}
-        desired_order = ['TF', 'TE', 'TD', 'TC', 'TB', 'TY']
+        desired_order = ['TL', 'TK', 'TJ', 'TI', 'TH', 'TG']
         default_values = {
         'index': 'NA',
         'min_other_diff': 0
