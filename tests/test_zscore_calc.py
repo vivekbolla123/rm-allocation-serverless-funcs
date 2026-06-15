@@ -23,6 +23,17 @@ if _HELPER_DIR not in sys.path:
 from helper.zscore_calc import compute_flight_zscores  # noqa: E402
 
 
+class DummyConstants:
+    W_PLF = 0.7
+    W_AF = 0.3
+    W_ANCHOR = -0.25
+    MOVEMENT_GAIN = 6
+    MOVEMENT_FLOOR_PCT = -12
+    MOVEMENT_CEIL_PCT = 0
+
+_DUMMY_CONSTANTS = DummyConstants()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -77,7 +88,7 @@ def test_std_zero_yields_zero_composite_and_anchor_equals_fare():
         pfa88=5000.0, sd_pfa88=0.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(0.0)
     assert result["Portfolio_Anchor"] == pytest.approx(5000.0)
@@ -100,7 +111,7 @@ def test_std_zero_for_one_component_only_zeros_that_component_only():
         # 88 fields all None → z88 = 0 across the board
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     # z_PLF = 0; z_AF = (25000 - 20000) / 5000 = 1; z_anchor = (5000-4000)/1000 = 1
     # composite = 0.7*0 + 0.3*1 - 0.25*1 = 0.05  → movement_pct = 0.3% → clamped to 0
@@ -133,7 +144,7 @@ def test_negative_clamp_caps_movement_at_minus_12_percent():
         pfa=4000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(-3.2)
     assert result["Portfolio_Anchor"] == pytest.approx(6000.0 * (1.0 - 0.12))
@@ -155,7 +166,7 @@ def test_negative_no_clamp_in_band_movement_is_proportional():
         pfa=5000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(-1.0)
     assert result["Portfolio_Anchor"] == pytest.approx(5000.0 * (1.0 - 0.06))
@@ -183,7 +194,7 @@ def test_positive_clamp_holds_movement_at_zero_and_keeps_fare_unchanged():
         pfa=5000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(1.95)
     assert result["Portfolio_Anchor"] == pytest.approx(4000.0)
@@ -204,7 +215,7 @@ def test_null_aggregates_yield_zero_composite_and_unchanged_anchor():
     entry = _entry(plf=70.0, af=20000.0, fare=5000.0)
     aggregates = _aggregates()  # every field None
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(0.0)
     assert result["Portfolio_Anchor"] == pytest.approx(5000.0)
@@ -229,7 +240,7 @@ def test_null_88_aggregates_zero_only_the_88_branch():
         # 88 fields all None
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(-1.0)
     assert result["Portfolio_Anchor"] == pytest.approx(5000.0 * 0.94)
@@ -261,7 +272,7 @@ def test_null_fare_yields_null_portfolio_anchor():
         pfa88=5000.0, sd_pfa88=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["Portfolio_Anchor"] is None
     assert result["Portfolio88_Anchor"] is None
@@ -283,7 +294,7 @@ def test_na_string_fare_yields_null_portfolio_anchor():
         pfa=4000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["Portfolio_Anchor"] is None
     assert result["Portfolio88_Anchor"] is None
@@ -306,7 +317,7 @@ def test_null_input_value_zeros_only_that_component():
         pfa=5000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert result["z_score_composite"] == pytest.approx(0.55)
     assert result["Portfolio_Anchor"] == pytest.approx(4000.0)
@@ -328,6 +339,6 @@ def test_result_always_has_the_four_summary_keys():
         pfa=5000.0, sd_pfa=1000.0,
     )
 
-    result = compute_flight_zscores(entry, aggregates)
+    result = compute_flight_zscores(entry, aggregates, _DUMMY_CONSTANTS)
 
     assert set(result.keys()) == set(EXPECTED_KEYS)

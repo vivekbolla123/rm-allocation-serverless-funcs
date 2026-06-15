@@ -34,17 +34,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-# Composite z-score weights (R5.1).
-_W_PLF = 0.7
-_W_AF = 0.3
-_W_ANCHOR = -0.25
-
-# Movement clamp range, in percent.  ``z_composite * _MOVEMENT_GAIN`` is
-# clamped to ``[_MOVEMENT_FLOOR_PCT, _MOVEMENT_CEIL_PCT]`` before being
-# divided by 100 to produce a fractional movement.
-_MOVEMENT_GAIN = 6
-_MOVEMENT_FLOOR_PCT = -12
-_MOVEMENT_CEIL_PCT = 0
 
 
 def compute_flight_zscores(entry: dict, aggregates: dict, constants_utils: Any = None) -> dict:
@@ -113,9 +102,9 @@ def compute_flight_zscores(entry: dict, aggregates: dict, constants_utils: Any =
 def _composite_z(plf, af, fare,
                  pds, sd_pds, pdq, sd_pdq, pfa, sd_pfa, constants_utils=None) -> float:
     """Combine the three component z-scores into the composite (R5.1)."""
-    w_plf = getattr(constants_utils, "W_PLF", _W_PLF) if constants_utils else _W_PLF
-    w_af = getattr(constants_utils, "W_AF", _W_AF) if constants_utils else _W_AF
-    w_anchor = getattr(constants_utils, "W_ANCHOR", _W_ANCHOR) if constants_utils else _W_ANCHOR
+    w_plf = constants_utils.W_PLF
+    w_af = constants_utils.W_AF
+    w_anchor = constants_utils.W_ANCHOR
 
     z_plf = _safe_z(plf, pds, sd_pds)
     z_af = _safe_z(af, pdq, sd_pdq)
@@ -125,9 +114,9 @@ def _composite_z(plf, af, fare,
 
 def _movement_fraction(z_composite: float, constants_utils=None) -> float:
     """Clamp ``z * gain`` into ``[-12, 0]`` percent and convert to a fraction."""
-    movement_gain = getattr(constants_utils, "MOVEMENT_GAIN", _MOVEMENT_GAIN) if constants_utils else _MOVEMENT_GAIN
-    movement_floor_pct = getattr(constants_utils, "MOVEMENT_FLOOR_PCT", _MOVEMENT_FLOOR_PCT) if constants_utils else _MOVEMENT_FLOOR_PCT
-    movement_ceil_pct = getattr(constants_utils, "MOVEMENT_CEIL_PCT", _MOVEMENT_CEIL_PCT) if constants_utils else _MOVEMENT_CEIL_PCT
+    movement_gain = constants_utils.MOVEMENT_GAIN
+    movement_floor_pct = constants_utils.MOVEMENT_FLOOR_PCT
+    movement_ceil_pct = constants_utils.MOVEMENT_CEIL_PCT
 
     pct = z_composite * movement_gain
     if pct < movement_floor_pct:
