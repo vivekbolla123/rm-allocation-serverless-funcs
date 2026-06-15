@@ -486,7 +486,7 @@ class DynAlloc:
 			if ndocounter <= 30:
 				imp_forecast = getParsedImputedForecast(self, variance_full)
 			if(imp_forecast != CONST_NA):
-				Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
+				Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
 				PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 			ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
@@ -921,9 +921,6 @@ class DynAlloc:
 				# Booked deficit for B2C allocation (target based on original Lid from params)
 				bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 				remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
-				Af_Nb_Allin = CONST_NA
-				if imp_forecast != CONST_NA:
-					Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
 				b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 					self.allocations.b2CAllocation(
 						float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,

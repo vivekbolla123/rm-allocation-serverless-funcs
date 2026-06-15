@@ -270,6 +270,7 @@ class RMDatabaseHelper:
     "ALLIN_AF_NB_LM": "$fr.ALLIN_AF_NB_LM",
     "ALLIN_AF_NB_LY": "$fr.ALLIN_AF_NB_LY",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
+    "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},
 "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
