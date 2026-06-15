@@ -1730,7 +1730,21 @@ public class App implements CommandLineRunner {
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
             deleteValuesStrategyTable(strategy, tableName, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
-            List<String> headers = Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA));
+            List<String> headers;
+            if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
+                String dynamicHeaders = getColumnHeaders(FORECAST_STRATEGY_TABLE_NAME);
+                if (dynamicHeaders != null && !dynamicHeaders.isEmpty()) {
+                    headers = Arrays.asList(dynamicHeaders.split(COMMA));
+                } else {
+                    headers = new ArrayList<>(Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA)));
+                    int index = headers.indexOf(DPLF_BAND_COLUMN_NAME);
+                    if (index != -1) {
+                        headers.set(index, FORECAST_BAND_COLUMN_NAME);
+                    }
+                }
+            } else {
+                headers = Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA));
+            }
             insertStatement(strategyMap.values().stream().toList(), headers, tableName);
             s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
             updateAuditStatement(tableName, getCurrentDateTime(), uuid);
