@@ -41,11 +41,9 @@ public class FaresValidator implements Validator {
                 }
             }
 
-            // Check element count
-            if (!errors.isEmpty()) {
-                return false;
-            }
-            return eachElement(hashMap, rdbValues.size(), errors);
+            // We no longer validate overall count because uploads happen at the group level.
+            // If there are no row-level validation errors, return true.
+            return errors.isEmpty();
         } catch (Exception e) {
             errors.add("Unexpected error during validation: " + e.getMessage());
             return false;
@@ -96,15 +94,6 @@ public class FaresValidator implements Validator {
         }
     }
 
-    public static boolean eachElement(Map<String, Integer> map, int rbdSize, List<String> errors) {
-        boolean valid = true;
-        for (Map.Entry<String, Integer> entry : map.entrySet()) {
-            if (entry.getValue() != rbdSize) {
-                errors.add("Sector/Route '" + entry.getKey() + "' has " + entry.getValue() + " entries, but expected " + rbdSize + " entries.");
-                valid = false;
-            }
-        }
-        return valid;
-    }
+    // Removed eachElement method as we no longer enforce overall RBD counts per sector/route
 
 }
