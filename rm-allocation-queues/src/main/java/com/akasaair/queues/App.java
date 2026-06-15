@@ -1723,7 +1723,7 @@ public class App implements CommandLineRunner {
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, headerValues);
+                strategyMap = getStrategyGrid(csvData, headerValues, tableName);
             } catch (Exception e) {
                 addErrorsToTable(listOfErrors.get(), obj_id);
                 throw e;
@@ -1749,7 +1749,7 @@ public class App implements CommandLineRunner {
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> autoB2BMap = new HashMap<>();
             try {
-                autoB2BMap = getAutoB2BGrid(csvData, STRATEGY_HEADER_VALUES);
+                autoB2BMap = getAutoB2BGrid(csvData, STRATEGY_HEADER_VALUES, AUTO_B2B_TABLE_NAME);
             } catch (Exception e) {
                 addErrorsToTable(listOfErrors.get(), obj_id);
                 throw e;
@@ -3435,7 +3435,7 @@ public class App implements CommandLineRunner {
     }
 
     public Map<String, Map<String, String>> getStrategyGrid(List<List<String>> csvData,
-                                                            Map<String, String> headerColumnMap) throws DataMismatchedException {
+                                                            Map<String, String> headerColumnMap, String tableName) throws DataMismatchedException {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int strategyGridHeader = 0;
         int channelHeader = 1;
@@ -3443,6 +3443,10 @@ public class App implements CommandLineRunner {
         int ndoBandHeader = 3;
         int startColumn = 4;
         Set<String> strategyCounter = new HashSet<>();
+        Set<String> ndoBandCounter = new HashSet<>();
+        Set<String> channelCounter = new HashSet<>();
+        Set<String> decisionCounter = new HashSet<>();
+        Set<String> bandCounter = new HashSet<>();
         int countTotalValues = 0;
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -3450,11 +3454,15 @@ public class App implements CommandLineRunner {
             strategyCounter.add(strategyKey);
 
             String decision = csvData.get(i).get(decisionGridHeader);
+            decisionCounter.add(decision);
             String ndoBandKey = csvData.get(i).get(ndoBandHeader);
+            ndoBandCounter.add(ndoBandKey);
             String channelKey = csvData.get(i).get(channelHeader);
+            channelCounter.add(channelKey);
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String dlfBand = csvData.get(0).get(j);
+                bandCounter.add(dlfBand);
                 String keyVal = strategyKey + ndoBandKey + dlfBand + channelKey;
                 if (!strategyMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
@@ -3468,7 +3476,7 @@ public class App implements CommandLineRunner {
 
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred.set(1);
-                    updateInputStatus(STRATEGY_TABLE_NAME);
+                    updateInputStatus(tableName);
                     String errorMsg = "Line " + (i+1) + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors.get().add(errorMsg);
@@ -3477,7 +3485,8 @@ public class App implements CommandLineRunner {
                 countTotalValues++;
             }
         }
-        findActualCountBetweenRowsAndColumns(strategyCounter, countTotalValues, listOfErrors.get());
+        int expectedValueCount = strategyCounter.size() * ndoBandCounter.size() * channelCounter.size() * decisionCounter.size() * bandCounter.size();
+        findActualCountBetweenRowsAndColumns(expectedValueCount, countTotalValues, listOfErrors.get(), tableName);
 
         if (!listOfErrors.get().isEmpty()) {
             throw new DataMismatchedException(listOfErrors.get());
@@ -3491,12 +3500,14 @@ public class App implements CommandLineRunner {
     }
 
     public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
-                                                           Map<String, String> headerColumnMap) throws DataMismatchedException {
+                                                           Map<String, String> headerColumnMap, String tableName) throws DataMismatchedException {
         Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
         int nameHeader = 0;
         int ndoBandHeader = 1;
         int startColumn = 2;
         Set<String> counter = new HashSet<>();
+        Set<String> ndoBandCounter = new HashSet<>();
+        Set<String> forecastBandCounter = new HashSet<>();
         int countTotalValues = 0;
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -3504,9 +3515,11 @@ public class App implements CommandLineRunner {
             counter.add(nameKey);
 
             String ndoBandKey = extractNumber(csvData.get(i).get(ndoBandHeader));
+            ndoBandCounter.add(ndoBandKey);
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String forecastBand = extractNumber(csvData.get(0).get(j));
+                forecastBandCounter.add(forecastBand);
                 String keyVal = nameKey + ndoBandKey + forecastBand;
                 if (!autob2bMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
@@ -3525,7 +3538,8 @@ public class App implements CommandLineRunner {
                 countTotalValues++;
             }
         }
-        findActualCountForAutoB2BFactor(counter, countTotalValues, listOfErrors.get());
+        int expectedValueCount = counter.size() * ndoBandCounter.size() * forecastBandCounter.size();
+        findActualCountForAutoB2BFactor(expectedValueCount, countTotalValues, listOfErrors.get(), tableName);
 
         if (!listOfErrors.get().isEmpty()) {
             throw new DataMismatchedException(listOfErrors.get());
@@ -3534,25 +3548,19 @@ public class App implements CommandLineRunner {
         return autob2bMap;
     }
 
-    private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues,
-                                                      List<String> errorList) throws DataMismatchedException {
-        int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
-        int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
-        int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * NUMBER_OF_DECISIONS * 2;
+    private void findActualCountBetweenRowsAndColumns(int expectedValueCount, int countTotalValues,
+                                                      List<String> errorList, String tableName) throws DataMismatchedException {
         if (expectedValueCount != countTotalValues) {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
             errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
             throw new DataMismatchedException(Collections.singletonList(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE));
         }
     }
 
-    private void findActualCountForAutoB2BFactor(Set<String> strategyCounter, int countTotalValues,
-                                                 List<String> errorList) throws DataMismatchedException {
-        int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
-        int forecastBand = getCountOfEntries(IMP_FORECAST_BANDS_TABLE_NAME);
-        int expectedValueCount = strategyCounter.size() * ndoBand * forecastBand;
+    private void findActualCountForAutoB2BFactor(int expectedValueCount, int countTotalValues,
+                                                 List<String> errorList, String tableName) throws DataMismatchedException {
         if (expectedValueCount != countTotalValues) {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
             errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
             throw new DataMismatchedException(Collections.singletonList(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE));
         }
