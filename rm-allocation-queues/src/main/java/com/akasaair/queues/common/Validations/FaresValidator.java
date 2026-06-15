@@ -45,8 +45,9 @@ public class FaresValidator implements Validator {
             if (!errors.isEmpty()) {
                 return false;
             }
-            return eachElement(hashMap, rdbValues.size());
+            return eachElement(hashMap, rdbValues.size(), errors);
         } catch (Exception e) {
+            errors.add("Unexpected error during validation: " + e.getMessage());
             return false;
         }
     }
@@ -95,13 +96,15 @@ public class FaresValidator implements Validator {
         }
     }
 
-    public static boolean eachElement(Map<?, Integer> map,int rbdSize) {
-        for (Integer value : map.values()) {
-            if (value != rbdSize) {
-                return false;
+    public static boolean eachElement(Map<String, Integer> map, int rbdSize, List<String> errors) {
+        boolean valid = true;
+        for (Map.Entry<String, Integer> entry : map.entrySet()) {
+            if (entry.getValue() != rbdSize) {
+                errors.add("Sector/Route '" + entry.getKey() + "' has " + entry.getValue() + " entries, but expected " + rbdSize + " entries.");
+                valid = false;
             }
         }
-        return true;
+        return valid;
     }
 
 }

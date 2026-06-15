@@ -5437,6 +5437,7 @@ public class App implements CommandLineRunner {
 
             Map<String, Set<String>> rbdGroups = getRBDGroups();
             Map<String, Map<String, Set<String>>> fileSectorsRoutesGroups = new HashMap<>();
+            Map<String, Map<String, Set<String>>> uploadedSectorRouteRbds = new HashMap<>();
 
             for (int i = 0; i < csvData.size(); i++) {
                 List<String> row = csvData.get(i);
@@ -5445,6 +5446,11 @@ public class App implements CommandLineRunner {
                     String sector = row.get(0).trim();
                     String route = row.get(3).trim();
                     String rbd = row.get(4).trim();
+
+                    uploadedSectorRouteRbds
+                        .computeIfAbsent(sector, k -> new HashMap<>())
+                        .computeIfAbsent(route, k -> new HashSet<>())
+                        .add(rbd);
 
                     String groupName = null;
                     for (Map.Entry<String, Set<String>> entry : rbdGroups.entrySet()) {
@@ -5462,6 +5468,44 @@ public class App implements CommandLineRunner {
                 } catch (Exception e) {
                     // Ignore parsing errors for group identification
                 }
+            }
+
+            // Validate that the uploaded RBDs form complete groups
+            boolean hasGroupValidationErrors = false;
+            for (Map.Entry<String, Map<String, Set<String>>> sectorEntry : fileSectorsRoutesGroups.entrySet()) {
+                String sector = sectorEntry.getKey();
+                for (Map.Entry<String, Set<String>> routeEntry : sectorEntry.getValue().entrySet()) {
+                    String route = routeEntry.getKey();
+                    Set<String> expectedRbds = new HashSet<>();
+                    for (String groupName : routeEntry.getValue()) {
+                        expectedRbds.addAll(rbdGroups.get(groupName));
+                    }
+                    Set<String> actualRbds = uploadedSectorRouteRbds.get(sector).get(route);
+                    
+                    if (!actualRbds.equals(expectedRbds)) {
+                        Set<String> missing = new HashSet<>(expectedRbds);
+                        missing.removeAll(actualRbds);
+                        Set<String> extra = new HashSet<>(actualRbds);
+                        extra.removeAll(expectedRbds);
+                        
+                        String errorMsg = "Sector/Route '" + sector + route + "' validation failed.";
+                        if (!missing.isEmpty()) {
+                            errorMsg += " Missing RBDs for the uploaded groups: " + missing + ".";
+                        }
+                        if (!extra.isEmpty()) {
+                            errorMsg += " Unexpected RBDs found: " + extra + ".";
+                        }
+                        listOfErrors.get().add(errorMsg);
+                        hasGroupValidationErrors = true;
+                    }
+                }
+            }
+
+            if (hasGroupValidationErrors) {
+                updateInputStatus(tableName);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), objId);
+                throw new DataMismatchedException(listOfErrors.get());
             }
 
             List<Bson> deleteFilters = new ArrayList<>();
