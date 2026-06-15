@@ -73,7 +73,7 @@ class DynAlloc:
 		# For local split test, compute portfolio counts beforehand
 		if self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA:
 			self.logger.info("Initializing local split orchestration")
-			counts = self.mktList.groupby(["Origin", "Destin", "PerStart"]).size().to_dict()
+			counts = self.mktList.groupby(["Origin", "Destin", "PerStart"])['FlightNumber'].nunique().to_dict()
 			self.mktList['portfolio_count'] = self.mktList.apply(
 				lambda row: counts.get((row.get('Origin', ''), row.get('Destin', ''), row.get('PerStart', '')), 1),
 				axis=1
@@ -164,6 +164,7 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
+					self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_BOOKLOADS)
 					break
 				# bookedLoad['DepartureDate'] = pd.to_datetime(bookedLoad['DepartureDate'])
 				# if FlightNumber == '*':
@@ -196,6 +197,7 @@ class DynAlloc:
 					self.allocResults.append(self.outputSummaryRow_b2b)
 					self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 					self.redishelper.updateRunAudit()
+					self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_BOOKLOADS)
 				else:
 					tgtBookedLoadList = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(ndocounter, curveId)
 					qpFares = self.rmdatabasehelper.get_qp_fares(origin, destination)
@@ -228,6 +230,7 @@ class DynAlloc:
 								self.allocResults.append(self.outputSummaryRow_b2b)
 								self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 								self.redishelper.updateRunAudit()
+								self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_TBF_FARES)
 							else:
 								tgtBookedLoadPercent = float(tgtBookedLoadList['LF'][0])
 								self.runDynamicAllocationSingleMarketSingleDay(ndocounter, bookedLoad, tgtBookedLoadPercent)
@@ -255,6 +258,7 @@ class DynAlloc:
 							self.allocResults.append(self.outputSummaryRow_b2b)
 							self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 							self.redishelper.updateRunAudit()
+							self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_QP_FARES)
 					else:
 						# Cannot get a reference curve - Abort
 						self.logger.info("Unable to get a Target - Check the booking curves")
@@ -278,16 +282,28 @@ class DynAlloc:
 						self.allocResults.append(self.outputSummaryRow_b2b)
 						self.rmdatabasehelper.insertSummaryRow(self.allocResults)
 						self.redishelper.updateRunAudit()	
+						self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_REF_CURVE)	
 		except Exception as e:
 			self.logger.info("Exception occurred")
 			traceback.print_exc()
 			self.logger.info(e)
+			self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, f"Unhandled exception: {str(e)}")
 
 		if not self.inputSource.isUpdateNavitaire:
 			self.outputResults()
 
 		# if self.inputSource.isUpdateNavitaire and (self.NavitaireUpdateMethod == CONST_SFTP or self.NavitaireUpdateMethod == S3):
 		# 	self.redishelper.setAllRunStatus2Ready()
+
+	def _triggerDummyAbortedFlightLocal(self, FlightNumber, bookedLoad, failure_reason):
+		if self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA:
+			dummy_state = FlightState(
+				currFlt=FlightNumber, currFltDate=self.currParams.per_start,
+				currBookedLoad=bookedLoad, aborted=True, is_failure=True, failure_reason=failure_reason,
+				portfolio_count=int(getattr(self.currParams, 'portfolio_count', 1) or 1)
+			)
+			entry = self._buildPortfolioEntry(dummy_state)
+			self._coordinatePortfolioTriggerLocal(entry)
 
 	def runDynamicAllocationSingleMarketSingleDay(self, ndocounter, bookedLoad, tgtBookedLoadPercent):
 		currDate = self.timeutils.getCurrentDate()
@@ -1230,7 +1246,6 @@ class DynAlloc:
 		is_spoilage_reduction_active = state.is_spoilage_reduction_active
 		last_seven_avg_val = state.last_seven_avg_val
 		hardfareb2c = state.hardfare_b2c
-		hard_anchor_flag = state.hard_anchor_flag
 		month_str_for_profile = state.month_str_for_profile
 		dow_str_for_profile = state.dow_str_for_profile
 		deptTime_str_hhmm = state.deptTime_str_hhmm
@@ -1287,7 +1302,7 @@ class DynAlloc:
 				self.allocations.b2CAllocation(
 					float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
-					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,hard_anchor_flag,self.currParams.plfthreshold,self.actualplf,
+					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,self.currParams.plfthreshold,self.actualplf,
 					determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 					last_seven_avg_fare=last_seven_avg_val
 				)
@@ -1297,7 +1312,7 @@ class DynAlloc:
 				float(currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 				remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 				profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
-				imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,hard_anchor_flag,self.currParams.plfthreshold,self.actualplf, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
+				imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,self.currParams.plfthreshold,self.actualplf, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 					last_seven_avg_fare=last_seven_avg_val
 			)
 
@@ -1801,7 +1816,7 @@ class DynAlloc:
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
-			df = df.drop(columns=["Id"], errors='ignore')
+			df = df.drop(columns=["Id", "AirlineCode_Min", "AirlineCode_Max", "currentLoadFactor", "recommendedActions"], errors='ignore')
 			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):
@@ -2377,6 +2392,7 @@ class DynAlloc:
 					param_obFare, profileFare, False, imp_forecast, imp_forecast_band,
 					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
 				)
+				anchorResult_b2b.strategyFare = self.outputSummaryRow_b2b.strategyFare
 				self._copyOutputSummaryToAnchor(anchorResult_b2b, self.outputSummaryRow_b2b)
 
 				state.B2C_opening_price_val = B2C_opening_price_val
@@ -2649,6 +2665,10 @@ class DynAlloc:
 
 		if state.is_failure:
 			self._writeFailureSummaryRow(state)
+			self.redishelper.updateRunAudit()
+			return state
+
+		if getattr(state, 'aborted', False):
 			self.redishelper.updateRunAudit()
 			return state
 
@@ -3128,6 +3148,7 @@ class DynAlloc:
 		entry["lastSoldFareb2b"] = state.lastSoldFareb2b_val
 		entry["last_seven_avg_val"] = state.last_seven_avg_val
 		entry["is_spoilage_reduction_active"] = state.is_spoilage_reduction_active
+		entry["hardfare_b2c"] = state.hardfare_b2c
 
 		entry["B2B_thresholdflag"] = bool(getattr(self, 'B2B_thresholdflag', False))
 		entry["p_thresholdflag"] = bool(getattr(self, 'p_thresholdflag', False))
@@ -3157,8 +3178,19 @@ class DynAlloc:
 		# pass uses the same factor.
 		entry["b2b_factor_resolved"] = getattr(self.currParams, 'b2b_factor', None)
 
+		entry["aborted"] = getattr(state, "aborted", False)
 		entry["is_failure"] = bool(state.is_failure)
 		entry["failure_reason"] = state.failure_reason
+
+		entry["should_process_K"] = getattr(state, 'should_process_K', False)
+		entry["isB2CMarketFareAvailable"] = getattr(state, 'isB2CMarketFareAvailable', False)
+		entry["isB2BMarketFareAvailable"] = getattr(state, 'isB2BMarketFareAvailable', False)
+		entry["himktFile_b2b"] = getattr(state, 'himktFile_b2b', "")
+		entry["lowmktFile_b2b"] = getattr(state, 'lowmktFile_b2b', "")
+		entry["himktFile_b2c"] = getattr(state, 'himktFile_b2c', "")
+		entry["lowmktFile_b2c"] = getattr(state, 'lowmktFile_b2c', "")
+		entry["is_last7avg_anchor_b2c"] = getattr(state, 'is_last7avg_anchor_b2c', False)
+		entry["is_profile_anchor_b2c"] = getattr(state, 'is_profile_anchor_b2c', False)
 
 		# R9 — placeholder for portfolio-aware fields.  Filled in during
 		# the allocation pass by ``_computeAndAttachZScores``.
@@ -3391,22 +3423,22 @@ class DynAlloc:
 			currFlt=payload.get("currFlt", self.currParams.flight_number),
 			currFltDate=payload.get("currFltDate", self.currParams.per_start),
 			currFltDepartureTime=payload.get("currFltDepartureTime", self.currParams.DepartureTime),
-			currLid=payload.get("currLid", self.currParams.capacity),
-			currAdjustedCapacity=payload.get("currAdjustedCapacity", self.currParams.adjustedCapacity),
-			currtbfBookedLoad=payload.get("currtbfBookedLoad", self.currParams.tbf_bookings),
-			currBookedLoad=payload.get("currBookedLoad", self.currParams.bookedPax),
-			initial_currBookedLoad=payload.get("initial_currBookedLoad", payload.get("currBookedLoad")),
-			tgtBookedLoadPercent=payload.get("tgtBookedLoadPercent", 0.0),
+			currLid=safe_float(payload.get("currLid", self.currParams.capacity)),
+			currAdjustedCapacity=safe_float(payload.get("currAdjustedCapacity", self.currParams.adjustedCapacity)),
+			currtbfBookedLoad=safe_float(payload.get("currtbfBookedLoad", self.currParams.tbf_bookings)),
+			currBookedLoad=safe_float(payload.get("currBookedLoad", self.currParams.bookedPax)),
+			initial_currBookedLoad=safe_float(payload.get("initial_currBookedLoad", payload.get("currBookedLoad", self.currParams.bookedPax))),
+			tgtBookedLoadPercent=safe_float(payload.get("tgtBookedLoadPercent", 0.0)),
 			dow=payload.get("dow", 0),
 			ndocounter=payload.get("ndocounter", 0),
 			current_w0Flag=payload.get("current_w0Flag", 0),
 			current_directFlag=payload.get("current_directFlag", 1),
-			actualplf=payload.get("actualplf", 0.0),
-			base_totalCapacity=payload.get("base_totalCapacity", 0.0),
-			base_adjustedCapacity=payload.get("base_adjustedCapacity", 0.0),
-			final_totalCapacity=payload.get("final_totalCapacity", 0.0),
-			final_plf=payload.get("final_plf", 0.0),
-			overBookingCount=payload.get("overBookingCount", 0.0),
+			actualplf=safe_float(payload.get("actualplf", 0.0)),
+			base_totalCapacity=safe_float(payload.get("base_totalCapacity", 0.0)),
+			base_adjustedCapacity=safe_float(payload.get("base_adjustedCapacity", 0.0)),
+			final_totalCapacity=safe_float(payload.get("final_totalCapacity", 0.0)),
+			final_plf=safe_float(payload.get("final_plf", 0.0)),
+			overBookingCount=safe_float(payload.get("overBookingCount", 0.0)),
 			b2boverbookingflag=bool(payload.get("b2boverbookingflag", False)),
 			currentTime=payload.get("currentTime", ""),
 			sod_dplfBand=payload.get("sod_dplfBand", 0),
@@ -3450,11 +3482,22 @@ class DynAlloc:
 			l_thresholdflag=bool(payload.get("l_thresholdflag", False)),
 			threshold_flags=payload.get("threshold_flags", {}) or {},
 			b2b_anchor_source=payload.get("b2b_anchor_source"),
+			hardfare_b2c=payload.get("hardfare_b2c"),
 			anchorResult_b2c=self._deserialiseAnchorResult(payload.get("anchor_result_b2c")),
 			anchorResult_b2b=self._deserialiseAnchorResult(payload.get("anchor_result_b2b")),
 			is_failure=bool(payload.get("is_failure", False)),
 			failure_reason=payload.get("failure_reason") or "",
 			portfolio_count=int(payload.get("portfolio_count", 1) or 1),
+			aborted=bool(payload.get("aborted", False)),
+			should_process_K=payload.get("should_process_K", False),
+			isB2CMarketFareAvailable=payload.get("isB2CMarketFareAvailable", False),
+			isB2BMarketFareAvailable=payload.get("isB2BMarketFareAvailable", False),
+			himktFile_b2b=payload.get("himktFile_b2b", ""),
+			lowmktFile_b2b=payload.get("lowmktFile_b2b", ""),
+			himktFile_b2c=payload.get("himktFile_b2c", ""),
+			lowmktFile_b2c=payload.get("lowmktFile_b2c", ""),
+			is_last7avg_anchor_b2c=payload.get("is_last7avg_anchor_b2c", False),
+			is_profile_anchor_b2c=payload.get("is_profile_anchor_b2c", False),
 		)
 		# Re-derive parsed datetime / yyyymmdd helpers because the
 		# downstream phases read them from ``state``.

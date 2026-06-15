@@ -165,7 +165,6 @@ class FlightState:
 	openDataB2C_details: dict = field(default_factory=dict)
 	openDataB2B_details: dict = field(default_factory=dict)
 	determined_overBookingFare: float = 0.0
-	hard_anchor_flag: bool = False
 	# Phase K head outputs threaded into _computeFareAnchors / _phaseK_applyLadder
 	# so the two-pass split can reproduce today's interleaved B2C → B2B flow
 	# without re-running the candidate-selection branch from scratch.

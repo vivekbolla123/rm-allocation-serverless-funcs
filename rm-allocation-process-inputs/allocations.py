@@ -19,7 +19,7 @@ class RBDAllocations:
         self.mathutils = mathutils
         self.timeutils = timeutils
 
-    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
+    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
         
@@ -412,7 +412,7 @@ class RBDAllocations:
 
         return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice, first_rbd_alloc, other_rbd_alloc
 
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast,strategyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
@@ -423,7 +423,7 @@ class RBDAllocations:
         _, _, _, df_unique_0, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
+            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         currRec_copy = copy.deepcopy(currRec)
@@ -433,7 +433,7 @@ class RBDAllocations:
         _, _, _, df_unique_1, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,hard_anchor_flag,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
+            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
         )
         
         df_unique_1_modified = df_unique_1.copy()
@@ -770,6 +770,12 @@ class RBDAllocations:
         if int(autoGroup) == 1 and not group_alloc_df.empty:
             try:
                 potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector, month)
+                
+                try:
+                    groupbookload = float(groupbookload) if groupbookload not in (None, '', 'NA', 'None') else 0.0
+                except (ValueError, TypeError):
+                    groupbookload = 0.0
+                    
                 max_au = currBookedLoad - groupbookload + int(potential_seats)
                 max_au = min(adjustedCapacity - 50, max_au)
 

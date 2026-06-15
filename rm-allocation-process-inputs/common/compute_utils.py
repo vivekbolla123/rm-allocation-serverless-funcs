@@ -1,5 +1,6 @@
 from Constants import *
 import math
+import pandas as pd
 
 def getParsedForecast(self):
   # Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
@@ -133,5 +134,17 @@ def parse_int_flag(val, default=0):
     if math.isnan(val_float):
       return default
     return int(val_float)
+  except (ValueError, TypeError):
+    return default
+
+def safe_float(val, default=0.0):
+  """Safely cast a payload value to float, handling NAs and empty strings."""
+  if not pd.notna(val):
+    return default
+  try:
+    val_str = str(val).strip()
+    if val_str in ('', 'NA', 'None'):
+      return default
+    return float(val)
   except (ValueError, TypeError):
     return default
