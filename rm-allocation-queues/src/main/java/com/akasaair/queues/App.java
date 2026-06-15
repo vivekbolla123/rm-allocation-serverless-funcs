@@ -1737,9 +1737,13 @@ public class App implements CommandLineRunner {
                     headers = Arrays.asList(dynamicHeaders.split(COMMA));
                 } else {
                     headers = new ArrayList<>(Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA)));
-                    int index = headers.indexOf(DPLF_BAND_COLUMN_NAME);
-                    if (index != -1) {
-                        headers.set(index, FORECAST_BAND_COLUMN_NAME);
+                    int dplfIndex = headers.indexOf(DPLF_BAND_COLUMN_NAME);
+                    if (dplfIndex != -1) {
+                        headers.set(dplfIndex, FORECAST_BAND_COLUMN_NAME);
+                    }
+                    int ndoIndex = headers.indexOf(NDO_BAND_COLUMN_NAME);
+                    if (ndoIndex != -1) {
+                        headers.set(ndoIndex, DPLF_BAND_COLUMN_NAME);
                     }
                 }
             } else {
@@ -3481,8 +3485,13 @@ public class App implements CommandLineRunner {
                 if (!strategyMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
                     map.put(STRATEGY_COLUMN_NAME, strategyKey);
-                    map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
-                    map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
+                    if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
+                        map.put(DPLF_BAND_COLUMN_NAME, ndoBandKey);
+                        map.put(FORECAST_BAND_COLUMN_NAME, dlfBand);
+                    } else {
+                        map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
+                        map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
+                    }
                     map.put(CHANNEL_COLUMN_NAME, channelKey);
                     strategyMap.put(keyVal, map);
                 }
