@@ -8,7 +8,7 @@ class GetDynamicTimeD2:
     def __init__(self, database_helper):
         self.rmdatabasehelper = database_helper
 
-    def getDynamicTime(self, currParams, dplfBand, ndoBand, DaySpan, channel,plf):
+    def getDynamicTime(self, currParams, dplfBand, ndoBand, forecastBand, DaySpan, channel,plf):
         startTime = currParams.time_window_start
         endTime = currParams.time_window_end
         hardstartTime = currParams.time_window_start
@@ -23,7 +23,7 @@ class GetDynamicTimeD2:
                 hardendTime = currParams.time_window_end
                 hard_time_range = '0'
                 
-        dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+        dynamicTimeList = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, forecastBand, channel)
         time_range = dynamicTimeList['time_range'][0]
 
         rangeList = self.rmdatabasehelper.getTimeRange(time_range)
@@ -71,7 +71,7 @@ class GetDynamicTimeD2:
 
         return startTime, endTime
     
-    def getDynamicD2Value(self, currParams, dplfBand, ndoBand, channel, plf):
+    def getDynamicD2Value(self, currParams, dplfBand, ndoBand, forecastBand, channel, plf):
         hardcriteria = CONST_NA
         hardoffset = CONST_NA
         fare = CONST_NA
@@ -82,7 +82,7 @@ class GetDynamicTimeD2:
                 hardcriteria = currParams.hardanchor
                 hardoffset = currParams.fare_offset
                 
-        dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, channel)
+        dynamicD2List = self.rmdatabasehelper.getd1d2StrategyValue(currParams.strategy, dplfBand, ndoBand, forecastBand, channel)
         criteria = dynamicD2List['criteria'][0]
         offset = dynamicD2List['offset'][0]
         strategy = dynamicD2List['strategy'][0]

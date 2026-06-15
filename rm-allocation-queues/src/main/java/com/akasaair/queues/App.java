@@ -574,10 +574,49 @@ public class App implements CommandLineRunner {
                         numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
-                            uploadStrategyGridFile(reader, userName, obj_id);
+                            uploadStrategyTypeGridFile(reader, userName, obj_id, STRATEGY_TABLE_NAME, STRATEGY_HEADER_VALUES);
                         } catch (Exception e) {
                             listOfErrors.get().add("Error Uploading Strategy File to DB. Please check file content");
                             throw new RuntimeException("Error processing strategy file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case FORECAST_STRATEGY_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadStrategyTypeGridFile(reader, userName, obj_id, FORECAST_STRATEGY_TABLE_NAME, FORECAST_STRATEGY_HEADER_VALUES);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Forecast Strategy File to DB. Please check file content");
+                            throw new RuntimeException("Error processing forecast strategy file content: " + e.getMessage(), e);
                         }
                     } catch (Exception ex) {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
@@ -1676,29 +1715,29 @@ public class App implements CommandLineRunner {
     }
 
 
-    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws Exception {
+    public void uploadStrategyTypeGridFile(Reader file, String userName, String obj_id, String tableName, Map<String, String> headerValues) throws Exception {
         String uuid = obj_id;
         try {
-            insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
-            insertInputStatusTable(STRATEGY_TABLE_NAME);
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES);
+                strategyMap = getStrategyGrid(csvData, headerValues);
             } catch (Exception e) {
                 addErrorsToTable(listOfErrors.get(), obj_id);
                 throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
-            deleteValuesStrategyTable(strategy, STRATEGY_TABLE_NAME, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
+            deleteValuesStrategyTable(strategy, tableName, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
             List<String> headers = Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA));
-            insertStatement(strategyMap.values().stream().toList(), headers, STRATEGY_TABLE_NAME);
-            s3FileStorageDao.storeFile(createCSV(STRATEGY_TABLE_NAME), STRATEGY_TABLE_NAME, uuid);
-            updateAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), uuid);
+            insertStatement(strategyMap.values().stream().toList(), headers, tableName);
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
         } catch (Exception e) {
             throw e;
         } finally {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
         }
     }
 

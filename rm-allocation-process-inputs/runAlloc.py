@@ -496,7 +496,7 @@ class DynAlloc:
 			if ndocounter <= 30:
 				forecast_plf = getParsedForecast(self)
 			if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
-				forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
+				forecastBand = self.rmdatabasehelper.get_imputed_forecast_band(forecast_plf)
 			
 			imp_forecast_band = CONST_NA
 			af_forecast_band = CONST_NA
@@ -546,15 +546,15 @@ class DynAlloc:
 
 			# Get Dynamic D1 (Time Window)
 			self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
-				self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2B_CHANNEL, final_plf)
+				self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, forecastBand, DaySpan_full, B2B_CHANNEL, final_plf)
 			self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange, hardstartTimeB2C, hardendTimeB2C = \
-				self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
+				self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, forecastBand, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
 
 			# Get Dynamic D2 (Criteria, Offset, StrategyRef)
 			self.outputSummaryRow_b2b.criteria, hardcriteriaB2B, self.outputSummaryRow_b2b.fareOffset, hardoffsetB2B, self.outputSummaryRow_b2b.StrategyReference, hardfareb2b = \
-				self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2B_CHANNEL, final_plf)
+				self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, forecastBand, B2B_CHANNEL, final_plf)
 			self.outputSummaryRow_b2c.criteria, hardcriteriaB2C, self.outputSummaryRow_b2c.fareOffset, hardoffsetB2C, self.outputSummaryRow_b2c.StrategyReference, hardfareb2c = \
-				self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2C_CHANNEL, final_plf)
+				self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, forecastBand, B2C_CHANNEL, final_plf)
 
 			# IDs for summary rows (already set in common init, but ensure unique if re-running parts)
 			self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
