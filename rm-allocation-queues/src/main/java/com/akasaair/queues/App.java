@@ -1732,13 +1732,9 @@ public class App implements CommandLineRunner {
             deleteValuesStrategyTable(strategy, tableName, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
             List<String> headers = new ArrayList<>(Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA)));
             if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
-                int dplfIndex = headers.indexOf(DPLF_BAND_COLUMN_NAME);
-                if (dplfIndex != -1) {
-                    headers.set(dplfIndex, FORECAST_BAND_COLUMN_NAME);
-                }
                 int ndoIndex = headers.indexOf(NDO_BAND_COLUMN_NAME);
                 if (ndoIndex != -1) {
-                    headers.set(ndoIndex, DPLF_BAND_COLUMN_NAME);
+                    headers.set(ndoIndex, FORECAST_BAND_COLUMN_NAME);
                 }
             }
             insertStatement(strategyMap.values().stream().toList(), headers, tableName);
@@ -3478,12 +3474,11 @@ public class App implements CommandLineRunner {
                     Map<String, String> map = new HashMap<>();
                     map.put(STRATEGY_COLUMN_NAME, strategyKey);
                     if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
-                        map.put(DPLF_BAND_COLUMN_NAME, ndoBandKey);
-                        map.put(FORECAST_BAND_COLUMN_NAME, dlfBand);
+                        map.put(FORECAST_BAND_COLUMN_NAME, ndoBandKey);
                     } else {
                         map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
-                        map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
                     }
+                    map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
                     map.put(CHANNEL_COLUMN_NAME, channelKey);
                     strategyMap.put(keyVal, map);
                 }
