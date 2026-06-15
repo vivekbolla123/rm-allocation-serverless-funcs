@@ -2479,6 +2479,29 @@ public class App implements CommandLineRunner {
         return rbdList;
     }
 
+    public Map<String, Set<String>> getRBDGroups() {
+        Map<String, Set<String>> rbdGroups = new HashMap<>();
+        try {
+            MongoCollection<Document> collection = getDbForCollection(RM_PARAMS_TABLE_NAME).getCollection(RM_PARAMS_TABLE_NAME);
+            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+
+            for (Document doc : docs) {
+                String key = doc.getString("parameterKey");
+                Object val = doc.get(PARAMETER_VALUE_COLUMN_NAME);
+
+                if (key != null && val != null) {
+                    String value = val.toString();
+                    Set<String> rbdSet = new HashSet<>(Arrays.asList(value.split(",")));
+                    rbdGroups.put(key, rbdSet);
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+        return rbdGroups;
+    }
+
+
     private  Validator getValidator(String tableName) {
         Validator validator;
         switch (tableName) {
@@ -5410,6 +5433,66 @@ public class App implements CommandLineRunner {
                 listOfErrors.get().add(INVALID_DATA_ERROR_MESSAGE);
                 addErrorsToTable(listOfErrors.get(), objId);
                 throw new DataMismatchedException(listOfErrors.get());
+            }
+
+            Map<String, Set<String>> rbdGroups = getRBDGroups();
+            Map<String, Map<String, Set<String>>> fileSectorsRoutesGroups = new HashMap<>();
+
+            for (int i = 0; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                try {
+                    if (row.size() < 7) continue;
+                    String sector = row.get(0).trim();
+                    String route = row.get(3).trim();
+                    String rbd = row.get(4).trim();
+
+                    String groupName = null;
+                    for (Map.Entry<String, Set<String>> entry : rbdGroups.entrySet()) {
+                        if (entry.getValue().contains(rbd)) {
+                            groupName = entry.getKey();
+                            break;
+                        }
+                    }
+
+                    if (groupName != null) {
+                        fileSectorsRoutesGroups.computeIfAbsent(sector, k -> new HashMap<>())
+                            .computeIfAbsent(route, k -> new HashSet<>())
+                            .add(groupName);
+                    }
+                } catch (Exception e) {
+                    // Ignore parsing errors for group identification
+                }
+            }
+
+            List<Bson> deleteFilters = new ArrayList<>();
+            for (Map.Entry<String, Map<String, Set<String>>> sectorEntry : fileSectorsRoutesGroups.entrySet()) {
+                String sector = sectorEntry.getKey();
+                for (Map.Entry<String, Set<String>> routeEntry : sectorEntry.getValue().entrySet()) {
+                    String route = routeEntry.getKey();
+                    for (String groupName : routeEntry.getValue()) {
+                        Set<String> groupRbds = rbdGroups.get(groupName);
+                        if (groupRbds != null && !groupRbds.isEmpty()) {
+                            deleteFilters.add(
+                                Filters.and(
+                                    Filters.eq("SECTOR", sector),
+                                    Filters.eq("route", route),
+                                    Filters.in("RBD", groupRbds)
+                                )
+                            );
+                        }
+                    }
+                }
+            }
+
+            if (!deleteFilters.isEmpty()) {
+                try {
+                    MongoCollection<Document> collection = database.getCollection(tableName.toLowerCase());
+                    Bson finalFilter = Filters.or(deleteFilters);
+                    com.mongodb.client.result.DeleteResult result = collection.deleteMany(finalFilter);
+                    log.info("Deleted " + result.getDeletedCount() + " existing fare records for the uploaded groups");
+                } catch (Exception e) {
+                    log.error("Error deleting existing fares: " + e.getMessage());
+                }
             }
 
             List<WriteModel<Document>> bulkUpdates = new ArrayList<>();
