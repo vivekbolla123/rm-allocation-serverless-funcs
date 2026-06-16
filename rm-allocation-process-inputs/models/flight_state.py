@@ -47,6 +47,7 @@ class FlightState:
 	final_totalCapacity: float = 0.0
 	final_plf: float = 0.0
 	overBookingCount: float = 0.0
+	expectedNoShows: Any = None
 	b2boverbookingflag: bool = False
 	currBookedLoad: float = 0.0
 	initial_currBookedLoad: float = 0.0

@@ -2494,10 +2494,10 @@ class RMDatabaseHelper:
             if self.debugMode:
                 self.logger.info(f"Query: {sector}, Flight {FltNumber}, Date {currFltDate}")
 
-            return result["ExpectedNoShows"] if result else 0
+            return result["ExpectedNoShows"] if result else CONST_NA
         except Exception as e:
             self.logger.error(e)
-            return 0
+            return CONST_NA
 
     def get_farther_rbd_distribution(self, seats):
         try:

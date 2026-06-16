@@ -53,6 +53,8 @@ class OutputSummary:
         self.status = CONST_NA
         self.w0Flag = CONST_NA
         self.mktFile=CONST_NA
+        self.CurveId = CONST_NA
+        self.ExpectedNoShows = CONST_NA
         
         self.forecastPLF=CONST_NA
         self.ImputedForecastPLF=CONST_NA

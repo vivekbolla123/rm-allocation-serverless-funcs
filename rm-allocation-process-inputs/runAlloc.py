@@ -523,7 +523,7 @@ class DynAlloc:
 			plf_before_ob = (float(currBookedLoad) / base_totalCapacity) * 100
 
 		# self.overBooking needs YYYY-MM-DD date
-		final_totalCapacity, self.b2boverbookingflag = self.overBooking(
+		final_totalCapacity, self.b2boverbookingflag, expectedNoShows = self.overBooking(
 			self.currParams.per_start, ndocounter, base_totalCapacity, base_adjustedCapacity, plf_before_ob, float(currBookedLoad)
 		)
 		state.b2boverbookingflag = self.b2boverbookingflag
@@ -531,6 +531,7 @@ class DynAlloc:
 
 		# OverBookingCount relative to the original adjusted capacity
 		overBookingCount = float(final_totalCapacity - base_adjustedCapacity)
+		state.expectedNoShows = expectedNoShows
 
 		# --- PLF after potential overbooking (used for various thresholds) ---
 		final_plf = 0.0 # Default
@@ -1456,6 +1457,9 @@ class DynAlloc:
 		currBookedLoad = state.currBookedLoad
 		currFltDate = state.currFltDate
 		overBookingCount = state.overBookingCount
+		expectedNoShows = getattr(state, 'expectedNoShows', CONST_NA)
+		if expectedNoShows is None:
+			expectedNoShows = CONST_NA
 		final_plf = state.final_plf
 		variance_full = state.variance_full
 		dplfBand_full = state.dplfBand_full
@@ -1527,6 +1531,11 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2c.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2c.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2c.allocationStatus = safe_get_from_dict(openDataB2C_details, 'allocationStatus', default=0)
 		self.outputSummaryRow_b2c.overBookingCount = overBookingCount; self.outputSummaryRow_b2c.actualbookedPlf = round(self.actualplf,2)
+		self.outputSummaryRow_b2c.ExpectedNoShows = expectedNoShows
+		
+		CurveId = getattr(self.currParams, 'curve_id', CONST_NA)
+		self.outputSummaryRow_b2c.CurveId = CurveId if CurveId is not None else CONST_NA
+		
 		self.outputSummaryRow_b2c.recommendedActions = self.recommend_action(self.outputSummaryRow_b2c)
 
 		# Portfolio anchor split (R9) — carry ``portfolio_count`` from the
@@ -1552,6 +1561,11 @@ class DynAlloc:
 		self.outputSummaryRow_b2b.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2b.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2b.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2b.allocationStatus = safe_get_from_dict(openDataB2B_details, 'allocationStatus', default=0)
 		self.outputSummaryRow_b2b.overBookingCount = overBookingCount; self.outputSummaryRow_b2b.actualbookedPlf = round(self.actualplf,2)
+		self.outputSummaryRow_b2b.ExpectedNoShows = expectedNoShows
+		
+		CurveId = getattr(self.currParams, 'curve_id', CONST_NA)
+		self.outputSummaryRow_b2b.CurveId = CurveId if CurveId is not None else CONST_NA
+		
 		self.outputSummaryRow_b2b.recommendedActions = self.recommend_action(self.outputSummaryRow_b2b)
 
 		# Portfolio anchor split (R9) — same ``portfolio_count`` on the B2B row.
@@ -1751,9 +1765,10 @@ class DynAlloc:
 	def overBooking(self, currFltDate, ndocounter, totalCapacity, adjustedCapacity, plf, bookload):
 		self.b2boverbookingflag = False
 		nextFlight = self.currParams.NextFlight
+		expectedNoShows = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
 		if (self.currParams.obSeats == '' or self.currParams.obSeats is None or (hasattr(self.currParams.obSeats, 'dtype') and math.isnan(self.currParams.obSeats))) and (self.currParams.obFare == '' or self.currParams.obFare is None or (hasattr(self.currParams.obFare, 'dtype') and math.isnan(self.currParams.obFare))):
 			self.logger.info("Entered system overbooking loop runalloc")
-			overBookingCount = self.rmdatabasehelper.getOverbookedSeats(self.currParams.origin, self.currParams.destin, self.currParams.flight_number, currFltDate)
+			overBookingCount = 0 if expectedNoShows == CONST_NA else expectedNoShows
 			if(overBookingCount > OVERBOOKING_CAP):
 				overBookingCount = OVERBOOKING_CAP
 			if nextFlight == False and overBookingCount > OVERBOOKING_MAX_COUNT:
@@ -1786,7 +1801,7 @@ class DynAlloc:
 					lid = bookload["Lid"][0] + int(self.currParams.obSeats)
 					totalCapacity = lid
 				self.b2boverbookingflag =True
-		return totalCapacity, self.b2boverbookingflag
+		return totalCapacity, self.b2boverbookingflag, expectedNoShows
 
 	def canOverbook(self, ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount, bookload):
 		return int(self.currParams.over_booking) == 1 and plf > self.constantsUtils.OVERBOOKING_LF and self.constantsUtils.OVERBOOKING_END_NDO >= ndocounter >= self.constantsUtils.OVERBOOKING_START_NDO and (int(totalCapacity) == int(adjustedCapacity)) and overBookingCount>0 and bookload <= float(adjustedCapacity)
@@ -3102,6 +3117,7 @@ class DynAlloc:
 		entry["final_totalCapacity"] = state.final_totalCapacity
 		entry["final_plf"] = state.final_plf
 		entry["overBookingCount"] = state.overBookingCount
+		entry["expectedNoShows"] = getattr(state, 'expectedNoShows', CONST_NA)
 		entry["b2boverbookingflag"] = state.b2boverbookingflag
 
 		entry["sod_dplfBand"] = state.sod_dplfBand
@@ -3293,7 +3309,7 @@ class DynAlloc:
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
-			"CurveID", "CarrExlusionB2C", "CarrExlusionB2B", "flightExclusionB2C", "flightExclusionB2B",
+			"CarrExlusionB2C", "CarrExlusionB2B", "flightExclusionB2C", "flightExclusionB2B",
 			"fareAnchor", "fareOffset", "obSeats", "obFare", "DaySpan",
 			"AutoTimeRangeFlag", "openingFares", "OverBooking", "B2CTolerance",
 			"B2BTolerance", "seriesBlock", "autoBackstopFlag", "Outbound_Stop", "Marketfare_Upsell",
@@ -3439,6 +3455,7 @@ class DynAlloc:
 			final_totalCapacity=safe_float(payload.get("final_totalCapacity", 0.0)),
 			final_plf=safe_float(payload.get("final_plf", 0.0)),
 			overBookingCount=safe_float(payload.get("overBookingCount", 0.0)),
+			expectedNoShows=payload.get("expectedNoShows", CONST_NA),
 			b2boverbookingflag=bool(payload.get("b2boverbookingflag", False)),
 			currentTime=payload.get("currentTime", ""),
 			sod_dplfBand=payload.get("sod_dplfBand", 0),
@@ -3738,6 +3755,12 @@ class DynAlloc:
 		row_b2c.allocationStatus = 0
 		row_b2c.Channel = B2C_CHANNEL
 		row_b2c.portfolio_count = state.portfolio_count
+		CurveId = getattr(self.currParams, 'curve_id', CONST_NA)
+		row_b2c.CurveId = CurveId if CurveId is not None else CONST_NA
+		
+		expectedNoShows = getattr(state, 'expectedNoShows', CONST_NA)
+		row_b2c.ExpectedNoShows = expectedNoShows if expectedNoShows is not None else CONST_NA
+		
 		self.outputSummaryRow_b2c = row_b2c
 
 		row_b2b = copy.deepcopy(row_b2c)
