@@ -800,6 +800,8 @@ class RMDatabaseHelper:
                 "BookedLoad": latest_row.BookedLoad,
                 "TgtLoad": latest_row.TgtLoad,
                 "MktFare_Min": str(latest_row.MktFare_Min),
+                "CurveId": str(latest_row.CurveId),
+                "ExpectedNoShows": str(latest_row.ExpectedNoShows),
                 "OpenRBD": latest_row.OpenRBD,
                 "SellingFare": str(latest_row.SellingFare),
                 "Channel": latest_row.Channel,
