@@ -1729,12 +1729,36 @@ public class App implements CommandLineRunner {
                 throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
+
+            Set<String> uniqueStrategyNames = new HashSet<>();
+            for (Map<String, String> strategies : strategyMap.values()) {
+                uniqueStrategyNames.add(strategies.get(STRATEGY_COLUMN_NAME));
+            }
+
+            String otherTableName = FORECAST_STRATEGY_TABLE_NAME.equals(tableName) ? STRATEGY_TABLE_NAME : FORECAST_STRATEGY_TABLE_NAME;
+            for (String stratName : uniqueStrategyNames) {
+                if (stratName == null || stratName.trim().isEmpty()) continue;
+                try {
+                    MongoCollection<Document> collection = database.getCollection(otherTableName.toLowerCase());
+                    Document doc = collection.find(eq(STRATEGY_COLUMN_NAME, stratName)).first();
+                    if (doc != null) {
+                        listOfErrors.get().add("Validation Error: Strategy '" + stratName + "' already exists in " + otherTableName + ". Strategy names must be unique across both tables.");
+                        addErrorsToTable(listOfErrors.get(), obj_id);
+                        throw new RuntimeException("Strategy validation failed: " + stratName + " already exists in " + otherTableName);
+                    }
+                } catch (Exception e) {
+                    if (e instanceof RuntimeException && e.getMessage().contains("Strategy validation failed")) {
+                        throw e;
+                    }
+                    log.error("Error checking strategy exclusively", e);
+                }
+            }
             deleteValuesStrategyTable(strategy, tableName, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
             List<String> headers = new ArrayList<>(Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA)));
             if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
-                int ndoIndex = headers.indexOf(NDO_BAND_COLUMN_NAME);
-                if (ndoIndex != -1) {
-                    headers.set(ndoIndex, FORECAST_BAND_COLUMN_NAME);
+                int dplfIndex = headers.indexOf(DPLF_BAND_COLUMN_NAME);
+                if (dplfIndex != -1) {
+                    headers.set(dplfIndex, FORECAST_BAND_COLUMN_NAME);
                 }
             }
             insertStatement(strategyMap.values().stream().toList(), headers, tableName);
@@ -3473,12 +3497,12 @@ public class App implements CommandLineRunner {
                 if (!strategyMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
                     map.put(STRATEGY_COLUMN_NAME, strategyKey);
+                    map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
                     if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
-                        map.put(FORECAST_BAND_COLUMN_NAME, ndoBandKey);
+                        map.put(FORECAST_BAND_COLUMN_NAME, dlfBand);
                     } else {
-                        map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
+                        map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
                     }
-                    map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
                     map.put(CHANNEL_COLUMN_NAME, channelKey);
                     strategyMap.put(keyVal, map);
                 }

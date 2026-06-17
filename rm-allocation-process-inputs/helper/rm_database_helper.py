@@ -990,8 +990,8 @@ class RMDatabaseHelper:
                 "channel": channel
             }))
             results2 = list(self.db.forecast_strategy.find({
+                "ndo_band": ndoBand,
                 "forecast_band": forecastBand,
-                "dplf_band": dplfBand,
                 "strategy": strategy,
                 "channel": channel
             }))
