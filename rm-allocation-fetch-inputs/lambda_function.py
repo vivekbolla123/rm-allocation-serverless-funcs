@@ -555,7 +555,7 @@ class NavDatabaseHelper:
     
     def getFltSectDeptTimeForCurrentDay(self):
         
-        current_date = datetime.now(timezone.utc).date()
+        current_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         NavitaireQuery = f"""
             SELECT
                 DepartureStation Origin,
@@ -888,8 +888,16 @@ def filter_market_list(market_list_df, ndo0_map):
                         keep_mask[idx] = True
                     else:
                         skip_mask[idx] = True
+                        logger.info(
+                            f"[SKIP] key={key} | reason=departure_before_cutoff | "
+                            f"departure_time={departure_time} <= cutoff_time={cutoff_time}"
+                        )
                 else:
                     skip_mask[idx] = True
+                    logger.info(
+                        f"[SKIP] key={key} | reason=key_not_found_in_ndo0_map | "
+                        f"flight not present in today's Navitaire schedule"
+                    )
             else:
                 keep_mask[idx] = True
 
