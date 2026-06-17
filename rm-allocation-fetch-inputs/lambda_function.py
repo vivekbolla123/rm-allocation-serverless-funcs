@@ -606,6 +606,108 @@ def number_of_batches_required(total_records, adhoc_batch_size):
     else:
         return [total_records // adhoc_batch_size, 0]
 
+def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, route_type, salesinv, run_type, query_type):
+    """
+    For Adhoc/Scheduled_Thirty runs, fetches missing sibling flights from the main
+    market list table so that portfolio aggregation is correct, but flags them with
+    portfolio_only=1 so they don't produce downstream outputs.
+    """
+    if run_type not in ["Scheduled_Thirty", "Adhoc"] or route_type != "direct" or salesinv == "1":
+        mkt_list['portfolio_only'] = 0
+        return mkt_list
+
+    if mkt_list.empty:
+        mkt_list['portfolio_only'] = 0
+        return mkt_list
+
+    # 1. Main table logic based on region
+    main_table = "market_list" if region == "Domestic" else "market_list_international"
+
+    # 2. Extract unique (Origin, Destin, PerStart) pairs from adhoc mkt_list to filter the main table
+    unique_pairs = mkt_list[['Origin', 'Destin', 'PerStart']].drop_duplicates()
+    if unique_pairs.empty:
+        mkt_list['portfolio_only'] = 0
+        return mkt_list
+
+    # Revise start_period and end_period based on actual dates present in mkt_list
+    dates = pd.to_datetime(unique_pairs['PerStart'], format='%m/%d/%Y')
+    actual_start = dates.min().strftime('%Y-%m-%d')
+    actual_end = dates.max().strftime('%Y-%m-%d')
+
+    # 3. Fetch from main table
+    logger.info(f"Enriching portfolio with siblings from {main_table} for {len(unique_pairs)} origin/destin/date pairs ({actual_start} to {actual_end})")
+    main_df = fetch_and_process_market_list(actual_start, actual_end, main_table, query_type)
+    
+    if main_df.empty:
+        mkt_list['portfolio_only'] = 0
+        return mkt_list
+
+    # 4. Filter main_df to only those Origin-Destin-PerStart pairs that are in our adhoc list
+    keys = ['Origin', 'Destin', 'PerStart']
+    main_filtered = pd.merge(main_df, unique_pairs, on=keys, how='inner')
+
+    # 5. Remove exact matches that already exist in the adhoc list
+    adhoc_keys = mkt_list[['Origin', 'Destin', 'PerStart', 'FlightNumber']].copy()
+    adhoc_keys['is_adhoc'] = 1
+
+    main_joined = pd.merge(
+        main_filtered, 
+        adhoc_keys, 
+        on=['Origin', 'Destin', 'PerStart', 'FlightNumber'], 
+        how='left'
+    )
+    siblings = main_joined[main_joined['is_adhoc'].isnull()].drop(columns=['is_adhoc'])
+
+    # 6. Flag and concat
+    mkt_list['portfolio_only'] = 0
+    if not siblings.empty:
+        siblings['portfolio_only'] = 1
+        mkt_list = pd.concat([mkt_list, siblings], ignore_index=True)
+        logger.info(f"Added {len(siblings)} portfolio_only sibling flights")
+
+    return mkt_list
+
+def stamp_direct_route_portfolio_fields(mkt_list, route_type, salesinv):
+    """Stamp ``pass`` and ``portfolio_count`` on direct-route messages (R13).
+
+    For direct-route flights only (``route_type == "direct"`` and not a
+    sales-inventory run), group the outbound messages by
+    ``(Origin, Destin, PerStart)`` and set ``portfolio_count = len(group)``
+    on every row of that group, plus ``pass = "anchor"``.  Connections and
+    sales-inventory messages are returned unchanged so they keep today's
+    body shape.
+
+    Filtering (paused / deleted / missing-data flights) has already been
+    applied to ``mkt_list`` upstream, so a group's size is exactly the
+    number of flights that will be enqueued for that
+    ``(sector, departure_date)`` — including single-flight portfolios,
+    which still get ``portfolio_count == 1`` (R13.3).
+
+    Returns ``(mkt_list, is_direct_route)``.
+    """
+    is_direct_route = (route_type == "direct" and salesinv != "1")
+    if not is_direct_route or mkt_list.empty:
+        return mkt_list, is_direct_route
+
+    portfolio_sizes = (
+        mkt_list.groupby(['Origin', 'Destin', 'PerStart']).size().to_dict()
+    )
+    # Build an object-dtype column of native python ints so the values stay
+    # JSON-serialisable in both the scheduled (json.dumps without a default
+    # serializer) and adhoc SQS paths.
+    mkt_list['portfolio_count'] = pd.Series(
+        [
+            int(portfolio_sizes[(origin, destin, perstart)])
+            for origin, destin, perstart in zip(
+                mkt_list['Origin'], mkt_list['Destin'], mkt_list['PerStart']
+            )
+        ],
+        index=mkt_list.index,
+        dtype=object,
+    )
+    mkt_list['pass'] = 'anchor'
+    return mkt_list, is_direct_route
+
 def add_additional_fields(record, run_id, update_navitaire_method, start_time, route_type, queue_name, cug_alloc, saleinvflag, mongodb):
     record["runId"] = run_id
     record["update_navitaire_method"] = update_navitaire_method
@@ -1293,6 +1395,9 @@ def lambda_handler(event, context):
         mkt_list = fetch_and_process_market_list(start_period, end_period, market_list_table, query_type)
         log_memory("after fetch_and_process_market_list")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
+        
+        mkt_list = enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, route_type, salesinv, type, query_type)
+        logger.info(f"mkt_list shape after enrichment: {mkt_list.shape}")
 
         nav_helper = NavDatabaseHelper(
             navconn=NavitaireConnection,
@@ -1412,6 +1517,8 @@ def lambda_handler(event, context):
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 
         mkt_list = left_join_with_destination_mapping(mkt_list, bookings_count)
+        mkt_list = mkt_list.drop_duplicates(subset=['Origin', 'Destin', 'FlightNumber', 'PerStart'])
+
         log_memory("after merge bookings_count")
         logger.info(f"FINAL mkt_list shape: {mkt_list.shape}")
         logger.info(f"FINAL mkt_list columns: {list(mkt_list.columns)}")
@@ -1760,7 +1867,27 @@ def lambda_handler(event, context):
         mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
         
     mkt_list = mkt_list.drop(columns=['DepartureDate'], errors='ignore')
-    
+
+    if 'portfolio_only' in mkt_list.columns:
+        actual_markets_count = len(mkt_list[mkt_list['portfolio_only'] == 0])
+        markets_count = len(mkt_list)
+    else:
+        actual_markets_count = mkt_list.shape[0]
+        markets_count = mkt_list.shape[0]
+
+    # Portfolio coordination (R13): for direct-route flights only, group the
+    # outbound messages by (Origin, Destin, PerStart) and stamp each message
+    # with portfolio_count = len(group) and pass = "anchor".  Connections and
+    # sales-inventory messages keep today's body shape.
+    mkt_list, is_direct_route = stamp_direct_route_portfolio_fields(
+        mkt_list, route_type, salesinv
+    )
+    if is_direct_route and not mkt_list.empty:
+        logger.info(
+            f"Stamped pass=anchor + portfolio_count on {len(mkt_list)} "
+            f"direct-route messages"
+        )
+
     # Proceed with SQS
     start_time = datetime.now()
     run_id = data.get('run_id') or str(uuid4())
@@ -1772,21 +1899,23 @@ def lambda_handler(event, context):
     del_stack_df = get_run_operation_log_data(overall_start, overall_end, market_list_table, update_navitaire_method, region, type, run_id)
 
     if not del_stack_df.empty:
-        insert_deleted_run(start_time, run_id, overall_start, overall_end, market_list_table, username, type, update_navitaire_method, region, markets_count)
+        insert_deleted_run(start_time, run_id, overall_start, overall_end, market_list_table, username, type, update_navitaire_method, region, actual_markets_count)
         logger.info(f"Skipping run: {run_id}")
         log_time.send_time_log_db()
         return {
             'statusCode': 200,
             'body': -1
         }
-
+        
+    logger.info(f"Total markets: {markets_count}, Actual Markets: {actual_markets_count})")
+    
     insert_run_start(start_time, run_id, overall_start, overall_end, market_list_table,
-                     username, type, is_connections_required, update_navitaire_method, region, markets_count)
+                     username, type, is_connections_required, update_navitaire_method, region, actual_markets_count)
 
-    cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.incrby(KEY_B2B_PENDING_COUNT + run_id, int(actual_markets_count))
     cache_client.expire(KEY_B2B_PENDING_COUNT + run_id, 86400)
     
-    cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, int(markets_count))
+    cache_client.incrby(KEY_B2C_PENDING_COUNT + run_id, int(actual_markets_count))
     cache_client.expire(KEY_B2C_PENDING_COUNT + run_id, 86400)
     
     cache_client.setnx(KEY_B2B_READY_COUNT + run_id, 0)
