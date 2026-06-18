@@ -1831,7 +1831,7 @@ class DynAlloc:
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
-			df = df.drop(columns=["Id", "AirlineCode_Min", "AirlineCode_Max", "currentLoadFactor", "recommendedActions"], errors='ignore')
+			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
 			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):
