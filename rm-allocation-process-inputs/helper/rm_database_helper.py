@@ -815,6 +815,8 @@ class RMDatabaseHelper:
                 "dlfBand": str(latest_row.dlfBand),
                 "ndoBand": str(latest_row.ndoBand),
                 "criteria": str(latest_row.criteria),
+                "AirlineCode_Max": str(latest_row.AirlineCode_Max),
+                "AirlineCode_Min": str(latest_row.AirlineCode_Min),
                 "FlightNumber_Max": str(latest_row.FlightNumber_Max),
                 "FlightNumber_Min": str(latest_row.FlightNumber_Min),
                 "backstop": str(latest_row.Backstop),
