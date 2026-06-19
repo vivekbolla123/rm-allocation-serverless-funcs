@@ -989,15 +989,21 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return [], []
 
-    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, channel):
+    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, forecastBand, channel):
         try:
-            results = list(self.db.d1_d2_strategies.find({
+            results1 = list(self.db.d1_d2_strategies.find({
                 "ndo_band": ndoBand,
                 "dplf_band": dplfBand,
                 "strategy": strategy,
                 "channel": channel
             }))
-            return pd.DataFrame(results)
+            results2 = list(self.db.forecast_strategy.find({
+                "ndo_band": ndoBand,
+                "forecast_band": forecastBand,
+                "strategy": strategy,
+                "channel": channel
+            }))
+            return pd.DataFrame(results1 + results2)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
