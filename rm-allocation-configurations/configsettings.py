@@ -25,7 +25,7 @@ def get_multiple_credentials(parameter_names):
 
     except Exception as e:
         print(f"Error fetching parameters: {e}")
-        return {}
+        raise e
 
     return parameters
 
