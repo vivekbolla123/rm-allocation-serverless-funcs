@@ -49,6 +49,15 @@ class FareFiling:
         self.B2B_SAVER = '2001'
         self.B2C_SAVER = '1001'
 
+        # Ladder Revision additional rule numbers
+        self.RULE_1008 = '1008'
+        self.RULE_1028 = '1028'
+        # Z0 to Z5 RBDs for rules 1008 and 1028
+        self.LADDER_REVISION_RBDS = self.B2B_RBD_LIST[-6:]  # ['Z5','Z4','Z3','Z2','Z1','Z0']
+
+        # Flag to control CwT companion rule generation (5001, 5002, 5006)
+        self.generate_cwt_rules = getattr(self.constants, 'GENERATE_CWT_RULES', True)
+
         # RBD list for iteration
         self.rbd_list = None
 
@@ -1028,7 +1037,7 @@ class FareFiling:
                         primary_rules_processed.setdefault(key, {})[rule_nbr] = row['Fare_Amount']
 
                 # ── Generate CwT companion rows for each primary row ──────────────
-                if self.route == 'D' and rule_nbr in self.CWT_PRIMARY_TO_COMPANION:
+                if self.generate_cwt_rules and self.route == 'D' and rule_nbr in self.CWT_PRIMARY_TO_COMPANION:
                     cwt_rule = self.CWT_PRIMARY_TO_COMPANION[rule_nbr]
                     for primary_row in primary_rows_for_rule:
                         basis = primary_row.get('Fare_Basis_Code', '')
@@ -1057,6 +1066,11 @@ class FareFiling:
             if self.isSaver:
                 saver_output_rows = self.generate_saver_output()
                 all_output_rows.extend(saver_output_rows)
+
+            # ── Rule 1028 for Others run (if 1002 is in input) ────────────────────
+            if not self.isSaver and self.route == 'D':
+                rule_1028_rows = self._generate_rule_1028_others(existing_sort_prices)
+                all_output_rows.extend(rule_1028_rows)
 
             return pd.DataFrame(all_output_rows)
 
@@ -1107,9 +1121,7 @@ class FareFiling:
                 rbd_end = config_row['rbd_end']
                 rbd_range = self.get_rbd_range(rbd_start, rbd_end)
 
-                b2b_rbds = self.get_rbd_range(self.B2B_RBD_LIST[0], self.B2B_RBD_LIST[-1])
-                if len(b2b_rbds) == self.TOTAL_B2B_FARES + self.TOTAL_B2C_FARES:
-                    rbd_range = b2b_rbds
+                # Note: Rule 2001 restricted to B2B RBDs only (Z0-Z9)
 
                 if not rbd_range:
                     continue
@@ -1420,6 +1432,9 @@ class FareFiling:
             # Fetch sort prices once for CwT mirroring
             existing_sort_prices = self.pa_helper._get_existing_sort_prices()
 
+            # Track 1008 fare info for 1028 generation
+            rule_1008_fares = []
+
             for _, saver_row in self.saver_data.iterrows():
                 sector = saver_row['sector']
                 rbd = saver_row['rbd']
@@ -1455,12 +1470,15 @@ class FareFiling:
                 rules_to_generate = []
                 if rbd in b2c_rbds:
                     if self.route == 'D':
-                        rules_to_generate = [self.B2C_SAVER, self.B2B_SAVER]
+                        rules_to_generate = [self.B2C_SAVER]  # 2001 restricted to B2B RBDs only
                     elif self.route == 'I':
                         rules_to_generate = ['R201', 'M201'] if saver_is_connections == 'Y' else ['R101', 'M101']
                 elif rbd in b2b_rbds:
                     if self.route == 'D':
                         rules_to_generate = [self.B2B_SAVER]
+                        # Add Rule 1008 for Z0-Z5 RBDs (same fares as 2001)
+                        if rbd in self.LADDER_REVISION_RBDS:
+                            rules_to_generate.append(self.RULE_1008)
                     elif self.route == 'I':
                         rules_to_generate = ['M201'] if saver_is_connections == 'Y' else ['M101']
 
@@ -1483,8 +1501,18 @@ class FareFiling:
                     )
                     saver_rows.append(saver_output_row)
 
+                    # Track 1008 fares for 1028 generation
+                    if rule_nbr == self.RULE_1008:
+                        rule_1008_fares.append({
+                            'sector': sector, 'rbd': rbd,
+                            'allin_fare': allin_fare, 'base_fare': base_fare,
+                            'currency': currency, 'pos': pos_value,
+                            'footnote': saver_footnote, 'ndo': saver_ndo,
+                            'connections': saver_is_connections
+                        })
+
                     # CwT mirror for saver 1001 rows (domestic only)
-                    if self.route == 'D' and rule_nbr == self.B2C_SAVER:
+                    if self.generate_cwt_rules and self.route == 'D' and rule_nbr == self.B2C_SAVER:
                         cwt_rule = self.CWT_PRIMARY_TO_COMPANION[self.B2C_SAVER]
                         cwt_config = self._find_cwt_config_row(
                             cwt_rule, sector, saver_footnote, saver_ndo, ''
@@ -1495,11 +1523,212 @@ class FareFiling:
                         if cwt_row:
                             saver_rows.append(cwt_row)
 
+            # Generate Rule 1028 rows (Saver run): apply 1002 upsells on 1008 fares
+            if self.route == 'D' and rule_1008_fares:
+                rule_1028_rows = self._generate_rule_1028_saver(rule_1008_fares, existing_sort_prices)
+                saver_rows.extend(rule_1028_rows)
+
             return saver_rows
 
         except Exception as e:
             self.logger.error(f"Error generating saver output: {str(e)}")
             return []
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Rule 1028 generation (Saver and Others)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _generate_rule_1028_saver(self, rule_1008_fares, existing_sort_prices):
+        """Generate Rule 1028 rows for Saver runs by applying 1002 upsells on 1008 fares.
+
+        Rule 1028 contains RBDs Z0-Z5 with fares calculated by applying
+        the same upsell values used for rule 1002 on the 1008 base fares.
+        """
+        output_rows = []
+
+        # Find 1002 upsell configs
+        rule_1002_configs = self.product_upsell_data[
+            self.product_upsell_data['rule_nbr'] == '1002'
+        ]
+
+        if rule_1002_configs.empty and self.product_upsell_master_data is not None and not self.product_upsell_master_data.empty:
+            rule_1002_configs = self.product_upsell_master_data[
+                self.product_upsell_master_data['rule_nbr'] == '1002'
+            ]
+
+        if rule_1002_configs.empty:
+            self.logger.info("No 1002 upsell config found, skipping 1028 generation")
+            return output_rows
+
+        for fare_info in rule_1008_fares:
+            sector = fare_info['sector']
+            rbd = fare_info['rbd']
+            allin_fare = fare_info['allin_fare']
+            currency = fare_info['currency']
+            pos_value = fare_info.get('pos', 'B')
+            saver_ndo = fare_info.get('ndo', 'X')
+            saver_footnote = fare_info.get('footnote', '')
+            saver_is_connections = fare_info.get('connections', '')
+            origin = sector[:3]
+            destination = sector[3:]
+
+            # Find matching 1002 config for this sector
+            sector_configs = rule_1002_configs[rule_1002_configs['sector'] == sector]
+            if sector_configs.empty:
+                self.logger.warning(f"No 1002 upsell config for sector {sector}, skipping 1028 for {rbd}")
+                continue
+
+            # Find the config row whose rbd range contains this rbd
+            upsell_row = None
+            for _, config_row in sector_configs.iterrows():
+                rbd_range = self.get_rbd_range(config_row['rbd_start'], config_row['rbd_end'])
+                if rbd in rbd_range:
+                    upsell_row = config_row
+                    break
+
+            if upsell_row is None:
+                upsell_row = sector_configs.iloc[0]
+
+            # Apply upsell using same logic as _process_single_upsell_row
+            saver_base_fare = self.calculate_all_in_fare(allin_fare, origin, destination, ftype="allin")
+
+            base_all_in = upsell_row.get('base_all_in', 'All-in')
+            if pd.isna(base_all_in) or base_all_in == '':
+                base_all_in = 'All-in'
+
+            fare_for_upsell = saver_base_fare if base_all_in == 'Base' else allin_fare
+
+            upsell_type = upsell_row['type']
+            upsell_value = float(upsell_row['value']) if pd.notna(upsell_row['value']) else 0
+            min_value = float(upsell_row['min_value']) if (pd.notna(upsell_row['min_value']) and upsell_row['min_value'] != '') else None
+            max_value = float(upsell_row['max_value']) if (pd.notna(upsell_row['max_value']) and upsell_row['max_value'] != '') else None
+
+            upsold = self.apply_upsell(fare_for_upsell, upsell_type, upsell_value, min_value, max_value)
+
+            if base_all_in == 'Base':
+                final_fare = self._round_fare(upsold, currency)
+            else:
+                final_fare = self._round_fare(
+                    self.calculate_all_in_fare(upsold, origin, destination, ftype="allin"),
+                    currency
+                )
+
+            farebasis = self.generate_farebasis(
+                rbd, self.RULE_1028,
+                'C' if saver_is_connections == 'Y' else 'O',
+                saver_ndo, sector, pos=pos_value,
+                route_type=self.route, footnote=saver_footnote, currency=currency
+            )
+
+            actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
+
+            output_rows.append(self._make_output_row(
+                sector, rbd, self.RULE_1028, final_fare, final_fare,
+                'O', saver_footnote, saver_ndo, pos_value,
+                currency, farebasis,
+                actual_origin, actual_destination, fare_direction,
+                flt_nbr=''
+            ))
+
+        self.logger.info(f"Generated {len(output_rows)} Rule 1028 rows for Saver run")
+        return output_rows
+
+    def _generate_rule_1028_others(self, existing_sort_prices):
+        """Generate Rule 1028 rows for Others runs using 2001 base fares and 1002 upsells.
+
+        Only produced if rule 1002 is part of the input file (product_upsell data).
+        Uses existing 2001 fares from qp_fares as base, then applies 1002 upsell values.
+        """
+        output_rows = []
+
+        # Check if 1002 exists in product_upsell_data
+        rule_1002_configs = self.product_upsell_data[
+            self.product_upsell_data['rule_nbr'] == '1002'
+        ]
+        if rule_1002_configs.empty:
+            self.logger.info("No 1002 in product_upsell, skipping 1028 generation for Others run")
+            return output_rows
+
+        sectors_with_1002 = rule_1002_configs['sector'].unique().tolist()
+        self.logger.info(f"Generating Rule 1028 for Others run: {len(sectors_with_1002)} sectors with 1002 config")
+
+        for sector in sectors_with_1002:
+            origin = sector[:3]
+            destination = sector[3:]
+            currency = self.sector_currency_map.get(sector, 'INR')
+
+            for rbd in self.LADDER_REVISION_RBDS:
+                # Get 2001 fare from qp_fares
+                fare_cond = (
+                    (self.qp_fares_data['SECTOR'] == sector) &
+                    (self.qp_fares_data['RBD'] == rbd)
+                )
+                fare_rows = self.qp_fares_data[fare_cond]
+                rule_2001_rows = fare_rows[fare_rows['Rule_Nbr'] == '2001']
+
+                if not rule_2001_rows.empty:
+                    base_2001_fare = rule_2001_rows.iloc[0]['TOTAL']
+                elif not fare_rows.empty:
+                    base_2001_fare = fare_rows.iloc[0]['TOTAL']
+                else:
+                    self.logger.warning(f"No 2001 fare for {sector}-{rbd} in qp_fares, skipping 1028")
+                    continue
+
+                # Find matching 1002 config for this sector
+                sector_configs = rule_1002_configs[rule_1002_configs['sector'] == sector]
+                upsell_row = None
+                for _, config_row in sector_configs.iterrows():
+                    rbd_range = self.get_rbd_range(config_row['rbd_start'], config_row['rbd_end'])
+                    if rbd in rbd_range:
+                        upsell_row = config_row
+                        break
+                if upsell_row is None:
+                    upsell_row = sector_configs.iloc[0]
+
+                # Apply upsell using same logic as _process_single_upsell_row for Others
+                saver_base_fare = self.calculate_all_in_fare(base_2001_fare, origin, destination, ftype="allin")
+
+                base_all_in = upsell_row.get('base_all_in', 'All-in')
+                if pd.isna(base_all_in) or base_all_in == '':
+                    base_all_in = 'All-in'
+
+                fare_for_upsell = saver_base_fare if base_all_in == 'Base' else base_2001_fare
+                # Others mode: convert to all-in before upsell
+                fare_for_upsell = self.calculate_all_in_fare(fare_for_upsell, origin, destination, ftype="base")
+
+                upsell_type = upsell_row['type']
+                upsell_value = float(upsell_row['value']) if pd.notna(upsell_row['value']) else 0
+                min_value = float(upsell_row['min_value']) if (pd.notna(upsell_row['min_value']) and upsell_row['min_value'] != '') else None
+                max_value = float(upsell_row['max_value']) if (pd.notna(upsell_row['max_value']) and upsell_row['max_value'] != '') else None
+
+                upsold = self.apply_upsell(fare_for_upsell, upsell_type, upsell_value, min_value, max_value)
+
+                if base_all_in == 'Base':
+                    final_fare = self._round_fare(upsold, currency)
+                else:
+                    final_fare = self._round_fare(
+                        self.calculate_all_in_fare(upsold, origin, destination, ftype="allin"),
+                        currency
+                    )
+
+                pos_value = 'B' if sector in self.existing_qp_sectors else 'W'
+
+                farebasis = self.generate_farebasis(
+                    rbd, self.RULE_1028, 'O', 'X', sector,
+                    pos=pos_value, route_type='D', footnote='', currency=currency
+                )
+
+                actual_origin, actual_destination, fare_direction = self.pa_helper._determine_fare_direction(sector)
+
+                output_rows.append(self._make_output_row(
+                    sector, rbd, self.RULE_1028, final_fare, final_fare,
+                    'O', '', 'X', pos_value, currency, farebasis,
+                    actual_origin, actual_destination, fare_direction,
+                    flt_nbr=''
+                ))
+
+        self.logger.info(f"Generated {len(output_rows)} Rule 1028 rows for Others run")
+        return output_rows
 
     def generate_fare_ladder(self):
         """Generate complete fare ladder output."""
