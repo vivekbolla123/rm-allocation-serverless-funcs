@@ -114,6 +114,11 @@ def lambda_handler(event, context):
         route_type = data.get("route_type")
         run_id = data.get("runId")
         is_sales_inventory = str(data.get("saleinvflag")) == "1"
+        # Two-pass split (R1): direct-route messages carry a "pass" field of
+        # "anchor" (fare-anchor pass) or "allocation" (allocation pass). A
+        # missing field defaults to "anchor" for back-compat (R1.5). The field
+        # is ignored for connections / sales-inventory routes (R1.4).
+        pass_name = data.get("pass", "anchor")
 
         data["mongodbclient"]=mongodb
         data["mongo_master_db"]=mongo_master_db
@@ -136,8 +141,12 @@ def lambda_handler(event, context):
             logger.info("Routing to Connections Allocation Logic")
             DynAllocConnections(input_data, data)
         elif route_type == 'direct':
-            logger.info("Routing to Direct Allocation Logic")
-            DynAlloc(input_data, data)
+            if pass_name == 'allocation':
+                logger.info("Routing to Direct Allocation Logic (allocation pass)")
+                DynAlloc.from_allocation_payload(input_data, data)
+            else:
+                logger.info("Routing to Direct Allocation Logic (fare-anchor pass)")
+                DynAlloc.from_anchor_payload(input_data, data)
         else:
             logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
 
@@ -214,7 +223,11 @@ def insert_paused_run( run_id, content):
         raise
 
 # DO COMMENT THE BELOW LINE AFTER TESTING
-# messageBody = {"index": 642, "PerStart": "07/04/2025", "PerEnd": "07/04/2025", "Origin": "IXZ", "Destin": "MAA", "FlightNumber": 1305, "DOW": 1111111, "TimeWindowStart": "00:15", "TimeWindowEnd": "23:55", "CurveID": "IXZMAA_NP", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "flightExclusionB2C": "", "flightExclusionB2B": "", "fareAnchor": "NP_General", "hardAnchor": "MIN", "plfthreshold": "88%", "fareOffset": "-1", "FirstRBDAlloc": 8, "OtherRBDAlloc": 3, "B2BBackstop": 5000, "B2CBackstop": 5100, "B2BFactor": "0.3", "obSeats": "", "obFare": "", "SkippingFactor": 10, "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "NEHA", "openingFares": 1, "OverBooking": "1", "ProfileFares": "1", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "AutoGroup": "1", "TbfFlag": "1", "CugFlag": "0", "MktFareFlag": "1", "Autobackstopflag": "0", "Flag": "1", "w0_value": 0.0, "DepartureTime": "12:00", "bookedPax": 2.0, "capacity": 185.0, "adjustedCapacity": 185.0, "DepartureTimeUTC": "06:30", "tbf_bookings": 0.0, "WA_bookings": 0.0, "WB_bookings": 0.0, "WC_bookings": 0.0, "WD_bookings": 0.0, "WE_bookings": 0.0, "seats_sold_L": 0.0, "seats_sold_P": 0.0, "current_rbd_L": 0.0, "current_rbd_P": 0.0, "total_series_seats": 0, "NextFlight": 0.0, "OpeningRBDB2B": "Z9", "OpeningRBDB2C": "B", "BookingsInHour": 0.0, "BookingsCount": 2.0, "BookingToday": 0.0, "runId": "c470b2ed-441e-4e92-89fc-ecd33ffa6dbd", "update_navitaire_method": "api", "runTime": "2025-06-17T21:32:27.519504", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list", "cug_alloc": "0", "mongodb": "1", "saleinvflag": "0"}
+# messageBody = {"index": 642, "PerStart": "07/04/2025", "PerEnd": "07/04/2025", "Origin": "IXZ", "Destin": "MAA", "FlightNumber": 1305, "DOW": 1111111, "TimeWindowStart": "00:15", "TimeWindowEnd": "23:55", "CurveID": "IXZMAA_NP", "CarrExlusionB2C": "**", "CarrExlusionB2B": "**", "flightExclusionB2C": "", "flightExclusionB2B": "", "fareAnchor": "NP_General", "hardAnchor": "MIN", "plfthreshold": "88%", "fareOffset": "-1", "FirstRBDAlloc": 8, "OtherRBDAlloc": 3, "B2BBackstop": 5000, "B2CBackstop": 5100, "B2BFactor": "0.3", "obSeats": "", "obFare": "", "SkippingFactor": 10, "DaySpan": 0, "AutoTimeRangeFlag": 0, "analystName": "NEHA", "openingFares": 1, "OverBooking": "1", "ProfileFares": "1", "rbdPushFlag": "0", "B2BTolerance": "", "B2CTolerance": "", "distressInventoryFlag": "0", "seriesBlock": "0", "AutoGroup": "1", "TbfFlag": "1", "CugFlag": "0", "MktFareFlag": "1", "Autobackstopflag": "0", "Flag": "1", "w0_value": 0.0, "DepartureTime": "12:00", "bookedPax": 2.0, "capacity": 185.0, "adjustedCapacity": 185.0, "DepartureTimeUTC": "06:30", "tbf_bookings": 0.0, "WA_bookings": 0.0, "WB_bookings": 0.0, "WC_bookings": 0.0, "WD_bookings": 0.0, "WE_bookings": 0.0, "seats_sold_L": 0.0, "seats_sold_P": 0.0, "current_rbd_L": 0.0, "current_rbd_P": 0.0, "total_series_seats": 0, "NextFlight": 0.0, "OpeningRBDB2B": "Z9", "OpeningRBDB2C": "B", "BookingsInHour": 0.0, "BookingsCount": 2.0, "BookingToday": 0.0, "runId": "c470b2ed-441e-4e92-89fc-ecd33ffa6dbd", "update_navitaire_method": "api", "runTime": "2025-06-17T21:32:27.519504", "route_type": "direct", "queue": "https://sqs.ap-south-1.amazonaws.com/891377165721/test-rm-allocation-queues-rm-allocation-market-list", "cug_alloc": "0", "mongodb": "1", "saleinvflag": "0", "pass": "anchor", "portfolio_count": 1}
+# NOTE (portfolio-anchor-split / R1): direct-route messages now carry a "pass"
+# field ("anchor" or "allocation"). A missing field defaults to "anchor". With
+# "portfolio_count": 1 the message above exercises the single-flight
+# short-circuit (R6) end-to-end without needing Redis or SQS.
 
 
 # event = {'Records':[{'attributes':{"update_navitaire_method":"sftp"}, 'body':json.dumps(messageBody)}]}
