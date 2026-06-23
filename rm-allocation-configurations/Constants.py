@@ -129,6 +129,14 @@ CWT_UPSELL = {
     '5006': {'type': 'PERCENTAGE', 'value': 5, 'min_value': None, 'max_value': None},
 }
 
+W_PLF = 0.7
+W_AF = 0.3
+W_ANCHOR = -0.25
+
+MOVEMENT_GAIN = 6
+MOVEMENT_FLOOR_PCT = -12
+MOVEMENT_CEIL_PCT = 0
+
 MIN_D3_D4_VALUE_KEY = 'MIN_D3_D4_VALUE'
 LINEAR_JUMP_VALUE_KEY = 'LINEAR_JUMP_VALUE'
 PLF_CURVE_VALUE_KEY = 'PLF_CURVE_VALUE'
@@ -268,6 +276,12 @@ CWT_UPSELL_KEY = "CWT_UPSELL"
 GROUP_SCALING_FACTOR_KEY = "GROUP_SCALING_FACTOR"
 GROUP_AU_BATCH_KEY = "GROUP_AU_BATCH"
 GROUP_IMP_FORECAST_REDUCTION_KEY = "GROUP_IMP_FORECAST_REDUCTION"
+W_PLF_KEY = 'W_PLF'
+W_AF_KEY = 'W_AF'
+W_ANCHOR_KEY = 'W_ANCHOR'
+MOVEMENT_GAIN_KEY = 'MOVEMENT_GAIN'
+MOVEMENT_FLOOR_PCT_KEY = 'MOVEMENT_FLOOR_PCT'
+MOVEMENT_CEIL_PCT_KEY = 'MOVEMENT_CEIL_PCT'
 LATEST_VERSION = '4.0.0'
 
 TABLE_MARKET_FARES = "market_fares"
@@ -363,6 +377,16 @@ KEY_B2B_READY_COUNT = 'b2b_ready_count_'
 KEY_B2C_READY_COUNT = 'b2c_ready_count_'
 KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
+
+# Fare-anchor (F) pass counters — direct-route two-pass split.
+# See `.kiro/specs/portfolio-anchor-split/requirements.md` R7.
+KEY_B2B_READY_COUNT_F = 'b2b_ready_count_F_'
+KEY_B2C_READY_COUNT_F = 'b2c_ready_count_F_'
+
+# Portfolio coordination hash key prefix and TTL (R3).
+# Hash key format: f"{PORTFOLIO_KEY_PREFIX}{run_id}_{sector}_{dep_date}".
+PORTFOLIO_KEY_PREFIX = 'Portfolio:'
+PORTFOLIO_TTL_SEC = 21600  # 6 hours
 
 TESTING_INPUT = {
     CONST_CURVES: TEST_DATA,

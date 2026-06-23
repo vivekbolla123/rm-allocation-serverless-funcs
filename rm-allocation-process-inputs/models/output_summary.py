@@ -53,6 +53,8 @@ class OutputSummary:
         self.status = CONST_NA
         self.w0Flag = CONST_NA
         self.mktFile=CONST_NA
+        self.CurveId = CONST_NA
+        self.ExpectedNoShows = CONST_NA
         
         self.forecastPLF=CONST_NA
         self.ImputedForecastPLF=CONST_NA
@@ -68,3 +70,12 @@ class OutputSummary:
         self.grpAdjProfileFare=CONST_NA
         self.grpAdjPLF=CONST_NA
         self.grpFareAnchor=CONST_NA
+
+        # Portfolio anchor split (R9) — populated for direct-route rows by
+        # ``DynAlloc._phaseN_writeSummary``; left as ``CONST_NA`` for
+        # connections / sales-inventory rows.
+        self.z_score_composite = CONST_NA
+        self.Portfolio_Anchor = CONST_NA
+        self.z_score88 = CONST_NA
+        self.Portfolio88_Anchor = CONST_NA
+        self.portfolio_count = CONST_NA

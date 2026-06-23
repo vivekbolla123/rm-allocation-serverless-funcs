@@ -800,6 +800,8 @@ class RMDatabaseHelper:
                 "BookedLoad": latest_row.BookedLoad,
                 "TgtLoad": latest_row.TgtLoad,
                 "MktFare_Min": str(latest_row.MktFare_Min),
+                "CurveId": str(latest_row.CurveId),
+                "ExpectedNoShows": str(latest_row.ExpectedNoShows),
                 "OpenRBD": latest_row.OpenRBD,
                 "SellingFare": str(latest_row.SellingFare),
                 "Channel": latest_row.Channel,
@@ -837,9 +839,7 @@ class RMDatabaseHelper:
                 "bookingToday": str(latest_row.bookingToday),
                 "bookingInHour": str(latest_row.bookingLastHour),
                 "currentTgtLoad": str(latest_row.currentTgtLoad),
-                "currentLoadFactor": str(latest_row.currentLoadFactor),
                 "overBookingCount": str(latest_row.overBookingCount),
-                "recommendedActions": str(latest_row.recommendedActions),
                 "profileFare": str(latest_row.profileFare),
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
@@ -857,7 +857,15 @@ class RMDatabaseHelper:
                 "toleranceValue": str(latest_row.toleranceValue),
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
-                "grpFareAnchor": str(latest_row.grpFareAnchor)
+                "grpFareAnchor": str(latest_row.grpFareAnchor),
+                # Portfolio anchor split (R9) — direct-route rows get real
+                # values; connections / sales-inventory rows leave them as
+                # ``CONST_NA``.
+                "z_score_composite": str(latest_row.z_score_composite),
+                "Portfolio_Anchor": str(latest_row.Portfolio_Anchor),
+                "z_score88": str(latest_row.z_score88),
+                "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
+                "portfolio_count": str(latest_row.portfolio_count)
             }
 
             try:
@@ -2490,10 +2498,10 @@ class RMDatabaseHelper:
             if self.debugMode:
                 self.logger.info(f"Query: {sector}, Flight {FltNumber}, Date {currFltDate}")
 
-            return result["ExpectedNoShows"] if result else 0
+            return result["ExpectedNoShows"] if result else CONST_NA
         except Exception as e:
             self.logger.error(e)
-            return 0
+            return CONST_NA
 
     def get_farther_rbd_distribution(self, seats):
         try:
