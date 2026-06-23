@@ -612,7 +612,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     market list table so that portfolio aggregation is correct, but flags them with
     portfolio_only=1 so they don't produce downstream outputs.
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
