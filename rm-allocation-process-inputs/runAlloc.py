@@ -2719,7 +2719,7 @@ class DynAlloc:
 		try:
 			entry = instance.runFareAnchorPass()
 		except Exception as e:
-			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}", exc_info=True)
+			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}")
 			entry = instance._build_fallback_portfolio_entry(e)
 
 		if instance._maybeShortCircuitSingleFlight(entry):
