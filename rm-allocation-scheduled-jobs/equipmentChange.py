@@ -279,6 +279,9 @@ class EQTAlloc:
                 [col for col in drop_cols if col in market_list_eqt_df.columns],
                 axis=1
             )
+            market_list_eqt_df['FlightNumber'] = pd.to_numeric(
+                    market_list_eqt_df['FlightNumber'], errors='coerce'
+                )
 
             # Clear existing data
             delete_result = collection.delete_many({})
