@@ -1300,7 +1300,7 @@ class DynAlloc:
 				self.allocations.b2CAllocation(
 					float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
-					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,hard_anchor_flag,self.currParams.plfthreshold,self.actualplf,
+					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,self.currParams.plfthreshold,self.actualplf,
 					determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
 					last_seven_avg_fare=last_seven_avg_val
 				)
