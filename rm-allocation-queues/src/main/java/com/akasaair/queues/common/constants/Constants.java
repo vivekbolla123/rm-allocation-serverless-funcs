@@ -41,7 +41,7 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final int DAYS_TO_ENTER_INTO_MARKET_LIST = 30;
     public static final String TEMP = "temp";
     public static final String PARAMETER_RBD_VALUES = "RBD_VALUES";
-    public static final List<String> RBD_PARAM_KEY_LIST = List.of("B2B_RBD_VALUES", "B2C_RBD_VALUES", "GROUP_RBD_VALUES", "TBF_RBD", "CUG_RBD");
+    public static final List<String> RBD_PARAM_KEY_LIST = List.of("QP_B2B_RBD_VALUES", "QP_B2C_RBD_VALUES", "QP_GROUP_RBD_VALUES", "QP_TBF_RBD", "QP_CUG_RBD");
     public static final String PER_TYPE_VALUE = "D";
     public static final String INTERNATIONAL = "International";
     public static final String DOMESTIC = "Domestic";
