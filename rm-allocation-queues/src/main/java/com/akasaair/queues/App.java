@@ -574,10 +574,49 @@ public class App implements CommandLineRunner {
                         numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
-                            uploadStrategyGridFile(reader, userName, obj_id);
+                            uploadStrategyTypeGridFile(reader, userName, obj_id, STRATEGY_TABLE_NAME, STRATEGY_HEADER_VALUES);
                         } catch (Exception e) {
                             listOfErrors.get().add("Error Uploading Strategy File to DB. Please check file content");
                             throw new RuntimeException("Error processing strategy file content: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case FORECAST_STRATEGY_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadStrategyTypeGridFile(reader, userName, obj_id, FORECAST_STRATEGY_TABLE_NAME, FORECAST_STRATEGY_HEADER_VALUES);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Forecast Strategy File to DB. Please check file content");
+                            throw new RuntimeException("Error processing forecast strategy file content: " + e.getMessage(), e);
                         }
                     } catch (Exception ex) {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
@@ -1676,29 +1715,59 @@ public class App implements CommandLineRunner {
     }
 
 
-    public void uploadStrategyGridFile(Reader file, String userName, String obj_id) throws Exception {
+    public void uploadStrategyTypeGridFile(Reader file, String userName, String obj_id, String tableName, Map<String, String> headerValues) throws Exception {
         String uuid = obj_id;
         try {
-            insertAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), userName, uuid);
-            insertInputStatusTable(STRATEGY_TABLE_NAME);
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> strategyMap = new HashMap<>();
             try {
-                strategyMap = getStrategyGrid(csvData, STRATEGY_HEADER_VALUES);
+                strategyMap = getStrategyGrid(csvData, headerValues, tableName);
             } catch (Exception e) {
                 addErrorsToTable(listOfErrors.get(), obj_id);
                 throw e;
             }
             Set<String> strategy = getUniqueStrategies(strategyMap);
-            deleteValuesStrategyTable(strategy, STRATEGY_TABLE_NAME, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
-            List<String> headers = Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA));
-            insertStatement(strategyMap.values().stream().toList(), headers, STRATEGY_TABLE_NAME);
-            s3FileStorageDao.storeFile(createCSV(STRATEGY_TABLE_NAME), STRATEGY_TABLE_NAME, uuid);
-            updateAuditStatement(STRATEGY_TABLE_NAME, getCurrentDateTime(), uuid);
+
+            Set<String> uniqueStrategyNames = new HashSet<>();
+            for (Map<String, String> strategies : strategyMap.values()) {
+                uniqueStrategyNames.add(strategies.get(STRATEGY_COLUMN_NAME));
+            }
+
+            String otherTableName = FORECAST_STRATEGY_TABLE_NAME.equals(tableName) ? STRATEGY_TABLE_NAME : FORECAST_STRATEGY_TABLE_NAME;
+            for (String stratName : uniqueStrategyNames) {
+                if (stratName == null || stratName.trim().isEmpty()) continue;
+                try {
+                    MongoCollection<Document> collection = database.getCollection(otherTableName.toLowerCase());
+                    Document doc = collection.find(eq(STRATEGY_COLUMN_NAME, stratName)).first();
+                    if (doc != null) {
+                        listOfErrors.get().add("Validation Error: Strategy '" + stratName + "' already exists in " + otherTableName + ". Strategy names must be unique across both tables.");
+                        addErrorsToTable(listOfErrors.get(), obj_id);
+                        throw new RuntimeException("Strategy validation failed: " + stratName + " already exists in " + otherTableName);
+                    }
+                } catch (Exception e) {
+                    if (e instanceof RuntimeException && e.getMessage().contains("Strategy validation failed")) {
+                        throw e;
+                    }
+                    log.error("Error checking strategy exclusively", e);
+                }
+            }
+            deleteValuesStrategyTable(strategy, tableName, STRATEGY_COLUMN_NAME, CHANNEL_COLUMN_NAME);
+            List<String> headers = new ArrayList<>(Arrays.asList(getColumnHeaders(STRATEGY_INPUT_NAME).split(COMMA)));
+            if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
+                int dplfIndex = headers.indexOf(DPLF_BAND_COLUMN_NAME);
+                if (dplfIndex != -1) {
+                    headers.set(dplfIndex, FORECAST_BAND_COLUMN_NAME);
+                }
+            }
+            insertStatement(strategyMap.values().stream().toList(), headers, tableName);
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
         } catch (Exception e) {
             throw e;
         } finally {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
         }
     }
 
@@ -1710,7 +1779,7 @@ public class App implements CommandLineRunner {
             List<List<String>> csvData = getDataFromCSVFile(file);
             Map<String, Map<String, String>> autoB2BMap = new HashMap<>();
             try {
-                autoB2BMap = getAutoB2BGrid(csvData, STRATEGY_HEADER_VALUES);
+                autoB2BMap = getAutoB2BGrid(csvData, STRATEGY_HEADER_VALUES, AUTO_B2B_TABLE_NAME);
             } catch (Exception e) {
                 addErrorsToTable(listOfErrors.get(), obj_id);
                 throw e;
@@ -3419,7 +3488,7 @@ public class App implements CommandLineRunner {
     }
 
     public Map<String, Map<String, String>> getStrategyGrid(List<List<String>> csvData,
-                                                            Map<String, String> headerColumnMap) throws DataMismatchedException {
+                                                            Map<String, String> headerColumnMap, String tableName) throws DataMismatchedException {
         Map<String, Map<String, String>> strategyMap = new LinkedHashMap<>();
         int strategyGridHeader = 0;
         int channelHeader = 1;
@@ -3427,6 +3496,10 @@ public class App implements CommandLineRunner {
         int ndoBandHeader = 3;
         int startColumn = 4;
         Set<String> strategyCounter = new HashSet<>();
+        Set<String> ndoBandCounter = new HashSet<>();
+        Set<String> channelCounter = new HashSet<>();
+        Set<String> decisionCounter = new HashSet<>();
+        Set<String> bandCounter = new HashSet<>();
         int countTotalValues = 0;
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -3434,17 +3507,25 @@ public class App implements CommandLineRunner {
             strategyCounter.add(strategyKey);
 
             String decision = csvData.get(i).get(decisionGridHeader);
+            decisionCounter.add(decision);
             String ndoBandKey = csvData.get(i).get(ndoBandHeader);
+            ndoBandCounter.add(ndoBandKey);
             String channelKey = csvData.get(i).get(channelHeader);
+            channelCounter.add(channelKey);
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String dlfBand = csvData.get(0).get(j);
+                bandCounter.add(dlfBand);
                 String keyVal = strategyKey + ndoBandKey + dlfBand + channelKey;
                 if (!strategyMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
                     map.put(STRATEGY_COLUMN_NAME, strategyKey);
                     map.put(NDO_BAND_COLUMN_NAME, ndoBandKey);
-                    map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
+                    if (FORECAST_STRATEGY_TABLE_NAME.equals(tableName)) {
+                        map.put(FORECAST_BAND_COLUMN_NAME, dlfBand);
+                    } else {
+                        map.put(DPLF_BAND_COLUMN_NAME, dlfBand);
+                    }
                     map.put(CHANNEL_COLUMN_NAME, channelKey);
                     strategyMap.put(keyVal, map);
                 }
@@ -3452,7 +3533,7 @@ public class App implements CommandLineRunner {
 
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred.set(1);
-                    updateInputStatus(STRATEGY_TABLE_NAME);
+                    updateInputStatus(tableName);
                     String errorMsg = "Line " + (i+1) + ": " + INVALID_DATA_ERROR_MESSAGE
                             + " for " + strategyKey + " with decision :" + decision + " having value as " + value;
                     listOfErrors.get().add(errorMsg);
@@ -3461,7 +3542,8 @@ public class App implements CommandLineRunner {
                 countTotalValues++;
             }
         }
-        findActualCountBetweenRowsAndColumns(strategyCounter, countTotalValues, listOfErrors.get());
+        int expectedValueCount = strategyCounter.size() * ndoBandCounter.size() * channelCounter.size() * decisionCounter.size() * bandCounter.size();
+        findActualCountBetweenRowsAndColumns(expectedValueCount, countTotalValues, listOfErrors.get(), tableName);
 
         if (!listOfErrors.get().isEmpty()) {
             throw new DataMismatchedException(listOfErrors.get());
@@ -3475,12 +3557,14 @@ public class App implements CommandLineRunner {
     }
 
     public Map<String, Map<String, String>> getAutoB2BGrid(List<List<String>> csvData,
-                                                           Map<String, String> headerColumnMap) throws DataMismatchedException {
+                                                           Map<String, String> headerColumnMap, String tableName) throws DataMismatchedException {
         Map<String, Map<String, String>> autob2bMap = new LinkedHashMap<>();
         int nameHeader = 0;
         int ndoBandHeader = 1;
         int startColumn = 2;
         Set<String> counter = new HashSet<>();
+        Set<String> ndoBandCounter = new HashSet<>();
+        Set<String> forecastBandCounter = new HashSet<>();
         int countTotalValues = 0;
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
@@ -3488,9 +3572,11 @@ public class App implements CommandLineRunner {
             counter.add(nameKey);
 
             String ndoBandKey = extractNumber(csvData.get(i).get(ndoBandHeader));
+            ndoBandCounter.add(ndoBandKey);
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String forecastBand = extractNumber(csvData.get(0).get(j));
+                forecastBandCounter.add(forecastBand);
                 String keyVal = nameKey + ndoBandKey + forecastBand;
                 if (!autob2bMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
@@ -3509,7 +3595,8 @@ public class App implements CommandLineRunner {
                 countTotalValues++;
             }
         }
-        findActualCountForAutoB2BFactor(counter, countTotalValues, listOfErrors.get());
+        int expectedValueCount = counter.size() * ndoBandCounter.size() * forecastBandCounter.size();
+        findActualCountForAutoB2BFactor(expectedValueCount, countTotalValues, listOfErrors.get(), tableName);
 
         if (!listOfErrors.get().isEmpty()) {
             throw new DataMismatchedException(listOfErrors.get());
@@ -3518,25 +3605,19 @@ public class App implements CommandLineRunner {
         return autob2bMap;
     }
 
-    private void findActualCountBetweenRowsAndColumns(Set<String> strategyCounter, int countTotalValues,
-                                                      List<String> errorList) throws DataMismatchedException {
-        int dplfBand = getCountOfEntries(DPLF_BANDS_TABLE);
-        int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
-        int expectedValueCount = strategyCounter.size() * dplfBand * ndoBand * NUMBER_OF_DECISIONS * 2;
+    private void findActualCountBetweenRowsAndColumns(int expectedValueCount, int countTotalValues,
+                                                      List<String> errorList, String tableName) throws DataMismatchedException {
         if (expectedValueCount != countTotalValues) {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
             errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
             throw new DataMismatchedException(Collections.singletonList(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE));
         }
     }
 
-    private void findActualCountForAutoB2BFactor(Set<String> strategyCounter, int countTotalValues,
-                                                 List<String> errorList) throws DataMismatchedException {
-        int ndoBand = getCountOfEntries(NDO_BANDS_TABLE);
-        int forecastBand = getCountOfEntries(IMP_FORECAST_BANDS_TABLE_NAME);
-        int expectedValueCount = strategyCounter.size() * ndoBand * forecastBand;
+    private void findActualCountForAutoB2BFactor(int expectedValueCount, int countTotalValues,
+                                                 List<String> errorList, String tableName) throws DataMismatchedException {
         if (expectedValueCount != countTotalValues) {
-            updateInputStatus(STRATEGY_TABLE_NAME);
+            updateInputStatus(tableName);
             errorList.add(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE);
             throw new DataMismatchedException(Collections.singletonList(INVALID_NUMBER_OF_ROW_COLUMN_ERROR_MESSAGE));
         }

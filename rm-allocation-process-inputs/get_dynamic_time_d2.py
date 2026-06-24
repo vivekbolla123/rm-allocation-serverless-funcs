@@ -8,7 +8,7 @@ class GetDynamicTimeD2:
     def __init__(self, database_helper):
         self.rmdatabasehelper = database_helper
 
-    def getDynamicTime(self, currParams, dplfBand, ndoBand, DaySpan, channel,plf):
+    def getDynamicTime(self, currParams, dplfBand, ndoBand, forecastBand, DaySpan, channel,plf):
         startTime = currParams.time_window_start
         endTime = currParams.time_window_end
         hardstartTime = currParams.time_window_start
@@ -77,7 +77,7 @@ class GetDynamicTimeD2:
 
         return startTime, endTime
     
-    def getDynamicD2Value(self, currParams, dplfBand, ndoBand, channel, plf):
+    def getDynamicD2Value(self, currParams, dplfBand, ndoBand, forecastBand, channel, plf):
         hardcriteria = CONST_NA
         hardoffset = CONST_NA
         fare = CONST_NA
