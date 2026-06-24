@@ -5565,26 +5565,13 @@ public class App implements CommandLineRunner {
                     String total = row.get(5).trim();
                     String currency = row.get(6).trim();
 
-                    String type = "";
-                    for (Map.Entry<String, Set<String>> entry : rbdGroups.entrySet()) {
-                        if (entry.getValue().contains(rbd)) {
-                            String key = entry.getKey();
-                            if (key.startsWith("QP_")) key = key.substring(3);
-                            if (key.endsWith("_RBD_VALUES")) key = key.substring(0, key.length() - 11);
-                            if (key.endsWith("_RBD")) key = key.substring(0, key.length() - 4);
-                            type = key;
-                            break;
-                        }
-                    }
-
                     Document filter = new Document().append("SECTOR", sector).append("route", route).append("RBD", rbd);
 
                     Document updateFields = new Document()
                             .append("Org", org)
                             .append("Dst", dst)
                             .append("TOTAL", autoConvert(total))
-                            .append("currency", currency)
-                            .append("type", type);
+                            .append("currency", currency);
 
                     bulkUpdates.add(new UpdateOneModel<>(filter, new Document("$set", updateFields), new UpdateOptions().upsert(true)));
 
