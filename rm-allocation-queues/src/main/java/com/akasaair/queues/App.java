@@ -1558,6 +1558,10 @@ public class App implements CommandLineRunner {
 
             List<Object> listOfCurves = searchDistinctResults(CURVES_COLUMN_NAME, CURVES_TABLE_NAME);
             List<Object> listOfStrategies = searchDistinctResults(STRATEGY_COLUMN_NAME, STRATEGY_TABLE_NAME);
+            List<Object> forecastStrategies = searchDistinctResults(STRATEGY_COLUMN_NAME, FORECAST_STRATEGY_TABLE_NAME);
+            Set<Object> uniqueStrategies = new HashSet<>(listOfStrategies);
+            uniqueStrategies.addAll(forecastStrategies);
+            listOfStrategies = new ArrayList<>(uniqueStrategies);
             List<Object> listOfB2BStrategies = searchDistinctResults(AUTO_B2B_NAME_COLUMN_NAME, AUTO_B2B_TABLE_NAME);
             List<Object> listOfCriteria = searchDistinctResults(CRITERIA_COLUMN_NAME, CRITERIA_TABLE);
 
