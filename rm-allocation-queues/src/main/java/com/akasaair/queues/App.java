@@ -2462,7 +2462,7 @@ public class App implements CommandLineRunner {
         String rbdList = null;
         try {
             MongoCollection<Document> collection = getDbForCollection(RM_PARAMS_TABLE_NAME).getCollection(RM_PARAMS_TABLE_NAME);
-            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+            FindIterable<Document> docs = collection.find(regex("parameterKey", "^QP_.*"));
 
             for (Document doc : docs) {
                 String key = doc.getString("parameterKey");
@@ -2483,7 +2483,7 @@ public class App implements CommandLineRunner {
         Map<String, Set<String>> rbdGroups = new HashMap<>();
         try {
             MongoCollection<Document> collection = getDbForCollection(RM_PARAMS_TABLE_NAME).getCollection(RM_PARAMS_TABLE_NAME);
-            FindIterable<Document> docs = collection.find(in("parameterKey", RBD_PARAM_KEY_LIST));
+            FindIterable<Document> docs = collection.find(regex("parameterKey", "^QP_.*"));
 
             for (Document doc : docs) {
                 String key = doc.getString("parameterKey");
