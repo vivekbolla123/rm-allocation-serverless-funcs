@@ -41,7 +41,7 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final int DAYS_TO_ENTER_INTO_MARKET_LIST = 30;
     public static final String TEMP = "temp";
     public static final String PARAMETER_RBD_VALUES = "RBD_VALUES";
-    public static final List<String> RBD_PARAM_KEY_LIST = List.of("B2B_RBD_VALUES", "B2C_RBD_VALUES", "GROUP_RBD_VALUES", "TBF_RBD", "CUG_RBD");
+    public static final List<String> RBD_PARAM_KEY_LIST = List.of("QP_B2B_RBD_VALUES", "QP_B2C_RBD_VALUES", "QP_GROUP_RBD_VALUES", "QP_TBF_RBD", "QP_CUG_RBD");
     public static final String PER_TYPE_VALUE = "D";
     public static final String INTERNATIONAL = "International";
     public static final String DOMESTIC = "Domestic";
@@ -53,6 +53,7 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
     public static final String AUDIT_EMPTY_IDENTIFIER = "<N>";
     public static final String CHANGE_TYPE_MARKETLIST = "ML";
     public static Map<String, String> STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
+    public static Map<String, String> FORECAST_STRATEGY_HEADER_VALUES = new LinkedHashMap<>();
 //    public final static String S3_FILE_PATH_NAME = System.getenv("FILE_PATH_NAME");
 //    public final static String S3_BUCKET_NAME = System.getenv("S3_BUCKET_NAME");
     public final static String FILE_NAME = System.getenv("FILE_NAME");
@@ -65,6 +66,14 @@ public class Constants implements CsvHeaderConstants, ErrorMessagesConstants, Ta
         STRATEGY_HEADER_VALUES.put("NdoBand", NDO_BAND_COLUMN_NAME);
         STRATEGY_HEADER_VALUES.put("DplfBand", DPLF_BAND_COLUMN_NAME);
         STRATEGY_HEADER_VALUES.put("Channel", CHANNEL_COLUMN_NAME);
+
+        FORECAST_STRATEGY_HEADER_VALUES.put("Time", TIME_RANGE_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("Criteria", CRITERIA_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("Offset", OFFSET_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("Strategy", STRATEGY_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("NdoBand", NDO_BAND_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("ForecastBand", FORECAST_BAND_COLUMN_NAME);
+        FORECAST_STRATEGY_HEADER_VALUES.put("Channel", CHANNEL_COLUMN_NAME);
     }
 
     public static String generateUUID() {
