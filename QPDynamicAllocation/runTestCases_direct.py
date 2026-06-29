@@ -1,11 +1,15 @@
 import sys,os
+
+log_file = open('test_output.log', 'w')
+sys.stdout = log_file
+sys.stderr = log_file
 # Get the absolute path of the directory
 path = os.path.abspath("rm-allocation-process-inputs")
 sys.path.append('./rm-allocation-configurations')
 sys.path.insert(1, path)
 import Constants
 import datetime
-from testcontainers.mysql import MySqlContainer
+# from testcontainers.mysql import MySqlContainer
 
 from sqlalchemy import create_engine
 from load_tests_db_data import Schema

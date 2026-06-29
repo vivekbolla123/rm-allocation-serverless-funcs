@@ -102,6 +102,10 @@ class Schema:
 
                 rawdata["outbound_stop"] = rawdata["outbound_stop"].apply(parse_time)
 
+        if collectionName == "expected_no_shows":
+            if "FlightNumber" in rawdata.columns:
+                rawdata["FlightNumber"] = rawdata["FlightNumber"].astype(str)
+
         # Select the appropriate database
         if collectionName in self.MASTER_COLLECTIONS:
             db = self.master_db

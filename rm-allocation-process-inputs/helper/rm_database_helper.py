@@ -270,6 +270,7 @@ class RMDatabaseHelper:
     "ALLIN_AF_NB_LM": "$fr.ALLIN_AF_NB_LM",
     "ALLIN_AF_NB_LY": "$fr.ALLIN_AF_NB_LY",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
+    "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},
 "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
@@ -800,6 +801,8 @@ class RMDatabaseHelper:
                 "BookedLoad": latest_row.BookedLoad,
                 "TgtLoad": latest_row.TgtLoad,
                 "MktFare_Min": str(latest_row.MktFare_Min),
+                "CurveId": str(latest_row.CurveId),
+                "ExpectedNoShows": str(latest_row.ExpectedNoShows),
                 "OpenRBD": latest_row.OpenRBD,
                 "SellingFare": str(latest_row.SellingFare),
                 "Channel": latest_row.Channel,
@@ -837,9 +840,7 @@ class RMDatabaseHelper:
                 "bookingToday": str(latest_row.bookingToday),
                 "bookingInHour": str(latest_row.bookingLastHour),
                 "currentTgtLoad": str(latest_row.currentTgtLoad),
-                "currentLoadFactor": str(latest_row.currentLoadFactor),
                 "overBookingCount": str(latest_row.overBookingCount),
-                "recommendedActions": str(latest_row.recommendedActions),
                 "profileFare": str(latest_row.profileFare),
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
@@ -857,7 +858,15 @@ class RMDatabaseHelper:
                 "toleranceValue": str(latest_row.toleranceValue),
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
-                "grpFareAnchor": str(latest_row.grpFareAnchor)
+                "grpFareAnchor": str(latest_row.grpFareAnchor),
+                # Portfolio anchor split (R9) — direct-route rows get real
+                # values; connections / sales-inventory rows leave them as
+                # ``CONST_NA``.
+                "z_score_composite": str(latest_row.z_score_composite),
+                "Portfolio_Anchor": str(latest_row.Portfolio_Anchor),
+                "z_score88": str(latest_row.z_score88),
+                "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
+                "portfolio_count": str(latest_row.portfolio_count)
             }
 
             try:
@@ -981,15 +990,21 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return [], []
 
-    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, channel):
+    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, forecastBand, channel):
         try:
-            results = list(self.db.d1_d2_strategies.find({
+            results1 = list(self.db.d1_d2_strategies.find({
                 "ndo_band": ndoBand,
                 "dplf_band": dplfBand,
                 "strategy": strategy,
                 "channel": channel
             }))
-            return pd.DataFrame(results)
+            results2 = list(self.db.forecast_strategy.find({
+                "ndo_band": ndoBand,
+                "forecast_band": forecastBand,
+                "strategy": strategy,
+                "channel": channel
+            }))
+            return pd.DataFrame(results1 + results2)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()
@@ -2490,10 +2505,10 @@ class RMDatabaseHelper:
             if self.debugMode:
                 self.logger.info(f"Query: {sector}, Flight {FltNumber}, Date {currFltDate}")
 
-            return result["ExpectedNoShows"] if result else 0
+            return result["ExpectedNoShows"] if result else CONST_NA
         except Exception as e:
             self.logger.error(e)
-            return 0
+            return CONST_NA
 
     def get_farther_rbd_distribution(self, seats):
         try:

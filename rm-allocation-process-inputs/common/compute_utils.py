@@ -1,5 +1,6 @@
 from Constants import *
 import math
+import pandas as pd
 
 def getParsedForecast(self):
   # Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
@@ -36,16 +37,30 @@ def getParsedImputedForecast(self,variance):
   except (ValueError, TypeError):
     return CONST_NA
 
-def calculateAfNbAllin(self,imputed_plf,curr_plf):
+def calculateAfNbAllin(self, ndocounter, curr_imputed_plf, curr_plf):
   Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
   ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+  
+  if ndocounter == 0:
+    forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
+    try:
+      forecast_variance = float(forecast_variance)
+    except (ValueError, TypeError):
+      forecast_variance = CONST_NA
+
+    imputed_plf = getParsedImputedForecast(self, forecast_variance)
+    plf = getattr(self.currParams, 'forecast_run_plf', CONST_NA)
+  else:
+    imputed_plf = curr_imputed_plf
+    plf = curr_plf
+
   try:
     imputed_plf = float(imputed_plf)
-    curr_plf = float(curr_plf)
+    plf = float(plf)
     if not math.isnan(Af_allin) and not math.isnan(ForecastAF_Allin):
-      return ((ForecastAF_Allin * imputed_plf)-(Af_allin * curr_plf))/(imputed_plf-curr_plf)
+      return ((ForecastAF_Allin * imputed_plf)-(Af_allin * plf))/(imputed_plf-plf)
     return CONST_NA
-  except (ValueError, TypeError):
+  except (ValueError, TypeError, ZeroDivisionError):
     return CONST_NA
 
 def calculate_profilefare_quartile(final_totalCapacity, currBookedLoad, mathutils):
@@ -116,3 +131,34 @@ def safe_get_from_dict(d, key, default=CONST_NA, index=0):
   if isinstance(val_list, list) and len(val_list) > index:
     return val_list[index]
   return default
+
+def parse_numeric(val, default=0):
+  try:
+    if val == CONST_NA or val == "" or val is None:
+      return default
+    return float(val)
+  except (ValueError, TypeError):
+    return default
+
+def parse_int_flag(val, default=0):
+  try:
+    if val == CONST_NA or val == "" or val is None:
+      return default
+    val_float = float(val)
+    if math.isnan(val_float):
+      return default
+    return int(val_float)
+  except (ValueError, TypeError):
+    return default
+
+def safe_float(val, default=0.0):
+  """Safely cast a payload value to float, handling NAs and empty strings."""
+  if not pd.notna(val):
+    return default
+  try:
+    val_str = str(val).strip()
+    if val_str in ('', 'NA', 'None'):
+      return default
+    return float(val)
+  except (ValueError, TypeError):
+    return default

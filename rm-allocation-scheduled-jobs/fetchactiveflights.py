@@ -27,7 +27,7 @@ class FetchActiveFlights:
                 TRIM(FlightNumber) AS FlightNumber,
                 CONVERT(VARCHAR(10), DepartureDate, 120) AS DepartureDate
             FROM {self.nav_db_name}rez.InventoryLeg
-            WHERE DepartureDate >= CAST(GETDATE() AS DATE)
+            WHERE DepartureDate >= CAST(GETDATE() AS DATE)  AND Status NOT IN (2, 3) 
             AND CarrierCode='QP'
             """
             df = pd.read_sql(query, self.nav_conn)

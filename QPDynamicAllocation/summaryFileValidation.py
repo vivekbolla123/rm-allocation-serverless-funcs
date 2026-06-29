@@ -1,4 +1,9 @@
 import sys
+
+log_file = open('summary_validation.log', 'a', encoding='utf-8')
+sys.stdout = log_file
+sys.stderr = log_file
+
 import time
 from pathlib import Path
 from collections import defaultdict
@@ -55,6 +60,29 @@ def vals_match(v1, v2) -> bool:
     return str(v1).strip() == str(v2).strip()
 
 
+def validate_key_columns(df: pd.DataFrame, label: str) -> bool:
+    """Ensure all composite key columns are present and have no duplicates."""
+    missing = [c for c in COMPOSITE_KEY if c not in df.columns]
+    if missing:
+        console.print(Panel(
+            f"[bold red]{label}: Missing composite key column(s):[/bold red] {', '.join(missing)}\n"
+            f"[dim]Available columns: {', '.join(df.columns.tolist())}[/dim]",
+            border_style="red", padding=(0, 3),
+        ))
+        return False
+
+    dupes = df.duplicated(subset=COMPOSITE_KEY, keep=False)
+    if dupes.any():
+        n = dupes.sum()
+        console.print(Panel(
+            f"[bold yellow]{label}: {n} duplicate composite key(s) found.[/bold yellow]\n"
+            "[dim]Only the first occurrence of each key will be used.[/dim]",
+            border_style="yellow", padding=(0, 3),
+        ))
+
+    return True
+
+
 # ─── Main ───────────────────────────────────────────────────────────────────
 
 def compare_csv_files():
@@ -86,18 +114,61 @@ def compare_csv_files():
     ) as progress:
         t = progress.add_task("Loading files...", total=None)
 
-        df1 = pd.read_csv(CURRENT_FILE)
-        df2 = pd.read_csv(ARCHIVE_FILE)
-        df2_original = df2.copy()
-
-        df1 = df1.drop(columns=['Id'], errors='ignore')
-        df2 = df2.drop(columns=['Id', 'marketFaresSummary', 'bookingsToday'], errors='ignore')
-
-        # align column order
-        df2 = df2.reindex(columns=df1.columns)
+        df1 = pd.read_csv(CURRENT_FILE, dtype=str)   # read as str to avoid type coercion shifting values
+        df2 = pd.read_csv(ARCHIVE_FILE, dtype=str)
 
         progress.update(t, description="Files loaded")
         time.sleep(0.15)
+
+    # ── Validate key columns exist before any drops ──────────────────────────
+    # Do this BEFORE dropping any columns so we can give a useful error message
+    # if a key column is missing or was accidentally dropped.
+    if not validate_key_columns(df1, "NEW summary"):
+        return
+    if not validate_key_columns(df2, "OLD summary"):
+        return
+
+    # ── Print key column sample to help spot misalignment early ─────────────
+    console.print(Panel(
+        "[bold dim]Composite key sample — NEW[/bold dim]\n" +
+        df1[COMPOSITE_KEY].head(3).to_string(index=False),
+        border_style="dim", padding=(0, 3),
+    ))
+    console.print(Panel(
+        "[bold dim]Composite key sample — OLD[/bold dim]\n" +
+        df2[COMPOSITE_KEY].head(3).to_string(index=False),
+        border_style="dim", padding=(0, 3),
+    ))
+    console.print()
+
+    # ── Keep a pristine copy of the archive for the export at the end ────────
+    df2_original = df2.copy()
+
+    # ── Drop non-comparable columns AFTER key validation ────────────────────
+    # These columns are intentionally absent from one side; drop them so they
+    # don't trigger spurious "column removed" noise.
+    ALWAYS_DROP = ['Id', 'marketFaresSummary', 'bookingsToday']
+    df1 = df1.drop(columns=[c for c in ALWAYS_DROP if c in df1.columns])
+    df2 = df2.drop(columns=[c for c in ALWAYS_DROP if c in df2.columns])
+
+    # ── Track schema changes (columns that exist in one file but not the other)
+    # Exclude composite key columns from this diff — they're structural, not data.
+    non_key_cols_1 = [c for c in df1.columns if c not in COMPOSITE_KEY]
+    non_key_cols_2 = [c for c in df2.columns if c not in COMPOSITE_KEY]
+    cols_added   = [c for c in non_key_cols_1 if c not in non_key_cols_2]
+    cols_removed = [c for c in non_key_cols_2 if c not in non_key_cols_1]
+
+    # ── Align to common columns (key columns are always included) ────────────
+    common_cols = COMPOSITE_KEY + [
+        c for c in df1.columns
+        if c in df2.columns and c not in COMPOSITE_KEY
+    ]
+    df1 = df1[common_cols]
+    df2 = df2[common_cols]
+
+    # ── Drop duplicate keys (keep first) ─────────────────────────────────────
+    df1 = df1.drop_duplicates(subset=COMPOSITE_KEY, keep='first')
+    df2 = df2.drop_duplicates(subset=COMPOSITE_KEY, keep='first')
 
     # ── File summary cards ───────────────────────────────────────────────────
     def stat_card(label, df, color):
@@ -116,17 +187,7 @@ def compare_csv_files():
     ]))
     console.print()
 
-    # ── Validate composite keys ──────────────────────────────────────────────
-    missing = [c for c in COMPOSITE_KEY
-               if c not in df1.columns or c not in df2.columns]
-    if missing:
-        console.print(Panel(
-            f"[bold red]Missing composite key column(s):[/bold red] {', '.join(missing)}",
-            border_style="red", padding=(0, 3),
-        ))
-        return
-
-    # ── Indexing ─────────────────────────────────────────────────────────────
+    # ── Index on composite key ───────────────────────────────────────────────
     df1 = df1.set_index(COMPOSITE_KEY)
     df2 = df2.set_index(COMPOSITE_KEY)
 
@@ -168,40 +229,33 @@ def compare_csv_files():
         "yellow"
     )
 
-    # ── VALUE COMPARISON (FIXED ALIGNMENT) ───────────────────────────────────
+    # ── Value comparison ─────────────────────────────────────────────────────
     common_index = df1.index.intersection(df2.index).sort_values()
 
-    df1_c = df1.loc[common_index]
-    df2_c = df2.loc[common_index]
+    df1_c = df1.loc[common_index].sort_index()
+    df2_c = df2.loc[common_index].sort_index()
 
-    # guarantee identical ordering
-    df1_c = df1_c.sort_index()
-    df2_c = df2_c.sort_index()
+    # Sanity-check: the indices must be identical after the sort
+    assert (df1_c.index == df2_c.index).all(), (
+        "Index mismatch after intersection + sort — this should never happen."
+    )
 
     arr1 = df1_c.to_numpy(dtype=object)
     arr2 = df2_c.to_numpy(dtype=object)
     col_names = df1_c.columns.tolist()
 
-    row_has_diff = np.zeros(len(df1_c), dtype=bool)
-
-    for ci in range(len(col_names)):
-        for ri in range(len(df1_c)):
-            if not vals_match(arr1[ri, ci], arr2[ri, ci]):
-                row_has_diff[ri] = True
-
     mismatches = []
 
-    for ri in np.where(row_has_diff)[0]:
-        key = df1_c.index[ri]
-
+    for ri in range(len(df1_c)):
         for ci, col in enumerate(col_names):
             v1, v2 = arr1[ri, ci], arr2[ri, ci]
             if not vals_match(v1, v2):
-                mismatches.append((key, col, v2, v1))
+                key = df1_c.index[ri]
+                mismatches.append((key, col, v2, v1))   # (key, col, old, new)
 
     elapsed = time.perf_counter() - start
 
-    # ── PRINT RESULTS ────────────────────────────────────────────────────────
+    # ── Print results ────────────────────────────────────────────────────────
     if not mismatches:
         console.print(Panel(
             "[bold bright_green]No value mismatches found[/bold bright_green]\n"
@@ -232,10 +286,9 @@ def compare_csv_files():
                 show_edge=False,
                 padding=(0, 2),
             )
-
-            tbl.add_column("Column", style="bold cyan", no_wrap=True)
-            tbl.add_column("OLD", style="yellow")
-            tbl.add_column("-> NEW", style="bright_green")
+            tbl.add_column("Column",  style="bold cyan", no_wrap=True)
+            tbl.add_column("OLD",     style="yellow")
+            tbl.add_column("-> NEW",  style="bright_green")
 
             for col, old_val, new_val in changes:
                 tbl.add_row(col, str(old_val), str(new_val))
@@ -256,13 +309,34 @@ def compare_csv_files():
     console.print("  " + "   [dim]|[/dim]   ".join(summary_parts))
     console.print()
 
+    # ── Column schema changes ─────────────────────────────────────────────────
+    if cols_added or cols_removed:
+        console.print(Rule("[bold magenta]COLUMN SCHEMA CHANGES[/bold magenta]", style="magenta"))
+        console.print()
+
+        if cols_added:
+            console.print(
+                f"  [bold bright_green]+ Added columns[/bold bright_green]"
+                f"  [dim]({len(cols_added)})[/dim]  "
+                + "  ".join(f"[bright_green]{c}[/bright_green]" for c in cols_added)
+            )
+
+        if cols_removed:
+            console.print(
+                f"  [bold yellow]- Removed columns[/bold yellow]"
+                f"  [dim]({len(cols_removed)})[/dim]  "
+                + "  ".join(f"[yellow]{c}[/yellow]" for c in cols_removed)
+            )
+
+        console.print()
+
     # ── Export mismatched rows ───────────────────────────────────────────────
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     if mismatches:
         mismatch_keys = list({m[0] for m in mismatches})
-        df2_original = df2_original.set_index(COMPOSITE_KEY)
-        export_df = df2_original.loc[mismatch_keys].reset_index()
+        df2_export = df2_original.set_index(COMPOSITE_KEY)
+        export_df = df2_export.loc[mismatch_keys].reset_index()
         export_df.to_csv(OUTPUT_FILE, index=False)
 
         console.print(Panel(
