@@ -270,6 +270,7 @@ class RMDatabaseHelper:
     "ALLIN_AF_NB_LM": "$fr.ALLIN_AF_NB_LM",
     "ALLIN_AF_NB_LY": "$fr.ALLIN_AF_NB_LY",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
+    "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
 "seats_sold_P": {"$ifNull": ["$cr.seats_sold_P", 0]},
 "current_rbd_L": {"$ifNull": ["$cr.current_rbd_L", 0]},
@@ -989,15 +990,21 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return [], []
 
-    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, channel):
+    def getd1d2StrategyValue(self, strategy, dplfBand, ndoBand, forecastBand, channel):
         try:
-            results = list(self.db.d1_d2_strategies.find({
+            results1 = list(self.db.d1_d2_strategies.find({
                 "ndo_band": ndoBand,
                 "dplf_band": dplfBand,
                 "strategy": strategy,
                 "channel": channel
             }))
-            return pd.DataFrame(results)
+            results2 = list(self.db.forecast_strategy.find({
+                "ndo_band": ndoBand,
+                "forecast_band": forecastBand,
+                "strategy": strategy,
+                "channel": channel
+            }))
+            return pd.DataFrame(results1 + results2)
         except Exception as e:
             self.logger.error(e)
             return pd.DataFrame()

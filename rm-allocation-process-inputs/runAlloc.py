@@ -681,7 +681,7 @@ class DynAlloc:
 		if ndocounter <= 30:
 			imp_forecast = getParsedImputedForecast(self, variance_full)
 		if(imp_forecast != CONST_NA):
-			Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
 			PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
@@ -695,9 +695,15 @@ class DynAlloc:
 		
 		imp_forecast_band = CONST_NA
 		af_forecast_band = CONST_NA
+		group_forecast_band = CONST_NA
 		if imp_forecast != CONST_NA and not pd.isna(imp_forecast):
 			imp_forecast_band = self.rmdatabasehelper.get_imputed_forecast_band(imp_forecast)
 			af_forecast_band = self.rmdatabasehelper.get_af_forecast_band(imp_forecast)
+			if ndocounter <= 30:
+				group_forecast_band_result = self.rmdatabasehelper.get_group_forecast_band(imp_forecast)
+				group_forecast_band = group_forecast_band_result.get('band', CONST_NA) if isinstance(group_forecast_band_result, dict) else CONST_NA
+		else:
+			group_forecast_band = dplfBand_full if dplfBand_full is not None else CONST_NA
 
 		b2b_strategy = self.currParams.b2bStrategy
 		forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
@@ -741,15 +747,15 @@ class DynAlloc:
 
 		# Get Dynamic D1 (Time Window)
 		self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange, hardstartTimeB2C, hardendTimeB2C = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
+			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
 
 		# Get Dynamic D2 (Criteria, Offset, StrategyRef)
 		self.outputSummaryRow_b2b.criteria, hardcriteriaB2B, self.outputSummaryRow_b2b.fareOffset, hardoffsetB2B, self.outputSummaryRow_b2b.StrategyReference, hardfareb2b = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.criteria, hardcriteriaB2C, self.outputSummaryRow_b2c.fareOffset, hardoffsetB2C, self.outputSummaryRow_b2c.StrategyReference, hardfareb2c = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, B2C_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2C_CHANNEL, final_plf)
 
 		# IDs for summary rows (already set in common init, but ensure unique if re-running parts)
 		self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
@@ -763,6 +769,7 @@ class DynAlloc:
 		state.dplfBand_full = dplfBand_full
 		state.forecast_plf = forecast_plf
 		state.forecastBand = forecastBand
+		state.group_forecast_band = group_forecast_band
 		state.imp_forecast_band = imp_forecast_band
 		state.af_forecast_band = af_forecast_band
 		state.DaySpan_full = DaySpan_full
@@ -1296,9 +1303,6 @@ class DynAlloc:
 			# Booked deficit for B2C allocation (target based on original Lid from params)
 			bookedDeficit_val = round((tgtBookedLoadPercent * base_totalCapacity) - float(currBookedLoad))
 			remainingCapacity_val = final_totalCapacity - float(currBookedLoad)
-			Af_Nb_Allin = CONST_NA
-			if imp_forecast != CONST_NA:
-				Af_Nb_Allin = calculateAfNbAllin(self, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
 			b2cAllocUnits_val, brd_counter_after_b2c, b2c_status_val, _, B2CRBDs_list_val, b2c_opening_price_val, self.first_rbd_alloc, self.other_rbd_alloc = \
 				self.allocations.b2CAllocation(
 					float(initial_currBookedLoad), openDataB2C_details, currRec_fullalloc, final_totalCapacity, bookedDeficit_val, variance_full,
@@ -2722,7 +2726,7 @@ class DynAlloc:
 		try:
 			entry = instance.runFareAnchorPass()
 		except Exception as e:
-			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}", exc_info=True)
+			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}")
 			entry = instance._build_fallback_portfolio_entry(e)
 
 		if instance._maybeShortCircuitSingleFlight(entry):

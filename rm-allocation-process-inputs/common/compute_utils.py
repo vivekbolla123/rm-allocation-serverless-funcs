@@ -37,16 +37,30 @@ def getParsedImputedForecast(self,variance):
   except (ValueError, TypeError):
     return CONST_NA
 
-def calculateAfNbAllin(self,imputed_plf,curr_plf):
+def calculateAfNbAllin(self, ndocounter, curr_imputed_plf, curr_plf):
   Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
   ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
+  
+  if ndocounter == 0:
+    forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
+    try:
+      forecast_variance = float(forecast_variance)
+    except (ValueError, TypeError):
+      forecast_variance = CONST_NA
+
+    imputed_plf = getParsedImputedForecast(self, forecast_variance)
+    plf = getattr(self.currParams, 'forecast_run_plf', CONST_NA)
+  else:
+    imputed_plf = curr_imputed_plf
+    plf = curr_plf
+
   try:
     imputed_plf = float(imputed_plf)
-    curr_plf = float(curr_plf)
+    plf = float(plf)
     if not math.isnan(Af_allin) and not math.isnan(ForecastAF_Allin):
-      return ((ForecastAF_Allin * imputed_plf)-(Af_allin * curr_plf))/(imputed_plf-curr_plf)
+      return ((ForecastAF_Allin * imputed_plf)-(Af_allin * plf))/(imputed_plf-plf)
     return CONST_NA
-  except (ValueError, TypeError):
+  except (ValueError, TypeError, ZeroDivisionError):
     return CONST_NA
 
 def calculate_profilefare_quartile(final_totalCapacity, currBookedLoad, mathutils):

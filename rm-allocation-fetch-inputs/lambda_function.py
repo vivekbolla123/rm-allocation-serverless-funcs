@@ -585,7 +585,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
@@ -612,7 +612,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     market list table so that portfolio aggregation is correct, but flags them with
     portfolio_only=1 so they don't produce downstream outputs.
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
@@ -1339,6 +1339,8 @@ def lambda_handler(event, context):
     cug_alloc = "0"
     mongodb = "0"
     salesinv = "0"
+    min_date = None
+    max_date = None
 
     # Overrides
     if route_type_key in data:
@@ -1893,6 +1895,12 @@ def lambda_handler(event, context):
     run_id = data.get('run_id') or str(uuid4())
     overall_start = data.get('overall_start', start_interval)
     overall_end = data.get('overall_end', end_interval)
+
+    if type in ("Adhoc", "Adhoc_Connections"):
+        if pd.notnull(min_date):
+            overall_start = (min_date - curr_date).days
+        if pd.notnull(max_date):
+            overall_end = (max_date - curr_date).days
 
     log_time.update_run_id(run_id)
 
