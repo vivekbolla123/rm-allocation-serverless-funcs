@@ -99,3 +99,4 @@
 {"Group": "BLRMEL_08/01/2023", "Aggregates": {"PDS": 105.48, "sd_PDS": 0.61, "PDQ": 20000.0, "sd_PDQ": 0.0, "PFA": 8091.0, "sd_PFA": 0.0, "PDS88": null, "sd_PDS88": null, "PDQ88": null, "sd_PDQ88": null, "PFA88": null, "sd_PFA88": null}}
 {"Group": "BOMDEL_08/01/2023", "Aggregates": {"PDS": 66.96, "sd_PDS": 28.76, "PDQ": 20000.0, "sd_PDQ": 0.0, "PFA": 7273.88, "sd_PFA": 4148.52, "PDS88": 59.74, "sd_PDS88": 27.8, "PDQ88": 20000.0, "sd_PDQ88": 0.0, "PFA88": 5490.69, "sd_PFA88": 1498.86}}
 {"Group": "BOMDEL_08/23/2023", "Aggregates": {"PDS": 101.12, "sd_PDS": 21.71, "PDQ": 20000.0, "sd_PDQ": 0.0, "PFA": 5690.81, "sd_PFA": 2198.14, "PDS88": 84.27, "sd_PDS88": 0.0, "PDQ88": 20000.0, "sd_PDQ88": 0.0, "PFA88": 4665.0, "sd_PFA88": 0.0}}
+{"Group": "BOMMNL_08/03/2023", "Aggregates": {"PDS": null, "sd_PDS": null, "PDQ": null, "sd_PDQ": null, "PFA": 3921.25, "sd_PFA": 623.75, "PDS88": null, "sd_PDS88": null, "PDQ88": null, "sd_PDQ88": null, "PFA88": null, "sd_PFA88": null}}

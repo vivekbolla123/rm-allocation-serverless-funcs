@@ -1609,12 +1609,12 @@ class RMDatabaseHelper:
         # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
         query = {
-    "Org": origin,
-    "Dst": destin,
-    "route": route,
-    "RBD": {"$in": self.rbd_list_builder(channel)},
-    "TOTAL": {"$ne": 1}
-}
+            "Org": origin,
+            "Dst": destin,
+            "route": route,
+            "RBD": {"$in": self.rbd_list_builder(channel)},
+            "TOTAL": {"$ne": 1}
+        }
 
         sortorder = -1  # desc
         use_pipeline = False
@@ -1722,7 +1722,7 @@ class RMDatabaseHelper:
         #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
         # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop)}
+        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
