@@ -1651,7 +1651,7 @@ class RMDatabaseHelper:
                 ]
                 use_pipeline = True
             else:
-                query["TOTAL"] = {"$lt": int(anchorFare)}
+                query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
         if int(offset) >= 0:
@@ -1685,9 +1685,9 @@ class RMDatabaseHelper:
                     ]
                     use_pipeline = True
                 else:
-                    query["TOTAL"] = {"$gte": int(anchorFare)}
+                    query["TOTAL"] = {"$gte": int(anchorFare), "$ne": 1}
             else:
-                query["TOTAL"] = {"$gte": 1000000}
+                query["TOTAL"] = {"$gte": 1000000, "$ne": 1}
             sortorder = 1
 
         if self.debugMode:
