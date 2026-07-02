@@ -674,25 +674,31 @@ class DynAlloc:
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
-		# Use forecast data only if within 30 NDOs
-		imp_forecast = CONST_NA
-		PLF_Gain = CONST_NA
-		Af_Nb_Allin = CONST_NA
-		if ndocounter <= 30:
-			imp_forecast = getParsedImputedForecast(self, variance_full)
-		if(imp_forecast != CONST_NA):
-			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
-			PLF_Gain = ((imp_forecast) - round(final_plf,2))
-
-		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
-		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
-
+		# Forecast PLF — computed first because the imputed-forecast guard/fallback
+		# cases below return forecast_plf when the adjustment can't be applied.
 		forecast_plf = forecastBand = CONST_NA
 		if ndocounter <= 30:
 			forecast_plf = getParsedForecast(self)
 		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
 			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
-		
+
+		# ==================== IMPUTED FORECAST (Phase 2 BRD) ====================
+		# imp_forecast_load = Forecast_Load + (CB - CB_r) - [Adjustment_Factor*(CT - CT_r)]
+		# imputed forecast  = round(imp_forecast_load) / capacity * 100
+		imp_forecast = CONST_NA
+		PLF_Gain = CONST_NA
+		Af_Nb_Allin = CONST_NA
+		if ndocounter <= 30:
+			imp_forecast = getParsedImputedForecast(
+				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+			)
+		if imp_forecast != CONST_NA:
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, final_totalCapacity)
+			PLF_Gain = ((imp_forecast) - round(final_plf,2))
+
+		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
+		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
+
 		imp_forecast_band = CONST_NA
 		af_forecast_band = CONST_NA
 		group_forecast_band = CONST_NA
@@ -1481,6 +1487,9 @@ class DynAlloc:
 		grp_adj_profile_fare = state.grp_adj_profile_fare
 		grp_adj_bookload = state.grp_adj_bookload
 		grp_fare_anchor = state.grp_fare_anchor
+		forecast_plf = state.forecast_plf
+		final_totalCapacity = state.final_totalCapacity
+		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
 		param_profileFares = getattr(self.currParams, 'profileFares', 1)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
@@ -1512,7 +1521,7 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = getParsedForecast(self)
-		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(self, variance_full)
+		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity)
 		self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 		self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
 		self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
