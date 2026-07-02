@@ -585,7 +585,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY, fr.Adjustment_Factor, fr.Expected_PLF, fr.FLown_Target_Load
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY, fr.Adjustment_Factor, fr.Expected_PLF, fr.Flown_Target_Load
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
