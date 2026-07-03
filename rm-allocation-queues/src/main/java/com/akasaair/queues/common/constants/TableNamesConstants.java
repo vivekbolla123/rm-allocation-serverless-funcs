@@ -7,6 +7,7 @@ public interface TableNamesConstants {
     String DPLF_BANDS_TABLE = "dplf_bands";
     String CURVES_TABLE_NAME = "Curves";
     String STRATEGY_TABLE_NAME = "d1_d2_strategies";
+    String FORECAST_STRATEGY_TABLE_NAME = "forecast_strategy";
     String AUTO_B2B_TABLE_NAME = "auto_b2b_factor";
     String FORECAST_BANDS_TABLE_NAME = "forecast_bands";
     String IMP_FORECAST_BANDS_TABLE_NAME = "imputed_forecast_bands";

@@ -476,6 +476,9 @@ class ScheduleThirty:
                     [col for col in drop_cols if col in market_list_thirty_df.columns],
                     axis=1
                 )
+                market_list_thirty_df['FlightNumber'] = pd.to_numeric(
+                    market_list_thirty_df['FlightNumber'], errors='coerce'
+                )
                 
                 # Convert to records
                 records = market_list_thirty_df.to_dict('records')

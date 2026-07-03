@@ -585,7 +585,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY, fr.Adjustment_Factor, fr.Expected_PLF, fr.Flown_Target_Load
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
@@ -612,7 +612,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     market list table so that portfolio aggregation is correct, but flags them with
     portfolio_only=1 so they don't produce downstream outputs.
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
@@ -794,7 +794,7 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
 
-    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
+    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml'], inplace=True, errors='ignore')
     return mkt
 
 def get_connection_departure_dates(nav_helper, min_date, max_date):
@@ -1289,6 +1289,35 @@ def get_sector_forecast_model_map():
 
     return df
 
+def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
+                             booked_pax_col='bookedPax', capacity_col='capacity'):
+    """BRD: if the (model-resolved) refreshed forecast PLF is below the current
+    booked PLF, switch the forecast to LB — i.e. floor it at the booked load
+    factor. Must run AFTER left_join_forecast (so forecastPLF is model-resolved)
+    AND after booked_loads is merged (so booked PLF is available)."""
+    missing = [c for c in (forecast_col, booked_pax_col, capacity_col)
+               if c not in mkt_list.columns]
+    if missing:
+        logger.warning(f"LB switch skipped — missing columns: {missing}")
+        return mkt_list, 0
+
+    cap = pd.to_numeric(mkt_list[capacity_col], errors='coerce')
+    pax = pd.to_numeric(mkt_list[booked_pax_col], errors='coerce')
+    fc  = pd.to_numeric(mkt_list[forecast_col], errors='coerce')
+
+    booked_plf = pd.Series(
+        np.where(cap > 0, (pax / cap) * 100.0, np.nan),
+        index=mkt_list.index
+    ).round(1)
+
+    switch_mask = fc.notna() & booked_plf.notna() & (fc < booked_plf)
+    mkt_list.loc[switch_mask, forecast_col] = booked_plf[switch_mask]
+
+    lb_count = int(switch_mask.sum())
+    logger.info(f"LB switch: {lb_count} flights had forecast < booked PLF; "
+                f"forecast floored to booked PLF (LB).")
+    return mkt_list, lb_count
+
 # ==========================
 # Main Lambda Handler
 # ==========================
@@ -1339,6 +1368,8 @@ def lambda_handler(event, context):
     cug_alloc = "0"
     mongodb = "0"
     salesinv = "0"
+    min_date = None
+    max_date = None
 
     # Overrides
     if route_type_key in data:
@@ -1495,6 +1526,10 @@ def lambda_handler(event, context):
         mkt_list = left_join_with_destination_mapping(mkt_list, booked_loads)
         log_memory("after merge booked_loads")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
+
+        # BRD: switch forecast to LB where refreshed forecast < booked PLF
+        mkt_list, lb_switch_count = apply_lb_forecast_switch(mkt_list)
+        logger.info(f"mkt_list shape after LB switch: {mkt_list.shape}")
 
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
         log_memory("after merge seats_sold_pivot")
@@ -1893,6 +1928,12 @@ def lambda_handler(event, context):
     run_id = data.get('run_id') or str(uuid4())
     overall_start = data.get('overall_start', start_interval)
     overall_end = data.get('overall_end', end_interval)
+
+    if type in ("Adhoc", "Adhoc_Connections"):
+        if pd.notnull(min_date):
+            overall_start = (min_date - curr_date).days
+        if pd.notnull(max_date):
+            overall_end = (max_date - curr_date).days
 
     log_time.update_run_id(run_id)
 
