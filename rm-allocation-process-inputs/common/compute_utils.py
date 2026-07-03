@@ -56,7 +56,10 @@ def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
     CB = round(float(CB))
     CT = round(float(CT))
     flown_tgt_load = _compute_flown_target_load(self, capacity)
-    flown_tgt_load = round(flown_tgt_load)
+    if not math.isnan(flown_tgt_load):
+      flown_tgt_load = round(flown_tgt_load)
+    else:
+      return CONST_NA
     adjustment_factor = _compute_adjustment_factor(forecast_load, cb_r, flown_tgt_load, ct_r)
 
     # --- Compute base imputed forecast (pre-deduction) ---
