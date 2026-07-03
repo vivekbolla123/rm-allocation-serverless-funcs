@@ -50,7 +50,7 @@ def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
 
     # Use the passed-in forecast_plf (already model-resolved and LB-switched)
     forecast_plf = float(forecast_plf)
-    forecast_load = (forecast_plf / 100.0) * capacity
+    forecast_load = round((forecast_plf / 100.0) * capacity)
     cb_r = round((float(raw_cb_r) / 100.0) * capacity)
     ct_r = round((float(raw_ct_r) / 100.0) * capacity)
     CB = round(float(CB))
