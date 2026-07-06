@@ -1141,6 +1141,8 @@ class LadderGen:
                 f3 = 0.98 * f4
                 f2 = 0.98 * f3
                 f1 = 0.98 * f2
+                self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
+                reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 
             # Check yield constraint
             distance = self._get_distance(origin, destination)
@@ -1148,10 +1150,7 @@ class LadderGen:
                 yield_value = f1 / distance
                 if yield_value < self.MARKET_FARE_MIN_YIELD:
                     f1 = self.MARKET_FARE_MIN_YIELD * 1.01 * distance
-                        
-                reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
-                self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
-            
+
             self.logger.info(f"  f1 = {f1:.2f}, f2 = {f2:.2f}, f3 = {f3:.2f}")
             
             # ===== HIGHER BUFFER FARES - Calculate fmax =====
