@@ -269,6 +269,9 @@ class RMDatabaseHelper:
     "ForecastAF_Allin": "$fr.ForecastAF_Allin",
     "ALLIN_AF_NB_LM": "$fr.ALLIN_AF_NB_LM",
     "ALLIN_AF_NB_LY": "$fr.ALLIN_AF_NB_LY",
+    "Adjustment_Factor": "$fr.Adjustment_Factor",
+    "Expected_PLF": "$fr.Expected_PLF",
+    "Flown_Target_Load": "$fr.Flown_Target_Load",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
     "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
@@ -1546,7 +1549,8 @@ class RMDatabaseHelper:
             results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
-                "RBD": {"$in": tbf_rbds}
+                "RBD": {"$in": tbf_rbds},
+                "TOTAL": {"$ne": 1}
             }))
             rbddata = pd.DataFrame(results)
             is_valid = (
@@ -1591,7 +1595,7 @@ class RMDatabaseHelper:
             return openResult, pd.DataFrame()
         
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route, "TOTAL": {"$ne": 1}}))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1608,11 +1612,12 @@ class RMDatabaseHelper:
         # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
         query = {
-    "Org": origin,
-    "Dst": destin,
-    "route": route,
-    "RBD": {"$in": self.rbd_list_builder(channel)}
-}
+            "Org": origin,
+            "Dst": destin,
+            "route": route,
+            "RBD": {"$in": self.rbd_list_builder(channel)},
+            "TOTAL": {"$ne": 1}
+        }
 
         sortorder = -1  # desc
         use_pipeline = False
@@ -1646,7 +1651,7 @@ class RMDatabaseHelper:
                 ]
                 use_pipeline = True
             else:
-                query["TOTAL"] = {"$lt": int(anchorFare)}
+                query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
         if int(offset) >= 0:
@@ -1680,9 +1685,9 @@ class RMDatabaseHelper:
                     ]
                     use_pipeline = True
                 else:
-                    query["TOTAL"] = {"$gte": int(anchorFare)}
+                    query["TOTAL"] = {"$gte": int(anchorFare), "$ne": 1}
             else:
-                query["TOTAL"] = {"$gte": 1000000}
+                query["TOTAL"] = {"$gte": 1000000, "$ne": 1}
             sortorder = 1
 
         if self.debugMode:
@@ -1709,7 +1714,8 @@ class RMDatabaseHelper:
             "Org": origin,
             "Dst": destin,
             "route": route,
-            "RBD": {"$in": self.rbd_list_builder(channel)}
+            "RBD": {"$in": self.rbd_list_builder(channel)},
+            "TOTAL": {"$ne": 1}
         }
 
         # Add channel-specific regex filter
@@ -1719,7 +1725,7 @@ class RMDatabaseHelper:
         #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
         # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop)}
+        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
@@ -2139,13 +2145,15 @@ class RMDatabaseHelper:
             sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
                 "route": "L",
-                "RBD": rbd_sector1
+                "RBD": rbd_sector1,
+                "TOTAL": {"$ne": 1}
             })
 
             sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
                 "route": "L",
-                "RBD": rbd_sector2
+                "RBD": rbd_sector2,
+                "TOTAL": {"$ne": 1}
             })
 
             if not sector1_result or not sector2_result:
@@ -2168,7 +2176,8 @@ class RMDatabaseHelper:
                 "$and": [
                     {"SECTOR": sector},
                     {"RBD": rbd},
-                    {"route": route}
+                    {"route": route},
+                    {"TOTAL": {"$ne": 1}}
                 ]
             })
 
@@ -2558,7 +2567,8 @@ class RMDatabaseHelper:
             results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
-                "RBD": {"$in": cug_rbds}
+                "RBD": {"$in": cug_rbds},
+                "TOTAL": {"$ne": 1}
             }))
             rbddata = pd.DataFrame(results)
             is_valid = (
