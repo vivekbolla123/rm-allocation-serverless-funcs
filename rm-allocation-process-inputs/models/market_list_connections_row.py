@@ -68,6 +68,8 @@ class MarketListConnectiosnsRow:
         self.forecast_run_plf2 = currParams.get("forecast_run_plf2", CONST_NA)
         self.Expected_PLF1 = currParams.get("Expected_PLF1", CONST_NA)
         self.Expected_PLF2 = currParams.get("Expected_PLF2", CONST_NA)
+        self.forecast_model1 = currParams.get("forecast_model1", 'LB')
+        self.forecast_model2 = currParams.get("forecast_model2", 'LB')
         
         # Direct flight data for Scenario 4 (connection OD direct flights)
         self.DirectFlightNumber = currParams.get("DirectFlightNumber", CONST_NA)

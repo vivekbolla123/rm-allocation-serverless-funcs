@@ -543,14 +543,16 @@ class DynAllocConnections:
                     curve_id=getattr(self, 'CurveId1', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf1', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF1', CONST_NA),
-                    tgt_at_current_hour=self.tgtAtCurrentHour1)
+                    tgt_at_current_hour=self.tgtAtCurrentHour1,
+                    forecast_model=getattr(self.currParams, 'forecast_model1', 'LB'))
                 imp2 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2,
                     capacity=self.currParams.Lid2, bookload=bookload2,
                     curve_id=getattr(self, 'CurveId2', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf2', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF2', CONST_NA),
-                    tgt_at_current_hour=self.tgtAtCurrentHour2)
+                    tgt_at_current_hour=self.tgtAtCurrentHour2,
+                    forecast_model=getattr(self.currParams, 'forecast_model2', 'LB'))
                 self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = round(imp1, 1) if imp1 != CONST_NA else CONST_NA
                 self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = round(imp2, 1) if imp2 != CONST_NA else CONST_NA
                 
@@ -1040,17 +1042,26 @@ class DynAllocConnections:
     def getParsedImputedForecast(self, variance, forecastPLF, forecast_variance,
                                 capacity=None, bookload=None, curve_id=None,
                                 forecast_run_plf=None, expected_plf=None,
-                                tgt_at_current_hour=None):
+                                tgt_at_current_hour=None, forecast_model='LB'):
         """
         Connections imputed forecast (PLF, 0-100 scale).
 
         Uses the same BRD formula as direct routes (via compute_imputed_forecast_connections)
         when refresh-time params are available. Falls back to delta approach otherwise.
+        Deduction is chosen based on forecast_model (ML or LB), same as direct flights.
         """
         try:
             forecastPLF = float(forecastPLF)
             if math.isnan(forecastPLF):
                 return CONST_NA
+
+            # Determine deduction based on effective forecast model (same as direct)
+            is_ml = str(forecast_model).strip().upper() == 'ML'
+            if is_ml:
+                deduction = float(getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_ML', 0))
+            else:
+                deduction = float(getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_LB', 0))
+
             can_use_imp_forecast = (
                 capacity is not None and float(capacity) > 0 and
                 bookload is not None and
@@ -1069,8 +1080,6 @@ class DynAllocConnections:
                             lf_ndo0 = float(tgt_list['LF'].iloc[0])
                             if not math.isnan(lf_ndo0):
                                 ftl = lf_ndo0 * cap
-
-                    deduction = float(self.constantsUtils.IMP_FORECAST_DEDUCTION)
 
                     result = compute_imputed_forecast_connections(
                         forecast_plf=forecastPLF,
@@ -1092,7 +1101,6 @@ class DynAllocConnections:
                 return CONST_NA
 
             base_imp = forecastPLF + variance - forecast_variance
-            deduction = float(self.constantsUtils.IMP_FORECAST_DEDUCTION)
             return base_imp - deduction
 
         except (ValueError, TypeError):
