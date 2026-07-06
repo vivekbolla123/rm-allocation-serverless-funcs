@@ -1585,14 +1585,14 @@ class DynAlloc:
 
 	def w_rbd_allocation(self, currRec, brd_counter):
 		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
-		default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
+		# default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
 		
 		ind = 2
 		# Set class_of_service for each RBD dynamically
 		for rbd in rbds:
 			currRec.set_class_attribute(brd_counter + ind, 'class_of_service', rbd)
-			if default_ml_flag == 1 and rbd == "S":
-				currRec.set_class_attribute(brd_counter + ind, 'ap_restriction', 365)
+			# if default_ml_flag == 1 and rbd == "S":
+			# 	currRec.set_class_attribute(brd_counter + ind, 'ap_restriction', 365)
 			ind += 1
 		
 		ind = 2
