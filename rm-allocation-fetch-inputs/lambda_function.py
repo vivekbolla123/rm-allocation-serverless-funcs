@@ -1615,12 +1615,12 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
 
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1', 'forecast_run_plf': 'forecast_run_plf1', 'Expected_PLF': 'Expected_PLF1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
@@ -1640,12 +1640,12 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2', 'forecast_run_plf': 'forecast_run_plf2', 'Expected_PLF': 'Expected_PLF2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
         mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),

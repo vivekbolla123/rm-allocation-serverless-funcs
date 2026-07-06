@@ -63,6 +63,12 @@ class MarketListConnectiosnsRow:
         self.forecast_variance1 = currParams.get("forecast_variance1",CONST_NA)
         self.forecast_variance2 = currParams.get("forecast_variance2",CONST_NA)
         
+        # Imputed forecast params per sector (same as direct-route market_list_row)
+        self.forecast_run_plf1 = currParams.get("forecast_run_plf1", CONST_NA)
+        self.forecast_run_plf2 = currParams.get("forecast_run_plf2", CONST_NA)
+        self.Expected_PLF1 = currParams.get("Expected_PLF1", CONST_NA)
+        self.Expected_PLF2 = currParams.get("Expected_PLF2", CONST_NA)
+        
         # Direct flight data for Scenario 4 (connection OD direct flights)
         self.DirectFlightNumber = currParams.get("DirectFlightNumber", CONST_NA)
         self.DirectFlightBookedPax = currParams.get("DirectFlightBookedPax", CONST_NA)
