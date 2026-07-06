@@ -43,6 +43,7 @@ from models.output_summary import OutputSummary
 from models.au_grid_row import AuGridRow
 from models.flight_state import FlightState
 from models.anchor_result import AnchorResult
+from utilities.how_determined_parser import HowDeterminedParser
 
 warnings.filterwarnings('ignore')
 
@@ -1537,9 +1538,13 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.DepDate = str(currFltDate); self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
 		self.outputSummaryRow_b2c.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2c.ndoBand = str(ndoBand_full)
 		self.outputSummaryRow_b2c.anchorFare = str(safe_get_from_dict(openDataB2C_details, "anchorFare"))
-		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD'))
 		self.outputSummaryRow_b2c.SellingFare = str(safe_get_from_dict(openDataB2C_details, "Fare")); self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
-		self.outputSummaryRow_b2c.HowDetermined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
+		
+		# Parse and format the raw FareResult string
+		raw_b2c_how_determined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
+		self.outputSummaryRow_b2c.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2c_how_determined)
+		
+		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD', default='Z'))
 		self.outputSummaryRow_b2c.Backstop = param_b2c_backstop_full; self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop_str
 		self.outputSummaryRow_b2c.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2c.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2c.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2c.allocationStatus = safe_get_from_dict(openDataB2C_details, 'allocationStatus', default=0)
@@ -1564,12 +1569,17 @@ class DynAlloc:
 		self.outputSummaryRow_b2b.DepDate = str(currFltDate); self.outputSummaryRow_b2b.BookedLoad = str(currBookedLoad)
 		self.outputSummaryRow_b2b.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2b.ndoBand = str(ndoBand_full)
 		self.outputSummaryRow_b2b.anchorFare = str(safe_get_from_dict(openDataB2B_details, "anchorFare"))
-		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD'))
 		self.outputSummaryRow_b2b.SellingFare = str(safe_get_from_dict(openDataB2B_details, "Fare")); self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
-		self.outputSummaryRow_b2b.HowDetermined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+
+		raw_b2b_how_determined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+		
 		# Override B2B HowDetermined with simplified format
-		if b2b_anchor_source is not None:
-			self.outputSummaryRow_b2b.HowDetermined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
+		if b2b_anchor_source and "hardanchorfare" not in b2b_anchor_source.lower():
+			raw_b2b_how_determined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
+
+		self.outputSummaryRow_b2b.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2b_how_determined)
+		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD', default='Z'))
+		
 		self.outputSummaryRow_b2b.Backstop = param_b2b_backstop_full; self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop_str
 		self.outputSummaryRow_b2b.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2b.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2b.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2b.allocationStatus = safe_get_from_dict(openDataB2B_details, 'allocationStatus', default=0)
@@ -1844,6 +1854,9 @@ class DynAlloc:
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
+			final_order = [col for col in CONST_OUTPUT_SUMMARY_ORDER if col in df.columns]
+			missing_cols = [col for col in df.columns if col not in final_order]
+			df = df[final_order + missing_cols]
 			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
 			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
 

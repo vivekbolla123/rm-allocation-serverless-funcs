@@ -17,6 +17,15 @@ class DetermineRBD:
         self.mathutils = mathutils
         self.redishelper = redisHelper
 
+    def _format_thresh(self, val):
+        if not val:
+            return ""
+        v = str(val).replace('%', '')
+        try:
+            return f"_{float(v):.2f}"
+        except ValueError:
+            return f"_{v}"
+
     def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
         """Backwards-compatible wrapper. Delegates to ``computeFinalAnchor`` then
         ``applyAnchorToLadder`` so the existing call-sites in ``runAlloc.py`` and
@@ -398,7 +407,7 @@ class DetermineRBD:
 
         return anchorFare, howDetermined, upsell, overBookingFare
 
-    def final_fare_anchor_af_forecast(self, forecastFareAnchor, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, strategyFare, plf, forecast_plf, lastSoldFare=None, profileFare=None, maxLastSoldFare=None, hardAnchorFare=CONST_NA, tolerance_per=None, imp_forecast_band=None):
+    def final_fare_anchor_af_forecast(self, forecastFareAnchor, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, strategyFare, plf, forecast_plf, lastSoldFare=None, profileFare=None, maxLastSoldFare=None, hardAnchorFare=CONST_NA, tolerance_per=None, imp_forecast_band=None, plfThreshold=None):
         """
         Step 2: AF Forecast based interpolation using PLF_Gain as a factor.
         Takes ForecastFareAnchor from Step 1 (excluding tolerance/hardanchor),
@@ -458,7 +467,8 @@ class DetermineRBD:
             if has_hard_anchor():
                 capped = min(temp_fareanchor, float(hardAnchorFare))
                 if capped == float(hardAnchorFare):
-                    howDetermined = f'AF_Forecast_harAnchorfare'
+                    thresh_suffix = self._format_thresh(plfThreshold)
+                    howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
                 temp_fareanchor = capped
             return temp_fareanchor, howDetermined
 
@@ -476,7 +486,8 @@ class DetermineRBD:
             if has_hard_anchor():
                 capped = min(temp_fareanchor, float(hardAnchorFare))
                 if capped == float(hardAnchorFare):
-                    howDetermined = f'AF_Forecast_harAnchorfare'
+                    thresh_suffix = self._format_thresh(plfThreshold)
+                    howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
                 temp_fareanchor = capped
             return temp_fareanchor, howDetermined
 
@@ -560,7 +571,8 @@ class DetermineRBD:
         if has_hard_anchor():
             capped = min(temp_fareanchor, float(hardAnchorFare))
             if capped == float(hardAnchorFare):
-                howDetermined = f'AF_Forecast_harAnchorfare'
+                thresh_suffix = self._format_thresh(plfThreshold)
+                howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
             temp_fareanchor = capped
 
         return temp_fareanchor, howDetermined
@@ -614,7 +626,7 @@ class DetermineRBD:
             nonlocal toleranceValue
             if has_tolerance(tolerance_per):
                 tolerance_value = reduce_by_per(float(strategyFare), float(tolerance_per))
-                toleranceValue = round(tolerance_value, 2)
+                toleranceValue = f"{tolerance_value:.2f}"
                 anchor_fare = max(tolerance_value, anchor_fare)
                 if (anchor_fare == tolerance_value):
                     how_determined += '_ToleranceHit'
@@ -630,7 +642,8 @@ class DetermineRBD:
             
             capped_fare = min(fare, float(hardAnchorFare))
             if capped_fare == float(hardAnchorFare):
-                return capped_fare, "AllocationY_harAnchorfare_UpsellN"
+                thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, how_determined
         
         def upsell_by_per(value, percentage=2.5):
@@ -861,7 +874,7 @@ class DetermineRBD:
             anchorFare, howDetermined = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
-                hardAnchorFare, tolerance_per, imp_forecast_band
+                hardAnchorFare, tolerance_per, imp_forecast_band, getattr(currParams, 'plfthreshold', None)
             )
         else:
             if should_use_tolerance:
@@ -901,14 +914,15 @@ class DetermineRBD:
             
             capped_fare = min(fare, float(hardAnchorFare))
             if capped_fare == float(hardAnchorFare):
-                return capped_fare, "AllocationY_harAnchorfare_UpsellN"
+                thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, decision_text
         
         def calculate_tolerance_value():
             nonlocal toleranceValue
             val = float(strategyFare) - float(toleranceFare) if has_tolerance_fare() else 0
             if has_tolerance_fare():
-                toleranceValue = round(val, 2)
+                toleranceValue = f"{val:.2f}"
             return val
         
         def build_fares_list():
@@ -1093,7 +1107,8 @@ class DetermineRBD:
                     if v2 > v1:
                         howDetermined += '_ToleranceHit'
                     if anchorFare == float(hardAnchorFare):
-                        howDetermined = "AllocationY_harAnchorfare_UpsellN"
+                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                        howDetermined = f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
                 else:
                     anchorFare = max(v1, v2)
                     if v2 > v1:
@@ -1117,7 +1132,8 @@ class DetermineRBD:
                 if has_hard_anchor():
                     anchorFare = min(max(v1, v2), float(hardAnchorFare))
                     if anchorFare == float(hardAnchorFare):
-                        howDetermined = "AllocationY_harAnchorfare_UpsellN"
+                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                        howDetermined = f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
                 else:
                     anchorFare = max(v1, v2)
 
@@ -1165,6 +1181,7 @@ class DetermineRBD:
         
     def getFaresWithBackstop(self, origin, destin, anchorFare, offset, channel, backstop, openResult, rbddata, howDetermined, route):
         backstopFlag = False
+        backstopReason = ""
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
@@ -1179,6 +1196,7 @@ class DetermineRBD:
         if defFareData.shape[0] != 0:
             if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
                 backstopFlag = True
+                backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below backstop {defFareData['TOTAL'][0]}"
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
@@ -1196,6 +1214,7 @@ class DetermineRBD:
                     FareToOpen = rbddata['TOTAL'][0]
                 else:
                     backstopFlag = True
+                    backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below forced highest backstop {defFareData['TOTAL'][0]}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
         else:
@@ -1204,6 +1223,7 @@ class DetermineRBD:
                     offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
                     if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
                         backstopFlag = True
+                        backstopReason = f"intended fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {defFareData['TOTAL'][0]}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
                 else:
@@ -1245,7 +1265,8 @@ class DetermineRBD:
                 return openResult
             
         if backstopFlag:
-            openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': ['Matched and allocated - Backstop Hit'], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
+            howDetermined += f" - Backstop Hit ({backstopReason})"
+            openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
             return openResult
         
         openResult = {'RBD': [RBDtoOpen], 'Fare': [str(FareToOpen)], 'FareResult': [howDetermined], 'anchorFare': [anchorFare], 'statusInd': [0], 'allocationStatus': [1]}
