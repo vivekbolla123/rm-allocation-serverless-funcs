@@ -790,9 +790,6 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
         suffixes=('', '_drop')
     )
 
-    # Preserve original LB forecastPLF before ML substitution (for LB switch check)
-    mkt['forecastPLF_lb'] = mkt['forecastPLF'].copy()
-
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
@@ -1294,16 +1291,14 @@ def get_sector_forecast_model_map():
 
 def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
                              booked_pax_col='bookedPax', capacity_col='capacity',
-                             lb_forecast_col=None):
-    """BRD: if the original LB forecastPLF (fr.forecastPLF) is below the current
-    booked PLF, switch forecast to LB — i.e. revert any ML substitution and use
-    the LB value. This ensures that when LB < booked, we don't use ML either.
+                             forecast_model_col=None):
+    """BRD: if the sector uses ML model and the ML forecastPLF is below the current
+    booked PLF, switch forecast to LB — i.e. set forecastPLF to booked PLF.
 
-    If lb_forecast_col is provided, uses that column as the LB reference for the
-    check. Otherwise falls back to forecast_col itself (no ML distinction).
+    Only applies to ML sectors. LB sectors are unaffected (no switch needed).
 
-    Must run AFTER left_join_forecast (so forecastPLF is model-resolved and
-    forecastPLF_lb is preserved) AND after booked_loads is merged."""
+    Must run AFTER left_join_forecast (so forecastPLF is model-resolved)
+    AND after booked_loads is merged (so booked PLF is available)."""
     missing = [c for c in (forecast_col, booked_pax_col, capacity_col)
                if c not in mkt_list.columns]
     if missing:
@@ -1312,25 +1307,26 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
 
     cap = pd.to_numeric(mkt_list[capacity_col], errors='coerce')
     pax = pd.to_numeric(mkt_list[booked_pax_col], errors='coerce')
+    fc  = pd.to_numeric(mkt_list[forecast_col], errors='coerce')
 
     booked_plf = pd.Series(
         np.where(cap > 0, (pax / cap) * 100.0, np.nan),
         index=mkt_list.index
     ).round(1)
 
-    # Use the LB forecast column for the comparison if available
-    lb_col = lb_forecast_col if lb_forecast_col and lb_forecast_col in mkt_list.columns else forecast_col
-    lb_fc = pd.to_numeric(mkt_list[lb_col], errors='coerce')
+    # Only switch for ML sectors where ML forecast < booked PLF
+    if forecast_model_col and forecast_model_col in mkt_list.columns:
+        is_ml = mkt_list[forecast_model_col].astype(str).str.strip().str.upper() == 'ML'
+    else:
+        # No model column — assume all could be ML (backward compat for direct route)
+        is_ml = pd.Series(True, index=mkt_list.index)
 
-    # Condition: original LB forecastPLF < booked PLF → switch to LB
-    switch_mask = lb_fc.notna() & booked_plf.notna() & (lb_fc < booked_plf)
-
-    # Revert forecastPLF to the LB value (undo ML substitution) and floor to booked PLF
+    switch_mask = is_ml & fc.notna() & booked_plf.notna() & (fc < booked_plf)
     mkt_list.loc[switch_mask, forecast_col] = booked_plf[switch_mask]
 
     lb_count = int(switch_mask.sum())
-    logger.info(f"LB switch: {lb_count} flights had LB forecast < booked PLF; "
-                f"forecast set to booked PLF (LB).")
+    logger.info(f"LB switch: {lb_count} ML flights had forecast < booked PLF; "
+                f"forecast switched to LB (booked PLF).")
     return mkt_list, lb_count
 
 # ==========================
@@ -1542,8 +1538,8 @@ def lambda_handler(event, context):
         log_memory("after merge booked_loads")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 
-        # BRD: switch forecast to LB where refreshed forecast < booked PLF
-        mkt_list, lb_switch_count = apply_lb_forecast_switch(mkt_list, lb_forecast_col='forecastPLF_lb')
+        # BRD: switch forecast to LB where ML forecast < booked PLF
+        mkt_list, lb_switch_count = apply_lb_forecast_switch(mkt_list, forecast_model_col='forecast_model')
         logger.info(f"mkt_list shape after LB switch: {mkt_list.shape}")
 
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
@@ -1638,9 +1634,6 @@ def lambda_handler(event, context):
         ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1', 'forecast_run_plf': 'forecast_run_plf1', 'Expected_PLF': 'Expected_PLF1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        # Preserve original LB forecastPLF before ML substitution
-        mkt_list['forecastPLF_lb1'] = mkt_list['forecastPLF1'].copy()
-
         mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
             'forecastPLF1'
         ] = mkt_list['forecastPLF_ml1']
@@ -1666,9 +1659,6 @@ def lambda_handler(event, context):
         ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2', 'forecast_run_plf': 'forecast_run_plf2', 'Expected_PLF': 'Expected_PLF2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
-        # Preserve original LB forecastPLF before ML substitution
-        mkt_list['forecastPLF_lb2'] = mkt_list['forecastPLF2'].copy()
-
         mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),
             'forecastPLF2'
         ] = mkt_list['forecastPLF_ml2']
@@ -1733,13 +1723,14 @@ def lambda_handler(event, context):
         ).rename(columns={'capacity': 'Lid2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
-        # Floor forecastPLF to booked PLF when LB forecast < booked
+        # BRD: Apply LB switch per sector for connections
+        # Only switches ML sectors where ML forecast < booked PLF
         mkt_list, lb_count1 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF1',
                                                         booked_pax_col='BookedPax1', capacity_col='Lid1',
-                                                        lb_forecast_col='forecastPLF_lb1')
+                                                        forecast_model_col='forecast_model1')
         mkt_list, lb_count2 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF2',
                                                         booked_pax_col='BookedPax2', capacity_col='Lid2',
-                                                        lb_forecast_col='forecastPLF_lb2')
+                                                        forecast_model_col='forecast_model2')
         logger.info(f"Connections LB switch: sector1={lb_count1}, sector2={lb_count2}")
 
         mkt_list = mkt_list.merge(
