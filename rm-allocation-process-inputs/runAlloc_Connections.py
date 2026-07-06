@@ -537,20 +537,22 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
                 self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
                 
-                self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = self.getParsedImputedForecast(
+                imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
                     capacity=self.currParams.Lid1, bookload=bookload1,
                     curve_id=getattr(self, 'CurveId1', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf1', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF1', CONST_NA),
                     tgt_at_current_hour=self.tgtAtCurrentHour1)
-                self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = self.getParsedImputedForecast(
+                imp2 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2,
                     capacity=self.currParams.Lid2, bookload=bookload2,
                     curve_id=getattr(self, 'CurveId2', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf2', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF2', CONST_NA),
                     tgt_at_current_hour=self.tgtAtCurrentHour2)
+                self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = round(imp1, 1) if imp1 != CONST_NA else CONST_NA
+                self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = round(imp2, 1) if imp2 != CONST_NA else CONST_NA
                 
                 offset=self.currParams.offset
                 if self.qpcurrency!='INR':

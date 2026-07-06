@@ -1712,6 +1712,13 @@ def lambda_handler(event, context):
         ).rename(columns={'capacity': 'Lid2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
+        # Floor forecastPLF to booked PLF when forecast < booked
+        mkt_list, lb_count1 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF1',
+                                                        booked_pax_col='BookedPax1', capacity_col='Lid1')
+        mkt_list, lb_count2 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF2',
+                                                        booked_pax_col='BookedPax2', capacity_col='Lid2')
+        logger.info(f"Connections LB switch: sector1={lb_count1}, sector2={lb_count2}")
+
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],
             how='left',
