@@ -1,6 +1,9 @@
 import sys
+import os
 
-log_file = open('summary_validation.log', 'a', encoding='utf-8')
+base_dir = os.path.dirname(os.path.abspath(__file__))
+log_file_path = os.path.join(base_dir, 'logs', 'summary_validation.log')
+log_file = open(log_file_path, 'a', encoding='utf-8')
 sys.stdout = log_file
 sys.stderr = log_file
 
@@ -21,13 +24,15 @@ from rich.padding import Padding
 
 console = Console()
 
-COMPOSITE_KEY = ['Origin', 'Destin', 'FltNum', 'DepDate', 'Channel']
-
+filename = sys.argv[1] if len(sys.argv) > 1 else "summary.csv"
+if "Connections" in filename:
+    COMPOSITE_KEY = ['FltNum1', 'FltNum2', 'Sector1', 'Sector2', 'DepDate1']
+else:
+    COMPOSITE_KEY = ['Origin', 'Destin', 'FltNum', 'DepDate', 'Channel']
 BASE_DIR = Path(__file__).resolve().parent
-
-CURRENT_FILE = BASE_DIR / "testcases" / "output" / "generated_output" / "summary.csv"
-ARCHIVE_FILE = BASE_DIR / "testcases" / "output" / "expected_output" / "summary.csv"
-OUTPUT_FILE = BASE_DIR / "testcases" / "test" / "mismatched.csv"
+CURRENT_FILE = BASE_DIR / "testcases" / "output" / "generated_output" / filename
+ARCHIVE_FILE = BASE_DIR / "testcases" / "output" / "expected_output" / filename
+OUTPUT_FILE = BASE_DIR / "testcases" / "test" / f"mismatched_{filename}"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
@@ -248,6 +253,8 @@ def compare_csv_files():
 
     for ri in range(len(df1_c)):
         for ci, col in enumerate(col_names):
+            if col in ['CreatedAt', 'RunId']:
+                continue
             v1, v2 = arr1[ri, ci], arr2[ri, ci]
             if not vals_match(v1, v2):
                 key = df1_c.index[ri]

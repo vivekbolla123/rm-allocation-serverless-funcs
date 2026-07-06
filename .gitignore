@@ -9,3 +9,10 @@ local.env
 
 # kiro
 .kiro
+
+# Log files
+*.log
+direct_output.log
+connections_output.log
+augrid_validation.log
+summary_validation.log

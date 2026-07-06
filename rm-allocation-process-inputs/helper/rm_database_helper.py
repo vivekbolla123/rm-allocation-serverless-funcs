@@ -1286,7 +1286,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection: {e}")
  
             if not all_results:
-                self.logger.warning("No market fare records found")
+                self.logger.info("No market fare records found")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'mktFile'])
  
  
@@ -1473,7 +1473,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection for connections: {e}")
             
             if not all_results:
-                self.logger.warning("No market fare connection records found for the given criteria.")
+                self.logger.info("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
 
         

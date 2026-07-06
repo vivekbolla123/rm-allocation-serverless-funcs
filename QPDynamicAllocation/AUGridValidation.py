@@ -15,7 +15,10 @@ from rich.rule import Rule
 from rich.padding import Padding
 
 # Redirect output to log file
-log_file = open('augrid_validation.log', 'w', encoding='utf-8')
+import os
+base_dir = os.path.dirname(os.path.abspath(__file__))
+log_file_path = os.path.join(base_dir, 'logs', 'augrid_validation.log')
+log_file = open(log_file_path, 'w', encoding='utf-8')
 sys.stdout = log_file
 sys.stderr = log_file
 
@@ -25,9 +28,10 @@ COMPOSITE_KEY = ['Flight', 'StartDate']
 
 BASE_DIR = Path(__file__).resolve().parent
 
-CURRENT_FILE = BASE_DIR / "testcases" / "output" / "generated_output" / "AUGrid.csv"
-ARCHIVE_FILE = BASE_DIR / "testcases" / "output" / "expected_output" / "AUGrid.csv"
-OUTPUT_FILE = BASE_DIR / "testcases" / "test" / "mismatched_augrid.csv"
+filename = sys.argv[1] if len(sys.argv) > 1 else "AUGrid.csv"
+CURRENT_FILE = BASE_DIR / "testcases" / "output" / "generated_output" / filename
+ARCHIVE_FILE = BASE_DIR / "testcases" / "output" / "expected_output" / filename
+OUTPUT_FILE = BASE_DIR / "testcases" / "test" / f"mismatched_{filename}"
 
 
 # ─── Helpers ────────────────────────────────────────────────────────────────

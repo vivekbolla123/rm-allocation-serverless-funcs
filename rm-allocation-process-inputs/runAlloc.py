@@ -132,6 +132,10 @@ class DynAlloc:
 
 		startDate, endDate, startNDO, endNDO = self.getStartEndDate(currDate, startNDO, endNDO)
 
+		key_str = f"{origin}|{destination}|{FlightNumber}|{startDate}"
+		self.logger.set_key(key_str)
+		print(f"__KEY__{key_str}")
+
 		self.logger.info("Allocation for " + origin + destination + " from " + str(startDate) + " to " + str(endDate))
 
 		self.wait_for_inputs()
@@ -285,7 +289,11 @@ class DynAlloc:
 						self.redishelper.updateRunAudit()	
 						self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_REF_CURVE)	
 		except Exception as e:
-			self.logger.info("Exception occurred")
+			try:
+				err_key = f" [{self.currParams.origin}|{self.currParams.destin}|{self.currParams.flight_number}|{self.currParams.per_start}]"
+			except Exception:
+				err_key = "Unknown"
+			self.logger.info(f"Exception occurred for record [{err_key}]")
 			traceback.print_exc()
 			self.logger.info(e)
 			self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, f"Unhandled exception: {str(e)}")
@@ -1857,7 +1865,7 @@ class DynAlloc:
 			final_order = [col for col in CONST_OUTPUT_SUMMARY_ORDER if col in df.columns]
 			missing_cols = [col for col in df.columns if col not in final_order]
 			df = df[final_order + missing_cols]
-			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
+			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions", "CreatedAt"], errors='ignore')
 			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
 
 	def updateNavitaire(self, rec):

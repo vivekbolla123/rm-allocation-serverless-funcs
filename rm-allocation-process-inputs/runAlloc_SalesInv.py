@@ -261,5 +261,5 @@ class DynAllocSalesInv:
 
         if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and self.allocResults:
             df = pd.DataFrame([vars(row) for row in self.allocResults])
-            df = df.drop(columns=["Id"])
+            df = df.drop(columns=["Id", "CreatedAt"], errors='ignore')
             df.to_csv(CONST_SUMMARY_SALES_FILE_PATH, index=False)

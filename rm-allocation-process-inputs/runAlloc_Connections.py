@@ -100,7 +100,14 @@ class DynAllocConnections:
         startDate, endDate, startNDO, endNDO = self.getStartEndDate(
             currDate, startNDO, endNDO)
 
-        print("Allocation for " + sector1 + " " + sector2 +
+        try:
+            key_str = f"{sector1}|{sector2}|{flightNo1}/{flightNo2}|{startDate}"
+            self.logger.set_key(key_str)
+            print(f"__KEY__{key_str}")
+        except AttributeError:
+            pass
+
+        self.logger.info("Allocation for " + sector1 + " " + sector2 +
               " from " + str(startDate) + " to " + str(endDate))
         self.wait_for_inputs()
         startDateStr = datetime.strftime(
@@ -297,7 +304,11 @@ class DynAllocConnections:
                         tgtDate,tgdDate2 ,bookedLoadSingleRowSector1, bookedLoadSingleRowSector2, ndocounter, tgtBookedLoad1, tgtBookedLoad2, startOfDayTgt1, startOfDayTgt2)
 
         except Exception as e:
-            print("Exception occurred")
+            try:
+                err_key = f" [{self.currParams.sector1}{self.currParams.sector2}|{self.currParams.flight1}/{self.currParams.flight2}|{self.currParams.per_start}]"
+            except Exception:
+                err_key = "Unknown"
+            print(f"Exception occurred for record [{err_key}]")
             traceback.print_exc()
             print(e)
 
@@ -391,7 +402,7 @@ class DynAllocConnections:
             if int(priceStrategy)==1:
                 discountValue=self.convert_currency(self.currParams.currency,'INR', self.currParams.discountvalue)
 
-        print("Determining pricing for NDO " +
+        self.logger.info("Determining pricing for NDO " +
               str(ndocounter) + " on  " + str(current_date1))
         dow = int(datetime.strftime(datetime.strptime(
             current_date1, '%Y-%m-%d') , "%w"))
@@ -441,7 +452,7 @@ class DynAllocConnections:
                 self.currParams.Lid1,self.currParams.Lid2)
             bookload = max(
                 bookload1 - (self.currParams.Lid1 - minLid), bookload2 - (self.currParams.Lid2 - minLid))
-            print("Combined Booked Load for " + str(flight1)+" "+str(
+            self.logger.info("Combined Booked Load for " + str(flight1)+" "+str(
                 flight2) + " on " + str(current_date1) + " is :" + str(bookload))
             
             b2b_rbd_sector1 = self.currParams.OpeningRBDB2B1
@@ -890,14 +901,14 @@ class DynAllocConnections:
                 origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, 'R')
             
         strategyFare = openResult['Fare'][0]
-        print(f"strategy fare is {strategyFare}")
+        self.logger.info(f"strategy fare is {strategyFare}")
         return strategyFare
     
     def determineRBDToOpen(self, finalprice, origin, destin, channel, backstop,offset,should_allocate_to_y, how_determined_msg=None):
         anchorFare = finalprice
         openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        print("Anchor Fare is " + str(anchorFare))
+        self.logger.info("Anchor Fare is " + str(anchorFare))
         openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
             origin, destin, anchorFare, offset, channel, openResult, 'R')
 
@@ -937,7 +948,7 @@ class DynAllocConnections:
             AUFrame.to_csv(CONST_AU_GRID_CONNECTIONS_FILE_PATH, index=False)
         if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and len(self.allocResults) > 0:
             df = pd.DataFrame([vars(row) for row in self.allocResults])
-            df = df.drop(columns=["Id"])
+            df = df.drop(columns=["Id", "CreatedAt"], errors='ignore')
             df.to_csv(CONST_SUMMARY_CONNECTIONS_FILE_PATH, index=False)
 
     def getStartEndDate(self, currDate, startNDO, endNDO):
@@ -1415,7 +1426,7 @@ class DynAllocConnections:
                 else:
                     how_determined = f"Matched and allocated {sector_type_str} - If Direct flight Threshold < {int_threshold}%"
                 
-                print(f"Scenario 4 ({channel}): Direct flight fare {direct_fare} with upsell = {upsell_fare}")
+                self.logger.info(f"Scenario 4 ({channel}): Direct flight fare {direct_fare} with upsell = {upsell_fare}")
                 
         except Exception as e:
             print(f"Error processing Scenario 4 {channel}: {e}")
