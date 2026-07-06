@@ -17,39 +17,150 @@ def getParsedForecast(self):
   except (ValueError, TypeError):
     return CONST_NA
 
-def getParsedImputedForecast(self,variance):
-  # Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
-  can_adjusted = getattr(self.currParams, 'CanAdjustedForecast', 0)
-  if can_adjusted == 1 or can_adjusted == '1':
-    forecastPLF = getattr(self.currParams, 'adjustedPLF', CONST_NA)
-  else:
-    forecastPLF = getattr(self.currParams, 'forecastPLF', CONST_NA)
-  forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
-  IMP_FORECAST_DEDUCTION = self.constantsUtils.IMP_FORECAST_DEDUCTION
+def getParsedImputedForecast(self, forecast_plf, CB, CT, capacity):
+  """
+  Phase 2 BRD imputed forecast (PLF, 0-100 scale).
 
+    Forecast_Load = (forecast_plf/100) * capacity         [model-resolved, LB-switched]
+    CB_r          = (forecast_run_plf/100) * capacity     [refresh-time bookload]
+    CT_r          = (Expected_PLF/100) * capacity         [refresh-time target]
+    Flown_Target_Load = curve_lf_at_ndo0 * capacity       [recomputed from curve]
+    Adjustment_Factor = (Forecast_Load - CB_r) / (Flown_Target_Load - CT_r)
+    adj_gain      = Adjustment_Factor * (CT - CT_r)
+    imp_load      = Forecast_Load + (CB - CB_r) - adj_gain
+    imp_forecast  = round(imp_load)/capacity*100  - deduction(LB/ML)
+
+  Both Flown_Target_Load and Adjustment_Factor are recomputed here using the
+  model-resolved forecast_plf (which may be ML or LB-floored) rather than relying
+  on pre-computed values from forecast_results that used the raw LB forecastPLF.
+
+  Guards (return forecast_plf as the imputed value):
+    - Flown_Target_Load == CT_r  (adjustment undefined / denominator zero)
+    - missing refresh params
+    - adjusted gain NaN
+  """
   try:
-    forecastPLF = float(forecastPLF)
-    forecast_variance = float(forecast_variance)
-    IMP_FORECAST_DEDUCTION = float(IMP_FORECAST_DEDUCTION)
-    if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
-      return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
-    return CONST_NA
+    capacity = float(capacity)
+    if capacity <= 0:
+      return CONST_NA
+
+    # Refresh-time stored params -> seats
+    raw_cb_r   = getattr(self.currParams, 'forecast_run_plf', CONST_NA)
+    raw_ct_r   = getattr(self.currParams, 'Expected_PLF', CONST_NA)
+
+    # Use the passed-in forecast_plf (already model-resolved and LB-switched)
+    forecast_plf = float(forecast_plf)
+    forecast_load = round((forecast_plf / 100.0) * capacity)
+    cb_r = round((float(raw_cb_r) / 100.0) * capacity)
+    ct_r = round((float(raw_ct_r) / 100.0) * capacity)
+    CB = round(float(CB))
+    CT = round(float(CT))
+    flown_tgt_load = _compute_flown_target_load(self, capacity)
+    if not math.isnan(flown_tgt_load):
+      flown_tgt_load = round(flown_tgt_load)
+    else:
+      return CONST_NA
+    adjustment_factor = _compute_adjustment_factor(forecast_load, cb_r, flown_tgt_load, ct_r)
+
+    # --- Compute base imputed forecast (pre-deduction) ---
+    if math.isnan(forecast_load) or math.isnan(cb_r):
+      base_imp = forecast_plf
+    elif (not math.isnan(flown_tgt_load) and not math.isnan(ct_r)
+          and flown_tgt_load == ct_r):
+      # BRD: Flown Target Load == CT_r -> use Forecast itself
+      base_imp = forecast_plf
+    else:
+      if math.isnan(adjustment_factor):
+        base_imp = forecast_plf
+      else:
+        adjusted_target_gain = adjustment_factor * (CT - ct_r)
+        if math.isnan(adjusted_target_gain):
+          base_imp = forecast_plf
+        else:
+          imp_load = forecast_load + (CB - cb_r) - adjusted_target_gain
+          imp_load = round(imp_load)               # round LOAD first
+          base_imp = (imp_load / capacity) * 100.0
+
+    if base_imp == CONST_NA or math.isnan(base_imp):
+      return CONST_NA
+
+    # --- Point 1: configurable LB/ML deduction (default 0, output-side, points) ---
+    model = getattr(self.currParams, 'forecast_model', 'LB')
+    is_ml = str(model).strip().upper() == 'ML'
+    if is_ml:
+        deduction = getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_ML', 0)
+    else:
+        deduction = getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_LB', 0)
+    try:
+        deduction = float(deduction)
+    except (ValueError, TypeError):
+        deduction = 0.0
+
+    return base_imp - deduction
+
   except (ValueError, TypeError):
     return CONST_NA
 
-def calculateAfNbAllin(self, ndocounter, curr_imputed_plf, curr_plf):
+def _compute_flown_target_load(self, capacity):
+  """Compute Flown_Target_Load = curve_lf_at_ndo0 * capacity.
+  
+  Looks up the curve's LoadFactor at NDO 0 using the flight's CurveID.
+  Falls back to the pre-stored Flown_Target_Load if curve lookup fails.
+  """
+  try:
+    curve_id = getattr(self.currParams, 'curve_id', None)
+    if curve_id is None or str(curve_id).strip() in ('', 'nan', 'None', 'NA'):
+      # Fallback to pre-stored value if curve_id unavailable
+      stored = getattr(self.currParams, 'Flown_Target_Load', CONST_NA)
+      return float(stored) if stored != CONST_NA else float('nan')
+
+    # Lookup curve LF at NDO 0
+    tgt_list = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(0, curve_id)
+    if tgt_list is not None and not tgt_list.empty and 'LF' in tgt_list.columns:
+      lf_ndo0 = float(tgt_list['LF'].iloc[0])
+      if not math.isnan(lf_ndo0):
+        return lf_ndo0 * capacity
+
+    # Fallback to pre-stored value
+    stored = getattr(self.currParams, 'Flown_Target_Load', CONST_NA)
+    return float(stored) if stored != CONST_NA else float('nan')
+  except (ValueError, TypeError, AttributeError):
+    # If rmdatabasehelper not available, fall back to stored value
+    try:
+      stored = getattr(self.currParams, 'Flown_Target_Load', CONST_NA)
+      return float(stored) if stored != CONST_NA else float('nan')
+    except (ValueError, TypeError):
+      return float('nan')
+
+
+def _compute_adjustment_factor(forecast_load, cb_r, flown_tgt_load, ct_r):
+  """Compute Adjustment_Factor = (Forecast_Load - CB_r) / (Flown_Target_Load - CT_r).
+  
+  Uses the model-resolved Forecast_Load (not the raw refresh-time value).
+  Returns NaN if denominator is zero or inputs are NaN.
+  """
+  try:
+    if (math.isnan(forecast_load) or math.isnan(cb_r) or
+        math.isnan(flown_tgt_load) or math.isnan(ct_r)):
+      return float('nan')
+
+    denom = flown_tgt_load - ct_r
+    if denom == 0:
+      return float('nan')
+
+    return (forecast_load - cb_r) / denom
+  except (ValueError, TypeError):
+    return float('nan')
+
+def calculateAfNbAllin(self, ndocounter, curr_imputed_plf, curr_plf, CT=CONST_NA, capacity=CONST_NA):
   Af_allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
   ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
-  
-  if ndocounter == 0:
-    forecast_variance = getattr(self.currParams, 'forecast_variance', CONST_NA)
-    try:
-      forecast_variance = float(forecast_variance)
-    except (ValueError, TypeError):
-      forecast_variance = CONST_NA
 
-    imputed_plf = getParsedImputedForecast(self, forecast_variance)
+  if ndocounter == 0:
+    forecast_plf = getParsedForecast(self)
     plf = getattr(self.currParams, 'forecast_run_plf', CONST_NA)
+    CB = plf  # at NDO 0, current bookload basis — see note
+    imputed_plf = getParsedImputedForecast(self, forecast_plf, CB, CT, capacity)
   else:
     imputed_plf = curr_imputed_plf
     plf = curr_plf
