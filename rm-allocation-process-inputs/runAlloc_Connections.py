@@ -35,6 +35,7 @@ from datetime import datetime, timedelta
 from models.market_list_connections_row import MarketListConnectiosnsRow
 from models.input_source import InputSource
 from market_fares_service import MarketFareService
+from common.compute_utils import compute_imputed_forecast_connections
 warnings.filterwarnings('ignore')
 
 
@@ -198,6 +199,8 @@ class DynAllocConnections:
                 else:
                     CurveId1 = cdf["CurveID"][0]
                     CurveId2 = cdf["CurveID"][1]
+                    self.CurveId1 = CurveId1
+                    self.CurveId2 = CurveId2
                     date2=datetime.strptime(tgdDate2, DATE_FORMAT_2).date()
                     tgtBookedLoad1 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
                         ndocounter, CurveId1)
@@ -534,8 +537,24 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
                 self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
                 
-                self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1)
-                self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = self.getParsedImputedForecast(self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2)
+                imp1 = self.getParsedImputedForecast(
+                    self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
+                    capacity=self.currParams.Lid1, bookload=bookload1,
+                    curve_id=getattr(self, 'CurveId1', None),
+                    forecast_run_plf=getattr(self.currParams, 'forecast_run_plf1', CONST_NA),
+                    expected_plf=getattr(self.currParams, 'Expected_PLF1', CONST_NA),
+                    tgt_at_current_hour=self.tgtAtCurrentHour1,
+                    forecast_model=getattr(self.currParams, 'forecast_model1', 'LB'))
+                imp2 = self.getParsedImputedForecast(
+                    self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2,
+                    capacity=self.currParams.Lid2, bookload=bookload2,
+                    curve_id=getattr(self, 'CurveId2', None),
+                    forecast_run_plf=getattr(self.currParams, 'forecast_run_plf2', CONST_NA),
+                    expected_plf=getattr(self.currParams, 'Expected_PLF2', CONST_NA),
+                    tgt_at_current_hour=self.tgtAtCurrentHour2,
+                    forecast_model=getattr(self.currParams, 'forecast_model2', 'LB'))
+                self.outputSummaryRow_b2c.ImputedForecast1 = self.outputSummaryRow_b2b.ImputedForecast1 = round(imp1, 1) if imp1 != CONST_NA else CONST_NA
+                self.outputSummaryRow_b2c.ImputedForecast2 = self.outputSummaryRow_b2b.ImputedForecast2 = round(imp2, 1) if imp2 != CONST_NA else CONST_NA
                 
                 offset=self.currParams.offset
                 if self.qpcurrency!='INR':
@@ -1020,14 +1039,70 @@ class DynAllocConnections:
         
         return converted_value
 
-    def getParsedImputedForecast(self,variance, forecastPLF, forecast_variance):
+    def getParsedImputedForecast(self, variance, forecastPLF, forecast_variance,
+                                capacity=None, bookload=None, curve_id=None,
+                                forecast_run_plf=None, expected_plf=None,
+                                tgt_at_current_hour=None, forecast_model='LB'):
+        """
+        Connections imputed forecast (PLF, 0-100 scale).
+
+        Uses the same BRD formula as direct routes (via compute_imputed_forecast_connections)
+        when refresh-time params are available. Falls back to delta approach otherwise.
+        Deduction is chosen based on forecast_model (ML or LB), same as direct flights.
+        """
         try:
             forecastPLF = float(forecastPLF)
+            if math.isnan(forecastPLF):
+                return CONST_NA
+
+            # Determine deduction based on effective forecast model (same as direct)
+            is_ml = str(forecast_model).strip().upper() == 'ML'
+            if is_ml:
+                deduction = float(getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_ML', 0))
+            else:
+                deduction = float(getattr(self.constantsUtils, 'IMP_FORECAST_DEDUCTION_LB', 0))
+
+            can_use_imp_forecast = (
+                capacity is not None and float(capacity) > 0 and
+                bookload is not None and
+                forecast_run_plf is not None and forecast_run_plf != CONST_NA and
+                expected_plf is not None and expected_plf != CONST_NA and
+                tgt_at_current_hour is not None
+            )
+
+            if can_use_imp_forecast:
+                try:
+                    cap = float(capacity)
+                    ftl = float('nan')
+                    if curve_id is not None and str(curve_id).strip() not in ('', 'nan', 'None', 'NA'):
+                        tgt_list = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(0, curve_id)
+                        if tgt_list is not None and not tgt_list.empty and 'LF' in tgt_list.columns:
+                            lf_ndo0 = float(tgt_list['LF'].iloc[0])
+                            if not math.isnan(lf_ndo0):
+                                ftl = lf_ndo0 * cap
+
+                    result = compute_imputed_forecast_connections(
+                        forecast_plf=forecastPLF,
+                        capacity=cap,
+                        cb_r_plf=forecast_run_plf,
+                        ct_r_plf=expected_plf,
+                        CB=bookload,
+                        CT=tgt_at_current_hour,
+                        flown_tgt_load=ftl,
+                        deduction=deduction
+                    )
+                    if result != CONST_NA:
+                        return result
+                except (ValueError, TypeError):
+                    pass  # Fall through to delta approach
+
             forecast_variance = float(forecast_variance)
-            IMP_FORECAST_DEDUCTION = float(self.constantsUtils.IMP_FORECAST_DEDUCTION)
-            if not math.isnan(forecastPLF) and not math.isnan(forecast_variance):
-                return forecastPLF+variance-forecast_variance-IMP_FORECAST_DEDUCTION
-            return CONST_NA
+            if math.isnan(forecast_variance):
+                return CONST_NA
+
+            base_imp = forecastPLF + variance - forecast_variance
+            return base_imp - deduction
+
         except (ValueError, TypeError):
             return CONST_NA
 
