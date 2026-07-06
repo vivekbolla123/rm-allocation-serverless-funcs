@@ -74,6 +74,7 @@ class ConstantsUtils:
         self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
         self.IMP_FORECAST_DEDUCTION_ML = IMP_FORECAST_DEDUCTION_ML
         self.IMP_FORECAST_DEDUCTION_LB = IMP_FORECAST_DEDUCTION_LB
+        self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
         self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
         self.AF_PLF_FORECAST_CAP = AF_PLF_FORECAST_CAP
@@ -302,6 +303,8 @@ class ConstantsUtils:
                 self.IMP_FORECAST_DEDUCTION_ML = int(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_LB_KEY:
                 self.IMP_FORECAST_DEDUCTION_LB = int(parameter_value)
+            elif parameter_key == IMP_FORECAST_DEDUCTION_KEY:
+                self.IMP_FORECAST_DEDUCTION = int(parameter_value)
             elif parameter_key == TOLERANCE_MAP_KEY:
                 self.TOLERANCE_MAP = json.loads(parameter_value)
             elif parameter_key == B2B_FACTOR_MAP_KEY:
