@@ -32,7 +32,7 @@ class defaultMarketlist:
             {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
         )
         self.mail_client = GraphMailClient(logger)
-        self.alert_email = self.constants.RM_ALERT_MAIL_ID
+        self.alert_email_config = self.constants.DEFAULT_ML_ALERT_MAIL_ID
 
     def run(self):
         try:
@@ -182,8 +182,11 @@ class defaultMarketlist:
 
     def _send_marketlist_alert(self):
         try:
-            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+            import pytz
+            ist_tz = pytz.timezone('Asia/Kolkata')
+            ist_now = datetime.now(ist_tz)
+            timestamp = ist_now.strftime('%Y-%m-%d %H:%M:%S IST')
+            date_str = ist_now.strftime('%Y%m%d')
 
             query = {'defaultMlFlag': {'$in': [1, "1"]}}
             projection = {'_id': 0, 'Origin': 1, 'Destin': 1, 'PerStart': 1, 'FlightNumber': 1, 'analystName': 1, 'createdAt': 1}
@@ -227,11 +230,12 @@ class defaultMarketlist:
             self.mail_client.send_email(
                 'Default Marketlist - System Added Flights Alert',
                 html_body,
-                self.alert_email,
+                self.alert_email_config.get('to', []),
                 is_html=True,
-                attachments=attachments
+                attachments=attachments,
+                cc=self.alert_email_config.get('cc', [])
             )
-            self.logger.info(f"Alert email sent to {self.alert_email} with {len(all_flights_df)} system-added flights.")
+            self.logger.info(f"Alert email sent to {self.alert_email_config.get('to', [])} with {len(all_flights_df)} system-added flights.")
 
         except Exception as e:
             self.logger.error(f"Failed to send default marketlist alert email: {str(e)}\\n{traceback.format_exc()}")

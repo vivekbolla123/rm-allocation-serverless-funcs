@@ -204,6 +204,7 @@ D3_MAX_RULES_KEY = 'D3_MAX_RULES'
 RM_ALERT_MAIL_ID_KEY = 'RM_ALERT_MAIL_ID'
 CLOSED_RM_ALERT_MAIL_ID_KEY = 'CLOSED_RM_ALERT_MAIL_ID'
 TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
+DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
@@ -504,6 +505,7 @@ D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84, "max_value": 1
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
 TARIFF_ALERT_MAIL_ID = 'pa.it.alerts@akasaair.com'
+DEFAULT_ML_ALERT_MAIL_ID = '{"to": ["rm.italerts@akasaair.com"], "cc": ["closed.rm.italerts@akasaair.com]}'
 
 GDS_MAPPING = {
     'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',
