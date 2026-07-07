@@ -741,7 +741,7 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
+    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, b2c_backstop_final, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
         """
         Group quotation allocation using iterative fare anchor approach.
         
@@ -904,6 +904,9 @@ class RBDAllocations:
                     if fare_anchor > max_group_fare:
                         # Fare anchor crossed GA, stop iteration
                         break
+
+                    if fare_anchor < b2c_backstop_final:
+                        fare_anchor = b2c_backstop_final
 
                     # --- Step 7: Find nearest higher group RBD and assign seats ---
                     # Find the nearest RBD with fare >= fare_anchor

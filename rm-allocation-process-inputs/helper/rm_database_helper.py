@@ -1220,7 +1220,7 @@ class RMDatabaseHelper:
                         {"$match": base_match_conditions},
                         {"$addFields": {
                             "source_table": "AG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_AG"]}
                         }},
                         {"$project": {
                             "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
@@ -1267,7 +1267,7 @@ class RMDatabaseHelper:
     }},
                         {"$addFields": {
                             "source_table": "RG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_RG"]}
                         }},
                         {"$project": {
                             "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
@@ -1442,7 +1442,7 @@ class RMDatabaseHelper:
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "AG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_AG"]}
                         }},
                         {"$project": projection}
                     ]
@@ -1461,7 +1461,7 @@ class RMDatabaseHelper:
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "RG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_RG"]}
                         }},
                         {"$project": projection}
                     ]

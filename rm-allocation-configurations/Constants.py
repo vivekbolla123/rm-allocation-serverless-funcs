@@ -204,6 +204,7 @@ D3_MAX_RULES_KEY = 'D3_MAX_RULES'
 RM_ALERT_MAIL_ID_KEY = 'RM_ALERT_MAIL_ID'
 CLOSED_RM_ALERT_MAIL_ID_KEY = 'CLOSED_RM_ALERT_MAIL_ID'
 TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
+DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
@@ -372,6 +373,23 @@ CONST_SUMMARY_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_outpu
 CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/testcases/output/generated_output/AUGrid_Connections.csv"
 CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_Connections.csv"
 
+CONST_OUTPUT_SUMMARY_ORDER = [
+    'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
+    'bookingLastHour', 'bookedPlf', 'actualbookedPlf', 'currentTgtLoad',
+    'TgtLoad', 'endOfDayTgtLoad', 'Variance', 'forecastPLF', 'ImputedForecastPLF',
+    'endOfDaydlfBand', 'bookingToday', 'Backstop', 'hardAnchorFare', 'strategyFare',
+    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'toleranceValue',
+    'anchorFare', 'OpenRBD', 'SellingFare', 'Channel', 'HowDetermined', 'RunId',
+    'criteria', 'fareOffset', 'FlightNumber_Min', 'MktFare_Max', 'FlightNumber_Max',
+    'TimeRange', 'startTime', 'endTime', 'FirstRBDAlloc', 'OtherRBDAlloc',
+    'autoBackstop', 'StrategyReference', 'CurveId', 'dlfBand', 'ndoBand',
+    'overBookingCount', 'ExpectedNoShows', 'status', 'w0Flag', 'mktFile',
+    'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM', 'ALLIN_AF_NB_LY',
+    'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
+    'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
+    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor'
+]
+
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
 KEY_B2C_PENDING_COUNT = 'b2c_pending_count_'
@@ -504,6 +522,7 @@ D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84, "max_value": 1
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
 TARIFF_ALERT_MAIL_ID = 'pa.it.alerts@akasaair.com'
+DEFAULT_ML_ALERT_MAIL_ID = '{"to": ["closed.rm.italerts@akasaair.com"], "cc": []}'
 
 GDS_MAPPING = {
     'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',

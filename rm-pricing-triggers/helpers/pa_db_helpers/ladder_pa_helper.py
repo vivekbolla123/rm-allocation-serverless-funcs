@@ -683,6 +683,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
+                        'allin_fare_difference': round(new_all_in - current_all_in, 2),
                         'data_period': ladder_result['data_period_b2b'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -735,6 +736,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
+                        'allin_fare_difference': round(new_all_in - current_all_in, 2),
                         'data_period': ladder_result['data_period_b2c'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
@@ -776,7 +778,7 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  successful_codes=None, failed_codes=None, source=None, batch_total=None):
+                  successful_codes=None, failed_codes=None, source=None, batch_total=None, lowest_fare_yields_str=None):
         """Save or update batch audit for multiple ladder codes under one run_id.
         
         Parallel-safe: unique index on run_id prevents duplicates, $inc for counters,
@@ -839,6 +841,9 @@ class LadderPAHelper:
                 set_fields = {
                     'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 }
+                
+                if lowest_fare_yields_str is not None:
+                    set_fields['Lowest fare yield'] = lowest_fare_yields_str
                 
                 if ladder_results:
                     for lr in ladder_results:
