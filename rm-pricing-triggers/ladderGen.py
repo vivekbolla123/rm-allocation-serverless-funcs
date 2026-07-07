@@ -1141,8 +1141,8 @@ class LadderGen:
                 f3 = 0.98 * f4
                 f2 = 0.98 * f3
                 f1 = 0.98 * f2
-                self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
+                self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
                 
             # Check yield constraint
             distance = self._get_distance(origin, destination)
@@ -1866,6 +1866,7 @@ class LadderGen:
                 'outliers_removed_b2b': outliers_b2b,
                 'ladder_fares_b2c': base_ladder_b2c,
                 'ladder_fares_b2b': base_ladder_b2b,
+                'lowest_fare_yield': round(min(base_ladder_b2c) / self._get_distance(self.sector[:3], self.sector[3:]), 4) if base_ladder_b2c and self._get_distance(self.sector[:3], self.sector[3:]) > 0 else 0,
                 'currency': self.sector_currency if self.sector_currency is not None else "INR",
                 'generation_timestamp': datetime.now()
             }
@@ -1946,11 +1947,20 @@ class LadderGen:
             failure_reasons = [r.get('reason') for r in all_results if r['status'] == 'FAILED']
             batch_failure_reason = '; '.join(failure_reasons) if failure_reasons else None
             
+            lowest_fare_yields = []
+            for result in all_results:
+                if result['status'] == 'SUCCESS' and result.get('ladder_result'):
+                    lowest_fare_yields.append(str(result['ladder_result'].get('lowest_fare_yield', 0)))
+                else:
+                    lowest_fare_yields.append("NA")
+            lowest_fare_yields_str = ', '.join(lowest_fare_yields)
+            
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None,
                 self.start_time, self.currentVersion, run_id, batch_failure_reason,
                 all_ladder_results, None, batch_status, is_initial=False,
-                successful_codes=successful_codes, failed_codes=failed_codes, source=fare_source
+                successful_codes=successful_codes, failed_codes=failed_codes, source=fare_source,
+                lowest_fare_yields_str=lowest_fare_yields_str
             )
         except Exception as e:
             self.logger.error(f"Failed to update batch audit record: {str(e)}")
