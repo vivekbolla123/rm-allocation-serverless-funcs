@@ -29,7 +29,7 @@ class HowDeterminedParser:
             logic.append("AF")
         elif "_F_" in raw_str or raw_str.startswith("F_"):
             logic.append("F")
-        elif "_V_" in raw_str or raw_str.startswith("V_"):
+        elif "_V_" in raw_str or raw_str.startswith("V_") or raw_str.endswith("_V"):
             logic.append("V")
         
         if not logic:
@@ -50,22 +50,35 @@ class HowDeterminedParser:
                 fare.append("Average of Strategy and Profile fare")
             else:
                 fare.append("Average of fares")
-        elif "Maxof_Startegy_Profile" in raw_str or "Startegy_Profile_Max" in raw_str:
+        elif "max_strategy_and_profile" in raw_str or "Maxof_Startegy_Profile" in raw_str or "Startegy_Profile_Max" in raw_str:
             fare.append("Computation using max of strategy fare and profile fare")
+        elif "max_last_sold_and_profile" in raw_str:
+            fare.append("Computation using max of last sold fare and profile fare")
+        elif "max_strategy" in raw_str:
+            fare.append("Computation using strategy fare")
+        elif "max_last_sold" in raw_str:
+            fare.append("Computation using last sold fare")
         elif "interpolated_lastSold_Profile" in raw_str or "Interpollated_Max_own_fare" in raw_str:
             fare.append("Interpolated fare")
         elif "last_sold_fare" in raw_str or "LastSoldFare" in raw_str:
             fare.append("Computation using last sold fare")
+        elif "System Overbooking" in raw_str:
+            fare.append("Computation using system overbooking fare")
+        elif "Manual Overbooking" in raw_str:
+            fare.append("Computation using manual overbooking fare")
         elif "Startegy_fare" in raw_str or "StrategyFare" in raw_str or "Strategy" in raw_str:
             fare.append("Computation using strategy fare")
         elif "ProfileFare" in raw_str or "profileFare" in raw_str:
             fare.append("Computation using profile fare")
         
-        if "UpsellY" in raw_str or "Upsold" in raw_str:
+        upsell_match = re.search(r'UpsellY_([0-9.]+)', raw_str)
+        if upsell_match:
+            upsell_val = upsell_match.group(1)
             if fare:
-                fare[0] = fare[0].replace("Computation using", "Computation using").replace("fare", "fare(if upsell)")
+                fare[0] = fare[0] + f" (with upsell value {upsell_val})"
             else:
-                fare.append("Computation using last sold fare(if upsell)")
+                fare.append(f"Computation with upsell value {upsell_val}")
+
                 
         if "Matched and allocated" in raw_str or "Connection" in raw_str:
             parts = raw_str.split("-")
@@ -79,6 +92,8 @@ class HowDeterminedParser:
             m = re.search(r'har(?:d)?(?:A|a)nchorfare_([0-9.]+)', raw_str)
             if m:
                 cond.append(f"Hard anchor hit at PLF threshold Value {m.group(1)}")
+            elif "min_hard_anchor" in raw_str:
+                cond.append("Hard anchor applied (min value)")
             else:
                 cond.append("Hard anchor hit at PLF threshold Value")
         if "Backstop" in raw_str:
@@ -89,6 +104,20 @@ class HowDeterminedParser:
                 cond.append("Intended opening fare is below backstop")
         if "LowerBound" in raw_str:
             cond.append("Lower bound hit")
+            
+        if "Overbooking" in raw_str or "OverBooking" in raw_str or "-Overbooking" in raw_str:
+            if "Manual" in raw_str:
+                cond.append("Manual overbooking applied")
+            else:
+                cond.append("Overbooking applied")
+        if "Discounted" in raw_str:
+            m = re.search(r'Discounted_([0-9.]+)', raw_str)
+            if m:
+                cond.append(f"Discount applied ({m.group(1)})")
+            else:
+                cond.append("Discount applied")
+        if "Manual_inventory_retained" in raw_str:
+            cond.append("Manual inventory retained (skipping allocation)")
             
         # 4. QP Fare
         if "extreme value" in raw_str.lower() or "extreme published Fares" in raw_str:
@@ -114,6 +143,10 @@ class HowDeterminedParser:
             forecast.append("PLF Gain Negative")
         elif "PLFGainPos" in raw_str:
             forecast.append("PLF Gain Positive")
+        elif "PLFGainHigh" in raw_str:
+            forecast.append("PLF Gain High")
+        elif "PLFGainZero" in raw_str:
+            forecast.append("PLF Gain Zero")
         
         # Build the final string
         logic_str = "/".join(logic) if logic else "N/A"
@@ -125,4 +158,4 @@ class HowDeterminedParser:
         parts = [logic_str, fare_str, cond_str, qp_str, forecast_str]
         valid_parts = [p for p in parts if p != "N/A"]
         
-        return " | ".join(valid_parts) if valid_parts else "N/A"
+        return " | ".join(valid_parts).replace(" ", "_") if valid_parts else "N/A"

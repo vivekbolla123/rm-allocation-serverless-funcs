@@ -642,7 +642,7 @@ class DetermineRBD:
             
             capped_fare = min(fare, float(hardAnchorFare))
             if capped_fare == float(hardAnchorFare):
-                thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                thresh_suffix = self._format_thresh(getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None)))
                 return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, how_determined
         
@@ -874,7 +874,7 @@ class DetermineRBD:
             anchorFare, howDetermined = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
-                hardAnchorFare, tolerance_per, imp_forecast_band, getattr(currParams, 'plfthreshold', None)
+                hardAnchorFare, tolerance_per, imp_forecast_band, getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None))
             )
         else:
             if should_use_tolerance:
@@ -914,7 +914,7 @@ class DetermineRBD:
             
             capped_fare = min(fare, float(hardAnchorFare))
             if capped_fare == float(hardAnchorFare):
-                thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                thresh_suffix = self._format_thresh(getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None)))
                 return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, decision_text
         
@@ -938,8 +938,9 @@ class DetermineRBD:
             calculated_fare = base_fare
             
             if float(max_fare) > float(strategyFare) and float(bookings_in_hour) > 0:
-                calculated_fare = float(max_fare) + (float(base_fare) * 0.05)
-                upsell_text = "UpsellY"
+                upsell_val = float(base_fare) * 0.05
+                calculated_fare = float(max_fare) + upsell_val
+                upsell_text = f"UpsellY_{upsell_val:.2f}"
             elif float(max_fare) > float(strategyFare):
                 calculated_fare = float(max_fare)
             else:
@@ -947,22 +948,34 @@ class DetermineRBD:
                 
             return calculated_fare, upsell_text
         
-        def process_dplf_bands_3(last_sold, strategy_or_profile):
-            v2 = (float(last_sold) + max(float(strategyFare), float(strategy_or_profile))) / 2
+        def process_dplf_bands_3(last_sold, strategy_or_profile, max_desc):
+            max_val = max(float(strategyFare), float(strategy_or_profile))
+            v2 = (float(last_sold) + max_val) / 2
             
             if has_tolerance_fare():
                 v1 = calculate_tolerance_value()
-                decision = "TolerenceHit_hardanchorfare_Upsold_Last_sold_fare" if has_hard_anchor() else "TolerenceHit_Upsold_Last_sold_fare"
-                final_fare = max(v1, v2)
-                if has_hard_anchor():
-                    final_fare = min(final_fare, float(hardAnchorFare))
+                if v1 > v2:
+                    decision = f"ToleranceHit_max_{max_desc}"
+                    final_fare = v1
+                else:
+                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    final_fare = v2
+                if has_hard_anchor() and float(hardAnchorFare) < final_fare:
+                    final_fare = float(hardAnchorFare)
+                    print('DEBUG CURRPARAMS:', dir(currParams))
+                    open('debug.log', 'a').write(f'DEBUG CURRPARAMS TYPE: {type(currParams)}, DIR: {dir(currParams)}\n')
+                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
             else:
-                decision = "hardanchorfare" if has_hard_anchor() and min(v2, float(hardAnchorFare)) == float(hardAnchorFare) else "Upsold_Last_sold_fare"
-                final_fare = min(v2, float(hardAnchorFare)) if has_hard_anchor() else v2
+                if has_hard_anchor() and float(hardAnchorFare) < v2:
+                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+                    final_fare = float(hardAnchorFare)
+                else:
+                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    final_fare = v2
                 
             return final_fare, f'AllocationY_{decision}_UpsellN'
         
-        def process_dplf_bands_4_5_6(fares_list):
+        def process_dplf_bands_4_5_6(fares_list, max_desc):
             if not fares_list:
                 return 0, "UpsellN"
                 
@@ -971,13 +984,22 @@ class DetermineRBD:
             
             if has_tolerance_fare():
                 t1 = calculate_tolerance_value()
-                decision = "TolerenceHit_hardanchorfare_Upsold_Last_sold_fare" if has_hard_anchor() else "TolerenceHit_Upsold_Last_sold_fare"
-                final_fare = max(t1, v1)
-                if has_hard_anchor():
-                    final_fare = min(final_fare, float(hardAnchorFare))
+                if t1 > v1:
+                    decision = f"ToleranceHit_max_{max_desc}"
+                    final_fare = t1
+                else:
+                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    final_fare = v1
+                if has_hard_anchor() and float(hardAnchorFare) < final_fare:
+                    final_fare = float(hardAnchorFare)
+                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
             else:
-                decision = "hardanchorfare" if has_hard_anchor() and min(v1, float(hardAnchorFare)) == float(hardAnchorFare) else "Upsold_Last_sold_fare"
-                final_fare = min(v1, float(hardAnchorFare)) if has_hard_anchor() else v1
+                if has_hard_anchor() and float(hardAnchorFare) < v1:
+                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+                    final_fare = float(hardAnchorFare)
+                else:
+                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    final_fare = v1
                 
             return final_fare, f'AllocationY_{decision}_{upsell_text}'
 
@@ -996,9 +1018,9 @@ class DetermineRBD:
                     # lastSoldFare < profileFare or lastSoldFare < strategyFare
                     if last_sold_val < profile_val or last_sold_val < float(strategyFare):
                         if dplfBand in [3]:
-                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, profileFare)
+                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, profileFare, "strategy_and_profile")
                         elif dplfBand in [4, 5, 6]:
-                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList)
+                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList, "last_sold_and_profile")
                         
                         anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
                     
@@ -1019,9 +1041,9 @@ class DetermineRBD:
                     # lastSoldFare <= strategyFare
                     if last_sold_val <= float(strategyFare):
                         if dplfBand in [3]:
-                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, strategyFare)
+                            anchorFare, howDetermined = process_dplf_bands_3(lastSoldFare, strategyFare, "strategy_and_profile")
                         elif dplfBand in [4, 5, 6]:
-                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList)
+                            anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList, "last_sold_and_profile")
                     # lastSoldFare > strategyFare
                     else:
                         if float(BookingsInHour) > 0:
@@ -1073,7 +1095,7 @@ class DetermineRBD:
                 if has_hard_anchor():
                     anchorFare = min(float(strategyFare), float(hardAnchorFare))
                     if anchorFare == float(hardAnchorFare):
-                        decision = "hardanchorfare"
+                        decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
                 howDetermined = f"AllocationY_{decision}_UpsellN"
             
             # Max value equals strategy fare
@@ -1084,7 +1106,7 @@ class DetermineRBD:
                     decision = "strategyFare"
                     anchorFare = min(float(strategyFare), float(hardAnchorFare))
                     if anchorFare == float(hardAnchorFare):
-                        decision = "hardanchorfare"
+                        decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
                     howDetermined = f"AllocationY_min_{decision}_UpsellN"
             
             # Max value less than strategy fare
@@ -1107,7 +1129,7 @@ class DetermineRBD:
                     if v2 > v1:
                         howDetermined += '_ToleranceHit'
                     if anchorFare == float(hardAnchorFare):
-                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None)))
                         howDetermined = f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
                 else:
                     anchorFare = max(v1, v2)
@@ -1132,7 +1154,7 @@ class DetermineRBD:
                 if has_hard_anchor():
                     anchorFare = min(max(v1, v2), float(hardAnchorFare))
                     if anchorFare == float(hardAnchorFare):
-                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfthreshold', None))
+                        thresh_suffix = self._format_thresh(getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None)))
                         howDetermined = f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
                 else:
                     anchorFare = max(v1, v2)
@@ -1196,7 +1218,7 @@ class DetermineRBD:
         if defFareData.shape[0] != 0:
             if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
                 backstopFlag = True
-                backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below backstop {defFareData['TOTAL'][0]}"
+                backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below backstop {defFareData['TOTAL'][0]}"
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
@@ -1214,7 +1236,7 @@ class DetermineRBD:
                     FareToOpen = rbddata['TOTAL'][0]
                 else:
                     backstopFlag = True
-                    backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below forced highest backstop {defFareData['TOTAL'][0]}"
+                    backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below forced highest backstop {defFareData['TOTAL'][0]}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
         else:
@@ -1223,7 +1245,7 @@ class DetermineRBD:
                     offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
                     if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
                         backstopFlag = True
-                        backstopReason = f"intended fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {defFareData['TOTAL'][0]}"
+                        backstopReason = f"strategy fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {defFareData['TOTAL'][0]}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
                 else:
