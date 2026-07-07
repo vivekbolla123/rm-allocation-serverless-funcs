@@ -505,7 +505,7 @@ D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84, "max_value": 1
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
 TARIFF_ALERT_MAIL_ID = 'pa.it.alerts@akasaair.com'
-DEFAULT_ML_ALERT_MAIL_ID = '{"to": ["rm.italerts@akasaair.com"], "cc": ["closed.rm.italerts@akasaair.com]}'
+DEFAULT_ML_ALERT_MAIL_ID = '{"to": ["closed.rm.italerts@akasaair.com"], "cc": []}'
 
 GDS_MAPPING = {
     'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',
