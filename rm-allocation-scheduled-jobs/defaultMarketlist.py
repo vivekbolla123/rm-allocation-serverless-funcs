@@ -186,8 +186,9 @@ class defaultMarketlist:
             date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
 
             query = {'defaultMlFlag': {'$in': [1, "1"]}}
-            dom_records = list(self.db['market_list'].find(query, {'_id': 0}))
-            # intl_records = list(self.db['market_list_international'].find(query, {'_id': 0}))
+            projection = {'_id': 0, 'Origin': 1, 'Destin': 1, 'PerStart': 1, 'FlightNumber': 1, 'analystName': 1, 'createdAt': 1}
+            dom_records = list(self.db['market_list'].find(query, projection))
+            # intl_records = list(self.db['market_list_international'].find(query, projection))
             
             all_records = dom_records # + intl_records
             if not all_records:
@@ -204,9 +205,9 @@ class defaultMarketlist:
             html_body = f"""
             <html>
             <body>
-                <h2>System Added Flights Alert</h2>
+                <h2>Default ML Flights Alert</h2>
                 <p><strong>Time:</strong> {timestamp}</p>
-                <p>The flights added by the system in Market List: {len(all_flights_df)} flights in total.</p>
+                <p>Default ML Flights Count: {len(all_flights_df)}</p>
                 <p style='margin-top: 20px;'>
                     Please find the detailed list in the attached CSV file.
                 </p>
