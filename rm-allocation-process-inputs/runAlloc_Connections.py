@@ -780,7 +780,7 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.DepDate1 = str(current_date1)
             self.outputSummaryRow_b2c.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2c.BookedLoad = str(bookload)
-            self.outputSummaryRow_b2c.anchorFare=int(b2cTotal) if b2cTotal != 'NA' else 'NA'
+            self.outputSummaryRow_b2c.anchorFare = 'NA' if pd.isna(b2cTotal) or b2cTotal == 'NA' else int(b2cTotal)
             self.outputSummaryRow_b2c.OpenRBD=openDataB2C['RBD'][0]
             self.outputSummaryRow_b2c.SellingFare=str(openDataB2C['Fare'][0])
             self.outputSummaryRow_b2c.Channel="B2C"
@@ -805,7 +805,7 @@ class DynAllocConnections:
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
             
-            self.outputSummaryRow_b2b.anchorFare=int(b2bTotal) if b2bTotal != 'NA' else 'NA'
+            self.outputSummaryRow_b2b.anchorFare = 'NA' if pd.isna(b2bTotal) or b2bTotal == 'NA' else int(b2bTotal)
             self.outputSummaryRow_b2b.allocationStatus = str(
                 openDataB2B["allocationStatus"][0])
             self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
