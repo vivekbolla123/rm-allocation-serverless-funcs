@@ -1570,12 +1570,17 @@ public class App implements CommandLineRunner {
             numOfRows.set(csvData.size() > 1 ? csvData.size() - 1 : 0);
 
             for (int i = 1; i < csvData.size(); i++) {
+                List<String> record = csvData.get(i);
+                // Skip records with defaultMlFlag turned on
+                if (record.size() > CSV_HEADER_DEFAULT_ML_FLAG && "Y".equalsIgnoreCase(record.get(CSV_HEADER_DEFAULT_ML_FLAG))) {
+                    continue;
+                }
                 String uuidForEntries = UUID.randomUUID().toString();
                 int errorCountBefore = listOfErrors.get().size();
-                String analystName = validationForMarketListFile(csvData.get(i), permissions, route, i,
+                String analystName = validationForMarketListFile(record, permissions, route, i,
                         role, userName, listOfCurves, listOfStrategies, listOfB2BStrategies, listOfCriteria);
                 if (listOfErrors.get().size() == errorCountBefore) {
-                    createMarketListEntity(csvData.get(i), validMarketListEntityList, uuidForEntries, analystName);
+                    createMarketListEntity(record, validMarketListEntityList, uuidForEntries, analystName);
                 }
             }
 
