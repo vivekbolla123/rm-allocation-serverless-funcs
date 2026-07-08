@@ -1,3 +1,4 @@
+from rich import traceback
 import ast
 import copy
 from decimal import Decimal
@@ -2785,6 +2786,7 @@ class DynAlloc:
 			entry = instance.runFareAnchorPass()
 		except Exception as e:
 			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}")
+			traceback.print_exc()
 			entry = instance._build_fallback_portfolio_entry(e)
 
 		if instance._maybeShortCircuitSingleFlight(entry):
