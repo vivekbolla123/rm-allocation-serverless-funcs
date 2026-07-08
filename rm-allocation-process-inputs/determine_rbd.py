@@ -962,8 +962,6 @@ class DetermineRBD:
                     final_fare = v2
                 if has_hard_anchor() and float(hardAnchorFare) < final_fare:
                     final_fare = float(hardAnchorFare)
-                    print('DEBUG CURRPARAMS:', dir(currParams))
-                    open('debug.log', 'a').write(f'DEBUG CURRPARAMS TYPE: {type(currParams)}, DIR: {dir(currParams)}\n')
                     decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
             else:
                 if has_hard_anchor() and float(hardAnchorFare) < v2:
