@@ -869,7 +869,9 @@ class RMDatabaseHelper:
                 "Portfolio_Anchor": str(latest_row.Portfolio_Anchor),
                 "z_score88": str(latest_row.z_score88),
                 "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
-                "portfolio_count": str(latest_row.portfolio_count)
+                "portfolio_count": str(latest_row.portfolio_count),
+                "conversionRate": str(latest_row.conversionRate),
+                "currency": str(latest_row.currency)
             }
 
             try:

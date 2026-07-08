@@ -921,8 +921,38 @@ class DynAlloc:
 		elif input_source_lsf == DB:
 			redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
 			if self.cache_client.exists(redis_key_lsf):
-				fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
-				last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+				fare_manifest_str = None
+				try:
+					fare_manifest_str = self.cache_client.get(redis_key_lsf)
+					if fare_manifest_str is not None:
+						fare_manifest_str = fare_manifest_str.decode('utf-8')
+				except Exception as e:
+					self.logger.error(f"Error fetching {redis_key_lsf} from Redis: {e}")
+					# Optionally try to get it as a hash if it's the wrong type
+					try:
+						if self.cache_client.type(redis_key_lsf).decode('utf-8') == 'hash':
+							hash_data = self.cache_client.hgetall(redis_key_lsf)
+							# Reconstruct json string if needed, or simply log it.
+							self.logger.error(f"Key {redis_key_lsf} is a hash. Data: {hash_data}")
+					except:
+						pass
+
+				if fare_manifest_str:
+					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+					
+					qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+					if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
+						self.qpcurrency = str(qpcurrency_df['currency'].iloc[0]).strip()
+					else:
+						self.qpcurrency = 'INR'
+
+					if self.qpcurrency != 'INR' and self.qpcurrency != '' and self.qpcurrency.upper() != 'NAN' and self.qpcurrency != 'None':
+						if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):
+							last_seven_avg_val = self.convert_currency('INR', self.qpcurrency, last_seven_avg_val)
+						if lastSoldFareb2b_val != CONST_NA and not pd.isna(lastSoldFareb2b_val):
+							lastSoldFareb2b_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2b_val)
+						if lastSoldFareb2c_val != CONST_NA and not pd.isna(lastSoldFareb2c_val):
+							lastSoldFareb2c_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2c_val)
 
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
@@ -1999,6 +2029,9 @@ class DynAlloc:
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
+		self.qpcurrency = "INR"
+		self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
+
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
 		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
 		self.PLF_CURVE_VALUE = self.constantsUtils.PLF_CURVE_VALUE
@@ -2028,6 +2061,28 @@ class DynAlloc:
 			if can_copy == False:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
+
+	def convert_currency(self, from_currency, to_currency, value):
+		if str(value) == CONST_NA or pd.isna(value) or value == '':
+			return value
+
+		conversion = self.conversion_data[
+			(self.conversion_data['FromCurrencyCode'] == from_currency) &
+			(self.conversion_data['ToCurrencyCode'] == to_currency)
+		]
+		
+		if conversion.empty:
+			raise ValueError(f"No conversion rate found for {from_currency} to {to_currency}")
+		
+		conversion_rate = conversion['ConversionRate'].values[0]
+		converted_value = float(value) * conversion_rate
+		if self.qpcurrency!='INR':
+			if hasattr(self, 'outputSummaryRow_b2b'):
+				self.outputSummaryRow_b2b.conversionRate=conversion_rate
+			if hasattr(self, 'outputSummaryRow_b2c'):
+				self.outputSummaryRow_b2c.conversionRate=conversion_rate
+				
+		return converted_value
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
@@ -2751,6 +2806,7 @@ class DynAlloc:
 			entry = instance.runFareAnchorPass()
 		except Exception as e:
 			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}")
+			traceback.print_exc()
 			entry = instance._build_fallback_portfolio_entry(e)
 
 		if instance._maybeShortCircuitSingleFlight(entry):
