@@ -1,4 +1,3 @@
-from rich import traceback
 import ast
 import copy
 from decimal import Decimal
