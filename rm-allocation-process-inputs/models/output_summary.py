@@ -79,3 +79,6 @@ class OutputSummary:
         self.z_score88 = CONST_NA
         self.Portfolio88_Anchor = CONST_NA
         self.portfolio_count = CONST_NA
+        
+        self.conversionRate = CONST_NA
+        self.currency = CONST_NA

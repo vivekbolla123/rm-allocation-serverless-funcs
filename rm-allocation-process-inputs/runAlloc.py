@@ -923,6 +923,15 @@ class DynAlloc:
 			if self.cache_client.exists(redis_key_lsf):
 				fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
 				last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+				
+				self.qpcurrency = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+				if self.qpcurrency != 'INR':
+					if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):
+						last_seven_avg_val = self.convert_currency('INR', self.qpcurrency, last_seven_avg_val)
+					if lastSoldFareb2b_val != CONST_NA and not pd.isna(lastSoldFareb2b_val):
+						lastSoldFareb2b_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2b_val)
+					if lastSoldFareb2c_val != CONST_NA and not pd.isna(lastSoldFareb2c_val):
+						lastSoldFareb2c_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2c_val)
 
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
@@ -1999,6 +2008,9 @@ class DynAlloc:
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
+		self.qpcurrency = "INR"
+		self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
+
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
 		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
 		self.PLF_CURVE_VALUE = self.constantsUtils.PLF_CURVE_VALUE
@@ -2028,6 +2040,28 @@ class DynAlloc:
 			if can_copy == False:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
+
+	def convert_currency(self, from_currency, to_currency, value):
+		if str(value) == CONST_NA or pd.isna(value) or value == '':
+			return value
+
+		conversion = self.conversion_data[
+			(self.conversion_data['FromCurrencyCode'] == from_currency) &
+			(self.conversion_data['ToCurrencyCode'] == to_currency)
+		]
+		
+		if conversion.empty:
+			raise ValueError(f"No conversion rate found for {from_currency} to {to_currency}")
+		
+		conversion_rate = conversion['ConversionRate'].values[0]
+		converted_value = float(value) * conversion_rate
+		if self.qpcurrency!='INR':
+			if hasattr(self, 'outputSummaryRow_b2b'):
+				self.outputSummaryRow_b2b.conversionRate=conversion_rate
+			if hasattr(self, 'outputSummaryRow_b2c'):
+				self.outputSummaryRow_b2c.conversionRate=conversion_rate
+				
+		return converted_value
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
