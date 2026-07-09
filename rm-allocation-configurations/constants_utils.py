@@ -119,6 +119,7 @@ class ConstantsUtils:
         self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
         self.WINDOW_MINUTES = WINDOW_MINUTES
         self.EQT_RECIPIENTS = EQT_RECIPIENTS
+        self.HOLD_BOOKING_ALERT_CONFIGURATION = HOLD_BOOKING_ALERT_CONFIGURATION
         
         # Phase 2 Constants
         self.INTERNATIONAL_BOOKLOAD_THRESHOLDS = self._parse_intl_thresholds(INTERNATIONAL_BOOKLOAD_THRESHOLDS)
@@ -444,6 +445,8 @@ class ConstantsUtils:
                 self.MOVEMENT_FLOOR_PCT = float(parameter_value)
             elif parameter_key == MOVEMENT_CEIL_PCT_KEY:
                 self.MOVEMENT_CEIL_PCT = float(parameter_value)
+            elif parameter_key == HOLD_BOOKING_ALERT_CONFIGURATION_KEY:
+                self.HOLD_BOOKING_ALERT_CONFIGURATION = parameter_value
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
