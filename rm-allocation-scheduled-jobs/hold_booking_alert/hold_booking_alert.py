@@ -9,6 +9,7 @@ from constants_utils import ConstantsUtils
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from .service_models import HoldBookingConfiguration
+import configsettings
 
 
 class HoldBookingAlert:
@@ -34,6 +35,7 @@ class HoldBookingAlert:
 
         hold_bookings: List[HoldBookingQueryResult] = (
             self.navitaire_repo.fetch_hold_booking_by_inventory_leg(
+                configsettings.NAV_DB_WB_NAME,
                 config.alert_ndo,
                 config.alert_threshold,
             )

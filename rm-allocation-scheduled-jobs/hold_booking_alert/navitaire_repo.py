@@ -7,10 +7,10 @@ class NavitaireRepository:
         self.engine = engine
 
     def fetch_hold_booking_by_inventory_leg(
-        self, number_of_day: int, alert_threshold: int
+        self, ods_database_name: str, number_of_day: int, alert_threshold: int
     ) -> List[HoldBookingQueryResult]:
         sqlQuery = f"""
-                EXEC [TST0KWB01].[dbo].[SP_GetHoldBookingData]
+                EXEC {ods_database_name}[dbo].[SP_GetHoldBookingData]
                     @NumberOfDay = {number_of_day},
                     @AlertThreshold = {alert_threshold}
                 """
