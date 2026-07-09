@@ -7,23 +7,23 @@ from zoneinfo import ZoneInfo
 
 class HoldBookingEmailBuilder:
     """
-    Builds the email subject and HTML body for hold booking alerts.
+    Builds the email HTML body for hold booking alerts.
     """
 
     def build(
         self,
         alert_rows: List[HoldBookingQueryResult],
         threshold_percentage: int,
-        generated_time_ist: str
-    ) -> tuple[str, str]:
+        generated_time_ist: str,
+    ) -> str:
         """
-        Build email subject and HTML body.
+        Build email HTML body.
 
         Returns:
-            tuple[str, str] -> (subject, html_body)
+            str -> html_body
         """
 
-        subject = "Hold Booking Alert"
+        #subject = "Hold Booking Alert"
 
         table_rows = ""
 
@@ -150,4 +150,4 @@ class HoldBookingEmailBuilder:
         </html>
         """
 
-        return subject, html_body
+        return html_body
