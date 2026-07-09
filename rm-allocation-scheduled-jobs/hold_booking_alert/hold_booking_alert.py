@@ -8,6 +8,7 @@ from common_utils import GraphMailClient
 from constants_utils import ConstantsUtils
 from datetime import datetime
 from zoneinfo import ZoneInfo
+from .service_models import HoldBookingConfiguration
 
 
 class HoldBookingAlert:
@@ -25,14 +26,16 @@ class HoldBookingAlert:
 
     def run(self):
 
+        config = self.parse_hold_booking_configuration()
+
         datetime_ist: str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime(
             "%Y-%m-%d %H:%M:%S IST"
         )
 
         hold_bookings: List[HoldBookingQueryResult] = (
             self.navitaire_repo.fetch_hold_booking_by_inventory_leg(
-                self.constants.HOLD_BOOKING_ALERT_NDO,
-                self.constants.HOLD_BOOKING_ALERT_THRESHOLD,
+                config.alert_ndo,
+                config.alert_threshold,
             )
         )
 
@@ -44,20 +47,37 @@ class HoldBookingAlert:
 
         email_builder = HoldBookingEmailBuilder()
         email_html_body = email_builder.build(
-            hold_bookings, self.constants.HOLD_BOOKING_ALERT_THRESHOLD, datetime_ist
+            hold_bookings, config.alert_threshold, datetime_ist
         )
 
         mail_client = GraphMailClient(self.logger)
 
-        recipients = [
-            r.strip() for r in self.constants.HOLD_BOOKING_EMAIL_RECIPIENTS.split(",")
-        ]
+        recipients = [r.strip() for r in config.email_recipients.split(",")]
         for recipient in recipients:
             mail_client.send_email(
-                self.constants.HOLD_BOOKING_EMAIL_SUBJECT,
+                config.email_subject,
                 email_html_body,
                 recipient,
                 is_html=True,
             )
 
         return
+
+    def parse_hold_booking_configuration(self) -> HoldBookingConfiguration:
+        config = self.constants.HOLD_BOOKING_ALERT_CONFIGURATION
+        return HoldBookingConfiguration(
+            email_subject=config["email_subject"],
+            alert_ndo=config["alert_ndo"],
+            alert_threshold=config["alert_threshold"],
+            email_recipients=config["email_recipients"],
+        )
+
+
+""""
+{
+    "email_subject": "Hold Booking Alert",
+    "email_recipients": "jashubhai.chaudhary@akasaair.com",
+    "alert_threshold": 20,
+    "alert_ndo": 7
+}
+"""
