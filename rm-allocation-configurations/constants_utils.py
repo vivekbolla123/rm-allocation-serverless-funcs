@@ -74,6 +74,7 @@ class ConstantsUtils:
         self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
         self.IMP_FORECAST_DEDUCTION_ML = IMP_FORECAST_DEDUCTION_ML
         self.IMP_FORECAST_DEDUCTION_LB = IMP_FORECAST_DEDUCTION_LB
+        self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
         self.TOLERANCE_MAP = json.loads(TOLERANCE_MAP)
         self.B2B_FACTOR_MAP = json.loads(B2B_FACTOR_MAP)        
         self.AF_PLF_FORECAST_CAP = AF_PLF_FORECAST_CAP
@@ -90,6 +91,7 @@ class ConstantsUtils:
         self.RM_ALERT_MAIL_ID = RM_ALERT_MAIL_ID
         self.CLOSED_RM_ALERT_MAIL_ID = CLOSED_RM_ALERT_MAIL_ID
         self.TARIFF_ALERT_MAIL_ID = TARIFF_ALERT_MAIL_ID
+        self.DEFAULT_ML_ALERT_MAIL_ID = json.loads(DEFAULT_ML_ALERT_MAIL_ID)
         self.UP_B2C = UP_B2C
         self.UP_B2B = UP_B2B
         self.MARKET_FLAG_DOMESTIC = MARKET_FLAG_DOMESTIC
@@ -302,6 +304,8 @@ class ConstantsUtils:
                 self.IMP_FORECAST_DEDUCTION_ML = int(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_LB_KEY:
                 self.IMP_FORECAST_DEDUCTION_LB = int(parameter_value)
+            elif parameter_key == IMP_FORECAST_DEDUCTION_KEY:
+                self.IMP_FORECAST_DEDUCTION = int(parameter_value)
             elif parameter_key == TOLERANCE_MAP_KEY:
                 self.TOLERANCE_MAP = json.loads(parameter_value)
             elif parameter_key == B2B_FACTOR_MAP_KEY:
@@ -318,6 +322,8 @@ class ConstantsUtils:
                 self.CLOSED_RM_ALERT_MAIL_ID = parameter_value
             elif parameter_key == TARIFF_ALERT_MAIL_ID_KEY:
                 self.TARIFF_ALERT_MAIL_ID = parameter_value
+            elif parameter_key == DEFAULT_ML_ALERT_MAIL_ID_KEY:
+                self.DEFAULT_ML_ALERT_MAIL_ID = json.loads(parameter_value)
             elif parameter_key == UP_B2C_KEY:
                 self.UP_B2C = int(parameter_value)
             elif parameter_key == UP_B2B_KEY:
