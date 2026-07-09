@@ -549,5 +549,5 @@ GROUP_IMP_FORECAST_REDUCTION = 95
 #HOLD_BOOKING_ALERT_THRESHOLD_KEY = "HOLD_BOOKING_ALERT_THRESHOLD"
 #HOLD_BOOKING_ALERT_NDO_KEY = "HOLD_BOOKING_ALERT_NDO"
 
-HOLD_BOOKING_ALERT_CONFIGURATION = {"email_subject":"Hold Booking Alert","email_recipients":"jashubhai.chaudhary@akasaair.com","alert_threshold":20,"alert_ndo":7}
+HOLD_BOOKING_ALERT_CONFIGURATION = {"email_subject":"Hold Booking Alert","email_recipients":"closed.rm.italerts@akasaair.com","alert_threshold":20,"alert_ndo":7}
 HOLD_BOOKING_ALERT_CONFIGURATION_KEY = "HOLD_BOOKING_ALERT_CONFIGURATION"
