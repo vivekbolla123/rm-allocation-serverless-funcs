@@ -43,7 +43,17 @@ class HowDeterminedParser:
                 logic.append("Standard")
                 
         # 2. Fare Computation
-        if "AvgFare" in raw_str or "Average" in raw_str or "mean" in raw_str.lower() or "median" in raw_str.lower():
+        # New AVG[...] / MEDIAN[...] structured labels
+        avg_match = re.search(r'AVG\[([^\]]+)\]', raw_str)
+        median_match = re.search(r'MEDIAN\[([^\]]+)\]', raw_str)
+        
+        if avg_match:
+            components = avg_match.group(1)
+            fare.append(f"Average of {components.replace(',', ' and ')}")
+        elif median_match:
+            components = median_match.group(1)
+            fare.append(f"Median of {components.replace(',', ' and ')}")
+        elif "AvgFare" in raw_str or "Average" in raw_str or "mean" in raw_str.lower() or "median" in raw_str.lower():
             if "LastSoldFare" in raw_str and "StrategyFare" in raw_str:
                 fare.append("Average of last sold and Strategy fare")
             elif "StrategyFare" in raw_str and "ProfileFare" in raw_str:
@@ -58,8 +68,10 @@ class HowDeterminedParser:
             fare.append("Computation using strategy fare")
         elif "max_last_sold" in raw_str:
             fare.append("Computation using last sold fare")
-        elif "interpolated_lastSold_Profile" in raw_str or "Interpollated_Max_own_fare" in raw_str:
-            fare.append("Interpolated fare")
+        elif "interpolated_lastSold_Profile" in raw_str:
+            fare.append("Interpolated fare Profile LastSold")
+        elif  "Interpollated_Max_own_fare" in raw_str:
+            fare.append("Interpolated fare Max Own Fare Strategy")
         elif "last_sold_fare" in raw_str or "LastSoldFare" in raw_str:
             fare.append("Computation using last sold fare")
         elif "System Overbooking" in raw_str:
@@ -78,7 +90,6 @@ class HowDeterminedParser:
                 fare[0] = fare[0] + f" (with upsell value {upsell_val})"
             else:
                 fare.append(f"Computation with upsell value {upsell_val}")
-
                 
         if "Matched and allocated" in raw_str or "Connection" in raw_str:
             parts = raw_str.split("-")
