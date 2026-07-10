@@ -7,3 +7,7 @@ pip install pre-commit
 chmod +x QPDynamicAllocation/pre-commit-hook.sh
 pre-commit install --config=QPDynamicAllocation/.pre-commit-config.yaml -f
 ```
+
+Jenkins:
+00-Global-Webhook-Router --> Redirection
+
