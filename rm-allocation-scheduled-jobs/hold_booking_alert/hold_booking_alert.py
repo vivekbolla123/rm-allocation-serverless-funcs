@@ -41,7 +41,7 @@ class HoldBookingAlert:
             )
         )
 
-        if hold_bookings.count == 0:
+        if not hold_bookings:
             self.logger.info(
                 "HoldBookingAlert: No hold booking found in the given range"
             )
@@ -54,14 +54,16 @@ class HoldBookingAlert:
 
         mail_client = GraphMailClient(self.logger)
 
-        recipients = [r.strip() for r in config.email_recipients.split(",")]
-        for recipient in recipients:
-            mail_client.send_email(
-                config.email_subject,
-                email_html_body,
-                recipient,
-                is_html=True,
-            )
+        # recipients = [r.strip() for r in config.email_recipients.split(",")]
+        # for recipient in recipients:
+        mail_client.send_email(
+            config.email_subject,
+            email_html_body,
+            config.email_recipients,
+            is_html=True,
+            attachments=None,
+            cc=config.email_cc_recipients
+        )
 
         return
 
@@ -72,6 +74,7 @@ class HoldBookingAlert:
             alert_ndo=config["alert_ndo"],
             alert_threshold=config["alert_threshold"],
             email_recipients=config["email_recipients"],
+            email_cc_recipients=config["email_cc"],
         )
 
 
