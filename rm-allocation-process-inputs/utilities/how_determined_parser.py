@@ -90,9 +90,6 @@ class HowDeterminedParser:
                 fare[0] = fare[0] + f" (with upsell value {upsell_val})"
             else:
                 fare.append(f"Computation with upsell value {upsell_val}")
-        else:
-            fare.append(f"Retain")
-
                 
         if "Matched and allocated" in raw_str or "Connection" in raw_str:
             parts = raw_str.split("-")
