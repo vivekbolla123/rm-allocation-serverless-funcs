@@ -68,8 +68,10 @@ class HowDeterminedParser:
             fare.append("Computation using strategy fare")
         elif "max_last_sold" in raw_str:
             fare.append("Computation using last sold fare")
-        elif "interpolated_lastSold_Profile" in raw_str or "Interpollated_Max_own_fare" in raw_str:
-            fare.append("Interpolated fare")
+        elif "interpolated_lastSold_Profile" in raw_str:
+            fare.append("Interpolated fare Profile LastSold")
+        elif  "Interpollated_Max_own_fare" in raw_str:
+            fare.append("Interpolated fare Max Own Fare Strategy")
         elif "last_sold_fare" in raw_str or "LastSoldFare" in raw_str:
             fare.append("Computation using last sold fare")
         elif "System Overbooking" in raw_str:
@@ -88,6 +90,8 @@ class HowDeterminedParser:
                 fare[0] = fare[0] + f" (with upsell value {upsell_val})"
             else:
                 fare.append(f"Computation with upsell value {upsell_val}")
+        else:
+            fare.append(f"Retain")
 
                 
         if "Matched and allocated" in raw_str or "Connection" in raw_str:
