@@ -407,7 +407,7 @@ class DetermineRBD:
 
         return anchorFare, howDetermined, upsell, overBookingFare
 
-    def final_fare_anchor_af_forecast(self, forecastFareAnchor, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, strategyFare, plf, forecast_plf, lastSoldFare=None, profileFare=None, maxLastSoldFare=None, hardAnchorFare=CONST_NA, tolerance_per=None, imp_forecast_band=None, plfThreshold=None):
+    def final_fare_anchor_af_forecast(self, forecastFareAnchor, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, strategyFare, plf, forecast_plf, lastSoldFare=None, profileFare=None, maxLastSoldFare=None, hardAnchorFare=CONST_NA, tolerance_per=None, toleranceValue=None, imp_forecast_band=None, plfThreshold=None):
         """
         Step 2: AF Forecast based interpolation using PLF_Gain as a factor.
         Takes ForecastFareAnchor from Step 1 (excluding tolerance/hardanchor),
@@ -470,7 +470,7 @@ class DetermineRBD:
                     thresh_suffix = self._format_thresh(plfThreshold)
                     howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
                 temp_fareanchor = capped
-            return temp_fareanchor, howDetermined
+            return temp_fareanchor, howDetermined, toleranceValue
 
         # --- AF_NB < 0 but PLF_Gain > 0: use ForecastFareAnchor as-is ---
         if Af_Nb_Allin < 0 and PLF_Gain > 0:
@@ -489,7 +489,7 @@ class DetermineRBD:
                     thresh_suffix = self._format_thresh(plfThreshold)
                     howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
                 temp_fareanchor = capped
-            return temp_fareanchor, howDetermined
+            return temp_fareanchor, howDetermined, toleranceValue
 
         # --- All other cases: Interpolation logic ---
         howDetermined = 'AF_Forecast_Interpolated'
@@ -575,7 +575,7 @@ class DetermineRBD:
                 howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
             temp_fareanchor = capped
 
-        return temp_fareanchor, howDetermined
+        return temp_fareanchor, howDetermined, toleranceValue
 
     def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf):
         anchorFare = 0
@@ -669,7 +669,15 @@ class DetermineRBD:
             
             anchorFare = func(valid_fares.values())
             matched = next((name for name, value in valid_fares.items() if value == anchorFare), None)
-            if matched:
+
+            # When an aggregation function (mean/median) is used across multiple fares,
+            # produce a descriptive label like AVG[LastSold,Strategy] or MEDIAN[LastSold,Strategy,Profile]
+            if func in (statistics.mean, statistics.median) and len(valid_fares) > 1:
+                func_label = "AVG" if func == statistics.mean else "MEDIAN"
+                # Strip leading underscore and trailing "Fare" for brevity
+                short_names = [k.lstrip("_").replace("Fare", "") for k in valid_fares.keys()]
+                fareType = f"_{func_label}[{','.join(short_names)}]"
+            elif matched:
                 fareType = matched
             else:
                 # Build _AvgFare + all contributing fare names stripped of leading underscore
@@ -871,10 +879,10 @@ class DetermineRBD:
             should_use_tolerance = True
 
         if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:
-            anchorFare, howDetermined = self.final_fare_anchor_af_forecast(
+            anchorFare, howDetermined, toleranceValue = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
-                hardAnchorFare, tolerance_per, imp_forecast_band, getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None))
+                hardAnchorFare, tolerance_per, toleranceValue, imp_forecast_band, getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None))
             )
         else:
             if should_use_tolerance:
@@ -945,12 +953,18 @@ class DetermineRBD:
                 calculated_fare = float(max_fare)
             else:
                 calculated_fare = (float(max_fare) + float(strategyFare)) / 2
+                upsell_text = "AVG[MaxFare,Strategy]_UpsellN"
                 
             return calculated_fare, upsell_text
         
         def process_dplf_bands_3(last_sold, strategy_or_profile, max_desc):
             max_val = max(float(strategyFare), float(strategy_or_profile))
             v2 = (float(last_sold) + max_val) / 2
+            # Determine which fares contributed to the average
+            if max_val == float(strategyFare):
+                avg_label = "AVG[LastSold,Strategy]"
+            else:
+                avg_label = "AVG[LastSold,Profile]"
             
             if has_tolerance_fare():
                 v1 = calculate_tolerance_value()
@@ -958,7 +972,7 @@ class DetermineRBD:
                     decision = f"ToleranceHit_max_{max_desc}"
                     final_fare = v1
                 else:
-                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    decision = f"{avg_label}_max_{max_desc}"
                     final_fare = v2
                 if has_hard_anchor() and float(hardAnchorFare) < final_fare:
                     final_fare = float(hardAnchorFare)
@@ -968,7 +982,7 @@ class DetermineRBD:
                     decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
                     final_fare = float(hardAnchorFare)
                 else:
-                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
+                    decision = f"{avg_label}_max_{max_desc}"
                     final_fare = v2
                 
             return final_fare, f'AllocationY_{decision}_UpsellN'

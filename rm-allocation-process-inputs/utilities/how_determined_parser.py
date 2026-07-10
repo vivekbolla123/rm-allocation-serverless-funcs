@@ -43,7 +43,17 @@ class HowDeterminedParser:
                 logic.append("Standard")
                 
         # 2. Fare Computation
-        if "AvgFare" in raw_str or "Average" in raw_str or "mean" in raw_str.lower() or "median" in raw_str.lower():
+        # New AVG[...] / MEDIAN[...] structured labels
+        avg_match = re.search(r'AVG\[([^\]]+)\]', raw_str)
+        median_match = re.search(r'MEDIAN\[([^\]]+)\]', raw_str)
+        
+        if avg_match:
+            components = avg_match.group(1)
+            fare.append(f"Average of {components.replace(',', ' and ')}")
+        elif median_match:
+            components = median_match.group(1)
+            fare.append(f"Median of {components.replace(',', ' and ')}")
+        elif "AvgFare" in raw_str or "Average" in raw_str or "mean" in raw_str.lower() or "median" in raw_str.lower():
             if "LastSoldFare" in raw_str and "StrategyFare" in raw_str:
                 fare.append("Average of last sold and Strategy fare")
             elif "StrategyFare" in raw_str and "ProfileFare" in raw_str:
