@@ -427,6 +427,7 @@ class DetermineRBD:
         PROFILE_FARE_MULTIPLIER = self.constantsutils.AF_PROFILE_FARE_MULTIPLIER
         BAND_1_MULTIPLIERS = self.constantsutils.AF_BAND_1_MULTIPLIERS
         BAND_2_MULTIPLIERS = self.constantsutils.AF_BAND_2_MULTIPLIERS
+        toleranceValue = CONST_NA
 
         # af_forecast_band: 0 = <85%, 1 = 85-95%, 2 = 95%+
 
@@ -463,6 +464,7 @@ class DetermineRBD:
                 temp_fareanchor = max(temp_fareanchor, t2)
                 if temp_fareanchor == t2:
                     howDetermined += '_ToleranceHit'
+                    toleranceValue = t2
             # Apply hard anchor cap
             if has_hard_anchor():
                 capped = min(temp_fareanchor, float(hardAnchorFare))
@@ -482,6 +484,7 @@ class DetermineRBD:
                 temp_fareanchor = max(temp_fareanchor, t2)
                 if temp_fareanchor == t2:
                     howDetermined += '_ToleranceHit'
+                    toleranceValue = t2
             # Apply hard anchor cap
             if has_hard_anchor():
                 capped = min(temp_fareanchor, float(hardAnchorFare))
@@ -566,7 +569,7 @@ class DetermineRBD:
             temp_fareanchor = max(temp_fareanchor, t2)
             if temp_fareanchor == t2:
                 howDetermined += '_ToleranceHit'
-
+                toleranceValue = t2
         # Hard anchor cap
         if has_hard_anchor():
             capped = min(temp_fareanchor, float(hardAnchorFare))
