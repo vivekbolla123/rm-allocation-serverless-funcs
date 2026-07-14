@@ -373,6 +373,15 @@ class S3AuditProcessor:
                 dept_date_int = self.to_date_int(normalized_date)
                 
                 # Extract date and time separately
+                if pd.isna(changed_at):
+                    changed_at = ''
+                elif hasattr(changed_at, 'isoformat'):
+                    changed_at = changed_at.isoformat()
+                else:
+                    changed_at = str(changed_at)
+                if 'T' not in changed_at and ' ' in changed_at:
+                    changed_at = changed_at.replace(' ', 'T')
+                    
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
@@ -450,6 +459,15 @@ class S3AuditProcessor:
                 dept_date_int = self.to_date_int(normalized_date)
                 
                 # Extract date and time separately
+                if pd.isna(changed_at):
+                    changed_at = ''
+                elif hasattr(changed_at, 'isoformat'):
+                    changed_at = changed_at.isoformat()
+                else:
+                    changed_at = str(changed_at)
+                if 'T' not in changed_at and ' ' in changed_at:
+                    changed_at = changed_at.replace(' ', 'T')
+                    
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
