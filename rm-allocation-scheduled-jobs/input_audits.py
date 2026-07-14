@@ -366,10 +366,7 @@ class S3AuditProcessor:
                 
                 # Check if this is a new record (source=2) or update (source=0) or explicit source
                 if pd.notna(row.get('source', None)):
-                    try:
-                        source_type = int(row.get('source'))
-                    except (ValueError, TypeError):
-                        source_type = 2 if row.get('newRecord', False) else 0
+                    source_type = 3
                 else:
                     source_type = 2 if row.get('newRecord', False) else 0
                 
@@ -460,10 +457,7 @@ class S3AuditProcessor:
                 changed_at = row.get('changedAt', '')
                 
                 if pd.notna(row.get('source', None)):
-                    try:
-                        source_type = int(row.get('source'))
-                    except (ValueError, TypeError):
-                        source_type = 1
+                    source_type = 3
                 else:
                     source_type = 1
 
