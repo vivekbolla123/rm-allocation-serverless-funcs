@@ -70,8 +70,6 @@ class HoldBookingAlert:
 
     def parse_hold_booking_configuration(self) -> HoldBookingConfiguration:
         config = self.constants.HOLD_BOOKING_ALERT_CONFIGURATION
-        if isinstance(config, str):
-            config = json.loads(config)
         return HoldBookingConfiguration(
             email_subject=config["email_subject"],
             alert_ndo=config["alert_ndo"],
