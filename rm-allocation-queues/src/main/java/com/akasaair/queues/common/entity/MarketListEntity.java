@@ -17,6 +17,14 @@ import jakarta.persistence.Table;
 @Entity()
 @Table(name = "market_list")
 @EntityListeners(AuditingEntityListener.class)
+// ⚠️  ADDING A NEW FIELD? Read this first:
+//
+//     @Column(name) = MongoDB key     |  Java field name = Parquet audit column
+//
+//     If these TWO differ → update _AUDIT_RENAME_MAP in:
+//         rm-allocation-scheduled-jobs/defaultMarketlist.py
+//
+//     Easiest path: keep @Column(name) == Java field name. Zero extra work.
 public class MarketListEntity {
     @Column(name = "UUID")
     public String uuid;

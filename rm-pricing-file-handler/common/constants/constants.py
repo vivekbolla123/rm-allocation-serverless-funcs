@@ -24,6 +24,10 @@ UPLOAD_INFO_NOT_FOUND_ERROR_MESSAGE = 'Data not found in file_upload_audit'
 
 LIVE_TARIFF_SHEET_TABLE = "live_tariff_sheet"
 
+# Parameter keys (rm_parameter_values collection)
+RM_PARAMETER_VALUES_COLLECTION = "rm_parameter_values"
+SINGLE_RBD_MAP_PARAMETER_KEY = "SINGLE_RBD_MAP"
+
 # Define tables that should be fully replaced vs incrementally updated
 FULL_REPLACE_TABLES = [
     "config_station_master",
