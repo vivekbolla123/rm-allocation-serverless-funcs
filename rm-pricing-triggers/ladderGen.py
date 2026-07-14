@@ -1004,18 +1004,25 @@ class LadderGen:
             if market_data.empty:
                 return None
             
-            # Apply fare cap filter to market fares (convert gross to base fare per-row)
+            # Convert all gross fares to base fares upfront
             filtered_data = market_data.copy()
+            filtered_data['base_fare_calc'] = filtered_data.apply(
+                lambda row: self._calculate_base_xqp_fare(
+                    row['gross_fare'], row['source_airport'], row['destination_airport']
+                ), axis=1
+            )
+            
+            # Drop rows where base fare calculation failed
+            filtered_data = filtered_data.dropna(subset=['base_fare_calc'])
+            
+            if filtered_data.empty:
+                self.logger.warning(f"No valid base fares after conversion")
+                return None
+            
+            # Apply fare cap filter using base fare
             if self.fare_cap_value is not None:
                 before_count = len(filtered_data)
-                # Convert gross fares to base fares using each row's own source/destination
-                filtered_data['base_fare_calc'] = filtered_data.apply(
-                    lambda row: self._calculate_base_xqp_fare(
-                        row['gross_fare'], row['source_airport'], row['destination_airport']
-                    ), axis=1
-                )
                 filtered_data = filtered_data[filtered_data['base_fare_calc'] <= self.fare_cap_value]
-                filtered_data = filtered_data.drop(columns=['base_fare_calc'])
                 after_count = len(filtered_data)
                 if before_count != after_count:
                     self.logger.info(f"Fare cap filter on market fares (base fare comparison): {before_count - after_count} fares removed "
@@ -1025,11 +1032,11 @@ class LadderGen:
                 self.logger.warning(f"No market fares remain after fare cap filter")
                 return None
             
-            # Data is already filtered for B2C and instances >= 2 from MongoDB
+            # Sort by BASE FARE (not gross) to find true min/max
             if fare_type == 'min':
-                sorted_data = filtered_data.sort_values('gross_fare', ascending=True)
+                sorted_data = filtered_data.sort_values('base_fare_calc', ascending=True)
             else:
-                sorted_data = filtered_data.sort_values('gross_fare', ascending=False)
+                sorted_data = filtered_data.sort_values('base_fare_calc', ascending=False)
             
             # Get distance for yield calculation
             distance = self._get_distance(origin, destination)
@@ -1037,45 +1044,28 @@ class LadderGen:
                 self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
                 # Return base fare without yield check if distance not available
                 if not sorted_data.empty:
-                    first_row = sorted_data.iloc[0]
-                    gross_fare = first_row['gross_fare']
-                    row_origin = first_row['source_airport']
-                    row_dest = first_row['destination_airport']
-                    # For international routes with currency conversion, convert to INR first
-                    if self.route == 'I' and self.conversion_rate != 1.0:
-                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
-                    else:
-                        gross_fare_inr = gross_fare
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
-                    return base_fare
+                    return sorted_data.iloc[0]['base_fare_calc']
                 return None
             
-            # Perform yield check for both domestic and international
+            # Perform yield check iterating by base fare order
             for _, row in sorted_data.iterrows():
-                gross_fare = row['gross_fare']
-                row_origin = row['source_airport']
-                row_dest = row['destination_airport']
+                base_fare = row['base_fare_calc']
                 
                 try:
-                    # For international routes with currency conversion, convert fare to INR for yield calculation
+                    # For international routes with currency conversion, convert to INR for yield
                     if self.route == 'I' and self.conversion_rate != 1.0:
-                        # Market fare is in local currency, convert to INR for yield check
-                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
+                        base_fare_inr = self._convert_fare_to_inr(base_fare)
                     else:
-                        # Domestic or international without conversion - already in INR
-                        gross_fare_inr = gross_fare
+                        base_fare_inr = base_fare
                     
-                    # Calculate base fare and yield using each row's own origin/destination
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
-                    yield_value = base_fare / distance
+                    yield_value = base_fare_inr / distance
                     
                     # Check yield constraint
                     if yield_value >= self.MARKET_FARE_MIN_YIELD:
-                        # Return BASE FARE in INR
                         return base_fare
                         
                 except Exception as e:
-                    self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
+                    self.logger.warning(f"Error checking yield for base fare {base_fare}: {str(e)}")
                     continue
             
             route_type = "International" if self.route == 'I' else "Domestic"
