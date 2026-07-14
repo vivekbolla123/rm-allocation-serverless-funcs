@@ -51,7 +51,8 @@ class ConstantsUtils:
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
-        self.PREFETCH_CHUNK_SIZE = PREFETCH_CHUNK_SIZE
+        self.PREFETCH_CHUNK_SIZE = json.loads(PREFETCH_CHUNK_SIZE)
+        self.PORTFOLIO_SIBLING_BATCH_SIZE = PORTFOLIO_SIBLING_BATCH_SIZE
         self.THRESHOLD_TIME = THRESHOLD_TIME
         self.PF_UPSELL_VALUE = PF_UPSELL_VALUE
         self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
@@ -262,7 +263,9 @@ class ConstantsUtils:
             elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
             elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
-                self.PREFETCH_CHUNK_SIZE = int(parameter_value)
+                self.PREFETCH_CHUNK_SIZE = json.loads(parameter_value)
+            elif parameter_key == PORTFOLIO_SIBLING_BATCH_SIZE_KEY:
+                self.PORTFOLIO_SIBLING_BATCH_SIZE = int(parameter_value)
             elif parameter_key == THRESHOLD_TIME_KEY:
                 self.THRESHOLD_TIME = int(parameter_value)   
             elif parameter_key == PF_UPSELL_VALUE_KEY:

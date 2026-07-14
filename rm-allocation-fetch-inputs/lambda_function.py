@@ -611,6 +611,16 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     For Adhoc/Scheduled_Thirty runs, fetches missing sibling flights from the main
     market list table so that portfolio aggregation is correct, but flags them with
     portfolio_only=1 so they don't produce downstream outputs.
+
+    Memory-optimized: processes the date range in small windows of
+    PORTFOLIO_SIBLING_BATCH_SIZE days each, calling fetch_and_process_market_list
+    per window. This bounds peak memory to (total_docs_in_collection x days_in_window)
+    regardless of how many sectors or how wide the NDO span is.
+
+    For each window:
+      1. Call fetch_and_process_market_list with the narrow date range (reuses proven logic)
+      2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
+      3. Append sibling rows, free intermediate memory, move to next window
     """
     if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
@@ -623,40 +633,80 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     # 1. Main table logic based on region
     main_table = "market_list" if region == "Domestic" else "market_list_international"
 
-    # 2. Extract unique (Origin, Destin, PerStart) pairs from adhoc mkt_list to filter the main table
+    # 2. Extract unique (Origin, Destin, PerStart) pairs from adhoc mkt_list
     unique_pairs = mkt_list[['Origin', 'Destin', 'PerStart']].drop_duplicates()
     if unique_pairs.empty:
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
-    # Revise start_period and end_period based on actual dates present in mkt_list
-    dates = pd.to_datetime(unique_pairs['PerStart'], format='%m/%d/%Y')
-    actual_start = dates.min().strftime('%Y-%m-%d')
-    actual_end = dates.max().strftime('%Y-%m-%d')
+    # 3. Get sorted unique departure dates from the adhoc list
+    unique_pairs['_date'] = pd.to_datetime(unique_pairs['PerStart'], format='%m/%d/%Y')
+    sorted_dates = sorted(unique_pairs['_date'].unique())
+    actual_start = pd.Timestamp(sorted_dates[0]).strftime('%Y-%m-%d')
+    actual_end = pd.Timestamp(sorted_dates[-1]).strftime('%Y-%m-%d')
 
-    # 3. Fetch from main table
-    logger.info(f"Enriching portfolio with siblings from {main_table} for {len(unique_pairs)} origin/destin/date pairs ({actual_start} to {actual_end})")
-    main_df = fetch_and_process_market_list(actual_start, actual_end, main_table, query_type)
-    
-    if main_df.empty:
+    logger.info(
+        f"Enriching portfolio with siblings from {main_table} for "
+        f"{len(unique_pairs)} departuredates ({actual_start} to {actual_end}), "
+        f"{len(sorted_dates)} unique dates"
+    )
+
+    # 4. Batch dates into windows of PORTFOLIO_SIBLING_BATCH_SIZE days
+    days_per_window = constantsutils.PORTFOLIO_SIBLING_BATCH_SIZE
+    all_siblings = []
+    total_windows = (len(sorted_dates) + days_per_window - 1) // days_per_window
+
+    logger.info(f"Processing in {total_windows} date-windows of {days_per_window} days each")
+
+    for window_idx in range(0, len(sorted_dates), days_per_window):
+        window_dates = sorted_dates[window_idx:window_idx + days_per_window]
+        window_start = pd.Timestamp(window_dates[0]).strftime('%Y-%m-%d')
+        window_end = pd.Timestamp(window_dates[-1]).strftime('%Y-%m-%d')
+
+        # 4a. Fetch market list for this narrow date window (reuses existing proven logic)
+        window_df = fetch_and_process_market_list(window_start, window_end, main_table, query_type)
+
+        if window_df.empty:
+            continue
+
+        # 4b. Build the set of (Origin, Destin, PerStart) tuples that fall in this window
+        window_date_set = set(pd.Timestamp(d).strftime('%m/%d/%Y') for d in window_dates)
+        window_pairs = unique_pairs[unique_pairs['PerStart'].isin(window_date_set)][['Origin', 'Destin', 'PerStart']]
+
+        if window_pairs.empty:
+            del window_df
+            continue
+
+        # 4c. Filter to only OD-date combos that are in our adhoc list
+        window_filtered = pd.merge(window_df, window_pairs, on=['Origin', 'Destin', 'PerStart'], how='inner')
+
+        if not window_filtered.empty:
+            all_siblings.append(window_filtered)
+
+        # Free intermediate memory
+        del window_df, window_filtered
+
+    log_memory("after all sibling windows")
+
+    if not all_siblings:
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
-    # 4. Filter main_df to only those Origin-Destin-PerStart pairs that are in our adhoc list
-    keys = ['Origin', 'Destin', 'PerStart']
-    main_filtered = pd.merge(main_df, unique_pairs, on=keys, how='inner')
+    main_filtered = pd.concat(all_siblings, ignore_index=True)
+    del all_siblings
 
     # 5. Remove exact matches that already exist in the adhoc list
     adhoc_keys = mkt_list[['Origin', 'Destin', 'PerStart', 'FlightNumber']].copy()
     adhoc_keys['is_adhoc'] = 1
 
     main_joined = pd.merge(
-        main_filtered, 
-        adhoc_keys, 
-        on=['Origin', 'Destin', 'PerStart', 'FlightNumber'], 
+        main_filtered,
+        adhoc_keys,
+        on=['Origin', 'Destin', 'PerStart', 'FlightNumber'],
         how='left'
     )
     siblings = main_joined[main_joined['is_adhoc'].isnull()].drop(columns=['is_adhoc'])
+    del main_filtered, main_joined
 
     # 6. Flag and concat
     mkt_list['portfolio_only'] = 0
@@ -664,8 +714,15 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
         siblings['portfolio_only'] = 1
         mkt_list = pd.concat([mkt_list, siblings], ignore_index=True)
         logger.info(f"Added {len(siblings)} portfolio_only sibling flights")
+    else:
+        logger.info("No sibling flights found")
+
+    # Clean up temp column
+    if '_date' in mkt_list.columns:
+        mkt_list = mkt_list.drop(columns=['_date'], errors='ignore')
 
     return mkt_list
+
 
 def stamp_direct_route_portfolio_fields(mkt_list, route_type, salesinv):
     """Stamp ``pass`` and ``portfolio_count`` on direct-route messages (R13).
