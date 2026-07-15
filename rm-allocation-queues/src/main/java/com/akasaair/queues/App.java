@@ -2014,6 +2014,7 @@ public class App implements CommandLineRunner {
                 case HISTORIC_GRID_DROP_TABLE_NAME -> getGridDropData(csvData).values().stream().toList();
                 case DISTRESS_INVENTORY_STRATEGY_TABLE_NAME -> getDistressStrategy(csvData).values().stream().toList();
                 case SERIES_BLOCKING_TABLE_NAME -> createListOfMapSeriesBlock(csvData);
+                case AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME -> getAutoToleranceGridData(csvData).values().stream().toList();
                 default -> createListOfMap(csvData, headers);
             };
 
@@ -2649,6 +2650,37 @@ public class App implements CommandLineRunner {
         String[] gridValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
         return createTransformDataSetDistress(csvData, ndoBandHeader, startColumn, DISTRESS_NDO_BANDS_COLUMN_NAME,
                 gridValueNames, DISTRESS_DLF_BANDS_COLUMN_NAME);
+    }
+
+    public Map<String, Map<String, String>> getAutoToleranceGridData(List<List<String>> csvData) {
+        Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
+        int dplfIdHeader = 0;
+        int dplfNameHeader = 1;
+        int startColumn = 2;
+        String[] valueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
+        
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            String dplfId = csvData.get(i).get(dplfIdHeader);
+            String dplfName = csvData.get(i).get(dplfNameHeader);
+            for (int j = startColumn; j < inputRow.size(); j++) {
+                String value = csvData.get(i).get(j);
+                String deltaHeader = valueNames[j - startColumn];
+                String deltaId = deltaHeader.replace("delta_", "");
+                
+                String keyVal = dplfId + "_" + deltaId;
+                if (!resultMap.containsKey(keyVal)) {
+                    Map<String, String> map = new HashMap<>();
+                    map.put("dplf_band_id", dplfId);
+                    map.put("dplf_band_name", dplfName);
+                    map.put("delta_band_id", deltaId);
+                    resultMap.put(keyVal, map);
+                }
+                Map<String, String> map = resultMap.get(keyVal);
+                map.put("g_value", value);
+            }
+        }
+        return resultMap;
     }
 
     public Map<String, Map<String, String>> getHourlyDropData(List<List<String>> csvData) {
@@ -3408,6 +3440,18 @@ public class App implements CommandLineRunner {
 
         if (value.startsWith(MARKET_LIST_SALESINV_TABLE_NAME)) {
             return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
+        }
+
+        if (AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "ndo_min,ndo_max,n_value";
+        }
+
+        if (AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "id,band_name,min_value,max_value";
+        }
+
+        if (AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "dplf_band_id,dplf_band_name,delta_band_id,g_value";
         }
 
         try {

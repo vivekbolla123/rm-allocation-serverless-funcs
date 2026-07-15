@@ -16,6 +16,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
         self.redishelper = redisHelper
+        self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
 
     def _format_thresh(self, val):
         if not val:
@@ -929,12 +930,75 @@ class DetermineRBD:
                 return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, decision_text
         
-        def calculate_tolerance_value():
+        def calculate_tolerance_value(pre_tolerance_anchor=None):
             nonlocal toleranceValue
-            val = float(strategyFare) - float(toleranceFare) if has_tolerance_fare() else 0
-            if has_tolerance_fare():
-                toleranceValue = f"{val:.2f}"
-            return val
+            if not has_tolerance_fare():
+                return 0
+
+            T = float(toleranceFare)
+            tolerance_limit = float(strategyFare) - T
+            
+            # Auto-tolerance logic
+            if getattr(currParams, 'auto_tolerance_flag', 'N') in ('Y', 'y', 1, '1') and pre_tolerance_anchor is not None:
+                redis_key = f"auto_tolerance_{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+                state_str = self.redishelper.get(redis_key)
+                state = {}
+                if state_str:
+                    try:
+                        state = __import__('json').loads(state_str)
+                    except Exception:
+                        pass
+                
+                saved_b2c_tolerance = state.get("b2c_tolerance")
+                t_prime = state.get("T_prime")
+                
+                if saved_b2c_tolerance is not None and str(saved_b2c_tolerance) != str(toleranceFare):
+                    t_prime = None
+                    
+                x = tolerance_limit - float(pre_tolerance_anchor)
+                
+                if t_prime is not None:
+                    final_T = t_prime
+                else:
+                    if x > 0:
+                        ndo_df = self.auto_tolerance_config.get("ndo_config")
+                        n_value = 0
+                        if ndo_df is not None:
+                            match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
+                            if not match.empty:
+                                n_value = match.iloc[0]['n_value']
+                        
+                        delta_df = self.auto_tolerance_config.get("delta_bands")
+                        delta_band_id = None
+                        if delta_df is not None:
+                            match = delta_df[(delta_df['min_value'] <= x) & (delta_df['max_value'] >= x)]
+                            if not match.empty:
+                                delta_band_id = match.iloc[0]['id']
+                        
+                        grid_df = self.auto_tolerance_config.get("grid_values")
+                        g_value = 0
+                        if grid_df is not None and delta_band_id is not None:
+                            match = grid_df[(grid_df['dplf_band_name'] == str(dplfBand)) & (grid_df['delta_band_id'] == delta_band_id)]
+                            if not match.empty:
+                                g_value = match.iloc[0]['g_value']
+                                
+                        t_prime = x * g_value + T
+                        final_T = t_prime
+                    else:
+                        final_T = T
+                        
+                new_state = {
+                    "b2c_tolerance": toleranceFare,
+                    "T_prime": t_prime,
+                    "T_V": final_T,
+                    "variance": x
+                }
+                self.redishelper.set(redis_key, __import__('json').dumps(new_state))
+                
+                tolerance_limit = float(strategyFare) - final_T
+            
+            toleranceValue = f"{tolerance_limit:.2f}"
+            return tolerance_limit
         
         def build_fares_list():
             fares = []
@@ -970,7 +1034,7 @@ class DetermineRBD:
                 avg_label = "AVG[LastSold,Profile]"
             
             if has_tolerance_fare():
-                v1 = calculate_tolerance_value()
+                v1 = calculate_tolerance_value(v2)
                 if v1 > v2:
                     decision = f"ToleranceHit_max_{max_desc}"
                     final_fare = v1
@@ -998,7 +1062,7 @@ class DetermineRBD:
             v1, upsell_text = handle_upsell_logic(upsell, max_value, BookingsInHour)
             
             if has_tolerance_fare():
-                t1 = calculate_tolerance_value()
+                t1 = calculate_tolerance_value(v1)
                 if t1 > v1:
                     decision = f"ToleranceHit_max_{max_desc}"
                     final_fare = t1
@@ -1075,7 +1139,7 @@ class DetermineRBD:
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
                 max_fare = max(float(profileFare), float(strategyFare))
                 if has_tolerance_fare():
-                    tolerance_val = calculate_tolerance_value()
+                    tolerance_val = calculate_tolerance_value(max_fare)
                     anchorFare = max(max_fare, tolerance_val)
                     howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
                 else:
@@ -1137,7 +1201,7 @@ class DetermineRBD:
                 else:
                     v1 = max_value
                 
-                v2 = calculate_tolerance_value()
+                v2 = calculate_tolerance_value(v1)
                 
                 if has_hard_anchor():
                     anchorFare = min(max(v1, v2), float(hardAnchorFare))
@@ -1161,7 +1225,7 @@ class DetermineRBD:
                 if dPLF < -15:
                     dPLF = -15
                 v1 = min_fare + (fare_diff / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
-                v2 = calculate_tolerance_value()
+                v2 = calculate_tolerance_value(v1)
                 
                 if v2 > v1:
                     howDetermined += '_ToleranceHit'

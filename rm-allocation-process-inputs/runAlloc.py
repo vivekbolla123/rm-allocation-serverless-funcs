@@ -2044,6 +2044,8 @@ class DynAlloc:
 		self.HIGHEST_B2B_RBD_VALUE = self.constantsUtils.HIGHEST_B2B_RBD_VALUE
 		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
 		
+		self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
+		
 		# Increase AU_COLUMN_LENGTH to accommodate GDS RBDs
 		# self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
 

@@ -48,6 +48,8 @@ public interface TableNamesConstants {
     public static final String ACTIVE_SECTORS_TABLE_NAME = "active_sectors";
     public static final String SALEINV_RBL_TABLE_NAME = "saleinv_rbl";
     public static final String RM_PARAMS_TABLE_NAME = "rm_parameter_values";
-
+    public static final String AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME = "auto_tolerance_ndo_config";
+    public static final String AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME = "auto_tolerance_delta_bands";
+    public static final String AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME = "auto_tolerance_grid_values";
 
 }

@@ -2708,6 +2708,26 @@ class RMDatabaseHelper:
             # Default to domestic if there's an error
             return True, True
 
+    def getAutoToleranceConfig(self):
+        try:
+            ndo_cursor = self.db["auto_tolerance_ndo_config"].find({}, {"_id": 0})
+            ndo_config = pd.DataFrame(list(ndo_cursor))
+            
+            delta_cursor = self.db["auto_tolerance_delta_bands"].find({}, {"_id": 0})
+            delta_bands = pd.DataFrame(list(delta_cursor))
+            
+            grid_cursor = self.db["auto_tolerance_grid_values"].find({}, {"_id": 0})
+            grid_values = pd.DataFrame(list(grid_cursor))
+            
+            return {
+                "ndo_config": ndo_config,
+                "delta_bands": delta_bands,
+                "grid_values": grid_values
+            }
+        except Exception as e:
+            self.logger.error("Error in getAutoToleranceConfig: " + str(e))
+            return None
+
     def get_stage_length(self, departure_station, arrival_station):
         """
         Get the ActualDistance (stage length) from MySQL CityPair table or MongoDB city_pair collection.
