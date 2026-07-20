@@ -948,9 +948,11 @@ class RBDAllocations:
                         break
 
                 # Apply allocations to the AU grid
-                cummulative_au = currBookedLoad
+                cummulative_au = 0
                 for rbd_name in allocation_dict:
                     currRec.set_class_attribute(brd_counter, 'class_of_service', rbd_name)
+                    if cummulative_au == 0 and allocation_dict[rbd_name] > 0:
+                        cummulative_au = currBookedLoad
                     cummulative_au += allocation_dict[rbd_name]
                     currRec.set_class_attribute(brd_counter, 'class_au', cummulative_au)
                     brd_counter += 1
