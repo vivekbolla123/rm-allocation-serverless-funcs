@@ -99,11 +99,6 @@ class LadderGen:
         self.CORE_FARES_B2C = self.TOTAL_B2C_FARES - self.BUFFER_FARES_B2C
         self.CORE_FARES_B2B = self.TOTAL_B2B_FARES - self.BUFFER_FARES_B2B
         self.default_ml_config = self.constants.DEFAULT_ML_CONFIG
-        raw_ml_config = self.constants.DEFAULT_ML_CONFIG
-        if isinstance(raw_ml_config, str):
-            self.default_ml_config = json.loads(raw_ml_config)
-        else:
-            self.default_ml_config = raw_ml_config
 
         # Per-sector parameters — will be set in _apply_sector_config() before each sector run
         self.fare_source_flag = None
@@ -1666,15 +1661,17 @@ class LadderGen:
 
 
     def _generate_gp_ladder(self, min_fare, max_fare, n, channel_label):
-        """Generate n fare points using a weighted Geometric Progression from
-        min_fare to max_fare.
+        """Generate n GP fare points from min_fare to max_fare with tiered GP factors.
 
-            r = (max_fare / min_fare) ** (1 / (n - 1))
+        Base ratio: R = (max/min) ** (1/(n-1)).
+        Per requirement: the top `top_rbd_count` RBDs (highest-priced, nearest max)
+        step with GP factor (top_gp_factor * R); all remaining steps use
+        (bottom_gp_factor * R). F1 = min; the final rung is pinned to max.
 
-        Each RBD position falls in a config range that assigns it a step weight
-        (e.g. top RBDs 1.2, bottom 0.8). Weights are normalised so the ladder
-        still starts exactly at min_fare and ends exactly at max_fare, and the
-        top RBDs step up faster than the bottom ones in the configured ratio.
+        Config (DEFAULT_ML_CONFIG):
+            top_rbd_count    -> number of top RBDs using the top factor (e.g. 8)
+            top_gp_factor    -> multiplier on R for those top steps (e.g. 1.2)
+            bottom_gp_factor -> multiplier on R for the rest (e.g. 0.8)
         """
         if min_fare <= 0:
             self.failure_reason = f"Default ladder: Invalid min fare ({min_fare}) for {channel_label}"
@@ -1689,55 +1686,36 @@ class LadderGen:
             self.logger.error(self.failure_reason)
             return []
 
-        # --- parse config ranges (note the .items()) ---
-        range_multipliers = []
-        for rbd_range, multiplier in self.default_ml_config.items():
-            start, end = map(int, rbd_range.split("-"))
-            range_multipliers.append((start, end, float(multiplier)))
-        range_multipliers.sort(key=lambda x: x[0])
-
-        def weight_for(position):
-            for start, end, mult in range_multipliers:
-                if start <= position <= end:
-                    return mult
-            # position not covered by any range -> plain base ratio
-            self.logger.warning(
-                f"  {channel_label} RBD position {position} not in any config "
-                f"range; defaulting to weight 1.0"
-            )
-            return 1.0
+        # --- config values ---
+        top_n    = int(self.default_ml_config.get('top_rbd_count', 8))
+        top_f    = float(self.default_ml_config.get('top_gp_factor', 1.2))
+        bottom_f = float(self.default_ml_config.get('bottom_gp_factor', 0.8))
+        top_n = max(0, min(top_n, n - 1))
 
         # Base GP ratio
-        r = (max_fare / min_fare) ** (1.0 / (n - 1))
-        self.logger.info(f"  {channel_label} Base GP ratio r = {r:.6f}")
+        R = (max_fare / min_fare) ** (1.0 / (n - 1))
+        self.logger.info(f"  {channel_label} GP ratio R = {R:.6f}, "
+                         f"top_n={top_n}, top_factor={top_f}, bottom_factor={bottom_f}")
 
-        # One weight per step. There are n-1 steps between the n fares;
-        # the step INTO position p (p = 2..n) uses position p's range weight.
-        weights = [weight_for(p) for p in range(2, n + 1)]
-        total_weight = sum(weights)
-        if total_weight <= 0:
-            self.failure_reason = f"Default ladder: Non-positive total weight for {channel_label}"
-            self.logger.error(self.failure_reason)
-            return []
+        # Generate ladder: F1 = min, then compound R scaled per tier.
+        # There are n-1 steps; the LAST top_n steps (into the highest positions) use top_f*R.
+        ladder = []
+        current_fare = min_fare
+        for i in range(n - 1):
+            ladder.append(current_fare)
+            step_factor = (top_f * R) if i >= (n - 1) - top_n else (bottom_f * R)
+            current_fare = current_fare * step_factor
 
-        # Spread the total log-span across steps in proportion to the weights.
-        # sum(weights)/total_weight == 1, so the ladder lands exactly on max_fare.
-        log_span = math.log(max_fare / min_fare)
+        # Natural (pre-pin) endpoint — logged so any divergence from max is visible.
+        self.logger.info(f"  {channel_label} natural endpoint before pin: {current_fare:.2f} "
+                         f"(max={max_fare:.2f})")
 
-        ladder = [round(float(min_fare), 2)]
-        cumm_log = 0.0
-        for w in weights:
-            cumm_log += log_span * (w / total_weight)
-            ladder.append(round(min_fare * math.exp(cumm_log), 2))
+        # Last fare pinned exactly to max (as in the original).
+        ladder.append(max_fare)
 
-        # Kill residual rounding drift on the anchors.
-        ladder[0]  = round(float(min_fare), 2)
-        ladder[-1] = round(float(max_fare), 2)
-
-        self.logger.info(
-            f"  {channel_label} GP ladder: {len(ladder)} fares, "
-            f"{len(range_multipliers)} tiers, range {ladder[0]:.2f} - {ladder[-1]:.2f}"
-        )
+        ladder = [round(float(f), 2) for f in ladder]
+        self.logger.info(f"  {channel_label} GP ladder: {len(ladder)} fares, "
+                         f"range {ladder[0]:.2f} - {ladder[-1]:.2f}")
         return ladder
 
     def generate_saver_ladder(self):

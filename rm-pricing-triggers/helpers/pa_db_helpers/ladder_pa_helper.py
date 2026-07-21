@@ -723,8 +723,9 @@ class LadderPAHelper:
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     is_default_b2c = ladder_result.get('data_period_b2c') == 'Default'
+                    is_default_b2b = ladder_result.get('data_period_b2b') == 'Default'
 
-                    if is_default_b2c:
+                    if is_default_b2c or is_default_b2b:
                         new_all_in = new_base
                         new_base = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="base")
                     else:

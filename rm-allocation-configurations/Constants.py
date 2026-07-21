@@ -539,7 +539,7 @@ EQT_RECIPIENTS_KEY = "EQT_RECIPIENTS"
 GROUP_SCALING_FACTOR = 0.7
 GROUP_AU_BATCH = 5
 GROUP_IMP_FORECAST_REDUCTION = 95
-DEFAULT_ML_CONFIG = '{"1-43": "0.8", "44-51": "1.2"}'
+DEFAULT_ML_CONFIG = '{ "top_rbd_count": 8, "top_gp_factor": 1.2, "bottom_gp_factor": 0.8 }'
 
 #HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
 #HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
