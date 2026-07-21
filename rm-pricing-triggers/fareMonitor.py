@@ -452,10 +452,10 @@ class FareMonitor:
         selling_fares = self.pa_helper.get_weekly_selling_fares(active_sector_codes)
 
         # Source 2: bookings from ESB (flown + booked pax)
-        booking_fares = self.esb_helper.collect_weekly_booking_fares(active_sector_codes, days=7)
+        # booking_fares = self.esb_helper.collect_weekly_booking_fares(active_sector_codes, days=7)
 
-        if not selling_fares and not booking_fares:
-            self.logger.info("No selling fare or booking data found for the preceding 7 days — skipping")
+        if not selling_fares:
+            self.logger.info("No selling fare found for the preceding 7 days — skipping")
             return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_DATA'}
 
         # Build tariff lookup
@@ -465,7 +465,7 @@ class FareMonitor:
         unmatched = []
 
         # Check both sources against tariff boundaries
-        for source_label, sector_fares in (('Selling Fare', selling_fares), ('Booking', booking_fares)):
+        for source_label, sector_fares in (('Selling Fare', selling_fares)):
             for sector, fares in sector_fares.items():
                 origin = sector[:3]
                 destination = sector[3:]
