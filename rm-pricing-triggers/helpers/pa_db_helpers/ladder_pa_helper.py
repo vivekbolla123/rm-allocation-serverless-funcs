@@ -641,7 +641,7 @@ class LadderPAHelper:
             ladder_documents = []
             
             # Save B2B ladder first
-            ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
+            ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', []) or []
             self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: {self.TOTAL_B2B_FARES})")
             
             if ladder_fares_b2b:
@@ -694,7 +694,7 @@ class LadderPAHelper:
                     ladder_documents.append(doc)
             
             # Save B2C ladder
-            ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', [])
+            ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', []) or []
             self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: {self.TOTAL_B2C_FARES})")
             
             if ladder_fares_b2c:
@@ -722,7 +722,14 @@ class LadderPAHelper:
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
-                    
+                    is_default_b2c = ladder_result.get('data_period_b2c') == 'Default'
+
+                    if is_default_b2c:
+                        new_all_in = new_base
+                        new_base = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="base")
+                    else:
+                        new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
+
                     doc = {
                         'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
@@ -750,11 +757,11 @@ class LadderPAHelper:
             b2b_docs = len([d for d in ladder_documents if d['channel']=='B2B'])
             b2c_docs = len([d for d in ladder_documents if d['channel']=='B2C'])
             total_docs = len(ladder_documents)
-            
+            expected_total = (self.TOTAL_B2C_FARES if ladder_fares_b2c else 0) + (self.TOTAL_B2B_FARES if ladder_fares_b2b else 0)
             self.logger.info(f"Document count summary: B2B={b2b_docs}, B2C={b2c_docs}, Total={total_docs}")
             
-            if total_docs != self.TOTAL_FARES:
-                self.logger.warning(f"Expected {self.TOTAL_FARES} ladder documents but got {total_docs}")
+            if total_docs != expected_total:
+                self.logger.warning(f"Expected {expected_total} ladder documents but got {total_docs}")
                 self.logger.warning(f"  B2B documents: {b2b_docs} (expected: {self.TOTAL_B2B_FARES})")
                 self.logger.warning(f"  B2C documents: {b2c_docs} (expected: {self.TOTAL_B2C_FARES})")
             
