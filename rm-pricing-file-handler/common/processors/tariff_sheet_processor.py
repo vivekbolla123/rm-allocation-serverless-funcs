@@ -83,7 +83,7 @@ def validate_tariff_sheet(df: pd.DataFrame) -> pd.DataFrame:
     errors = []
 
     # --- 1. Required columns ---
-    required_cols = ["Market", "Stops", "Fuel Charge (YQ) in INR"]
+    required_cols = ["Market", "Stops", "TYPE", "Fuel Charge (YQ) in INR"]
     missing = [col for col in required_cols if col not in df.columns]
     if missing:
         raise ValueError(f"Missing required columns: {missing}")
@@ -252,6 +252,7 @@ def format_tariff_sheet(df: pd.DataFrame, station_master=None) -> dict:
             "sector": sector,
             "market": market,
             "stops": int(row["Stops"]),
+            "fare_type": str(row["TYPE"]).strip() if "TYPE" in row else "",
             "yq": yq_val,
             "fare_levels": fare_levels,
         }

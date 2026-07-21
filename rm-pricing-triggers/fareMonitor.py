@@ -452,10 +452,10 @@ class FareMonitor:
         selling_fares = self.pa_helper.get_weekly_selling_fares(active_sector_codes)
 
         # Source 2: bookings from ESB (flown + booked pax)
-        booking_fares = self.esb_helper.collect_weekly_booking_fares(active_sector_codes, days=7)
+        # booking_fares = self.esb_helper.collect_weekly_booking_fares(active_sector_codes, days=7)
 
-        if not selling_fares and not booking_fares:
-            self.logger.info("No selling fare or booking data found for the preceding 7 days — skipping")
+        if not selling_fares:
+            self.logger.info("No selling fare found for the preceding 7 days — skipping")
             return {'violations_count': 0, 'unmatched_count': 0, 'status': 'NO_DATA'}
 
         # Build tariff lookup
@@ -465,7 +465,7 @@ class FareMonitor:
         unmatched = []
 
         # Check both sources against tariff boundaries
-        for source_label, sector_fares in (('Selling Fare', selling_fares), ('Booking', booking_fares)):
+        for source_label, sector_fares in (('Selling Fare', selling_fares)):
             for sector, fares in sector_fares.items():
                 origin = sector[:3]
                 destination = sector[3:]
@@ -538,8 +538,13 @@ class FareMonitor:
     def _build_tariff_lookup(self, live_sheet):
         """Build a lookup dictionary from the live tariff sheet's fare_data.
 
-        For each sector, extracts the minimum fare (fare_level_1) and the
-        maximum fare (last non-empty fare level).
+        Phase-2 format: Each sector has two entries in fare_data —
+        one with fare_type='Maximum' and one with fare_type='Minimum'.
+        - min_fare = Level 1 from the Minimum row (absolute floor)
+        - max_fare = Level 15 from the Maximum row (absolute ceiling)
+
+        Also supports legacy format (single entry per sector without fare_type)
+        for backward compatibility during transition.
 
         Args:
             live_sheet: The live tariff sheet document from MongoDB.
@@ -550,11 +555,15 @@ class FareMonitor:
         tariff_lookup = {}
         fare_data = live_sheet.get('fare_data', [])
 
+        # Phase-2: Group entries by sector and fare_type
+        sector_entries = {}  # {sector: {'Maximum': entry, 'Minimum': entry}}
+
         for entry in fare_data:
-            sector = entry.get('sector', '')
+            sector = entry.get('sector', '') or entry.get('market', '')
             if not sector:
                 continue
 
+            fare_type = entry.get('fare_type', None)
             fare_levels = entry.get('fare_levels', [])
             if not fare_levels:
                 continue
@@ -565,14 +574,46 @@ class FareMonitor:
             if not valid_fares:
                 continue
 
-            min_fare = valid_fares[0]   # fare_level_1 (lowest)
-            max_fare = valid_fares[-1]  # last non-empty fare level (highest)
+            if fare_type in ('Maximum', 'Minimum'):
+                # Phase-2 format
+                if sector not in sector_entries:
+                    sector_entries[sector] = {}
+                sector_entries[sector][fare_type] = valid_fares
+            else:
+                # Legacy format (single row per sector, no fare_type field)
+                tariff_lookup[sector] = {
+                    'min_fare': valid_fares[0],
+                    'max_fare': valid_fares[-1],
+                    'fare_levels': valid_fares
+                }
 
-            tariff_lookup[sector] = {
-                'min_fare': min_fare,
-                'max_fare': max_fare,
-                'fare_levels': valid_fares
-            }
+        # Process Phase-2 grouped entries
+        for sector, type_map in sector_entries.items():
+            max_fares = type_map.get('Maximum', [])
+            min_fares = type_map.get('Minimum', [])
+
+            if max_fares and min_fares:
+                # min_fare = first level of Minimum row (lowest boundary)
+                # max_fare = last level of Maximum row (highest boundary)
+                tariff_lookup[sector] = {
+                    'min_fare': min_fares[0],
+                    'max_fare': max_fares[-1],
+                    'fare_levels': sorted(set(min_fares + max_fares))
+                }
+            elif max_fares:
+                # Only Maximum row available
+                tariff_lookup[sector] = {
+                    'min_fare': max_fares[0],
+                    'max_fare': max_fares[-1],
+                    'fare_levels': max_fares
+                }
+            elif min_fares:
+                # Only Minimum row available
+                tariff_lookup[sector] = {
+                    'min_fare': min_fares[0],
+                    'max_fare': min_fares[-1],
+                    'fare_levels': min_fares
+                }
 
         self.logger.info(f"Built tariff lookup with {len(tariff_lookup)} sectors")
         return tariff_lookup
