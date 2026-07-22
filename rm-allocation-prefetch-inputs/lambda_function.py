@@ -9,7 +9,7 @@ import uuid
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 import configsettings
-from Constants import PREFETCH_CHUNK_SIZE
+# from Constants import PREFETCH_CHUNK_SIZE
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -206,7 +206,8 @@ def lambda_handler(event, context):
 
     # Read config — run types that trigger sibling enrichment get smaller chunks
     run_type = event.get('run_type', 'Adhoc')
-    chunk_size_map = json.loads(get_parameter('PREFETCH_CHUNK_SIZE', PREFETCH_CHUNK_SIZE))
+    DEFAULT_PREFETCH_CHUNK_SIZE = '{"with_siblings": 500, "without_siblings": 8000}'
+    chunk_size_map = json.loads(get_parameter('PREFETCH_CHUNK_SIZE', DEFAULT_PREFETCH_CHUNK_SIZE))
     sibling_run_types = ('Scheduled_Thirty', 'Adhoc', 'Equipment_Change')
     if run_type in sibling_run_types:
         chunk_size = int(chunk_size_map['with_siblings'])

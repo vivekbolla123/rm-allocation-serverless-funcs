@@ -57,9 +57,6 @@ ADHOC_BATCH_SIZE = 4000
 CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
 
-# Prefetch Lambda settings
-PREFETCH_CHUNK_SIZE = '{"with_siblings": 500, "without_siblings": 8000}'
-
 # Portfolio sibling enrichment: max unique departure dates processed per window
 PORTFOLIO_SIBLING_BATCH_SIZE = 7
 
