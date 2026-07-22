@@ -3871,6 +3871,8 @@ public class App implements CommandLineRunner {
                     .append("Marketfare_Upsell", toIntOrKeepSame(marketListEntity.getMarketfare_Upsell()))
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
+                    .append("incrementedProfileFareFlag", toIntOrKeepSame(marketListEntity.getIncrementedProfileFareFlag()))
+                    .append("ProfileFareUpsell", toIntOrKeepSame(marketListEntity.getProfileFareUpsell()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
                     .append("market_station_mapping", toIntOrKeepSame(marketListEntity.getMarket_station_mapping()))
@@ -3969,6 +3971,8 @@ public class App implements CommandLineRunner {
                 .append("Marketfare_Upsell", toIntOrKeepSame(e.getMarketfare_Upsell()))
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
                 .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
+                .append("incrementedProfileFareFlag", toIntOrKeepSame(e.getIncrementedProfileFareFlag()))
+                .append("ProfileFareUpsell", toIntOrKeepSame(e.getProfileFareUpsell()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
                 .append("market_station_mapping", toIntOrKeepSame(e.getMarket_station_mapping()))
@@ -4369,6 +4373,8 @@ public class App implements CommandLineRunner {
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
+                .incrementedProfileFareFlag(convertYNToBoolean(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG)))
+                .ProfileFareUpsell(record.get(CSV_HEADER_PROFILE_FARE_UPSELL))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
                 .canAdjustedForecast(convertYNToBoolean(record.get(CSV_HEADER_CAN_ADJUSTED_FORECAST)))
                 .market_station_mapping(convertYNToBoolean(record.get(CSV_HEADER_MKT_ORIGIN_MAPPING)))
@@ -4596,6 +4602,20 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG))) {
+                listOfErrors.get().add(lineNum + "incrementedProfileFareFlag has value other than 'Y' or 'N'");
+            }
+            String profileFareUpsellStr = record.get(CSV_HEADER_PROFILE_FARE_UPSELL);
+            if (profileFareUpsellStr != null && !profileFareUpsellStr.trim().isEmpty()) {
+                if (!isNumeric(profileFareUpsellStr)) {
+                    listOfErrors.get().add(lineNum + "ProfileFareUpsell is not a valid number");
+                } else {
+                    double profileFareUpsellVal = Double.parseDouble(profileFareUpsellStr);
+                    if (profileFareUpsellVal < 0) {
+                        listOfErrors.get().add(lineNum + "ProfileFareUpsell must be a positive number");
+                    }
+                }
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
                 listOfErrors.get().add(lineNum + "SpoilageFlag has value other than 'Y' or 'N'");
