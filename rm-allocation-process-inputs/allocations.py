@@ -818,6 +818,9 @@ class RBDAllocations:
                 except (ValueError, TypeError):
                     b2c_fare_numeric = 0.0
 
+                # Pre-fetch all group forecast bands once to avoid repeated MongoDB calls
+                all_forecast_bands = self.rmdatabasehelper.get_all_group_forecast_bands()
+
                 # Initialize allocation dict for group RBDs (ordered low to high fare)
                 allocation_dict = {row['RBD']: 0 for _, row in group_alloc_df.iterrows()}
 
@@ -833,10 +836,12 @@ class RBDAllocations:
                     if use_forecast:
                         # Adjust imputed forecast for simulated seats sold
                         simulated_imp_forecast = imp_forecast + ((simulated_booked_load - float(currBookedLoad)) / final_totalCapacity) * 100
-                        band_result = self.rmdatabasehelper.get_group_forecast_band(simulated_imp_forecast)
+                        band_result = self._lookup_forecast_band(all_forecast_bands, simulated_imp_forecast)
                         band = band_result['band']
                         discount_pct = band_result['b2c_discount']
                         fare_anchor_strategy = band_result['fare_anchor_strategy']
+                        b2c_fare_weight = band_result['b2c_fare_weight']
+                        profile_fare_weight = band_result['profile_fare_weight']
                     else:
                         var_for_band = calculate_variance_for_load(
                             simulated_booked_load, final_totalCapacity, ndocounter,
@@ -845,10 +850,12 @@ class RBDAllocations:
                         band = self.rmdatabasehelper.getdpflBand(var_for_band)
                         if band is None:
                             band = 0
-                        # Use dplf band to look up b2c_discount and fare_anchor_strategy from group_forecast_bands
-                        band_result = self.rmdatabasehelper.get_group_b2c_discount_by_band(band)
+                        # Use dplf band to look up from cached bands
+                        band_result = self._lookup_band_by_number(all_forecast_bands, band)
                         discount_pct = band_result['b2c_discount']
                         fare_anchor_strategy = band_result['fare_anchor_strategy']
+                        b2c_fare_weight = band_result['b2c_fare_weight']
+                        profile_fare_weight = band_result['profile_fare_weight']
 
                     # --- Step 1: Calculate adjusted PLF (percentage) ---
                     adjusted_plf = calculate_group_adjusted_load(
@@ -871,16 +878,26 @@ class RBDAllocations:
                     else:
                         profile_fare_value = 0.0
 
-                    # --- Step 3: Apply increment factor from group_profile_fare_increments ---
-                    increment_str = f'I{str(int(bookload_percentile))}'
-                    increment_factor = 1.0
-                    if increment_doc and increment_str in increment_doc:
+                    # Apply upsell to profile fare value
+                    adjusted_profile_fare = profile_fare_value
+                    if profile_fare_value > 0 and upsell is not None and str(upsell).strip() not in ('', 'NA', 'None'):
                         try:
-                            increment_factor = float(increment_doc[increment_str])
+                            upsell_pct = float(upsell)
+                            if upsell_pct != 0:
+                                adjusted_profile_fare = profile_fare_value * (1 + upsell_pct / 100)
                         except (ValueError, TypeError):
-                            increment_factor = 1.0
+                            pass
 
-                    adjusted_profile_fare = profile_fare_value * increment_factor
+                    # --- Step 3: Apply increment factor from group_profile_fare_increments ---
+                    # increment_str = f'I{str(int(bookload_percentile))}'
+                    # increment_factor = 1.0
+                    # if increment_doc and increment_str in increment_doc:
+                    #     try:
+                    #         increment_factor = float(increment_doc[increment_str])
+                    #     except (ValueError, TypeError):
+                    #         increment_factor = 1.0
+
+                    # adjusted_profile_fare = profile_fare_value * increment_factor
 
 
                     # --- Step 4: Calculate discounted B2C selling fare ---
@@ -888,7 +905,7 @@ class RBDAllocations:
                     discounted_b2c_fare = b2c_fare_numeric * (1 + float(discount_pct) / 100) if b2c_fare_numeric > 0 else 0.0
 
                     # --- Step 5: Determine fare anchor based on strategy ---
-                    fare_anchor = calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy)
+                    fare_anchor = calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy, b2c_fare_weight, profile_fare_weight)
                     if fare_anchor is None:
                         break
 
@@ -937,11 +954,11 @@ class RBDAllocations:
 
                     # Simulate adding seats to booked load for next iteration
                     simulated_booked_load += seats_to_add
-                    # print(
-                    #     f"{adjusted_profile_fare=:.2f}, {adjusted_plf=:.2f}, "
-                    #     f"{fare_anchor=:.2f}, {target_rbd=}, {simulated_booked_load=}, "
-                    #     f"{simulated_imp_forecast=:}, {var_for_band=:}, "
-                    # )
+                    print(
+                        f"{adjusted_profile_fare=:.2f}, {adjusted_plf=:.2f}, "
+                        f"{fare_anchor=:.2f}, {target_rbd=}, {simulated_booked_load=}, "
+                        f"{simulated_imp_forecast=:}, {var_for_band=:}, "
+                    )
 
                     # Safety: don't exceed total capacity
                     if simulated_booked_load >= int(final_totalCapacity):
@@ -973,6 +990,30 @@ class RBDAllocations:
                 brd_counter += 1
 
         return brd_counter, first_iter_adjusted_profile_fare, first_iter_adjusted_plf, first_iter_fare_anchor
+
+    def _lookup_forecast_band(self, all_bands, imp_forecast):
+        """Look up the matching band from the pre-fetched list using forecast value."""
+        default = {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
+        try:
+            val = float(imp_forecast)
+            for b in all_bands:
+                if b['start'] <= val <= b['end']:
+                    return b
+        except (ValueError, TypeError):
+            pass
+        return default
+
+    def _lookup_band_by_number(self, all_bands, band_number):
+        """Look up the matching band from the pre-fetched list using band number."""
+        default = {'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
+        try:
+            target = int(band_number)
+            for b in all_bands:
+                if b['band'] == target:
+                    return b
+        except (ValueError, TypeError):
+            pass
+        return default
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):

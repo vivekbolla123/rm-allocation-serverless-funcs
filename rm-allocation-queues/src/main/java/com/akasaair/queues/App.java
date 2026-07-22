@@ -622,7 +622,7 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
-                case PROFILE_FARES_TABLE_NAME -> {
+                case PROFILE_FARES_TABLE_NAME, GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
                         collection.updateOne(
@@ -653,7 +653,7 @@ public class App implements CommandLineRunner {
                         numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
 
                         try (Reader reader = new StringReader(fileContent)) {
-                            uploadProfileFaresFile(reader, userName, obj_id);
+                            uploadProfileFaresFile(reader, userName, obj_id, tableName);
                         } catch (Exception e) {
                             listOfErrors.get().add("Error Uploading Profile Fares File to DB. Please check file content");
                             throw new RuntimeException("Error processing profile fares file content: " + e.getMessage(), e);
@@ -1806,11 +1806,11 @@ public class App implements CommandLineRunner {
         }
     }
 
-    public void uploadProfileFaresFile(Reader file, String userName, String obj_id) throws Exception {
+    public void uploadProfileFaresFile(Reader file, String userName, String obj_id, String tableName) throws Exception {
         String uuid = obj_id;
         try {
-            insertAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), userName, uuid);
-            insertInputStatusTable(PROFILE_FARES_TABLE_NAME);
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, uuid);
+            insertInputStatusTable(tableName);
             
             List<List<String>> csvData = getDataFromCSVFile(file);
             
@@ -1862,20 +1862,20 @@ public class App implements CommandLineRunner {
             }
             
             // Upsert to MongoDB
-            bulkUpsertProfileFares(data);
+            bulkUpsertProfileFares(data, tableName);
             
-            s3FileStorageDao.storeFile(createCSV(PROFILE_FARES_TABLE_NAME), PROFILE_FARES_TABLE_NAME, uuid);
-            updateAuditStatement(PROFILE_FARES_TABLE_NAME, getCurrentDateTime(), uuid);
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, uuid);
+            updateAuditStatement(tableName, getCurrentDateTime(), uuid);
         } catch (Exception e) {
             throw e;
         } finally {
-            updateInputStatus(PROFILE_FARES_TABLE_NAME);
+            updateInputStatus(tableName);
         }
     }
 
-    private void bulkUpsertProfileFares(List<Map<String, String>> data) {
+    private void bulkUpsertProfileFares(List<Map<String, String>> data, String tableName) {
         try {
-            MongoCollection<Document> collection = database.getCollection(PROFILE_FARES_TABLE_NAME);
+            MongoCollection<Document> collection = database.getCollection(tableName);
             
             // Create unique compound index on the key fields if it doesn't exist
             try {
@@ -1974,6 +1974,14 @@ public class App implements CommandLineRunner {
                         .append("startTime", startTime)
                         .append("endTime", endTime);
                 
+                if (!GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME.equals(tableName) && rowData.get("year") != null && !rowData.get("year").trim().isEmpty()) {
+                    doc.append("year", autoConvert(rowData.get("year").trim()));
+                }
+                
+                if (GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME.equals(tableName)) {
+                    doc.append("created_at", new Date());
+                }
+                
                 // Upsert operation
                 ReplaceOptions options = new ReplaceOptions().upsert(true);
                 bulkOps.add(new ReplaceOneModel<>(filter, doc, options));
@@ -2047,7 +2055,7 @@ public class App implements CommandLineRunner {
                     columnName = SECTOR_COLUMN_NAME;
                     yield getUniqueFareSector(data, SECTOR_COLUMN_NAME, ROUTE_COLUMN_NAME);
                 }
-                case PROFILE_FARES_TABLE_NAME -> {
+                case PROFILE_FARES_TABLE_NAME, GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME -> {
                     columnName = SECTOR_COLUMN_NAME.toLowerCase();
                     yield getUniqueValues(data, columnName);
                 }
@@ -2585,7 +2593,7 @@ public class App implements CommandLineRunner {
         switch (tableName) {
             case CURVES_TABLE_NAME -> validator = new CurvesValidator(searchResults(LF_VALUE_KEY));
             case QP_FARES_TABLE_NAME -> validator = new FaresValidator();
-            case PROFILE_FARES_TABLE_NAME -> validator = new ProfileValidator();
+            case PROFILE_FARES_TABLE_NAME, GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME -> validator = new ProfileValidator();
             default -> validator = null;
         }
         return validator;

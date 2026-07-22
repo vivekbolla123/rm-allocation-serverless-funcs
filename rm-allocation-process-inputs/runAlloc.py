@@ -1072,7 +1072,7 @@ class DynAlloc:
 		mkt_fare_flag = int(self.currParams.mkt_fare_flag)
 
 		profileFare = CONST_NA
-		profileFaresData = self.rmdatabasehelper.getProfileFares(self.currParams.origin + self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full)
+		profileFaresData = self.rmdatabasehelper.getProfileFares(self.currParams.origin + self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full, self.currParams.incrementedProfileFareFlag)
 
 		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
 			upsellValue_full = 0
@@ -1081,8 +1081,19 @@ class DynAlloc:
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0]!="":
 				profileFare = float(profileFaresData['price'][0])
-				if upsellValue_full != 0:
-					profileFare = (profileFare * (1 + float(upsellValue_full)/100))
+				if int(self.currParams.incrementedProfileFareFlag) == 1:
+					# When flag is on, apply ML-level profileFareUpsell instead of station upsell
+					ml_upsell = self.currParams.profileFareUpsell
+					if ml_upsell not in (None, '', 'NA', CONST_NA):
+						try:
+							ml_upsell_pct = float(ml_upsell)
+							if ml_upsell_pct != 0:
+								profileFare = profileFare * (1 + ml_upsell_pct / 100)
+						except (ValueError, TypeError):
+							pass
+				else:
+					if upsellValue_full != 0:
+						profileFare = (profileFare * (1 + float(upsellValue_full)/100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -1322,16 +1333,10 @@ class DynAlloc:
 			currRec_fullalloc.b2crunid = self.outputSummaryRow_b2c.Id
 			currRec_fullalloc.b2brunid = self.outputSummaryRow_b2b.Id
 
-		# Profile Fares list for allocations
-		profileExtract_df_fullalloc = self.rmdatabasehelper.profileFaresExtract(
-			self.currParams.origin, self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm
-		)
-		profileFares_list_sorted_fullalloc = []
-		if not profileExtract_df_fullalloc.empty:
-			profileFares_list_sorted_fullalloc = sorted(pd.to_numeric(
-					profileExtract_df_fullalloc.transpose().values.flatten(),
-					errors='coerce'
-			).tolist())
+		# Profile Fares list for allocations — reuse the DataFrame already
+		# fetched during _rehydrateFlightState to avoid a duplicate MongoDB call.
+		profileExtract_df_fullalloc = state.profileExtract_df_fullalloc
+		profileFares_list_sorted_fullalloc = state.profileFares_list_sorted_fullalloc
 
 		# Proceed with AU allocation if B2C determination was somewhat successful
 		# Check if 'statusInd' key exists before trying to access its value
@@ -1415,9 +1420,11 @@ class DynAlloc:
 			b2c_selling_fare = safe_get_from_dict(openDataB2C_details, "Fare")
 			param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
 			group_bookings=self.currParams.group_bookings# Default
+			# For group allocation: always use ML profileFareUpsell
+			group_upsell = self.currParams.profileFareUpsell
 			current_brd_counter, state.grp_adj_profile_fare, state.grp_adj_bookload, state.grp_fare_anchor = self.allocations.group_quote_alloc(
 				profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
-				base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
+				base_adjustedCapacity, group_upsell, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
 				b2c_backstop_final,
 				ndocounter=ndocounter, imp_forecast=imp_forecast,
 				sod_tgtAtCurrentHour_abs=sod_tgtAtCurrentHour_abs,
@@ -2273,6 +2280,7 @@ class DynAlloc:
 		profileFaresData = self.rmdatabasehelper.getProfileFares(
 			self.currParams.origin + self.currParams.destin,
 			month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full,
+			self.currParams.incrementedProfileFareFlag,
 		)
 
 		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
@@ -2282,8 +2290,19 @@ class DynAlloc:
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0] != "":
 				profileFare = float(profileFaresData['price'][0])
-				if upsellValue_full != 0:
-					profileFare = (profileFare * (1 + float(upsellValue_full) / 100))
+				if int(self.currParams.incrementedProfileFareFlag) == 1:
+					# When flag is on, apply ML-level profileFareUpsell instead of station upsell
+					ml_upsell = self.currParams.profileFareUpsell
+					if ml_upsell not in (None, '', 'NA', CONST_NA):
+						try:
+							ml_upsell_pct = float(ml_upsell)
+							if ml_upsell_pct != 0:
+								profileFare = profileFare * (1 + ml_upsell_pct / 100)
+						except (ValueError, TypeError):
+							pass
+				else:
+					if upsellValue_full != 0:
+						profileFare = (profileFare * (1 + float(upsellValue_full) / 100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -3390,6 +3409,8 @@ class DynAlloc:
 			"portfolio_count": "portfolio_count",
 			"portfolio_only": "portfolio_only",
 			"strategy": "fareAnchor",  # strategy is derived from fare_anchor
+			"incrementedProfileFareFlag": "incrementedProfileFareFlag",
+			"profileFareUpsell": "ProfileFareUpsell",
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
@@ -3678,6 +3699,7 @@ class DynAlloc:
 		state.profileExtract_df_fullalloc = self.rmdatabasehelper.profileFaresExtract(
 			self.currParams.origin, self.currParams.destin,
 			state.month_str_for_profile, state.dow_str_for_profile, state.deptTime_str_hhmm,
+			self.currParams.incrementedProfileFareFlag,
 		)
 		profileFares_list_sorted_fullalloc = []
 		if not state.profileExtract_df_fullalloc.empty:

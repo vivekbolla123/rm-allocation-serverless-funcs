@@ -285,11 +285,14 @@ def calculate_group_adjusted_load(simulated_booked_load, total_capacity, adjuste
     adjustment = current_variance * constantsutils.GROUP_SCALING_FACTOR
   return simulated_plf + adjustment
 
-def calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy):
+def calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare_anchor_strategy, b2c_fare_weight=0, profile_fare_weight=1):
   """
-  Determine the fare anchor for group allocation based on fare_anchor_strategy.
-  Strategy 'min': MIN(adjusted profile fare, discounted B2C fare)
-  Strategy 'max': MAX(adjusted profile fare, discounted B2C fare)
+  Determine the fare anchor for group allocation based on fare_anchor_strategy
+  and weighted fare calculation.
+
+  The weighted fare is: discounted_b2c_fare * b2c_fare_weight + adjusted_profile_fare * profile_fare_weight
+  The final fare anchor is: fare_anchor_strategy(discounted_b2c_fare, weighted_fare)
+
   Returns None if both fares are <= 0.
   """
   if adjusted_profile_fare <= 0 and discounted_b2c_fare <= 0:
@@ -298,9 +301,12 @@ def calculate_group_fare_anchor(adjusted_profile_fare, discounted_b2c_fare, fare
     return discounted_b2c_fare
   if discounted_b2c_fare <= 0:
     return adjusted_profile_fare
+
+  weighted_fare = discounted_b2c_fare * b2c_fare_weight + adjusted_profile_fare * profile_fare_weight
+
   if fare_anchor_strategy == 'max':
-    return max(adjusted_profile_fare, discounted_b2c_fare)
-  return min(adjusted_profile_fare, discounted_b2c_fare)
+    return max(discounted_b2c_fare, weighted_fare)
+  return min(discounted_b2c_fare, weighted_fare)
 
 def safe_get_from_dict(d, key, default=CONST_NA, index=0):
   val_list = d.get(key)
