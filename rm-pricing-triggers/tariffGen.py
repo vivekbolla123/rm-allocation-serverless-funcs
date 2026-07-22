@@ -36,10 +36,15 @@ class GenerationHaltError(TariffGenError):
 
 
 class TariffGen:
-    """Orchestrates the full tariff sheet generation pipeline.
+    """Orchestrates the full tariff sheet generation pipeline (Phase-2: GP-based fares).
+
+    Each sector produces two rows (Maximum and Minimum fare type) with 15 fare levels.
+    - Maximum row: Level 1 = Yield_Threshold*Distance/0.8, Level 15 = highest filed fare,
+      Levels 2-14 = geometric progression (GP) between Level 1 and Level 15.
+    - Minimum row: Level 1 = Yield_Threshold*Distance, Levels 2-15 = 0.9 * previous Max level.
 
     Handles fare extraction from fare dumps (B2C, W4/W5/W6, TBF RBDs),
-    fare level ordering and assignment, market column formatting,
+    GP-based fare level calculation, market column formatting,
     YQ calculation, stops column population, information text section,
     tax data section, CSV generation, and S3 upload.
     """
@@ -82,10 +87,11 @@ class TariffGen:
         self.W_RBDS = self.constants.W_RBD.split(',')
         self.TBF_RBDS = self.constants.TBF_RBD.split(',')
 
-        # Fare level constants
-        self.MAX_FARE_LEVELS = 77
-        self.FARE_CAP = 45000
-        self.DISTANCE_FARE_MULTIPLIER = self.constants.YIELD_FACTOR  # 1.4 from rm_parameter_values
+        # Fare level constants (Phase-2: GP-based 15 levels with Max/Min rows)
+        self.MAX_FARE_LEVELS = 15
+        self.YIELD_THRESHOLD = self.constants.YIELD_FACTOR  # 1.4 from rm_parameter_values
+        self.MIN_TO_MAX_DIVISOR = 0.8  # Min Level 1 / 0.8 = Max Level 1
+        self.MIN_DISCOUNT_FACTOR = 0.9  # Min Level N = 0.9 * Max Level (N-1)
 
         # YQ distance bands from constants (configurable via rm_parameter_values)
         # Format: [(0, 500, 199), (500, 1000, 299), (1000, 1500, 449), (1500, inf, 549)]
@@ -379,56 +385,96 @@ class TariffGen:
         self.logger.info(f"TBF fares extracted for {len(tbf_fares)} sectors")
         return tbf_fares
 
-    def order_fare_levels(self, sector_fares):
-        """Order and assign fare levels for each sector.
+    def compute_gp_fare_levels(self, sector_fares):
+        """Compute GP-based Maximum and Minimum fare levels for each sector.
 
-        For each sector:
-        1. Remove duplicates
-        2. Sort ascending
-        3. Apply minimum fare floor (1.4 * distance)
-        4. Apply maximum fare cap (append 45000 if max < 45000)
-        5. Pad with None up to 77 levels
+        Phase-2 logic:
+        - Maximum row:
+            Level 1 = Yield_Threshold * Distance / 0.8
+            Level 15 = highest filed fare (B2C + TBF combined)
+            Levels 2-14 = GP interpolation between Level 1 and Level 15
+        - Minimum row:
+            Level 1 = Yield_Threshold * Distance
+            Level N (2-15) = 0.9 * Max Level (N-1)
+
+        If distance is unavailable, falls back to:
+            Max Level 1 = min(filed fares) / 0.8
+            Min Level 1 = min(filed fares)
 
         Args:
-            sector_fares: dict {sector: [all fare values from B2C + W + TBF combined]}
+            sector_fares: dict {sector: [all fare values from B2C + TBF combined]}
 
         Returns:
-            dict: {sector: [77 values, fare or None]}
+            dict: {sector: {'max': [15 fare values], 'min': [15 fare values]}}
         """
-        ordered_fares = {}
+        gp_levels = {}
 
         for sector, fares in sector_fares.items():
             if not fares:
-                ordered_fares[sector] = [None] * self.MAX_FARE_LEVELS
+                gp_levels[sector] = {
+                    'max': [None] * self.MAX_FARE_LEVELS,
+                    'min': [None] * self.MAX_FARE_LEVELS
+                }
                 continue
 
-            # Step 1: Remove duplicates
-            unique_fares = list(set(fares))
+            # Highest filed fare = Level 15 of Maximum row
+            max_fare_level_15 = max(fares)
 
-            # Step 2: Sort ascending
-            unique_fares.sort()
-
-            # Step 3: Apply minimum fare floor based on distance
+            # Minimum fare floor = Yield_Threshold * Distance
             sector_distance = self._get_sector_distance(sector)
             if sector_distance is not None and sector_distance > 0:
-                min_fare_floor = round(self.DISTANCE_FARE_MULTIPLIER * sector_distance)
-                if unique_fares[0] < min_fare_floor:
-                    unique_fares[0] = min_fare_floor
-                    # Re-sort in case floor pushed first fare above second
-                    unique_fares = sorted(set(unique_fares))
+                min_fare_level_1 = round(self.YIELD_THRESHOLD * sector_distance)
+            else:
+                # Fallback: use lowest filed fare as min level 1
+                min_fare_level_1 = round(min(fares))
+                self.logger.warning(
+                    f"Sector {sector}: distance unavailable, using lowest filed fare "
+                    f"({min_fare_level_1}) as Min Level 1"
+                )
 
-            # Step 4: Apply maximum fare cap
-            if unique_fares and max(unique_fares) < self.FARE_CAP:
-                unique_fares.append(self.FARE_CAP)
+            # Maximum Level 1 = Min Level 1 / 0.8
+            max_fare_level_1 = round(min_fare_level_1 / self.MIN_TO_MAX_DIVISOR)
 
-            # Step 5: Pad with None up to MAX_FARE_LEVELS
-            padded = unique_fares[:self.MAX_FARE_LEVELS]
-            padded.extend([None] * (self.MAX_FARE_LEVELS - len(padded)))
+            # Ensure Max Level 1 < Max Level 15 (sanity check)
+            if max_fare_level_1 >= max_fare_level_15:
+                self.logger.warning(
+                    f"Sector {sector}: Max Level 1 ({max_fare_level_1}) >= Max Level 15 "
+                    f"({max_fare_level_15}). Adjusting Max Level 15 to Max Level 1 * 2."
+                )
+                max_fare_level_15 = max_fare_level_1 * 2
 
-            ordered_fares[sector] = padded
+            # --- Build Maximum row using GP ---
+            # GP: a, a*r, a*r^2, ..., a*r^(n-1)
+            # Level 1 = a = max_fare_level_1
+            # Level 15 = a * r^14 = max_fare_level_15
+            # r = (Level_15 / Level_1) ^ (1/14)
+            n = self.MAX_FARE_LEVELS  # 15
+            common_ratio = (max_fare_level_15 / max_fare_level_1) ** (1.0 / (n - 1))
 
-        self.logger.info(f"Fare levels ordered for {len(ordered_fares)} sectors")
-        return ordered_fares
+            max_levels = []
+            for i in range(n):
+                fare_value = round(max_fare_level_1 * (common_ratio ** i))
+                max_levels.append(fare_value)
+
+            # Force exact endpoints to avoid floating-point drift
+            max_levels[0] = max_fare_level_1
+            max_levels[-1] = round(max_fare_level_15)
+
+            # --- Build Minimum row ---
+            # Min Level 1 = Yield_Threshold * Distance
+            # Min Level N (2-15) = 0.9 * Max Level (N-1)
+            min_levels = [min_fare_level_1]
+            for i in range(1, n):
+                min_level_value = round(self.MIN_DISCOUNT_FACTOR * max_levels[i - 1])
+                min_levels.append(min_level_value)
+
+            gp_levels[sector] = {
+                'max': max_levels,
+                'min': min_levels
+            }
+
+        self.logger.info(f"GP fare levels computed for {len(gp_levels)} sectors")
+        return gp_levels
 
     def _get_sector_distance(self, sector_code):
         """Look up sector distance from city_pair_df.
@@ -581,26 +627,28 @@ class TariffGen:
     def generate_tariff_sheet(self):
         """Execute the full generation pipeline and return tariff DataFrame.
 
+        Phase-2: Each sector produces two rows (Maximum and Minimum fare type)
+        with 15 GP-based fare levels.
+
         Steps:
-        1. Extract all fares (B2C, W, TBF)
+        1. Extract all fares (B2C, TBF) — W fares excluded from GP input
         2. Combine per sector
-        3. Order fare levels
-        4. Build DataFrame with Market, Stops, YQ, Fare_Level_1..77
+        3. Compute GP fare levels (Max and Min rows)
+        4. Build DataFrame with Market, Fare_Type, Stops, YQ, Fare_Level_1..15
 
         Returns:
             pd.DataFrame: Complete tariff sheet DataFrame.
         """
-        self.logger.info("Generating tariff sheet...")
+        self.logger.info("Generating tariff sheet (Phase-2: GP-based)...")
 
-        # Step 1: Extract fares from all sources
+        # Step 1: Extract fares from B2C and TBF sources
+        # (W fares are not used for GP boundary computation per Phase-2 spec)
         b2c_fares = self.extract_b2c_fares()
-        w_fares = self.extract_w_fares()
         tbf_fares = self.extract_tbf_fares()
 
-        # Step 2: Combine all fare values per sector
+        # Step 2: Combine all fare values per sector (B2C + TBF only)
         all_sectors = set(
             list(b2c_fares.keys()) +
-            list(w_fares.keys()) +
             list(tbf_fares.keys())
         )
 
@@ -609,26 +657,23 @@ class TariffGen:
             combined = []
             if sector in b2c_fares:
                 combined.extend(b2c_fares[sector])
-            if sector in w_fares:
-                combined.extend(w_fares[sector])
             if sector in tbf_fares:
                 combined.extend(tbf_fares[sector])
             if combined:
                 sector_fares[sector] = combined
 
-        # Step 3: Order fare levels
-        ordered_levels = self.order_fare_levels(sector_fares)
+        # Step 3: Compute GP fare levels
+        gp_levels = self.compute_gp_fare_levels(sector_fares)
 
-        # Step 4: Build DataFrame rows
+        # Step 4: Build DataFrame rows (2 rows per sector: Maximum, Minimum)
         rows = []
         unmapped_sectors = []
-        active_sector_codes = set(self.active_sectors_df['sector'].tolist())
 
         for _, sector_row in self.active_sectors_df.iterrows():
             sector = sector_row['sector']
 
-            # Skip sectors not in ordered levels (no fares extracted)
-            if sector not in ordered_levels:
+            # Skip sectors not in gp_levels (no fares extracted)
+            if sector not in gp_levels:
                 self.logger.info(f"Skipping sector {sector} — no fares extracted")
                 continue
 
@@ -646,7 +691,6 @@ class TariffGen:
             origin_name = self._get_city_name(origin)
             destination_name = self._get_city_name(destination)
             if origin_name == origin or destination_name == destination:
-                # Station exists but has no 'name' field
                 missing_names = []
                 if origin_name == origin:
                     missing_names.append(origin)
@@ -664,19 +708,31 @@ class TariffGen:
             distance = self._get_sector_distance(sector)
             yq = self.calculate_yq(distance)
 
-            # Fare levels
-            fare_levels = ordered_levels[sector]
+            # Get GP levels for this sector
+            sector_gp = gp_levels[sector]
 
-            # Build row
-            row = {
+            # Build Maximum row
+            max_row = {
                 'Market': market,
+                'Fare_Type': 'Maximum',
                 'Stops': stops,
                 'Fuel Charge (YQ) in INR': yq
             }
-            for i, fare in enumerate(fare_levels, start=1):
-                row[f'Fare_Level_{i}'] = fare
+            for i, fare in enumerate(sector_gp['max'], start=1):
+                max_row[f'Fare_Level_{i}'] = fare
 
-            rows.append(row)
+            # Build Minimum row
+            min_row = {
+                'Market': market,
+                'Fare_Type': 'Minimum',
+                'Stops': stops,
+                'Fuel Charge (YQ) in INR': yq
+            }
+            for i, fare in enumerate(sector_gp['min'], start=1):
+                min_row[f'Fare_Level_{i}'] = fare
+
+            rows.append(max_row)
+            rows.append(min_row)
 
         # Fail the entire run if any sectors have unmapped stations or missing city names
         if unmapped_sectors:
@@ -687,12 +743,17 @@ class TariffGen:
             )
             raise GenerationHaltError(error_msg)
 
-        # Create DataFrame and sort by Market
+        # Create DataFrame and sort by Market, then Fare_Type (Max before Min)
         tariff_df = pd.DataFrame(rows)
         if not tariff_df.empty:
-            tariff_df = tariff_df.sort_values('Market').reset_index(drop=True)
+            tariff_df = tariff_df.sort_values(
+                ['Market', 'Fare_Type'], ascending=[True, False]
+            ).reset_index(drop=True)
 
-        self.logger.info(f"Tariff sheet generated: {len(tariff_df)} sectors")
+        self.logger.info(
+            f"Tariff sheet generated: {len(tariff_df)} rows "
+            f"({len(tariff_df) // 2} sectors × 2 fare types)"
+        )
         return tariff_df
 
     def generate_csv(self, tariff_df):
@@ -700,6 +761,7 @@ class TariffGen:
 
         Formats fare values with comma thousands separator (e.g., 1402 → '1,402').
         Empty fare levels are represented as '  ' (two spaces).
+        Includes Fare_Type column (Maximum/Minimum) for each row.
 
         Args:
             tariff_df: DataFrame with tariff sheet data.
@@ -725,6 +787,10 @@ class TariffGen:
         output_df['Stops'] = output_df['Stops'].astype(int)
         output_df['Fuel Charge (YQ) in INR'] = output_df['Fuel Charge (YQ) in INR'].astype(int)
 
+        # Reorder columns: Market, Fare_Type, Stops, YQ, Fare_Level_1..15
+        col_order = ['Market', 'Fare_Type', 'Stops', 'Fuel Charge (YQ) in INR'] + fare_cols
+        output_df = output_df[col_order]
+
         # Generate CSV string
         csv_buffer = io.StringIO()
         output_df.to_csv(csv_buffer, index=False)
@@ -737,6 +803,7 @@ class TariffGen:
         """Save generated tariff sheet to S3 and MongoDB.
 
         Uploads CSV to S3 and saves metadata to generated_tariff_sheet collection.
+        Each sector now produces two entries (Maximum, Minimum) in fare_data.
 
         Args:
             run_id: Unique identifier for the tariff generation run.
@@ -777,6 +844,7 @@ class TariffGen:
 
                 fare_data.append({
                     'market': row['Market'],
+                    'fare_type': row['Fare_Type'],
                     'stops': int(row['Stops']),
                     'yq': int(row['Fuel Charge (YQ) in INR']),
                     'fare_levels': fare_levels
@@ -793,7 +861,7 @@ class TariffGen:
             'info_text': info_text,
             'status': 'success',
             'error_message': None,
-            'sector_count': len(fare_data)
+            'sector_count': len(fare_data) // 2  # Each sector has 2 rows (Max + Min)
         }
 
         self.pa_helper.save_generated_tariff(tariff_doc)

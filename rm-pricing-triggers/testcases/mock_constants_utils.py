@@ -82,8 +82,8 @@ class ConstantsUtils:
         self.CLOSED_RM_ALERT_MAIL_ID = 'test@example.com'
         self.UP_B2C = 5
         self.UP_B2B = 5
-        self.MARKET_FLAG = True
         self.B2B_THRESHOLD = 100
+        self.GENERATE_CWT_RULES = True
         
         print("[TEST MODE] Using mock ConstantsUtils")
     
