@@ -613,12 +613,14 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     portfolio_only=1 so they don't produce downstream outputs.
 
     Memory-optimized: processes the date range in small windows of
-    PORTFOLIO_SIBLING_BATCH_SIZE days each, calling fetch_and_process_market_list
+    PORTFOLIO_SIBLING_BATCH_SIZE days each, calling fetch_market_list_for_specific_dates
     per window. This bounds peak memory to (total_docs_in_collection x days_in_window)
     regardless of how many sectors or how wide the NDO span is.
 
     For each window:
-      1. Call fetch_and_process_market_list with the narrow date range (reuses proven logic)
+      1. Call fetch_market_list_for_specific_dates with the exact window dates (NOT a range)
+         so that only the specifically requested departure dates are cross-joined — avoids
+         fetching an entire year's worth of data when min/max dates are far apart.
       2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
       3. Append sibling rows, free intermediate memory, move to next window
     """
@@ -660,11 +662,12 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
 
     for window_idx in range(0, len(sorted_dates), days_per_window):
         window_dates = sorted_dates[window_idx:window_idx + days_per_window]
-        window_start = pd.Timestamp(window_dates[0]).strftime('%Y-%m-%d')
-        window_end = pd.Timestamp(window_dates[-1]).strftime('%Y-%m-%d')
 
-        # 4a. Fetch market list for this narrow date window (reuses existing proven logic)
-        window_df = fetch_and_process_market_list(window_start, window_end, main_table, query_type)
+        # 4a. Fetch market list for exactly this set of dates.
+        # Using fetch_market_list_for_specific_dates instead of fetch_and_process_market_list
+        # avoids the bug where the latter would generate a full date-range from min to max
+        # (e.g. if window contains Jan 1 and Dec 31, the old code fetched all 365 days).
+        window_df = fetch_market_list_for_specific_dates(window_dates, main_table, query_type)
 
         if window_df.empty:
             continue
@@ -1044,84 +1047,12 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             logger.info(f"Market list {market_list_table} is empty.")
             return pd.DataFrame()
 
-        # Define projection columns based on query type
-        standard_cols = [
-            'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
-            'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
-            'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
-            'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
-            'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
-            'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag'
-        ]
-        sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
-        connection_cols = [
-            'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
-            'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
-            'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
-            'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
-        ]
-
-        projection_cols = []
-        if query_type == 'standard':
-            projection_cols = standard_cols
-        elif query_type == 'sales':
-            projection_cols = sales_cols
-        elif query_type == 'connections':
-            projection_cols = connection_cols
-
-        existing_cols = [col for col in projection_cols if col in base_ml_df.columns]
-        required_cols = existing_cols + ['PerStart', 'PerEnd', 'DOW']
-        base_ml_df = base_ml_df[list(set(required_cols))]
-
-        # Generate Date Range
+        # Generate full date range for cross-join
         s_date = datetime.strptime(start_period, "%Y-%m-%d")
         e_date = datetime.strptime(end_period, "%Y-%m-%d")
-        date_range = pd.date_range(start=s_date, end=e_date , freq='D')
-        date_df = pd.DataFrame({'Date': date_range})
+        date_df = pd.DataFrame({'Date': pd.date_range(start=s_date, end=e_date, freq='D')})
 
-        # Cross Join
-        base_ml_df['key'] = 1
-        date_df['key'] = 1
-        mkt_list = pd.merge(date_df, base_ml_df, on='key').drop("key", axis=1)
-
-        # Apply Filters
-        mkt_list['PerStart_dt'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y')
-        mkt_list['PerEnd_dt'] = pd.to_datetime(mkt_list['PerEnd'], format='%m/%d/%Y')
-
-        mkt_list = mkt_list[
-            (mkt_list['Date'] >= mkt_list['PerStart_dt']) &
-            (mkt_list['Date'] <= mkt_list['PerEnd_dt'])
-        ]
-
-        # Apply DOW Filter
-        def check_dow(row):
-            pandas_dow = row['Date'].dayofweek
-            mysql_dow = (pandas_dow + 2)
-            if mysql_dow > 7:
-                mysql_dow = 1
-
-            dow_string = row['DOW']
-            try:
-                flag = str(dow_string)[mysql_dow - 1]
-                return flag == '1'
-            except (IndexError, TypeError):
-                return False
-
-        mkt_list['Flag'] = mkt_list.apply(check_dow, axis=1)
-        mkt_list = mkt_list[mkt_list['Flag'] == True]
-
-        # Format Final Output
-        mkt_list['PerStart'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
-        mkt_list['PerEnd'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
-        
-        final_cols = existing_cols + ['PerStart', 'PerEnd']
-        mkt_list = mkt_list[final_cols]
-
-        if query_type != 'connections':
-            mkt_list = mkt_list.sort_values(by=['Origin', 'Destin', 'FlightNumber'])
-        
-        return mkt_list
+        return _process_market_list_docs(base_ml_df, date_df, query_type)
 
     except Exception as e:
         logger.error(f"Error in fetch_and_process_market_list: {str(e)}")
@@ -1129,7 +1060,131 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
     finally:
         log_time.end("fetch_and_process_market_list")
 
-# Helper functions with retry
+def fetch_market_list_for_specific_dates(specific_dates, market_list_table, query_type='standard'):
+    """
+    Fetches market list docs from MongoDB for exactly the given dates (pd.Timestamps).
+
+    Since PerStart == PerEnd always (each doc is a single-date entry), the filter is a
+    simple $in on PerStart — no range logic needed.
+    """
+    log_time.start()
+    try:
+        if not specific_dates:
+            return pd.DataFrame()
+
+        # PerStart == PerEnd always, so a direct $in on PerStart is sufficient.
+        date_strs = [pd.Timestamp(d).strftime('%m/%d/%Y') for d in specific_dates]
+        market_list_filter = {'PerStart': {'$in': date_strs}}
+
+        if market_list_table != "market_list" and query_type != 'connections':
+            market_list_filter['defaultMlFlag'] = 0
+
+        cursor = mongo_find_with_retry(market_list_table, market_list_filter)
+        base_ml_df = pd.DataFrame(cursor)
+
+        if base_ml_df.empty:
+            logger.info(f"Market list {market_list_table} is empty for the requested dates.")
+            return pd.DataFrame()
+
+        # Cross-join against ONLY the exact requested dates (not a full range)
+        date_df = pd.DataFrame({'Date': [pd.Timestamp(d) for d in specific_dates]})
+
+        return _process_market_list_docs(base_ml_df, date_df, query_type)
+
+    except Exception as e:
+        logger.error(f"Error in fetch_market_list_for_specific_dates: {str(e)}")
+        raise
+    finally:
+        log_time.end("fetch_market_list_for_specific_dates")
+
+
+
+def _process_market_list_docs(base_ml_df, date_df, query_type):
+    """
+    Shared core for fetch_and_process_market_list and fetch_market_list_for_specific_dates.
+
+    Given a raw DataFrame of MongoDB market-list documents and a DataFrame of dates to
+    expand against, applies:
+      - Column projection based on query_type
+      - Cross-join of docs x dates
+      - PerStart/PerEnd validity filter
+      - DOW (day-of-week) filter
+      - Final column formatting (PerStart / PerEnd stamped to the expanded date)
+
+    `date_df` must have a single column named 'Date' containing pd.Timestamps.
+    This is the ONLY thing that differs between the range and specific-dates callers.
+    """
+    standard_cols = [
+        'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
+        'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
+        'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
+        'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
+        'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
+        'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
+        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag'
+    ]
+    sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
+    connection_cols = [
+        'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
+        'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
+        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
+        'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
+    ]
+
+    projection_cols = []
+    if query_type == 'standard':
+        projection_cols = standard_cols
+    elif query_type == 'sales':
+        projection_cols = sales_cols
+    elif query_type == 'connections':
+        projection_cols = connection_cols
+
+    existing_cols = [col for col in projection_cols if col in base_ml_df.columns]
+    required_cols = existing_cols + ['PerStart', 'PerEnd', 'DOW']
+    base_ml_df = base_ml_df[list(set(required_cols))]
+
+    # Cross Join
+    base_ml_df['key'] = 1
+    date_df = date_df.copy()
+    date_df['key'] = 1
+    mkt_list = pd.merge(date_df, base_ml_df, on='key').drop('key', axis=1)
+
+    # Apply PerStart / PerEnd validity filter
+    mkt_list['PerStart_dt'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y')
+    mkt_list['PerEnd_dt']   = pd.to_datetime(mkt_list['PerEnd'],   format='%m/%d/%Y')
+    mkt_list = mkt_list[
+        (mkt_list['Date'] >= mkt_list['PerStart_dt']) &
+        (mkt_list['Date'] <= mkt_list['PerEnd_dt'])
+    ]
+
+    # Apply DOW Filter
+    def check_dow(row):
+        pandas_dow = row['Date'].dayofweek
+        mysql_dow  = (pandas_dow + 2)
+        if mysql_dow > 7:
+            mysql_dow = 1
+        dow_string = row['DOW']
+        try:
+            flag = str(dow_string)[mysql_dow - 1]
+            return flag == '1'
+        except (IndexError, TypeError):
+            return False
+
+    mkt_list['Flag'] = mkt_list.apply(check_dow, axis=1)
+    mkt_list = mkt_list[mkt_list['Flag'] == True]
+
+    # Format Final Output
+    mkt_list['PerStart'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+    mkt_list['PerEnd']   = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+
+    final_cols = existing_cols + ['PerStart', 'PerEnd']
+    mkt_list = mkt_list[final_cols]
+
+    if query_type != 'connections':
+        mkt_list = mkt_list.sort_values(by=['Origin', 'Destin', 'FlightNumber'])
+
+    return mkt_list
+
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     log_time.start()
