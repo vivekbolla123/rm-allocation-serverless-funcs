@@ -32,6 +32,7 @@ EXPECTED_COLUMNS = [
     "B2B_Threshold",
     "Yield_Threshold",
     "DefaultFlag",
+    "B2B_Flag",
 ]
 
 # Lowercase -> camelCase lookup — keyed with all spaces removed for flexible matching
@@ -51,11 +52,11 @@ _DATE_COLUMNS = ["DateRangeStart", "DateRangeEnd"]
 # Valid values for Type column
 _VALID_TYPES = {"bookings", "market"}
 
-# Valid values for MarketFlag column
-_VALID_MARKET_FLAGS = {"y", "n"}
-
 # Valid values for DefaultFlag column
 _VALID_DEFAULT_FLAGS = {"Y", "N"}
+
+# Valid values for B2B_Flag column
+_VALID_B2B_FLAGS = {"Y", "N"}
 
 
 def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
@@ -192,7 +193,14 @@ def validate_market_list(df: pd.DataFrame) -> pd.DataFrame:
         details = [f"Row {r + 2}: '{df.at[r, 'DefaultFlag']}'" for r in invalid_default_flags]
         raise ValueError(f"Invalid DefaultFlag (expected 'Y' or 'N'): {'; '.join(details)}")
 
-    # --- 11. Duplicate LadderCode ---
+    # --- 11. B2B_Flag validation ---
+    df["B2B_Flag"] = df["B2B_Flag"].astype(str).str.strip()
+    invalid_b2b_flags = df[~df["B2B_Flag"].str.upper().isin(_VALID_B2B_FLAGS)].index
+    if len(invalid_b2b_flags) > 0:
+        details = [f"Row {r + 2}: '{df.at[r, 'B2B_Flag']}'" for r in invalid_b2b_flags]
+        raise ValueError(f"Invalid B2B_Flag (expected 'Y' or 'N'): {'; '.join(details)}")
+
+    # --- 12. Duplicate LadderCode ---
     dupes = df[df.duplicated(subset=["LadderCode"], keep=False)]
     if not dupes.empty:
         dup_codes = dupes["LadderCode"].unique().tolist()
