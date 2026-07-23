@@ -1836,7 +1836,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def getProfileFares(self, sector, month, dow, currTime, percentile):
+    def getProfileFares(self, sector, month, dow, currTime, percentile, incremented_profile_fare_flag=0):
         try:
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
@@ -1853,7 +1853,13 @@ class RMDatabaseHelper:
             else:
                 cluster = 5
 
-            result = self.db.config_profile_fares.find_one({
+            # Choose collection based on flag
+            if int(incremented_profile_fare_flag) == 1:
+                collection = self.db.group_incremented_profile_fares
+            else:
+                collection = self.db.config_profile_fares
+
+            result = collection.find_one({
                 "sector": sector,
                 "month": month,
                 "dow": dow,
@@ -1883,13 +1889,19 @@ class RMDatabaseHelper:
             cluster = 5
         return cluster
 
-    def profileFaresExtract(self, origin, destin, month, dow, currTime):
+    def profileFaresExtract(self, origin, destin, month, dow, currTime, incremented_profile_fare_flag=0):
         try:
             sector = origin + destin
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = self.getCluster(time_obj)
 
-            result = self.db.config_profile_fares.find_one(
+            # Choose collection based on flag
+            if int(incremented_profile_fare_flag) == 1:
+                collection = self.db.group_incremented_profile_fares
+            else:
+                collection = self.db.config_profile_fares
+
+            result = collection.find_one(
     {
         "sector": sector,
         "month": month,
@@ -1905,8 +1917,6 @@ class RMDatabaseHelper:
         "Q20": 1  # include only Q0 to Q20
     }
 )
-
-
 
             return pd.DataFrame([result]) if result else pd.DataFrame()
         except Exception as e:
@@ -2611,10 +2621,37 @@ class RMDatabaseHelper:
             self.logger.error(f"Error fetching group profile fare increments: {e}")
             return None
 
+    def get_all_group_forecast_bands(self):
+        """
+        Fetch all documents from group_forecast_bands collection at once.
+        Returns a list of band dicts sorted by 'start' ascending.
+        Each dict contains: band, start, end, b2c_discount, fare_anchor_strategy,
+        b2c_fare_weight, profile_fare_weight.
+        """
+        try:
+            results = list(self.db.group_forecast_bands.find({}).sort("start", 1))
+            bands = []
+            for r in results:
+                bands.append({
+                    'band': int(r.get('band', 0)),
+                    'start': r.get('start', 0),
+                    'end': r.get('end', 0),
+                    'b2c_discount': r.get('b2c_discount', 0),
+                    'fare_anchor_strategy': r.get('fare_anchor_strategy', 'min'),
+                    'b2c_fare_weight': r.get('b2c_fare_weight', 0),
+                    'profile_fare_weight': r.get('profile_fare_weight', 1),
+                })
+            return bands
+        except Exception as e:
+            self.logger.error(f"Error fetching all group forecast bands: {e}")
+            return []
+
     def get_group_forecast_band(self, imp_forecast):
         """
-        Fetch group forecast band, b2c_discount, and fare_anchor_strategy from group_forecast_bands collection.
-        Returns a dict with 'band', 'b2c_discount', and 'fare_anchor_strategy' keys, or defaults.
+        Fetch group forecast band, b2c_discount, fare_anchor_strategy, and weight fields
+        from group_forecast_bands collection.
+        Returns a dict with 'band', 'b2c_discount', 'fare_anchor_strategy',
+        'b2c_fare_weight', and 'profile_fare_weight' keys, or defaults.
         """
         try:
             result = self.db.group_forecast_bands.find_one({
@@ -2625,30 +2662,14 @@ class RMDatabaseHelper:
                 return {
                     'band': int(result['band']),
                     'b2c_discount': result.get('b2c_discount', 0),
-                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
+                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min'),
+                    'b2c_fare_weight': result.get('b2c_fare_weight', 0),
+                    'profile_fare_weight': result.get('profile_fare_weight', 1),
                 }
-            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
         except Exception as e:
             self.logger.error(f"Error fetching group forecast band for forecast {imp_forecast}: {e}")
-            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
-
-    def get_group_b2c_discount_by_band(self, band):
-        """
-        Fetch b2c_discount and fare_anchor_strategy from group_forecast_bands collection using band number.
-        Used when band is already determined via dplf_bands (variance path).
-        Returns a dict with 'b2c_discount' and 'fare_anchor_strategy'.
-        """
-        try:
-            result = self.db.group_forecast_bands.find_one({"band": int(band)})
-            if result:
-                return {
-                    'b2c_discount': result.get('b2c_discount', 0),
-                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
-                }
-            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
-        except Exception as e:
-            self.logger.error(f"Error fetching group b2c discount for band {band}: {e}")
-            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
 
     def get_tbf_seats_blocked(self, orgcode, departuredate):
         try:

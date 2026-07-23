@@ -26,6 +26,7 @@ public interface TableNamesConstants {
     String HISTORIC_GRID_DROP_TABLE_NAME = "config_ownfare_grid";
     String DISTRESS_INVENTORY_STRATEGY_TABLE_NAME = "distress_inventory_strategy";
     String PROFILE_FARES_TABLE_NAME = "config_profile_fares";
+    String GROUP_INCREMENTED_PROFILE_FARES_TABLE_NAME = "group_incremented_profile_fares";
     String OVERBOOKING_PROBABILITY_TABLE_NAME = "no_show_probabilities";
     String DATE_EVENT_TABLE_NAME = "config_date_event";
     public static final String SALES_INVENTORY_TABLE_NAME = "sales_inventory";
