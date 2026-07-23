@@ -4608,13 +4608,10 @@ public class App implements CommandLineRunner {
             }
             String profileFareUpsellStr = record.get(CSV_HEADER_PROFILE_FARE_UPSELL);
             if (profileFareUpsellStr != null && !profileFareUpsellStr.trim().isEmpty()) {
-                if (!isNumeric(profileFareUpsellStr)) {
+                try {
+                    Double.parseDouble(profileFareUpsellStr);
+                } catch (NumberFormatException e) {
                     listOfErrors.get().add(lineNum + "ProfileFareUpsell is not a valid number");
-                } else {
-                    double profileFareUpsellVal = Double.parseDouble(profileFareUpsellStr);
-                    if (profileFareUpsellVal < 0) {
-                        listOfErrors.get().add(lineNum + "ProfileFareUpsell must be a positive number");
-                    }
                 }
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_SPOILAGE_FLAG))) {
