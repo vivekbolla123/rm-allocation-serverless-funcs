@@ -1064,43 +1064,17 @@ def fetch_market_list_for_specific_dates(specific_dates, market_list_table, quer
     """
     Fetches market list docs from MongoDB for exactly the given dates (pd.Timestamps).
 
-    Unlike fetch_and_process_market_list which uses a start/end range (and would therefore
-    pull every doc whose validity period overlaps the *entire span* between min and max date),
-    this function issues a per-date $or query so MongoDB returns only documents whose
-    [PerStart, PerEnd] validity window covers at least one of the specifically requested dates.
-    The cross-join is then done against only those exact dates — never against the full range.
+    Since PerStart == PerEnd always (each doc is a single-date entry), the filter is a
+    simple $in on PerStart — no range logic needed.
     """
     log_time.start()
     try:
         if not specific_dates:
             return pd.DataFrame()
 
-        # Build a per-date $or filter: each clause checks PerStart <= date <= PerEnd.
-        # This ensures MongoDB returns ONLY docs covering at least one requested date
-        # rather than every doc in the broad min-to-max span.
+        # PerStart == PerEnd always, so a direct $in on PerStart is sufficient.
         date_strs = [pd.Timestamp(d).strftime('%m/%d/%Y') for d in specific_dates]
-        or_conditions = [
-            {
-                '$expr': {
-                    '$and': [
-                        {
-                            '$lte': [
-                                {'$dateFromString': {'dateString': '$PerStart', 'format': '%m/%d/%Y'}},
-                                {'$dateFromString': {'dateString': ds, 'format': '%m/%d/%Y'}}
-                            ]
-                        },
-                        {
-                            '$gte': [
-                                {'$dateFromString': {'dateString': '$PerEnd', 'format': '%m/%d/%Y'}},
-                                {'$dateFromString': {'dateString': ds, 'format': '%m/%d/%Y'}}
-                            ]
-                        }
-                    ]
-                }
-            }
-            for ds in date_strs
-        ]
-        market_list_filter = {'$or': or_conditions}
+        market_list_filter = {'PerStart': {'$in': date_strs}}
 
         if market_list_table != "market_list" and query_type != 'connections':
             market_list_filter['defaultMlFlag'] = 0
@@ -1122,6 +1096,7 @@ def fetch_market_list_for_specific_dates(specific_dates, market_list_table, quer
         raise
     finally:
         log_time.end("fetch_market_list_for_specific_dates")
+
 
 
 def _process_market_list_docs(base_ml_df, date_df, query_type):
