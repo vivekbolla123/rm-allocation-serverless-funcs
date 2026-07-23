@@ -194,7 +194,7 @@ class DetermineRBD:
                         strategyFare, profileFare, lastSoldFareForAnchor, CONST_NA,
                         anchorValue, dPLF, None, currParams, plf, overBookingCount,
                         dplfBand, BookingsInHour, last7avg, isProfileAnchor,
-                        b2b_discount_fare, anchorFare, obfare, ndocounter
+                        b2b_discount_fare, anchorFare, obfare, ndocounter, imp_forecast
                     )
  
                 anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(
@@ -246,7 +246,7 @@ class DetermineRBD:
                 self.logger.info("Profile Fare: " + str(profileFare))
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter)
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
                 if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
                     anchorFare = anchorFare+int(currParams.market_discount)
 
@@ -901,21 +901,23 @@ class DetermineRBD:
         
         return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue
     
-    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter):
+    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast=None):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
         upsell = 0
         overBookingFare = 0
         toleranceValue = CONST_NA
+        auto_tolerance_applied = False
         
         # Helper functions to reduce code duplication
         def has_tolerance_fare():
-            return (toleranceFare is not None and 
+            res = (toleranceFare is not None and 
                     pd.isna(toleranceFare) == False and 
                     toleranceFare != CONST_NA and 
                     toleranceFare != '' and 
                     pd.isnull(toleranceFare) == False)
+            return res
         
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
@@ -932,71 +934,166 @@ class DetermineRBD:
         
         def calculate_tolerance_value(pre_tolerance_anchor=None):
             nonlocal toleranceValue
+            nonlocal auto_tolerance_applied
             if not has_tolerance_fare():
                 return 0
 
             T = float(toleranceFare)
             tolerance_limit = float(strategyFare) - T
             
+            flag_val = getattr(currParams, 'auto_tolerance_flag', 0)
+            
             # Auto-tolerance logic
-            if getattr(currParams, 'auto_tolerance_flag', 'N') in ('Y', 'y', 1, '1') and pre_tolerance_anchor is not None:
+            if flag_val in (1, '1') and pre_tolerance_anchor is not None:
                 redis_key = f"auto_tolerance_{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
-                state_str = self.redishelper.get(redis_key)
                 state = {}
-                if state_str:
-                    try:
+                try:
+                    state_str = self.redishelper.get(redis_key)
+                    if state_str:
                         state = __import__('json').loads(state_str)
+                except Exception:
+                    pass
+                    
+                # Fallback to MongoDB / Local Mock if Redis is empty or failed
+                if not state:
+                    try:
+                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                        if mongo_state:
+                            state = mongo_state
                     except Exception:
                         pass
                 
                 saved_b2c_tolerance = state.get("b2c_tolerance")
                 t_prime = state.get("T_prime")
+                t_v_prev = state.get("T_V")
+                run_count = state.get("run_count", 0)
                 
+                analyst_changed = False
                 if saved_b2c_tolerance is not None and str(saved_b2c_tolerance) != str(toleranceFare):
                     t_prime = None
+                    analyst_changed = True
+                    run_count = 0
+                    state["history"] = []
                     
-                x = tolerance_limit - float(pre_tolerance_anchor)
+                run_count += 1
                 
-                if t_prime is not None:
-                    final_T = t_prime
-                else:
+                ndo_df = self.auto_tolerance_config.get("ndo_config")
+                n_value = 1
+                if ndo_df is not None:
+                    match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
+                    if not match.empty:
+                        n_value = match.iloc[0]['n_value']
+                        
+                try:
+                    N = int(float(n_value))
+                    if N == 0: N = 1
+                except:
+                    N = 1                
+                
+                history = state.get("history", [])
+                target_idx = run_count - N - 1
+
+                x = 0
+                delta_variance = 0
+                calc_new_t_prime = False
+                prev_t_prime = T
+
+                if run_count <= N or target_idx < 0 or len(history) <= target_idx:
+                    x = tolerance_limit - float(pre_tolerance_anchor)
                     if x > 0:
-                        ndo_df = self.auto_tolerance_config.get("ndo_config")
-                        n_value = 0
-                        if ndo_df is not None:
-                            match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
-                            if not match.empty:
-                                n_value = match.iloc[0]['n_value']
-                        
-                        delta_df = self.auto_tolerance_config.get("delta_bands")
-                        delta_band_id = None
-                        if delta_df is not None:
-                            match = delta_df[(delta_df['min_value'] <= x) & (delta_df['max_value'] >= x)]
-                            if not match.empty:
-                                delta_band_id = match.iloc[0]['id']
-                        
-                        grid_df = self.auto_tolerance_config.get("grid_values")
-                        g_value = 0
-                        if grid_df is not None and delta_band_id is not None:
-                            match = grid_df[(grid_df['dplf_band_name'] == str(dplfBand)) & (grid_df['delta_band_id'] == delta_band_id)]
-                            if not match.empty:
-                                g_value = match.iloc[0]['g_value']
-                                
-                        t_prime = x * g_value + T
-                        final_T = t_prime
+                        delta_variance = x
+                        calc_new_t_prime = True
+                        prev_t_prime = T
                     else:
-                        final_T = T
+                        t_prime = T
+                        x = 0
+                else:
+                    target_record = history[target_idx]
+                    x = t_v_prev - float(pre_tolerance_anchor) if t_v_prev is not None else 0
+                    if x > 0:
+                        prev_x = target_record.get("variance", 0)
+                        delta_variance = x - prev_x
+                        calc_new_t_prime = True
+                        prev_t_prime = target_record.get("T_prime", T)
+                    else:
+                        x = state.get("variance", 0)
+                        t_prime = state.get("T_prime", T)
+                
+                if calc_new_t_prime:
+                    delta_df = self.auto_tolerance_config.get("delta_bands")
+                    delta_band_id = None
+                    if delta_df is not None:
+                        match = delta_df[(delta_df['min_value'] <= delta_variance) & (delta_df['max_value'] >= delta_variance)]
+                        if not match.empty:
+                            delta_band_id = match.iloc[0]['id']
+                    
+                    grid_df = self.auto_tolerance_config.get("grid_values")
+                    g_value = 0
+                    
+                    forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
+                    target_dplf_band = str(dplfBand)
+                    
+                    if forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA:
+                        if grid_df is not None:
+                            for b_name in grid_df['dplf_band_name'].unique():
+                                try:
+                                    parts = str(b_name).replace('(', '').replace(')', '').split(',')
+                                    if len(parts) == 2:
+                                        min_v, max_v = float(parts[0]), float(parts[1])
+                                        if min_v <= float(imp_forecast) <= max_v:
+                                            target_dplf_band = str(b_name)
+                                            break
+                                except Exception:
+                                    continue
+                    
+                    if grid_df is not None and delta_band_id is not None:
+                        match = grid_df[(grid_df['dplf_band_name'] == target_dplf_band) & (grid_df['delta_band_id'] == delta_band_id)]
+                        if not match.empty:
+                            g_value = match.iloc[0]['g_value']
+                            
+                    t_prime = (x * g_value) + prev_t_prime
+                
+                final_T = t_prime
+                    
+                if 0 <= ndocounter <= 7:
+                    try:
+                        max_tolerance = float(n_value) * float(strategyFare)
+                        if final_T > max_tolerance:
+                            final_T = max_tolerance
+                    except:
+                        pass
+                        
+                history = state.get("history", [])
+                history.append({
+                    "run_count": int(run_count),
+                    "T_prime": float(t_prime),
+                    "T_V": float(final_T),
+                    "variance": float(x)
+                })
+                max_history = max(6, N + 1)
+                if len(history) > max_history:
+                    history = history[-max_history:]
                         
                 new_state = {
-                    "b2c_tolerance": toleranceFare,
-                    "T_prime": t_prime,
-                    "T_V": final_T,
-                    "variance": x
+                    "b2c_tolerance": float(toleranceFare),
+                    "T_prime": float(t_prime),
+                    "T_V": float(final_T),
+                    "variance": float(x),
+                    "run_count": int(run_count),
+                    "history": history
                 }
-                self.redishelper.set(redis_key, __import__('json').dumps(new_state))
+                try:
+                    self.redishelper.set(redis_key, __import__('json').dumps(new_state))
+                except Exception:
+                    pass
                 
-                tolerance_limit = float(strategyFare) - final_T
-            
+                try:
+                    self.rmdatabasehelper.setAutoToleranceState(redis_key, new_state)
+                except Exception:
+                    pass
+                
+                
+                auto_tolerance_applied = True
             toleranceValue = f"{tolerance_limit:.2f}"
             return tolerance_limit
         
@@ -1248,6 +1345,9 @@ class DetermineRBD:
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
+        if auto_tolerance_applied and "_Auto_Tolerance_Hit" not in howDetermined:
+            howDetermined += "_Auto_Tolerance_Hit"
+            
         return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):

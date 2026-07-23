@@ -141,6 +141,7 @@ class DynAlloc:
 			# For each NDO
 			for ndocounter in range(startNDO, endNDO+1):
 				self.outputSummaryRow_b2c = OutputSummary()
+				self.outputSummaryRow_b2b = OutputSummary()
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
@@ -207,7 +208,7 @@ class DynAlloc:
 					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
 						if not qpFares.empty:
-							if int(self.currParams.tbfFlag) == 1 and not TBFExist:
+							if str(self.currParams.tbfFlag) in ('1', '1.0', 'True', 'true', 'Y', 'y') and not TBFExist:
 								self.logger.info("Unable to get TBF Fares - Check the fares table")
 								self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
 								self.outputSummaryRow_b2c.RunId = self.runId

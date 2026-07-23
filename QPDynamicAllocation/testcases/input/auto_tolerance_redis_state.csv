@@ -1,0 +1,5 @@
+redis_key,b2c_tolerance,T_prime,T_V,variance,run_count
+auto_tolerance_BOM_JAI_1231_09/02/2023,500,2000,6000,-2,3
+auto_tolerance_BOM_JAI_1233_08/14/2024,2000,2300,5800,-8,3
+auto_tolerance_BOM_JAI_1234_08/02/2025,1000,1500,6500,0,3
+auto_tolerance_BOM_JAI_1235_09/032025,1500,1700,6300,-9,3

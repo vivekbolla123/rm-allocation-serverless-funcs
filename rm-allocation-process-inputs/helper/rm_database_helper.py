@@ -1288,7 +1288,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection: {e}")
  
             if not all_results:
-                self.logger.warning("No market fare records found")
+                self.logger.info("No market fare records found")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'mktFile'])
  
  
@@ -1475,7 +1475,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection for connections: {e}")
             
             if not all_results:
-                self.logger.warning("No market fare connection records found for the given criteria.")
+                self.logger.info("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
 
         
@@ -2794,3 +2794,23 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(f"Error fetching stage length for {departure_station}-{arrival_station}: {e}")
             return 0
+
+    def getAutoToleranceState(self, redis_key):
+        try:
+            result = self.db.auto_tolerance_redis_state.find_one({"redis_key": redis_key})
+            if result:
+                return result
+        except Exception as e:
+            self.logger.error(f"Error fetching auto_tolerance_redis_state from Mongo: {e}")
+        return None
+
+    def setAutoToleranceState(self, redis_key, state_dict):
+        try:
+            state_dict["redis_key"] = redis_key
+            self.db.auto_tolerance_redis_state.update_one(
+                {"redis_key": redis_key},
+                {"$set": state_dict},
+                upsert=True
+            )
+        except Exception as e:
+            self.logger.error(f"Error setting auto_tolerance_redis_state to Mongo: {e}")

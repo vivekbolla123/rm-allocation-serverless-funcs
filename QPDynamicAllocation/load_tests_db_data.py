@@ -78,6 +78,12 @@ class Schema:
         self.load_generic_collection("group_profile_fares", "group_profile_fares.csv")
         self.load_generic_collection("group_incremented_profile_fares", "group_incremented_profile_fares.csv")
         
+        # Load Auto Tolerance Config Tables
+        self.load_generic_collection("auto_tolerance_ndo_config", "auto_tolerance_ndo_config.csv")
+        self.load_generic_collection("auto_tolerance_delta_bands", "auto_tolerance_delta_bands.csv")
+        self.load_generic_collection("auto_tolerance_grid_values", "auto_tolerance_grid_values.csv")
+        self.load_generic_collection("auto_tolerance_redis_state", "auto_tolerance_redis_state.csv")
+        
         self.transformCollections()
 
     def load_generic_collection(self, collectionName, dataFile, use_dw=False):
