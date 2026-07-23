@@ -1423,7 +1423,7 @@ class DynAlloc:
 			# For group allocation: always use ML profileFareUpsell
 			group_upsell = self.currParams.profileFareUpsell
 			current_brd_counter, state.grp_adj_profile_fare, state.grp_adj_bookload, state.grp_fare_anchor = self.allocations.group_quote_alloc(
-				profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
+				current_brd_counter, currRec_fullalloc, param_autoGroup,
 				base_adjustedCapacity, group_upsell, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
 				b2c_backstop_final,
 				ndocounter=ndocounter, imp_forecast=imp_forecast,

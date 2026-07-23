@@ -741,7 +741,7 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, profilefarextract, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, b2c_backstop_final, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
+    def group_quote_alloc(self, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, b2c_backstop_final, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
         """
         Group quotation allocation using iterative fare anchor approach.
         
@@ -769,6 +769,14 @@ class RBDAllocations:
 
         if int(autoGroup) == 1 and not group_alloc_df.empty:
             try:
+                profilefarextract = self.rmdatabasehelper.profileFaresExtract(
+                    origin=sector[:3],
+                    destin=sector[3:],
+                    month=month,
+                    dow=dow_str_for_profile,
+                    currTime=deptTime_str_hhmm,
+                    incremented_profile_fare_flag=1
+                )
                 potential_seats = self.rmdatabasehelper.get_group_potential_seats(sector, month)
                 
                 try:
@@ -954,11 +962,11 @@ class RBDAllocations:
 
                     # Simulate adding seats to booked load for next iteration
                     simulated_booked_load += seats_to_add
-                    print(
-                        f"{adjusted_profile_fare=:.2f}, {adjusted_plf=:.2f}, "
-                        f"{fare_anchor=:.2f}, {target_rbd=}, {simulated_booked_load=}, "
-                        f"{simulated_imp_forecast=:}, {var_for_band=:}, "
-                    )
+                    # print(
+                    #     f"{adjusted_profile_fare=:.2f}, {adjusted_plf=:.2f}, "
+                    #     f"{fare_anchor=:.2f}, {target_rbd=}, {simulated_booked_load=}, "
+                    #     f"{simulated_imp_forecast=:}, {var_for_band=:}, "
+                    # )
 
                     # Safety: don't exceed total capacity
                     if simulated_booked_load >= int(final_totalCapacity):
