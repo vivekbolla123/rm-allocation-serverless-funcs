@@ -820,6 +820,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'configured_source': source,
                 }
                 if batch_total is not None:
                     set_on_insert['batch_total'] = int(batch_total)
@@ -849,6 +850,9 @@ class LadderPAHelper:
                 set_fields = {
                     'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 }
+
+                if source:
+                    set_fields['source'] = source
                 
                 if lowest_fare_yields_str is not None:
                     set_fields['Lowest fare yield'] = lowest_fare_yields_str
@@ -859,6 +863,8 @@ class LadderPAHelper:
                         set_fields[f'results.{lc}'] = {
                             'sector': lr.get('sector'),
                             'fare_source': lr.get('fare_source'),
+                            'fare_source_b2c': lr.get('fare_source_b2c'),
+                            'fare_source_b2b': lr.get('fare_source_b2b'),
                             'data_period_b2c': lr.get('data_period_b2c'),
                             'data_period_b2b': lr.get('data_period_b2b'),
                             'booking_records': {
