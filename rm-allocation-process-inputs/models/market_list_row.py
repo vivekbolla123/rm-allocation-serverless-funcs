@@ -124,3 +124,11 @@ class MarketListRow:
 
         # Portfolio-only flag — set to 1 for sibling records used only for portfolio calc and not allocated
         self.portfolio_only = parse_int_flag(currParams.get("portfolio_only"), 0)
+
+        # Flag: when 1, use increment-factor-adjusted profile fares (from group_incremented_profile_fares)
+        # for normal B2C allocations instead of config_profile_fares
+        self.incrementedProfileFareFlag = parse_int_flag(currParams.get("incrementedProfileFareFlag"), 0)
+
+        # Profile fare upsell percentage — applied when incrementedProfileFareFlag is 1
+        # (replaces the standard station upsell with a market-list-level override)
+        self.profileFareUpsell = currParams.get("ProfileFareUpsell", CONST_NA)

@@ -51,7 +51,8 @@ class ConstantsUtils:
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
-        self.PREFETCH_CHUNK_SIZE = PREFETCH_CHUNK_SIZE
+        # self.PREFETCH_CHUNK_SIZE = json.loads(PREFETCH_CHUNK_SIZE)
+        self.PORTFOLIO_SIBLING_BATCH_SIZE = PORTFOLIO_SIBLING_BATCH_SIZE
         self.THRESHOLD_TIME = THRESHOLD_TIME
         self.PF_UPSELL_VALUE = PF_UPSELL_VALUE
         self.CHECK_THRESHOLD_UPDATE_RBD = CHECK_THRESHOLD_UPDATE_RBD
@@ -138,6 +139,7 @@ class ConstantsUtils:
         self.MARKET_FARE_FORECAST_THRESHOLD = MARKET_FARE_FORECAST_THRESHOLD
         self.ACTIVE_SECTORS_DEFAULT_FIELDS = ACTIVE_SECTORS_DEFAULT_FIELDS
         self.CWT_UPSELL = CWT_UPSELL
+        self.GENERATE_CWT_RULES = GENERATE_CWT_RULES.lower() == 'true' if isinstance(GENERATE_CWT_RULES, str) else bool(GENERATE_CWT_RULES)
         self.GROUP_SCALING_FACTOR = GROUP_SCALING_FACTOR
         self.GROUP_AU_BATCH = GROUP_AU_BATCH
         self.GROUP_IMP_FORECAST_REDUCTION = GROUP_IMP_FORECAST_REDUCTION
@@ -147,6 +149,7 @@ class ConstantsUtils:
         self.MOVEMENT_GAIN = MOVEMENT_GAIN
         self.MOVEMENT_FLOOR_PCT = MOVEMENT_FLOOR_PCT
         self.MOVEMENT_CEIL_PCT = MOVEMENT_CEIL_PCT
+        self.DEFAULT_ML_CONFIG = DEFAULT_ML_CONFIG
 
 
         self.logger = logging.getLogger()
@@ -261,8 +264,10 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_FETCH_INPUTS = int(parameter_value)
             elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
-            elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
-                self.PREFETCH_CHUNK_SIZE = int(parameter_value)
+            # elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
+            #     self.PREFETCH_CHUNK_SIZE = json.loads(parameter_value)
+            elif parameter_key == PORTFOLIO_SIBLING_BATCH_SIZE_KEY:
+                self.PORTFOLIO_SIBLING_BATCH_SIZE = int(parameter_value)
             elif parameter_key == THRESHOLD_TIME_KEY:
                 self.THRESHOLD_TIME = int(parameter_value)   
             elif parameter_key == PF_UPSELL_VALUE_KEY:
@@ -425,6 +430,8 @@ class ConstantsUtils:
                 self.AF_BAND_2_MULTIPLIERS = json.loads(parameter_value)
             elif parameter_key == CWT_UPSELL_KEY:
                 self.CWT_UPSELL = json.loads(parameter_value)
+            elif parameter_key == GENERATE_CWT_RULES_KEY:
+                self.GENERATE_CWT_RULES = str(parameter_value).lower() == 'true'
             elif parameter_key == EQT_RECIPIENTS_KEY:
                 self.EQT_RECIPIENTS = parameter_value
             elif parameter_key == GROUP_SCALING_FACTOR_KEY:
@@ -446,7 +453,9 @@ class ConstantsUtils:
             elif parameter_key == MOVEMENT_CEIL_PCT_KEY:
                 self.MOVEMENT_CEIL_PCT = float(parameter_value)
             elif parameter_key == HOLD_BOOKING_ALERT_CONFIGURATION_KEY:
-                self.HOLD_BOOKING_ALERT_CONFIGURATION = parameter_value
+                self.HOLD_BOOKING_ALERT_CONFIGURATION = json.loads(parameter_value)
+            elif parameter_key == DEFAULT_ML_CONFIG_KEY:
+                self.DEFAULT_ML_CONFIG = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

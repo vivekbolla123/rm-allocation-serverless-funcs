@@ -1,7 +1,8 @@
-band,start,end,b2c_discount,fare_anchor_strategy
-0,-9999,79.99,-15,min
-1,80,84.99,-10,min
-2,85,89.99,-5,min
-3,90,94.99,5,max
-4,95,99.99,10,max
-5,100,9999,15,max
+band,start,end,b2c_discount,fare_anchor_strategy,b2c_fare_weight,profile_fare_weight
+0,-9999,79.99,-8,min,0.2,0.8
+1,80,84.99,-5,min,0.5,0.5
+2,85,89.99,-3,min,0.8,0.2
+3,90,94.99,0,max,0.8,0.2
+4,95,99.99,5,max,0.5,0.5
+5,100,101.99,10,max,0.2,0.8
+6,102,9999,15,max,0,1

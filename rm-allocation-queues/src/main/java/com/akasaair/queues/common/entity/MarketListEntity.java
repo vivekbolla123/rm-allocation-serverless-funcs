@@ -134,4 +134,8 @@ public class MarketListEntity {
     public String market_station_mapping;
     @Column(name = "afForecastAllocFlag")
     public String afForecastAllocFlag;
+    @Column(name = "incrementedProfileFareFlag")
+    public String incrementedProfileFareFlag;
+    @Column(name = "ProfileFareUpsell")
+    public String ProfileFareUpsell;
 }

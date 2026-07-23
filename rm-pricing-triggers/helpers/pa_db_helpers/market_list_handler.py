@@ -41,6 +41,7 @@ class MarketListConfig:
         self.up_b2b = int(params.get("UP_B2B", 4))
         self.b2b_threshold = float(params.get("B2B_Threshold", 100))
         self.yield_threshold = float(params.get("Yield_Threshold", 1.4))
+        self.b2b_flag = str(params.get("B2B_Flag", "Y")).strip().upper()
 
         # Default ladder flag: when 'Y', always use GP-based default ladder generation
         self.default_flag = str(params.get("DefaultFlag", "N")).strip().upper()
