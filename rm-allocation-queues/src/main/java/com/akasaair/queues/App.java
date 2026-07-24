@@ -543,6 +543,45 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadAutoToleranceGridFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Auto Tolerance Config to DB. Please check file content");
+                            throw new RuntimeException("Error processing auto tolerance config: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 case STRATEGY_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -5964,6 +6003,84 @@ public class App implements CommandLineRunner {
             error_occurred.set(1);
             log.error("Error processing SaleInv RBL:{}", e.getMessage());
             listOfErrors.get().add("Failed to process SaleInv RBL file");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadAutoToleranceGridFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                listOfErrors.get().add("File is empty or missing data rows.");
+                error_occurred.set(1);
+                return;
+            }
+
+            List<String> headers = csvData.get(0);
+            int bandIdIndex = headers.indexOf("band_id");
+            int dplfBandNameIndex = headers.indexOf("dplf_band_name");
+            int forecastBandNameIndex = headers.indexOf("forecast_band_name");
+
+            if (bandIdIndex == -1 || dplfBandNameIndex == -1 || forecastBandNameIndex == -1) {
+                listOfErrors.get().add("Missing required columns (band_id, dplf_band_name, forecast_band_name).");
+                error_occurred.set(1);
+                return;
+            }
+
+            List<Document> gridDocuments = new ArrayList<>();
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                if (row.isEmpty() || row.size() <= Math.max(Math.max(bandIdIndex, dplfBandNameIndex), forecastBandNameIndex)) {
+                    continue;
+                }
+                
+                int bandId = Integer.parseInt(row.get(bandIdIndex).trim());
+                String dplfBandName = row.get(dplfBandNameIndex).trim();
+                String forecastBandName = row.get(forecastBandNameIndex).trim();
+
+                for (int j = 0; j < headers.size(); j++) {
+                    if (j == bandIdIndex || j == dplfBandNameIndex || j == forecastBandNameIndex) {
+                        continue;
+                    }
+                    
+                    String headerVal = headers.get(j).trim();
+                    try {
+                        int deltaBandId = Integer.parseInt(headerVal);
+                        float gValue = row.size() > j && !row.get(j).trim().isEmpty() ? Float.parseFloat(row.get(j).trim()) : 0f;
+                        
+                        Document doc = new Document();
+                        doc.put("band_id", bandId);
+                        doc.put("dplf_band_name", dplfBandName);
+                        doc.put("forecast_band_name", forecastBandName);
+                        doc.put("delta_band_id", deltaBandId);
+                        doc.put("g_value", gValue);
+                        gridDocuments.add(doc);
+                    } catch (NumberFormatException ignored) {
+                        // Header wasn't a delta band id or value wasn't a float
+                    }
+                }
+            }
+
+            if (!gridDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document()); // clear old data
+                collection.insertMany(gridDocuments);
+            }
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Auto Tolerance Config: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Auto Tolerance Config file");
             addErrorsToTable(listOfErrors.get(), obj_id);
             throw e;
         } finally {
