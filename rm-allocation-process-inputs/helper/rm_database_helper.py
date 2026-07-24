@@ -859,6 +859,7 @@ class RMDatabaseHelper:
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
                 "B2BFactor": str(latest_row.B2BFactor),
                 "toleranceValue": str(latest_row.toleranceValue),
+                "anchorFareBeforeTolerance": str(latest_row.anchorFareBeforeTolerance),
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
                 "grpFareAnchor": str(latest_row.grpFareAnchor),
@@ -1938,7 +1939,10 @@ class RMDatabaseHelper:
                 "sector": sector
             })
             if result:
-                value = str(result['value']).replace('%', '')
+                val = result.get('value')
+                if pd.isna(val) or (isinstance(val, float) and __import__('math').isnan(val)):
+                    return pd.DataFrame()
+                value = str(val).replace('%', '')
                 return pd.DataFrame([{"percentage": value}])
             return pd.DataFrame()
         except Exception as e:
@@ -2223,6 +2227,7 @@ class RMDatabaseHelper:
                 "OpenRBD2": str(latest_row.OpenRBD2),
                 "Discount": str(latest_row.Discount),
                 "anchorFare": latest_row.anchorFare,
+                "anchorFareBeforeTolerance": latest_row.anchorFareBeforeTolerance,
                 "OpenRBD": str(latest_row.OpenRBD),
                 "SellingFare": str(latest_row.SellingFare),
                 "Channel": latest_row.Channel,

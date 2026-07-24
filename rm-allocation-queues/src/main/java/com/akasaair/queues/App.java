@@ -2664,13 +2664,15 @@ public class App implements CommandLineRunner {
         Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
         int dplfIdHeader = 0;
         int dplfNameHeader = 1;
-        int startColumn = 2;
+        int forecastBandNameHeader = 2;
+        int startColumn = 3;
         String[] valueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
         
         for (int i = 1; i < csvData.size(); i++) {
             List<String> inputRow = csvData.get(i);
             String dplfId = csvData.get(i).get(dplfIdHeader);
             String dplfName = csvData.get(i).get(dplfNameHeader);
+            String forecastBandName = csvData.get(i).get(forecastBandNameHeader);
             for (int j = startColumn; j < inputRow.size(); j++) {
                 String value = csvData.get(i).get(j);
                 String deltaHeader = valueNames[j - startColumn];
@@ -2679,8 +2681,9 @@ public class App implements CommandLineRunner {
                 String keyVal = dplfId + "_" + deltaId;
                 if (!resultMap.containsKey(keyVal)) {
                     Map<String, String> map = new HashMap<>();
-                    map.put("dplf_band_id", dplfId);
+                    map.put("band_id", dplfId);
                     map.put("dplf_band_name", dplfName);
+                    map.put("forecast_band_name", forecastBandName);
                     map.put("delta_band_id", deltaId);
                     resultMap.put(keyVal, map);
                 }
@@ -3459,7 +3462,7 @@ public class App implements CommandLineRunner {
         }
 
         if (AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "dplf_band_id,dplf_band_name,delta_band_id,g_value";
+            return "band_id,dplf_band_name,forecast_band_name,delta_band_id,g_value";
         }
 
         try {

@@ -382,7 +382,7 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'bookingLastHour', 'bookedPlf', 'actualbookedPlf', 'currentTgtLoad',
     'TgtLoad', 'endOfDayTgtLoad', 'Variance', 'forecastPLF', 'ImputedForecastPLF',
     'endOfDaydlfBand', 'bookingToday', 'Backstop', 'hardAnchorFare', 'strategyFare',
-    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'toleranceValue',
+    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue',
     'anchorFare', 'OpenRBD', 'SellingFare', 'Channel', 'HowDetermined', 'RunId',
     'criteria', 'fareOffset', 'FlightNumber_Min', 'MktFare_Max', 'FlightNumber_Max',
     'TimeRange', 'startTime', 'endTime', 'FirstRBDAlloc', 'OtherRBDAlloc',

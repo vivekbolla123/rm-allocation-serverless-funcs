@@ -62,6 +62,7 @@ class DetermineRBD:
         the legacy method (R2.2, R11).
         """
         hard_anchor_flag = False
+        anchorFareBeforeTolerance = CONST_NA
         origin = currParams.origin
         destin = currParams.destin
         forecastAllocFlag = int(getattr(currParams, 'forecastAllocFlag', 0))
@@ -104,6 +105,7 @@ class DetermineRBD:
         if rbddata is None:
             return AnchorResult(
                 anchorFare=anchorFare,
+                anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
                 profileFare=CONST_NA,
                 lastSellingFare=lastSoldFare,
@@ -133,6 +135,7 @@ class DetermineRBD:
         if strategyFare == CONST_NA:
             return AnchorResult(
                 anchorFare=anchorFare,
+                anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
                 profileFare=CONST_NA,
                 lastSellingFare=lastSoldFare,
@@ -171,6 +174,7 @@ class DetermineRBD:
                         openResult['Fare'] = ['NA']
                         return AnchorResult(
                             anchorFare=anchorFare,
+                            anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                             strategyFare=strategyFare,
                             profileFare=CONST_NA,
                             lastSellingFare=lastSoldFare,
@@ -190,14 +194,14 @@ class DetermineRBD:
                     if not (int(currParams.opening_fares) == 1) and not (plf >= self.constantsutils.OVERBOOKING_FARE_LF and overBookingCount > 0):
                         lastSoldFareForAnchor = CONST_NA
  
-                    anchorFare, _, _, _, _ = self.finalFareAnchor(
+                    anchorFare, _, _, _, _, _ = self.finalFareAnchor(
                         strategyFare, profileFare, lastSoldFareForAnchor, CONST_NA,
                         anchorValue, dPLF, None, currParams, plf, overBookingCount,
                         dplfBand, BookingsInHour, last7avg, isProfileAnchor,
                         b2b_discount_fare, anchorFare, obfare, ndocounter, imp_forecast
                     )
  
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.final_fare_anchor_forecast(
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.final_fare_anchor_forecast(
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
@@ -220,6 +224,7 @@ class DetermineRBD:
 
                     return AnchorResult(
                         anchorFare=anchorFare,
+                        anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                         strategyFare=strategyFare,
                         profileFare=CONST_NA,
                         lastSellingFare=lastSoldFare,
@@ -246,7 +251,7 @@ class DetermineRBD:
                 self.logger.info("Profile Fare: " + str(profileFare))
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
                 if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
                     anchorFare = anchorFare+int(currParams.market_discount)
 
@@ -271,8 +276,12 @@ class DetermineRBD:
 
         # Anchor selection complete. Bundle the resolved values into an AnchorResult so
         # the ladder-lookup tail can run separately (R2.1).
+        if anchorFareBeforeTolerance == CONST_NA:
+            anchorFareBeforeTolerance = anchorFare
+
         return AnchorResult(
             anchorFare=anchorFare,
+            anchorFareBeforeTolerance=anchorFareBeforeTolerance,
             strategyFare=strategyFare,
             profileFare=profileFare,
             lastSellingFare=lastSoldFare,
@@ -588,6 +597,7 @@ class DetermineRBD:
         upsell = 0
         overBookingFare = 0
         toleranceValue = CONST_NA
+        anchorFareBeforeTolerance = CONST_NA
         should_use_tolerance = False
         TOLERANCE_MAP = self.constantsutils.TOLERANCE_MAP
         B2B_FACTOR_MAP = self.constantsutils.B2B_FACTOR_MAP
@@ -628,6 +638,10 @@ class DetermineRBD:
         
         def apply_tolerance_logic(anchor_fare, tolerance_per, how_determined):
             nonlocal toleranceValue
+            nonlocal anchorFareBeforeTolerance
+            if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
+                anchorFareBeforeTolerance = anchor_fare
+
             if has_tolerance(tolerance_per):
                 tolerance_value = reduce_by_per(float(strategyFare), float(tolerance_per))
                 toleranceValue = f"{tolerance_value:.2f}"
@@ -893,13 +907,14 @@ class DetermineRBD:
                 anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
             
             anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
-        # ------
-
-        # Overbooking logic & Final Adjustments
+        # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
-        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue
+        if should_use_tolerance and "_Auto_Tolerance_Hit" not in howDetermined:
+            howDetermined += "_Auto_Tolerance_Hit"
+
+        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance
     
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast=None):
         anchorFare = 0
@@ -909,6 +924,7 @@ class DetermineRBD:
         overBookingFare = 0
         toleranceValue = CONST_NA
         auto_tolerance_applied = False
+        anchorFareBeforeTolerance = CONST_NA
         
         # Helper functions to reduce code duplication
         def has_tolerance_fare():
@@ -935,6 +951,10 @@ class DetermineRBD:
         def calculate_tolerance_value(pre_tolerance_anchor=None):
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
+            nonlocal anchorFareBeforeTolerance
+            if anchorFareBeforeTolerance == CONST_NA and pre_tolerance_anchor is not None:
+                anchorFareBeforeTolerance = pre_tolerance_anchor
+
             if not has_tolerance_fare():
                 return 0
 
@@ -971,6 +991,7 @@ class DetermineRBD:
                 analyst_changed = False
                 if saved_b2c_tolerance is not None and str(saved_b2c_tolerance) != str(toleranceFare):
                     t_prime = None
+                    t_v_prev = None
                     analyst_changed = True
                     run_count = 0
                     state["history"] = []
@@ -997,26 +1018,36 @@ class DetermineRBD:
                 delta_variance = 0
                 calc_new_t_prime = False
                 prev_t_prime = T
-
+                
+                # Use previous run's T_V to compute the limit if available, otherwise baseline T
+                current_used_t = t_v_prev if t_v_prev is not None else T
+                prev_run_tolerance_limit = float(strategyFare) - float(current_used_t)
+                x_val = prev_run_tolerance_limit - float(pre_tolerance_anchor)
+                
+                try:
+                    current_dplf = float(dPLF) if dPLF is not None and str(dPLF).strip() != '' else 0
+                except Exception:
+                    current_dplf = 0
+                    
                 if run_count <= N or target_idx < 0 or len(history) <= target_idx:
-                    x = tolerance_limit - float(pre_tolerance_anchor)
+                    x = x_val
                     if x > 0:
-                        delta_variance = x
+                        delta_variance = current_dplf
                         calc_new_t_prime = True
-                        prev_t_prime = T
+                        prev_t_prime = t_prime if t_prime is not None else T
                     else:
-                        t_prime = T
+                        t_prime = t_prime if t_prime is not None else T
                         x = 0
                 else:
                     target_record = history[target_idx]
                     x = t_v_prev - float(pre_tolerance_anchor) if t_v_prev is not None else 0
                     if x > 0:
-                        prev_x = target_record.get("variance", 0)
-                        delta_variance = x - prev_x
+                        prev_dplf = target_record.get("actual_dplf", 0)
+                        delta_variance = current_dplf - prev_dplf
                         calc_new_t_prime = True
                         prev_t_prime = target_record.get("T_prime", T)
                     else:
-                        x = state.get("variance", 0)
+                        x = 0
                         t_prime = state.get("T_prime", T)
                 
                 if calc_new_t_prime:
@@ -1031,23 +1062,24 @@ class DetermineRBD:
                     g_value = 0
                     
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                    target_dplf_band = str(dplfBand)
+                    target_band_id = str(dplfBand)
                     
-                    if forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA:
-                        if grid_df is not None:
-                            for b_name in grid_df['dplf_band_name'].unique():
+                    if forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA and ndocounter <= 30:
+                        if grid_df is not None and 'forecast_band_name' in grid_df.columns:
+                            for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
+                                b_name = str(row['forecast_band_name'])
                                 try:
-                                    parts = str(b_name).replace('(', '').replace(')', '').split(',')
+                                    parts = b_name.replace('(', '').replace(')', '').split(',')
                                     if len(parts) == 2:
                                         min_v, max_v = float(parts[0]), float(parts[1])
                                         if min_v <= float(imp_forecast) <= max_v:
-                                            target_dplf_band = str(b_name)
+                                            target_band_id = str(row['band_id'])
                                             break
                                 except Exception:
                                     continue
                     
                     if grid_df is not None and delta_band_id is not None:
-                        match = grid_df[(grid_df['dplf_band_name'] == target_dplf_band) & (grid_df['delta_band_id'] == delta_band_id)]
+                        match = grid_df[(grid_df['band_id'].astype(str) == target_band_id) & (grid_df['delta_band_id'] == delta_band_id)]
                         if not match.empty:
                             g_value = match.iloc[0]['g_value']
                             
@@ -1057,7 +1089,7 @@ class DetermineRBD:
                     
                 if 0 <= ndocounter <= 7:
                     try:
-                        max_tolerance = float(n_value) * float(strategyFare)
+                        max_tolerance = (float(n_value) / 100.0) * float(strategyFare)
                         if final_T > max_tolerance:
                             final_T = max_tolerance
                     except:
@@ -1068,7 +1100,8 @@ class DetermineRBD:
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
                     "T_V": float(final_T),
-                    "variance": float(x)
+                    "variance": float(x),
+                    "actual_dplf": float(current_dplf)
                 })
                 max_history = max(6, N + 1)
                 if len(history) > max_history:
@@ -1094,6 +1127,9 @@ class DetermineRBD:
                 
                 
                 auto_tolerance_applied = True
+                # Override the old tolerance_limit with the newly calculated auto-tolerance penalty
+                tolerance_limit = float(strategyFare) - final_T
+
             toleranceValue = f"{tolerance_limit:.2f}"
             return tolerance_limit
         
@@ -1235,6 +1271,7 @@ class DetermineRBD:
             # Case: No lastSoldFare but profileFare exists
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
                 max_fare = max(float(profileFare), float(strategyFare))
+                anchorFareBeforeTolerance = max_fare
                 if has_tolerance_fare():
                     tolerance_val = calculate_tolerance_value(max_fare)
                     anchorFare = max(max_fare, tolerance_val)
@@ -1298,6 +1335,7 @@ class DetermineRBD:
                 else:
                     v1 = max_value
                 
+                anchorFareBeforeTolerance = v1
                 v2 = calculate_tolerance_value(v1)
                 
                 if has_hard_anchor():
@@ -1322,6 +1360,7 @@ class DetermineRBD:
                 if dPLF < -15:
                     dPLF = -15
                 v1 = min_fare + (fare_diff / self.constantsutils.OWN_FARE_DELTA_B) * (dPLF + self.constantsutils.OWN_FARE_DELTA_B)
+                anchorFareBeforeTolerance = v1
                 v2 = calculate_tolerance_value(v1)
                 
                 if v2 > v1:
@@ -1348,7 +1387,7 @@ class DetermineRBD:
         if auto_tolerance_applied and "_Auto_Tolerance_Hit" not in howDetermined:
             howDetermined += "_Auto_Tolerance_Hit"
             
-        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue
+        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
         self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")

@@ -289,6 +289,8 @@ class DynAlloc:
 			self.logger.info("Exception occurred")
 			traceback.print_exc()
 			self.logger.info(e)
+			import traceback
+			traceback.print_exc()
 			self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, f"Unhandled exception: {str(e)}")
 
 		if not self.inputSource.isUpdateNavitaire:
@@ -865,9 +867,14 @@ class DynAlloc:
 		sector_full = self.currParams.origin + self.currParams.destin
 		upsellValueData_full = self.rmdatabasehelper.getUpsellValue(currFltDate, sector_full) # currFltDate is MM/DD/YYYY
 		upsellValue_full = 0.0
-		if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns and pd.notna(upsellValueData_full.percentage.iloc[0]):
-			try: upsellValue_full = upsellValueData_full.percentage.iloc[0]
-			except (ValueError, TypeError): self.logger.info("Could not convert upsell percentage to float.")
+		if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns:
+			raw_val = upsellValueData_full.percentage.iloc[0]
+			if pd.notna(raw_val) and str(raw_val).strip().lower() != 'nan':
+				try: 
+					upsellValue_full = float(raw_val)
+				except (ValueError, TypeError): 
+					self.logger.info(f"Could not convert upsell percentage '{raw_val}' to float.")
+					upsellValue_full = 0.0
 
 		state.bookloadPercentile_full = bookloadPercentile_full
 		state.percentile_str_full = percentile_str_full
@@ -2286,7 +2293,7 @@ class DynAlloc:
 			self.currParams.incrementedProfileFareFlag,
 		)
 
-		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
+		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() in ('NA', 'NAN') or pd.isna(upsellValue_full):
 			upsellValue_full = 0
 			state.upsellValue_full = upsellValue_full
 
@@ -3786,6 +3793,7 @@ class DynAlloc:
 		summary_row.lastSellingFare = anchor_result.lastSellingFare
 		summary_row.hardAnchorFare = anchor_result.hardAnchorFare
 		summary_row.upsell = anchor_result.upsell
+		summary_row.anchorFareBeforeTolerance = getattr(anchor_result, 'anchorFareBeforeTolerance', CONST_NA)
 		summary_row.toleranceValue = anchor_result.toleranceValue
 
 	# ------------------------------------------------------------------
