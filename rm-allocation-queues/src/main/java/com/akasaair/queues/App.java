@@ -6053,7 +6053,7 @@ public class App implements CommandLineRunner {
                     String headerVal = headers.get(j).trim();
                     try {
                         int deltaBandId = Integer.parseInt(headerVal);
-                        float gValue = row.size() > j && !row.get(j).trim().isEmpty() ? Float.parseFloat(row.get(j).trim()) : 0f;
+                        double gValue = row.size() > j && !row.get(j).trim().isEmpty() ? Double.parseDouble(row.get(j).trim()) : 0.0;
                         
                         Document doc = new Document();
                         doc.put("band_id", bandId);
