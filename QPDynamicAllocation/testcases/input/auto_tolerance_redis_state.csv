@@ -1,5 +1,5 @@
-redis_key,b2c_tolerance,T_prime,T_V,variance,run_count
-auto_tolerance_BOM_JAI_1231_09/02/2023,500,2000,28000,-2,3
-auto_tolerance_BOM_JAI_1233_08/14/2024,2000,2300,28000,-8,3
-auto_tolerance_BOM_JAI_1234_08/02/2025,1000,1500,28000,0,3
-auto_tolerance_BOM_JAI_1235_09/032025,1500,1700,28000,-9,3
+redis_key,b2c_tolerance,T_prime,T_V,run_count,history
+auto_tolerance_BOM_JAI_1231_09/02/2023,500,2000,28000,3,"[{""run_count"": 1, ""T_prime"": 1800.0, ""T_V"": 25000.0, ""actual_dplf"": -2, ""actual_imp_forecast"": -2}, {""run_count"": 2, ""T_prime"": 1900.0, ""T_V"": 27000.0, ""actual_dplf"": 68.0, ""actual_imp_forecast"": 63.0}]"
+auto_tolerance_BOM_JAI_1233_08/14/2023,2000,2300,28000,3,"[{""run_count"": 1, ""T_prime"": 1800.0, ""T_V"": 25000.0, ""actual_dplf"": -8, ""actual_imp_forecast"": -8}, {""run_count"": 2, ""T_prime"": 1900.0, ""T_V"": 27000.0, ""actual_dplf"": 68.0, ""actual_imp_forecast"": 63.0}]"
+auto_tolerance_BOM_JAI_1234_08/02/2023,1000,1500,28000,3,"[{""run_count"": 1, ""T_prime"": 1800.0, ""T_V"": 25000.0, ""actual_dplf"": 0, ""actual_imp_forecast"": 0}, {""run_count"": 2, ""T_prime"": 1900.0, ""T_V"": 27000.0, ""actual_dplf"": 68.0, ""actual_imp_forecast"": 63.0}]"
+auto_tolerance_BOM_JAI_1235_09/03/2023,1500,1700,28000,3,"[{""run_count"": 1, ""T_prime"": 1800.0, ""T_V"": 25000.0, ""actual_dplf"": -9, ""actual_imp_forecast"": -9}, {""run_count"": 2, ""T_prime"": 1900.0, ""T_V"": 27000.0, ""actual_dplf"": 68.0, ""actual_imp_forecast"": 63.0}]"

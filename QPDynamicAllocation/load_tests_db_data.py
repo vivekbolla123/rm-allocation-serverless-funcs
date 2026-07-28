@@ -127,6 +127,15 @@ class Schema:
         # Convert DataFrame to list of dictionaries
         records = rawdata.to_dict('records')
         
+        # Parse JSON columns if present
+        import json
+        for record in records:
+            if 'history' in record and isinstance(record['history'], str):
+                try:
+                    # Try to parse valid JSON string
+                    record['history'] = json.loads(record['history'])
+                except Exception:
+                    pass
         # Insert documents into MongoDB collection
         if records:
             db[collectionName].insert_many(records)
