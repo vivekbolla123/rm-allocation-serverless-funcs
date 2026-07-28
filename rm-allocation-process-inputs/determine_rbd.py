@@ -641,110 +641,142 @@ class DetermineRBD:
             if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
                 anchorFareBeforeTolerance = anchor_fare
 
-            if has_tolerance(tolerance_fare):
-                base_T = float(tolerance_fare)
-                T = base_T
+            has_tol = has_tolerance(tolerance_fare)
+            flag_val = getattr(currParams, 'auto_tolerance_flag', 0)
+            
+            if has_tol:
+                T = float(tolerance_fare)
+            else:
+                T = 0.10 * float(strategyFare)
+                
+            if has_tol:
                 tolerance_limit = float(strategyFare) - T
+            else:
+                tolerance_limit = 0
+
+            auto_tolerance_applied = False
+            
+            if anchor_fare is not None:
+                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+                hash_field = "autotolerance_history"
                 
-                flag_val = getattr(currParams, 'auto_tolerance_flag', 0)
-                
-                if flag_val in (1, '1'):
-                    redis_key = f"auto_tolerance_{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
-                    state = {}
+                history = []
+                try:
+                    state_str = self.redishelper.cache_client.hget(redis_key, hash_field)
+                    if state_str:
+                        history = __import__('json').loads(state_str)
+                except Exception:
+                    pass
+                    
+                if not history:
                     try:
-                        state_str = self.redishelper.get(redis_key)
-                        if state_str:
-                            state = __import__('json').loads(state_str)
+                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                        if mongo_state and "autotolerance_history" in mongo_state:
+                            h_val = mongo_state["autotolerance_history"]
+                            if isinstance(h_val, str):
+                                try:
+                                    h_val = __import__('json').loads(h_val)
+                                except Exception:
+                                    h_val = []
+                            history = h_val
                     except Exception:
                         pass
-                        
-                    if not state:
-                        try:
-                            mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
-                            if mongo_state:
-                                state = mongo_state
-                        except Exception:
-                            pass
-                    
-                    saved_b2c_tolerance = state.get("b2c_tolerance")
-                    t_prime = state.get("T_prime")
-                    t_v_prev = state.get("T_V")
-                    run_count = state.get("run_count", 0)
-                    
-                    if saved_b2c_tolerance is not None and float(saved_b2c_tolerance) != float(base_T):
-                        t_prime = None
-                        t_v_prev = None
-                        run_count = 0
-                        state["history"] = []
-                        
-                    run_count += 1
-                    
-                    ndo_df = self.auto_tolerance_config.get("ndo_config")
-                    n_value = 1
-                    if ndo_df is not None:
-                        match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
-                        if not match.empty:
-                            n_value = match.iloc[0]['n_value']
-                            
+                
+                if len(history) > 0:
+                    last_record = history[-1]
+                    saved_b2c_tolerance = last_record.get("b2c_tolerance")
+                    t_prime = last_record.get("T_prime")
+                    t_v_prev = last_record.get("T_V")
+                    run_count = last_record.get("run_count", 0)
+                else:
+                    saved_b2c_tolerance = None
+                    t_prime = None
+                    t_v_prev = None
+                    run_count = 0
+                
+                current_b2c_tol_str = str(tolerance_fare) if has_tol else ""
+                analyst_changed = False
+                if saved_b2c_tolerance is not None:
                     try:
-                        N = int(float(n_value))
-                        if N == 0: N = 1
+                        saved_f = float(saved_b2c_tolerance)
+                        curr_f = float(tolerance_fare) if has_tol else -1.0
+                        if saved_f != curr_f:
+                            t_prime = None
+                            t_v_prev = None
+                            analyst_changed = True
+                            run_count = 0
+                            history = []
                     except:
-                        N = 1                
+                        if str(saved_b2c_tolerance) != current_b2c_tol_str:
+                            t_prime = None
+                            t_v_prev = None
+                            analyst_changed = True
+                            run_count = 0
+                            history = []
                     
-                    history = state.get("history", [])
+                run_count += 1
+                
+                ndo_df = self.auto_tolerance_config.get("ndo_config")
+                n_value = 1
+                if ndo_df is not None:
+                    match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
+                    if not match.empty:
+                        n_value = match.iloc[0]['n_value']
+                        
+                try:
+                    N = int(float(n_value))
+                    if N == 0: N = 1
+                except:
+                    N = 1                
+                
+                try:
+                    current_dplf = float(dPLF) if dPLF is not None and str(dPLF).strip() != '' else 0
+                except Exception:
+                    current_dplf = 0
+                
+                try:
+                    current_imp_forecast = float(imp_forecast) if imp_forecast is not None and imp_forecast != CONST_NA else 0
+                except Exception:
+                    current_imp_forecast = 0
                     
-                    x = 0
-                    delta_variance = 0
-                    calc_new_t_prime = False
-                    prev_t_prime = T
+                is_execution_run = False
+                if run_count > 0 and run_count % (N + 1) == 0:
+                    is_execution_run = True
                     
-                    current_used_t = t_v_prev if t_v_prev is not None else T
-                    prev_run_tolerance_limit = float(current_used_t)
-                    x_val = prev_run_tolerance_limit - float(anchor_fare)
-                    
+                target_run_count = run_count - N
+                target_record = None
+                for r in history:
+                    if r.get("run_count") == target_run_count:
+                        target_record = r
+                        break
+                        
+                calc_new_t_prime = False
+                prev_t_prime = T
+                x = 0
+                delta_variance = 0
+                
+                if t_v_prev is None:
+                    if not has_tol:
+                        final_T = 0.10 * float(strategyFare)
+                    else:
+                        final_T = float(T)
+                    t_prime = final_T
+                else:
+                    final_T = float(t_v_prev)
+                    t_prime = float(t_prime) if t_prime is not None else float(T)
+
+                if flag_val in (1, '1') and is_execution_run and target_record is not None:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+
+                    target_t_v = target_record.get("T_V", t_v_prev)
+                    x = target_t_v - float(anchor_fare) if target_t_v is not None else 0
                     
-                    try:
-                        current_dplf = float(dPLF) if dPLF is not None and str(dPLF).strip() != '' else 0
-                    except Exception:
-                        current_dplf = 0
-                    
-                    try:
-                        current_imp_forecast = float(imp_forecast) if imp_forecast is not None and imp_forecast != CONST_NA else 0
-                    except Exception:
-                        current_imp_forecast = 0
+                    if x > 0:
+                        prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
+                        curr_metric = current_imp_forecast if is_forecast else current_dplf
+                        delta_variance = curr_metric - prev_metric
                         
-                    target_idx = run_count - N - 1
-                    if target_idx < 0 and len(history) > 0:
-                        target_idx = 0
-                        
-                    delta_variance = 0
-                    if len(history) == 0 or len(history) <= target_idx:
-                        x = x_val
-                        if x > 0:
-                            delta_variance = current_imp_forecast if is_forecast else current_dplf
-                            calc_new_t_prime = True
-                            prev_t_prime = t_prime if t_prime is not None else T
-                        else:
-                            t_prime = t_prime if t_prime is not None else T
-                            x = 0
-                    else:
-                        target_record = history[target_idx]
-                        target_t_v = target_record.get("T_V", t_v_prev)
-                        x = target_t_v - float(anchor_fare) if target_t_v is not None else 0
-                        if x > 0:
-                            prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
-                            curr_metric = current_imp_forecast if is_forecast else current_dplf
-                            delta_variance = curr_metric - prev_metric
-                            calc_new_t_prime = True
-                            prev_t_prime = target_record.get("T_prime", T)
-                        else:
-                            x = 0
-                            t_prime = state.get("T_prime", T)
-                    
-                    if calc_new_t_prime:
                         delta_df = self.auto_tolerance_config.get("delta_bands")
                         delta_band_id = None
                         if delta_df is not None:
@@ -776,12 +808,14 @@ class DetermineRBD:
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
-                        t_prime = (x * g_value) + prev_t_prime
+                        prev_t_prime = target_record.get("T_prime", T)
+                        calculated_t_prime = (x * g_value) + prev_t_prime
                         
-                        if t_prime > float(strategyFare):
-                            t_prime = prev_t_prime
-                    
-                    final_T = t_prime
+                        if calculated_t_prime > float(strategyFare):
+                            calculated_t_prime = prev_t_prime
+                            
+                        t_prime = calculated_t_prime
+                        final_T = t_prime
                         
                     if 0 <= ndocounter <= 7:
                         try:
@@ -789,42 +823,45 @@ class DetermineRBD:
                             t_prime = final_T
                         except:
                             pass
-                            
-                    history = state.get("history", [])
-                    history.append({
-                        "run_count": int(run_count),
-                        "T_prime": float(t_prime),
-                        "T_V": float(final_T),
-                        "actual_dplf": float(current_dplf),
-                        "actual_imp_forecast": float(current_imp_forecast)
-                    })
-                    max_history = max(6, N + 1)
-                    if len(history) > max_history:
-                        history = history[-max_history:]
-                            
-                    new_state = {
-                        "b2c_tolerance": float(base_T),
-                        "T_prime": float(t_prime),
-                        "T_V": float(final_T),
-                        "run_count": int(run_count),
-                        "history": history
+
+                history.append({
+                    "run_count": int(run_count),
+                    "T_prime": float(t_prime),
+                    "T_V": float(final_T),
+                    "actual_dplf": float(current_dplf),
+                    "actual_imp_forecast": float(current_imp_forecast),
+                    "b2c_tolerance": current_b2c_tol_str
+                })
+                
+                max_history = max(6, N + 2)
+                if len(history) > max_history:
+                    history = history[-max_history:]
+                
+                try:
+                    self.redishelper.cache_client.hset(redis_key, hash_field, __import__('json').dumps(history))
+                except Exception:
+                    pass
+                
+                try:
+                    mongo_doc = {
+                        "redis_key": redis_key,
+                        "autotolerance_history": history
                     }
-                    try:
-                        self.redishelper.set(redis_key, __import__('json').dumps(new_state))
-                    except Exception:
-                        pass
-                    
-                    try:
-                        self.rmdatabasehelper.setAutoToleranceState(redis_key, new_state)
-                    except Exception:
-                        pass
-                    
+                    self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                except Exception:
+                    pass
+                
+                if flag_val in (1, '1'):
+                    auto_tolerance_applied = True
                     tolerance_limit = float(strategyFare) - final_T
 
-                toleranceValue = f"{tolerance_limit:.2f}"
-                anchor_fare = max(tolerance_limit, anchor_fare)
-                if (anchor_fare == tolerance_limit):
-                    how_determined += '_ToleranceHit'
+            if tolerance_limit == 0 and not auto_tolerance_applied:
+                return anchor_fare, how_determined
+
+            toleranceValue = f"{tolerance_limit:.2f}"
+            anchor_fare = max(tolerance_limit, anchor_fare)
+            if (anchor_fare == tolerance_limit):
+                how_determined += '_ToleranceHit'
             
             return anchor_fare, how_determined
         
@@ -1131,46 +1168,77 @@ class DetermineRBD:
             if anchorFareBeforeTolerance == CONST_NA and pre_tolerance_anchor is not None:
                 anchorFareBeforeTolerance = pre_tolerance_anchor
 
-            if not has_tolerance_fare():
-                return 0
-
-            T = float(toleranceFare)
-            tolerance_limit = float(strategyFare) - T
-            
+            has_tol = has_tolerance_fare()
             flag_val = getattr(currParams, 'auto_tolerance_flag', 0)
             
+            if has_tol:
+                T = float(toleranceFare)
+            else:
+                T = 0.10 * float(strategyFare)
+                
+            if has_tol:
+                tolerance_limit = float(strategyFare) - T
+            else:
+                tolerance_limit = 0
+
             # Auto-tolerance logic
-            if flag_val in (1, '1') and pre_tolerance_anchor is not None:
-                redis_key = f"auto_tolerance_{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
-                state = {}
+            if pre_tolerance_anchor is not None:
+                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+                hash_field = "autotolerance_history"
+                
+                history = []
                 try:
-                    state_str = self.redishelper.get(redis_key)
+                    state_str = self.redishelper.cache_client.hget(redis_key, hash_field)
                     if state_str:
-                        state = __import__('json').loads(state_str)
+                        history = __import__('json').loads(state_str)
                 except Exception:
                     pass
                     
-                # Fallback to MongoDB / Local Mock if Redis is empty or failed
-                if not state:
+                if not history:
                     try:
                         mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
-                        if mongo_state:
-                            state = mongo_state
+                        if mongo_state and "autotolerance_history" in mongo_state:
+                            h_val = mongo_state["autotolerance_history"]
+                            if isinstance(h_val, str):
+                                try:
+                                    h_val = __import__('json').loads(h_val)
+                                except Exception:
+                                    h_val = []
+                            history = h_val
                     except Exception:
                         pass
                 
-                saved_b2c_tolerance = state.get("b2c_tolerance")
-                t_prime = state.get("T_prime")
-                t_v_prev = state.get("T_V")
-                run_count = state.get("run_count", 0)
-                
-                analyst_changed = False
-                if saved_b2c_tolerance is not None and float(saved_b2c_tolerance) != float(toleranceFare):
+                if len(history) > 0:
+                    last_record = history[-1]
+                    saved_b2c_tolerance = last_record.get("b2c_tolerance")
+                    t_prime = last_record.get("T_prime")
+                    t_v_prev = last_record.get("T_V")
+                    run_count = last_record.get("run_count", 0)
+                else:
+                    saved_b2c_tolerance = None
                     t_prime = None
                     t_v_prev = None
-                    analyst_changed = True
                     run_count = 0
-                    state["history"] = []
+                
+                current_b2c_tol_str = str(toleranceFare) if has_tol else ""
+                analyst_changed = False
+                if saved_b2c_tolerance is not None:
+                    try:
+                        saved_f = float(saved_b2c_tolerance)
+                        curr_f = float(toleranceFare) if has_tol else -1.0
+                        if saved_f != curr_f:
+                            t_prime = None
+                            t_v_prev = None
+                            analyst_changed = True
+                            run_count = 0
+                            history = []
+                    except:
+                        if str(saved_b2c_tolerance) != current_b2c_tol_str:
+                            t_prime = None
+                            t_v_prev = None
+                            analyst_changed = True
+                            run_count = 0
+                            history = []
                     
                 run_count += 1
                 
@@ -1187,21 +1255,6 @@ class DetermineRBD:
                 except:
                     N = 1                
                 
-                history = state.get("history", [])
-                
-                x = 0
-                delta_variance = 0
-                calc_new_t_prime = False
-                prev_t_prime = T
-                
-                # Use previous run's T_V to compute the limit if available, otherwise baseline T
-                current_used_t = t_v_prev if t_v_prev is not None else T
-                prev_run_tolerance_limit = float(current_used_t)
-                x_val = prev_run_tolerance_limit - float(pre_tolerance_anchor)
-                
-                forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
-                
                 try:
                     current_dplf = float(dPLF) if dPLF is not None and str(dPLF).strip() != '' else 0
                 except Exception:
@@ -1212,113 +1265,124 @@ class DetermineRBD:
                 except Exception:
                     current_imp_forecast = 0
                     
-                target_idx = run_count - N - 1
-                if target_idx < 0 and len(history) > 0:
-                    target_idx = 0
+                is_execution_run = False
+                if run_count > 0 and run_count % (N + 1) == 0:
+                    is_execution_run = True
                     
+                target_run_count = run_count - N
+                target_record = None
+                for r in history:
+                    if r.get("run_count") == target_run_count:
+                        target_record = r
+                        break
+                        
+                calc_new_t_prime = False
+                prev_t_prime = T
+                x = 0
                 delta_variance = 0
-                if len(history) == 0 or len(history) <= target_idx:
-                    x = x_val
-                    if x > 0:
-                        delta_variance = current_imp_forecast if is_forecast else current_dplf
-                        calc_new_t_prime = True
-                        prev_t_prime = t_prime if t_prime is not None else T
+                
+                if t_v_prev is None:
+                    if not has_tol:
+                        final_T = 0.10 * float(strategyFare)
                     else:
-                        t_prime = t_prime if t_prime is not None else T
-                        x = 0
+                        final_T = float(T)
+                    t_prime = final_T
                 else:
-                    target_record = history[target_idx]
+                    final_T = float(t_v_prev)
+                    t_prime = float(t_prime) if t_prime is not None else float(T)
+
+                if flag_val in (1, '1') and is_execution_run and target_record is not None:
+                    forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
+                    is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+
                     target_t_v = target_record.get("T_V", t_v_prev)
                     x = target_t_v - float(pre_tolerance_anchor) if target_t_v is not None else 0
+                    
                     if x > 0:
                         prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
                         curr_metric = current_imp_forecast if is_forecast else current_dplf
                         delta_variance = curr_metric - prev_metric
-                        calc_new_t_prime = True
-                        prev_t_prime = target_record.get("T_prime", T)
-                    else:
-                        x = 0
-                        t_prime = state.get("T_prime", T)
-                
-                if calc_new_t_prime:
-                    delta_df = self.auto_tolerance_config.get("delta_bands")
-                    delta_band_id = None
-                    if delta_df is not None:
-                        match = delta_df[(delta_df['min_value'] <= delta_variance) & (delta_df['max_value'] >= delta_variance)]
-                        if not match.empty:
-                            delta_band_id = match.iloc[0]['id']
-                    
-                    grid_df = self.auto_tolerance_config.get("grid_values")
-                    g_value = 0
-                    
-                    target_band_id = str(dplfBand)
-                    
-                    if is_forecast and ndocounter <= 30:
-                        if grid_df is not None and 'forecast_band_name' in grid_df.columns:
-                            for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
-                                b_name = str(row['forecast_band_name'])
-                                try:
-                                    parts = b_name.replace('(', '').replace(')', '').split(',')
-                                    if len(parts) == 2:
-                                        min_v, max_v = float(parts[0]), float(parts[1])
-                                        if min_v <= float(imp_forecast) <= max_v:
-                                            target_band_id = str(row['band_id'])
-                                            break
-                                except Exception:
-                                    continue
-                    
-                    if grid_df is not None and delta_band_id is not None:
-                        match = grid_df[(grid_df['band_id'].astype(str) == target_band_id) & (grid_df['delta_band_id'] == delta_band_id)]
-                        if not match.empty:
-                            g_value = match.iloc[0]['g_value']
-                            
-                    t_prime = (x * g_value) + prev_t_prime
-                    
-                    if t_prime > float(strategyFare):
-                        t_prime = prev_t_prime
-                
-                final_T = t_prime
-                    
-                if 0 <= ndocounter <= 7:
-                    try:
-                        final_T = (float(n_value) / 100.0) * float(strategyFare)
-                        t_prime = final_T
-                    except:
-                        pass
                         
-                history = state.get("history", [])
+                        delta_df = self.auto_tolerance_config.get("delta_bands")
+                        delta_band_id = None
+                        if delta_df is not None:
+                            match = delta_df[(delta_df['min_value'] <= delta_variance) & (delta_df['max_value'] >= delta_variance)]
+                            if not match.empty:
+                                delta_band_id = match.iloc[0]['id']
+                        
+                        grid_df = self.auto_tolerance_config.get("grid_values")
+                        g_value = 0
+                        
+                        target_band_id = str(dplfBand)
+                        
+                        if is_forecast and ndocounter <= 30:
+                            if grid_df is not None and 'forecast_band_name' in grid_df.columns:
+                                for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
+                                    b_name = str(row['forecast_band_name'])
+                                    try:
+                                        parts = b_name.replace('(', '').replace(')', '').split(',')
+                                        if len(parts) == 2:
+                                            min_v, max_v = float(parts[0]), float(parts[1])
+                                            if min_v <= float(imp_forecast) <= max_v:
+                                                target_band_id = str(row['band_id'])
+                                                break
+                                    except Exception:
+                                        continue
+                        
+                        if grid_df is not None and delta_band_id is not None:
+                            match = grid_df[(grid_df['band_id'].astype(str) == target_band_id) & (grid_df['delta_band_id'] == delta_band_id)]
+                            if not match.empty:
+                                g_value = match.iloc[0]['g_value']
+                                
+                        prev_t_prime = target_record.get("T_prime", T)
+                        calculated_t_prime = (x * g_value) + prev_t_prime
+                        
+                        if calculated_t_prime > float(strategyFare):
+                            calculated_t_prime = prev_t_prime
+                            
+                        t_prime = calculated_t_prime
+                        final_T = t_prime
+                        
+                    if 0 <= ndocounter <= 7:
+                        try:
+                            final_T = (float(n_value) / 100.0) * float(strategyFare)
+                            t_prime = final_T
+                        except:
+                            pass
+
                 history.append({
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
                     "T_V": float(final_T),
                     "actual_dplf": float(current_dplf),
-                    "actual_imp_forecast": float(current_imp_forecast)
+                    "actual_imp_forecast": float(current_imp_forecast),
+                    "b2c_tolerance": current_b2c_tol_str
                 })
-                max_history = max(6, N + 1)
+                
+                max_history = max(6, N + 2)
                 if len(history) > max_history:
                     history = history[-max_history:]
-                        
-                new_state = {
-                    "b2c_tolerance": float(toleranceFare),
-                    "T_prime": float(t_prime),
-                    "T_V": float(final_T),
-                    "run_count": int(run_count),
-                    "history": history
-                }
+                
                 try:
-                    self.redishelper.set(redis_key, __import__('json').dumps(new_state))
+                    self.redishelper.cache_client.hset(redis_key, hash_field, __import__('json').dumps(history))
                 except Exception:
                     pass
                 
                 try:
-                    self.rmdatabasehelper.setAutoToleranceState(redis_key, new_state)
+                    mongo_doc = {
+                        "redis_key": redis_key,
+                        "autotolerance_history": history
+                    }
+                    self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
                 except Exception:
                     pass
                 
-                
-                auto_tolerance_applied = True
-                # Override the old tolerance_limit with the newly calculated auto-tolerance penalty
-                tolerance_limit = float(strategyFare) - final_T
+                if flag_val in (1, '1'):
+                    auto_tolerance_applied = True
+                    tolerance_limit = float(strategyFare) - final_T
+
+            if tolerance_limit == 0 and not auto_tolerance_applied:
+                return 0
 
             toleranceValue = f"{tolerance_limit:.2f}"
             return tolerance_limit

@@ -2805,6 +2805,13 @@ class RMDatabaseHelper:
             result = self.db.auto_tolerance_redis_state.find_one({"redis_key": redis_key})
             if result:
                 return result
+            
+            # Fallback for old format if migrating from auto_tolerance_
+            if redis_key.startswith("run_history:"):
+                old_key = redis_key.replace("run_history:", "auto_tolerance_", 1)
+                old_result = self.db.auto_tolerance_redis_state.find_one({"redis_key": old_key})
+                if old_result:
+                    return old_result
         except Exception as e:
             self.logger.error(f"Error fetching auto_tolerance_redis_state from Mongo: {e}")
         return None
