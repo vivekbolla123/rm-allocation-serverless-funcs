@@ -1,12 +1,18 @@
 import logging
 from Constants import *
-
-
+ 
+ 
 class OwnLogger:
 
 	def __init__(self, runid, input):
 		self.logger = logging.getLogger()
 		self.logger.setLevel(logging.INFO)
+		if not self.logger.handlers:
+			handler = logging.StreamHandler(sys.stdout)
+			handler.setLevel(logging.INFO)
+			formatter = logging.Formatter("%(asctime)s - %(levelname)-8s - %(message)s  ")
+			handler.setFormatter(formatter)
+			self.logger.addHandler(handler)
 		self.runid = runid
 		self.input = input.logs[CONST_RUN_AUDIT]
 

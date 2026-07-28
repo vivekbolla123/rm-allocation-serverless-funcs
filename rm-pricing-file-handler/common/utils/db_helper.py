@@ -7,6 +7,7 @@ from common.utils.logger import logger
 from common.constants.constants import UPLOAD_QUEUE_STATUS_IN_PROGRESS, DATABASE_ACCESS_ERROR_MESSAGE, UPLOAD_INFO_NOT_FOUND_ERROR_MESSAGE
 from common.config.db_config import get_mongo_db, get_mongo_master_db, get_db_for_collection
 from common.constants.query_constants import *
+from common.constants.constants import RM_PARAMETER_VALUES_COLLECTION
 
 class DbHelper:
     def add_errors_to_table(self, errors_list, obj_id):
@@ -351,6 +352,31 @@ class DbHelper:
         except Exception as e:
             logger.error(f"Failed to replace live tariff sheet: {e}")
             raise
+
+    def get_parameter_value(self, parameter_key):
+        """
+        Fetch a parameter value from the rm_parameter_values collection by key.
+        
+        Args:
+            parameter_key: The parameterKey to look up (e.g. 'SINGLE_RBD_MAP')
+            
+        Returns:
+            The parameterValue string if found, None otherwise.
+        """
+        try:
+            with get_db_for_collection(RM_PARAMETER_VALUES_COLLECTION)() as db:
+                result = db[RM_PARAMETER_VALUES_COLLECTION].find_one(
+                    {"parameterKey": parameter_key},
+                    {"parameterValue": 1, "_id": 0}
+                )
+                if result:
+                    return result.get("parameterValue")
+                else:
+                    logger.warning(f"Parameter '{parameter_key}' not found in {RM_PARAMETER_VALUES_COLLECTION}")
+                    return None
+        except Exception as e:
+            logger.error(f"Error fetching parameter '{parameter_key}': {e}")
+            return None
 
     def replace_collection_data(self, data_df, table_name):
         """

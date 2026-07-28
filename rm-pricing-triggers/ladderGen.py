@@ -1,4 +1,5 @@
 import io
+import json
 import boto3
 import pandas as pd
 import logging
@@ -11,6 +12,7 @@ import traceback
 import uuid
 import pytz
 import numpy as np
+import math
 
 from helpers.nav_db_helpers.ladder_nav_helper import LadderNavHelper
 from helpers.pa_db_helpers.ladder_pa_helper import LadderPAHelper
@@ -96,6 +98,7 @@ class LadderGen:
         self.BUFFER_FARES_B2B = 4
         self.CORE_FARES_B2C = self.TOTAL_B2C_FARES - self.BUFFER_FARES_B2C
         self.CORE_FARES_B2B = self.TOTAL_B2B_FARES - self.BUFFER_FARES_B2B
+        self.default_ml_config = self.constants.DEFAULT_ML_CONFIG
 
         # Per-sector parameters — will be set in _apply_sector_config() before each sector run
         self.fare_source_flag = None
@@ -163,6 +166,7 @@ class LadderGen:
         self.MIN_ESBFARES_THRESHOLD_B2C = cfg.min_threshold_b2c
         self.MIN_ESBFARES_THRESHOLD_B2B = cfg.min_threshold_b2b
         self.default_flag = cfg.default_flag
+        self.b2b_flag = cfg.b2b_flag
 
         self.logger.info(f"Applied config for {ladder_code} (sector={cfg.sector}): "
                          f"source={self.fare_source_flag}, "
@@ -1004,18 +1008,25 @@ class LadderGen:
             if market_data.empty:
                 return None
             
-            # Apply fare cap filter to market fares (convert gross to base fare per-row)
+            # Convert all gross fares to base fares upfront
             filtered_data = market_data.copy()
+            filtered_data['base_fare_calc'] = filtered_data.apply(
+                lambda row: self._calculate_base_xqp_fare(
+                    row['gross_fare'], row['source_airport'], row['destination_airport']
+                ), axis=1
+            )
+            
+            # Drop rows where base fare calculation failed
+            filtered_data = filtered_data.dropna(subset=['base_fare_calc'])
+            
+            if filtered_data.empty:
+                self.logger.warning(f"No valid base fares after conversion")
+                return None
+            
+            # Apply fare cap filter using base fare
             if self.fare_cap_value is not None:
                 before_count = len(filtered_data)
-                # Convert gross fares to base fares using each row's own source/destination
-                filtered_data['base_fare_calc'] = filtered_data.apply(
-                    lambda row: self._calculate_base_xqp_fare(
-                        row['gross_fare'], row['source_airport'], row['destination_airport']
-                    ), axis=1
-                )
                 filtered_data = filtered_data[filtered_data['base_fare_calc'] <= self.fare_cap_value]
-                filtered_data = filtered_data.drop(columns=['base_fare_calc'])
                 after_count = len(filtered_data)
                 if before_count != after_count:
                     self.logger.info(f"Fare cap filter on market fares (base fare comparison): {before_count - after_count} fares removed "
@@ -1025,11 +1036,11 @@ class LadderGen:
                 self.logger.warning(f"No market fares remain after fare cap filter")
                 return None
             
-            # Data is already filtered for B2C and instances >= 2 from MongoDB
+            # Sort by BASE FARE (not gross) to find true min/max
             if fare_type == 'min':
-                sorted_data = filtered_data.sort_values('gross_fare', ascending=True)
+                sorted_data = filtered_data.sort_values('base_fare_calc', ascending=True)
             else:
-                sorted_data = filtered_data.sort_values('gross_fare', ascending=False)
+                sorted_data = filtered_data.sort_values('base_fare_calc', ascending=False)
             
             # Get distance for yield calculation
             distance = self._get_distance(origin, destination)
@@ -1037,45 +1048,28 @@ class LadderGen:
                 self.logger.warning(f"Distance is 0 for {origin}-{destination}, cannot calculate yield")
                 # Return base fare without yield check if distance not available
                 if not sorted_data.empty:
-                    first_row = sorted_data.iloc[0]
-                    gross_fare = first_row['gross_fare']
-                    row_origin = first_row['source_airport']
-                    row_dest = first_row['destination_airport']
-                    # For international routes with currency conversion, convert to INR first
-                    if self.route == 'I' and self.conversion_rate != 1.0:
-                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
-                    else:
-                        gross_fare_inr = gross_fare
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
-                    return base_fare
+                    return sorted_data.iloc[0]['base_fare_calc']
                 return None
             
-            # Perform yield check for both domestic and international
+            # Perform yield check iterating by base fare order
             for _, row in sorted_data.iterrows():
-                gross_fare = row['gross_fare']
-                row_origin = row['source_airport']
-                row_dest = row['destination_airport']
+                base_fare = row['base_fare_calc']
                 
                 try:
-                    # For international routes with currency conversion, convert fare to INR for yield calculation
+                    # For international routes with currency conversion, convert to INR for yield
                     if self.route == 'I' and self.conversion_rate != 1.0:
-                        # Market fare is in local currency, convert to INR for yield check
-                        gross_fare_inr = self._convert_fare_to_inr(gross_fare)
+                        base_fare_inr = self._convert_fare_to_inr(base_fare)
                     else:
-                        # Domestic or international without conversion - already in INR
-                        gross_fare_inr = gross_fare
+                        base_fare_inr = base_fare
                     
-                    # Calculate base fare and yield using each row's own origin/destination
-                    base_fare = self._calculate_base_xqp_fare(gross_fare_inr, row_origin, row_dest)
-                    yield_value = base_fare / distance
+                    yield_value = base_fare_inr / distance
                     
                     # Check yield constraint
                     if yield_value >= self.MARKET_FARE_MIN_YIELD:
-                        # Return BASE FARE in INR
                         return base_fare
                         
                 except Exception as e:
-                    self.logger.warning(f"Error checking yield for fare {gross_fare}: {str(e)}")
+                    self.logger.warning(f"Error checking yield for base fare {base_fare}: {str(e)}")
                     continue
             
             route_type = "International" if self.route == 'I' else "Domestic"
@@ -1143,7 +1137,14 @@ class LadderGen:
                 f1 = 0.98 * f2
                 reason = "no valid fare" if valid_min_market_fare is None else f"fare {valid_min_market_fare:.2f} >= {threshold_f4:.2f}"
                 self.logger.info(f"Lower buffer: Using multiplicative approach ({reason})")
-            
+                
+            # Check yield constraint
+            distance = self._get_distance(origin, destination)
+            if distance > 0:
+                yield_value = f1 / distance
+                if yield_value < self.MARKET_FARE_MIN_YIELD:
+                    f1 = self.MARKET_FARE_MIN_YIELD * 1.01 * distance
+
             self.logger.info(f"  f1 = {f1:.2f}, f2 = {f2:.2f}, f3 = {f3:.2f}")
             
             # ===== HIGHER BUFFER FARES - Calculate fmax =====
@@ -1594,34 +1595,35 @@ class LadderGen:
 
             self.logger.info(f"Generating DEFAULT GP ladder for {self.sector} (channel={channel or 'BOTH'})")
 
-            base_ladder_b2c = None
-            base_ladder_b2b = None
-
+            allin_ladder_b2c = None
+            allin_ladder_b2b = None
+            origin = self.sector[:3]
+            destination = self.sector[3:]
             if generate_b2c:
                 min_b2c = self.MIN_MARKETFARES_THRESHOLD_B2C
                 max_b2c = self.MAX_MARKETFARES_THRESHOLD_B2C
                 self.logger.info(f"  B2C: Min={min_b2c}, Max={max_b2c}, n={n_b2c}")
 
-                base_ladder_b2c = self._generate_gp_ladder(min_b2c, max_b2c, n_b2c, "B2C")
-                if not base_ladder_b2c:
+                allin_ladder_b2c = self._generate_gp_ladder(min_b2c, max_b2c, n_b2c, "B2C")
+                if not allin_ladder_b2c:
                     return None
 
                 # Convert to local currency for international routes
                 if self.conversion_rate != 1.0:
-                    base_ladder_b2c = [fare * self.conversion_rate for fare in base_ladder_b2c]
+                    allin_ladder_b2c = [fare * self.conversion_rate for fare in allin_ladder_b2c]
 
             if generate_b2b:
                 min_b2b = self.MIN_MARKETFARES_THRESHOLD_B2B
                 max_b2b = self.MAX_MARKETFARES_THRESHOLD_B2B
                 self.logger.info(f"  B2B: Min={min_b2b}, Max={max_b2b}, n={n_b2b}")
 
-                base_ladder_b2b = self._generate_gp_ladder(min_b2b, max_b2b, n_b2b, "B2B")
-                if not base_ladder_b2b:
+                allin_ladder_b2b = self._generate_gp_ladder(min_b2b, max_b2b, n_b2b, "B2B")
+                if not allin_ladder_b2b:
                     return None
 
                 # Convert to local currency for international routes
                 if self.conversion_rate != 1.0:
-                    base_ladder_b2b = [fare * self.conversion_rate for fare in base_ladder_b2b]
+                    allin_ladder_b2b = [fare * self.conversion_rate for fare in allin_ladder_b2b]
 
             if self.conversion_rate != 1.0:
                 self.logger.info(f"Converted default ladder from INR to {self.sector_currency} (rate: {self.conversion_rate})")
@@ -1635,15 +1637,15 @@ class LadderGen:
                 'generation_timestamp': datetime.now()
             }
 
-            if base_ladder_b2c is not None:
-                result['ladder_fares_b2c'] = base_ladder_b2c
+            if allin_ladder_b2c is not None:
+                result['ladder_fares_b2c'] = allin_ladder_b2c
                 result['data_period_b2c'] = 'Default'
                 result['total_booking_records_b2c'] = 0
                 result['distinct_fares_count_b2c'] = 0
                 result['outliers_removed_b2c'] = 0
 
-            if base_ladder_b2b is not None:
-                result['ladder_fares_b2b'] = base_ladder_b2b
+            if allin_ladder_b2b is not None:
+                result['ladder_fares_b2b'] = allin_ladder_b2b
                 result['data_period_b2b'] = 'Default'
                 result['total_booking_records_b2b'] = 0
                 result['distinct_fares_count_b2b'] = 0
@@ -1657,198 +1659,254 @@ class LadderGen:
             self.failure_reason = f"Default ladder generation failed: {str(e)}"
             raise
 
+
     def _generate_gp_ladder(self, min_fare, max_fare, n, channel_label):
-        """Generate n fare points using Geometric Progression from min_fare to max_fare.
-        
-        R = (Max/Min) ^ [1/(n-1)]
-        F1 = Min, F2 = F1*R, ..., Fn = Max
+        """Generate n GP fare points from min_fare to max_fare using a two-segment GP.
+
+        Base ratio: r = (max/min) ** (1/(n-1)).
+
+        Top segment: starting from max (highest RBD), divide successively by
+        (top_gp_factor * r) until the `top_rbd_count`-th highest fare is reached.
+
+        Bottom segment: a NEW GP factor is derived from that boundary fare and
+        min_fare, and used to fill every remaining fare below it.
+
+        Config (DEFAULT_ML_CONFIG):
+            top_rbd_count -> how many top RBDs use the boosted factor (e.g. 8)
+            top_gp_factor -> multiplier on r for the top segment (e.g. 1.2)
         """
         if min_fare <= 0:
             self.failure_reason = f"Default ladder: Invalid min fare ({min_fare}) for {channel_label}"
             self.logger.error(self.failure_reason)
             return []
-
         if max_fare <= min_fare:
             self.failure_reason = f"Default ladder: Max fare ({max_fare}) must be greater than min fare ({min_fare}) for {channel_label}"
             self.logger.error(self.failure_reason)
             return []
-
         if n < 2:
             self.failure_reason = f"Default ladder: Need at least 2 RBDs for {channel_label}, got {n}"
             self.logger.error(self.failure_reason)
             return []
 
-        # Calculate common ratio R
-        R = (max_fare / min_fare) ** (1.0 / (n - 1))
-        self.logger.info(f"  {channel_label} GP ratio R = {R:.6f}")
+        # --- config ---
+        cfg_top_n = self.default_ml_config.get('top_rbd_count', 8)
+        if isinstance(cfg_top_n, dict):
+            top_n = int(cfg_top_n.get(channel_label, cfg_top_n.get('B2C', 8)))
+        else:
+            top_n = int(cfg_top_n)
+        top_f = float(self.default_ml_config.get('top_gp_factor', 1.2))
+        # need >=2 fares in the top segment and >=1 fare below it
+        top_n = max(2, min(top_n, n - 1))
+        if top_f <= 0:
+            self.failure_reason = f"Default ladder: top_gp_factor must be positive for {channel_label} (got {top_f})"
+            self.logger.error(self.failure_reason)
+            return []
 
-        # Generate ladder: F1=Min, F2=F1*R, ..., F(n-1)=F(n-2)*R, Fn=Max
-        ladder = []
-        current_fare = min_fare
-        for i in range(n - 1):
-            ladder.append(current_fare)
-            current_fare = current_fare * R
-        # Last fare is exactly Max to avoid floating point drift
-        ladder.append(max_fare)
+        # Base GP ratio and boosted top ratio
+        r = (max_fare / min_fare) ** (1.0 / (n - 1))
+        top_ratio = top_f * r
+        self.logger.info(f"  {channel_label} base GP r = {r:.6f}, top ratio = {top_f}*r = {top_ratio:.6f}, top_n = {top_n}")
+
+        # --- TOP SEGMENT: reverse GP downward from max ---
+        top_fares = [float(max_fare)]
+        current = float(max_fare)
+        for _ in range(top_n - 1):
+            current = current / top_ratio
+            top_fares.append(current)
+        top_fares.reverse()                 # ascending; first element is the boundary fare
+        boundary = top_fares[0]             # the top_n-th highest fare
+
+        self.logger.info(f"  {channel_label} boundary fare (#{top_n} highest) = {boundary:.2f}")
+
+        if boundary <= min_fare:
+            self.failure_reason = (
+                f"Default ladder: top-segment boundary fare ({boundary:.2f}) fell to or below "
+                f"min fare ({min_fare:.2f}) for {channel_label}. "
+                f"max/min spread ({max_fare / min_fare:.2f}x) is too narrow for "
+                f"top_rbd_count={top_n} at factor {top_f}."
+            )
+            self.logger.error(self.failure_reason)
+            return []
+
+        # --- BOTTOM SEGMENT: new GP factor from min up to the boundary fare ---
+        bottom_steps = n - top_n            # steps from position 1 to the boundary position
+        r2 = (boundary / min_fare) ** (1.0 / bottom_steps)
+        self.logger.info(f"  {channel_label} bottom GP r2 = {r2:.6f} over {bottom_steps} steps")
+
+        bottom_fares = [float(min_fare)]
+        cur = float(min_fare)
+        for _ in range(bottom_steps - 1):   # boundary itself belongs to the top segment
+            cur *= r2
+            bottom_fares.append(cur)
+
+        ladder = [round(f, 2) for f in (bottom_fares + top_fares)]
+
+        # Pin anchors against rounding drift
+        ladder[0]  = round(float(min_fare), 2)
+        ladder[-1] = round(float(max_fare), 2)
 
         self.logger.info(f"  {channel_label} GP ladder: {len(ladder)} fares, "
-                        f"range {ladder[0]:.2f} - {ladder[-1]:.2f}")
-
+                         f"range {ladder[0]:.2f} - {ladder[-1]:.2f}")
         return ladder
 
-    def generate_saver_ladder(self):
-        """Main ladder generation method."""
-        try:
-            booking_data_b2c, data_period_b2c = self.get_historical_booking_data(self.B2C_CHANNEL)
-            outliers_b2c = self.outlier_count or 0
-            booking_data_b2b, data_period_b2b = self.get_historical_booking_data(self.B2B_CHANNEL)
-            outliers_b2b = self.outlier_count or 0
-            
-            # Apply fare cap to booking data before binning
-            booking_data_b2c = self._apply_fare_cap_to_bookings(booking_data_b2c, self.B2C_CHANNEL)
-            booking_data_b2b = self._apply_fare_cap_to_bookings(booking_data_b2b, self.B2B_CHANNEL)
-            
-            # Determine which channels have sufficient data
-            b2c_has_data = not booking_data_b2c.empty
-            b2b_has_data = not booking_data_b2b.empty
+    @staticmethod
+    def _source_label(source):
+        """'esb' -> 'bookings' for output/logging."""
+        return 'bookings' if source == 'esb' else 'market'
 
-            # If both channels lack data, fail (default fallback handled in _run_single_sector)
-            if not b2c_has_data and not b2b_has_data:
-                if not self.failure_reason:
-                    self.failure_reason = "No booking data available for ladder generation"
+    def _build_channel_ladder(self, channel, source, b2c_min=None):
+        """Build a complete core ladder for one channel using one data source.
+
+        source: 'esb' (Bookings) or 'market'. self.fare_source_flag is set for the
+        duration because downstream helpers (NDO fetch, minimum-threshold rule)
+        read it, then restored.
+
+        Returns dict on success, or None if this source cannot produce a full ladder.
+        """
+        original_flag = self.fare_source_flag
+        self.fare_source_flag = source
+        try:
+            booking_data, data_period = self.get_historical_booking_data(channel)
+            outliers = self.outlier_count or 0
+            booking_data = self._apply_fare_cap_to_bookings(booking_data, channel)
+
+            if booking_data.empty:
                 return None
 
-            # --- B2C ladder ---
-            if b2c_has_data:
-                fare_points_b2c = self.create_fare_bins(booking_data_b2c, self.B2C_CHANNEL)
-                if not fare_points_b2c:
-                    b2c_has_data = False
-                else:
-                    if self.fare_source_flag.lower() != 'esb':
-                        adjusted_fare_points_b2c = self.apply_minimum_threshold(fare_points_b2c, self.B2C_CHANNEL)
-                        if not adjusted_fare_points_b2c:
-                            b2c_has_data = False
-                    else:
-                        adjusted_fare_points_b2c = fare_points_b2c
+            fare_points = self.create_fare_bins(booking_data, channel)
+            if not fare_points:
+                return None
 
-            if b2c_has_data:
-                complete_ladder_b2c = self.calculate_buffer_fares_b2c(adjusted_fare_points_b2c, booking_data_b2c)
-                if not complete_ladder_b2c:
-                    b2c_has_data = False
-
-            # If B2C data insufficient, use GP default for B2C
-            if not b2c_has_data:
-                self.logger.info(f"B2C data insufficient for {self.sector}, using GP default ladder for B2C")
-                default_b2c = self.generate_default_ladder(channel=self.B2C_CHANNEL)
-                if not default_b2c:
-                    if not self.failure_reason:
-                        self.failure_reason = "B2C data insufficient and default ladder generation failed"
+            # Minimum-threshold pass applies to market-sourced fares only
+            if source != 'esb':
+                fare_points = self.apply_minimum_threshold(fare_points, channel)
+                if not fare_points:
                     return None
-                complete_ladder_b2c = default_b2c['ladder_fares_b2c']
-                data_period_b2c = 'Default'
-                outliers_b2c = 0
-                booking_data_b2c = pd.DataFrame(columns=['Fare'])
 
-            # --- B2B ladder ---
-            if b2b_has_data:
-                fare_points_b2b = self.create_fare_bins(booking_data_b2b, self.B2B_CHANNEL)
-                if not fare_points_b2b:
-                    b2b_has_data = False
-                else:
-                    if self.fare_source_flag.lower() != 'esb':
-                        adjusted_fare_points_b2b = self.apply_minimum_threshold(fare_points_b2b, self.B2B_CHANNEL)
-                        if not adjusted_fare_points_b2b:
-                            b2b_has_data = False
-                    else:
-                        adjusted_fare_points_b2b = fare_points_b2b
+            if channel == self.B2C_CHANNEL:
+                ladder = self.calculate_buffer_fares_b2c(fare_points, booking_data)
+            else:
+                ladder = self.calculate_buffer_fares_b2b(fare_points, booking_data, b2c_min)
 
-            if b2b_has_data:
-                complete_ladder_b2b = self.calculate_buffer_fares_b2b(adjusted_fare_points_b2b, booking_data_b2b, min(complete_ladder_b2c))
-                if not complete_ladder_b2b:
-                    b2b_has_data = False
+            if not ladder:
+                return None
 
-            # If B2B data insufficient, use GP default for B2B
-            if not b2b_has_data:
-                self.logger.info(f"B2B data insufficient for {self.sector}, using GP default ladder for B2B")
-                default_b2b = self.generate_default_ladder(channel=self.B2B_CHANNEL)
-                if not default_b2b:
-                    if not self.failure_reason:
-                        self.failure_reason = "B2B data insufficient and default ladder generation failed"
+            return {
+                'ladder': ladder,
+                'data_period': data_period,
+                'booking_data': booking_data,
+                'outliers': outliers,
+                'source': source,
+            }
+        finally:
+            self.fare_source_flag = original_flag
+
+    def _build_channel_ladder_with_fallback(self, channel, b2c_min=None):
+        """Try the ML-configured source; if it can't build a core ladder, switch to
+        the other source. If neither works, fail — never falls back to default."""
+        primary = 'esb' if self.fare_source_flag.lower() == 'esb' else 'market'
+        secondary = 'market' if primary == 'esb' else 'esb'
+        reasons = []
+
+        for source in (primary, secondary):
+            self.failure_reason = None
+            self.logger.info(f"{channel}: attempting ladder from {self._source_label(source)}")
+            result = self._build_channel_ladder(channel, source, b2c_min)
+
+            if result:
+                if source != primary:
+                    self.logger.info(
+                        f"{channel}: switched from {self._source_label(primary)} to "
+                        f"{self._source_label(source)} (primary source insufficient)")
+                return result
+
+            reason = self.failure_reason or 'insufficient data'
+            reasons.append(f"{self._source_label(source)}: {reason}")
+            self.logger.warning(f"{channel}: {self._source_label(source)} failed — {reason}")
+
+        self.failure_reason = f"{channel} ladder failed on both sources ({'; '.join(reasons)})"
+        return None
+
+    def generate_saver_ladder(self):
+        """Main ladder generation. Per-channel Bookings<->Market fallback; no default fallback."""
+        try:
+            # --- B2C ---
+            b2c_result = self._build_channel_ladder_with_fallback(self.B2C_CHANNEL)
+            if not b2c_result:
+                return None
+
+            complete_ladder_b2c = b2c_result['ladder']
+            data_period_b2c     = b2c_result['data_period']
+            booking_data_b2c    = b2c_result['booking_data']
+            outliers_b2c        = b2c_result['outliers']
+            source_b2c          = self._source_label(b2c_result['source'])
+
+            # --- B2B (only when enabled) ---
+            complete_ladder_b2b = None
+            base_ladder_b2b     = None
+            data_period_b2b     = None
+            booking_data_b2b    = pd.DataFrame(columns=['Fare'])
+            outliers_b2b        = 0
+            source_b2b          = None
+
+            if self.b2b_flag == 'Y':
+                b2b_result = self._build_channel_ladder_with_fallback(
+                    self.B2B_CHANNEL, b2c_min=min(complete_ladder_b2c))
+                if not b2b_result:
                     return None
-                complete_ladder_b2b = default_b2b['ladder_fares_b2b']
-                data_period_b2b = 'Default'
-                outliers_b2b = 0
-                booking_data_b2b = pd.DataFrame(columns=['Fare'])
-            
-            # Final B2B constraint validation (skip if either channel used default)
-            if b2c_has_data and b2b_has_data:
-                b2b_min = min(complete_ladder_b2b)
-                b2c_min = min(complete_ladder_b2c)
-                b2c_threshold_limit = b2c_min - self.B2B_THRESHOLD
-                
-                self.logger.info(f"B2B Constraint Validation:")
-                self.logger.info(f"  B2B_min: {b2b_min:.2f}")
-                self.logger.info(f"  B2C_min: {b2c_min:.2f}")
-                self.logger.info(f"  B2B_THRESHOLD: {self.B2B_THRESHOLD}")
-                self.logger.info(f"  Required: B2B_min < {b2c_threshold_limit:.2f}")
-                self.logger.info(f"  Constraint satisfied: {b2b_min <= b2c_threshold_limit}")
-                
-                if b2b_min > b2c_threshold_limit:
-                    margin_violation = b2b_min - b2c_threshold_limit
-                    self.logger.info(f"B2B constraint validation: B2B constraint violated by {margin_violation:.2f}")
-                    self.failure_reason = f"B2B constraint violation: B2B_min={b2b_min:.2f} >= B2C_threshold_limit={b2c_threshold_limit:.2f}"
-                    return None
-                else:
-                    margin = b2c_threshold_limit - b2b_min
-                    self.logger.info(f"B2B constraint validation: B2B constraint satisfied with margin of {margin:.2f}")
-            
-            # Fares are already in base form for both sources
+
+                complete_ladder_b2b = b2b_result['ladder']
+                data_period_b2b     = b2b_result['data_period']
+                booking_data_b2b    = b2b_result['booking_data']
+                outliers_b2b        = b2b_result['outliers']
+                source_b2b          = self._source_label(b2b_result['source'])
+                base_ladder_b2b     = list(complete_ladder_b2b)
+
             base_ladder_b2c = list(complete_ladder_b2c)
-            base_ladder_b2b = list(complete_ladder_b2b)
-            self.logger.info(f"Ladder fares already in base form (source: {self.fare_source_flag})")
-            
-            # Enforce fare cap on final base ladder (DOM only) — only for non-default channels
+
+            # --- fare cap on final base ladders (DOM only) ---
             if self.fare_cap_value is not None:
-                if b2c_has_data:
-                    capped_b2c = 0
-                    for i in range(len(base_ladder_b2c)):
-                        if base_ladder_b2c[i] > self.fare_cap_value:
-                            base_ladder_b2c[i] = self.fare_cap_value
-                            capped_b2c += 1
-                    if capped_b2c > 0:
-                        self.logger.info(f"Fare cap enforcement: capped {capped_b2c} B2C base fares to {self.fare_cap_value:.2f}")
-                
-                if b2b_has_data:
+                capped_b2c = 0
+                for i in range(len(base_ladder_b2c)):
+                    if base_ladder_b2c[i] > self.fare_cap_value:
+                        base_ladder_b2c[i] = self.fare_cap_value
+                        capped_b2c += 1
+                if capped_b2c:
+                    self.logger.info(f"Fare cap enforcement: capped {capped_b2c} B2C base fares to {self.fare_cap_value:.2f}")
+
+                if base_ladder_b2b is not None:
                     capped_b2b = 0
                     for i in range(len(base_ladder_b2b)):
                         if base_ladder_b2b[i] > self.fare_cap_value:
                             base_ladder_b2b[i] = self.fare_cap_value
                             capped_b2b += 1
-                    if capped_b2b > 0:
+                    if capped_b2b:
                         self.logger.info(f"Fare cap enforcement: capped {capped_b2b} B2B base fares to {self.fare_cap_value:.2f}")
-            
-            # Convert final base INR ladder to sector's local currency for international routes
-            # (only for channels that weren't already converted in generate_default_ladder)
+
+            # --- currency conversion ---
             if self.conversion_rate != 1.0:
-                if b2c_has_data:
-                    base_ladder_b2c = [fare * self.conversion_rate for fare in base_ladder_b2c]
-                if b2b_has_data:
-                    base_ladder_b2b = [fare * self.conversion_rate for fare in base_ladder_b2b]
+                base_ladder_b2c = [f * self.conversion_rate for f in base_ladder_b2c]
+                if base_ladder_b2b is not None:
+                    base_ladder_b2b = [f * self.conversion_rate for f in base_ladder_b2b]
                 self.logger.info(f"Converted final ladder from base INR to {self.sector_currency} (rate: {self.conversion_rate})")
                 self.logger.info(f"  B2C range: {min(base_ladder_b2c):.2f} - {max(base_ladder_b2c):.2f} {self.sector_currency}")
-                self.logger.info(f"  B2B range: {min(base_ladder_b2b):.2f} - {max(base_ladder_b2b):.2f} {self.sector_currency}")
-            
-            # Determine source label
-            fare_source = 'bookings' if self.fare_source_flag.lower() == 'esb' else 'market'
-            # If either channel used default, reflect that
-            if not b2c_has_data or not b2b_has_data:
-                fare_source = 'default' if (not b2c_has_data and not b2b_has_data) else f"{fare_source}/default"
-            
+                if base_ladder_b2b is not None:
+                    self.logger.info(f"  B2B range: {min(base_ladder_b2b):.2f} - {max(base_ladder_b2b):.2f} {self.sector_currency}")
+
+            # --- source label (channels may differ after fallback) ---
+            sources = [s for s in (source_b2c, source_b2b) if s]
+            fare_source = sources[0] if len(set(sources)) == 1 else '/'.join(sources)
+            self.logger.info(f"Ladder sources — B2C: {source_b2c}, B2B: {source_b2b or 'N/A'}")
+
+            distance = self._get_distance(self.sector[:3], self.sector[3:])
+
             return {
-                'ladder_code' : self.ladder_code,
+                'ladder_code': self.ladder_code,
                 'sector': self.sector,
                 'route': self.route,
                 'fare_source': fare_source,
+                'fare_source_b2c': source_b2c,
+                'fare_source_b2b': source_b2b,
                 'data_period_b2c': data_period_b2c,
                 'data_period_b2b': data_period_b2b,
                 'total_booking_records_b2c': len(booking_data_b2c),
@@ -1859,10 +1917,11 @@ class LadderGen:
                 'outliers_removed_b2b': outliers_b2b,
                 'ladder_fares_b2c': base_ladder_b2c,
                 'ladder_fares_b2b': base_ladder_b2b,
+                'lowest_fare_yield': round(min(base_ladder_b2c) / distance, 4) if base_ladder_b2c and distance > 0 else 0,
                 'currency': self.sector_currency if self.sector_currency is not None else "INR",
                 'generation_timestamp': datetime.now()
             }
-            
+
         except Exception as e:
             self.logger.error(f"Error generating ladder: {str(e)}")
             self.failure_reason = f"Ladder generation failed: {str(e)}"
@@ -1875,7 +1934,12 @@ class LadderGen:
         self.start_time = datetime.now(pytz.timezone('Asia/Kolkata'))
         all_results = []
         all_ladder_results = []
-        
+        sectors_str = ', '.join(self.sectors)
+        configured_sources = sorted({
+            'bookings' if cfg.fare_source_flag == 'esb' else 'market'
+            for cfg in self.sector_configs.values()
+        })
+        configured_source_str = '/'.join(configured_sources)
         # Get version info once for the batch
         try:
             self.currentVersion = self.pa_helper.get_current_version()
@@ -1885,13 +1949,10 @@ class LadderGen:
         
         # Create initial audit record for the batch
         try:
-            sectors_str = ', '.join(self.sectors)
-            first_cfg = self.sector_configs[self.ladder_codes[0]]
-            fare_source = 'bookings' if first_cfg.fare_source_flag == 'esb' else 'market'
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None, 
                 self.start_time, self.currentVersion, run_id, None, 
-                None, None, 'IN_PROGRESS', is_initial=True, source=fare_source,
+                None, None, 'IN_PROGRESS', is_initial=True, source=configured_source_str,
                 batch_total=self.batch_total
             )
         except Exception as e:
@@ -1938,12 +1999,32 @@ class LadderGen:
             batch_status = 'SUCCESS' if successful_codes else 'FAILED'
             failure_reasons = [r.get('reason') for r in all_results if r['status'] == 'FAILED']
             batch_failure_reason = '; '.join(failure_reasons) if failure_reasons else None
-            
+
+            # Actual sources used across successful sectors (post-fallback)
+            actual_sources = sorted({
+                r['ladder_result'].get('fare_source')
+                for r in all_results
+                if r['status'] == 'SUCCESS'
+                and r.get('ladder_result')
+                and r['ladder_result'].get('fare_source')
+            })
+            batch_source_str = '/'.join(actual_sources) if actual_sources else configured_source_str
+
+            lowest_fare_yields = []
+            for result in all_results:
+                if result['status'] == 'SUCCESS' and result.get('ladder_result'):
+                    lowest_fare_yields.append(str(result['ladder_result'].get('lowest_fare_yield', 0)))
+                else:
+                    lowest_fare_yields.append("NA")
+            lowest_fare_yields_str = ', '.join(lowest_fare_yields)
+
             self.pa_helper.save_batch_run_audit(
                 sectors_str, self.route, self.analystName, None,
                 self.start_time, self.currentVersion, run_id, batch_failure_reason,
                 all_ladder_results, None, batch_status, is_initial=False,
-                successful_codes=successful_codes, failed_codes=failed_codes, source=fare_source
+                successful_codes=successful_codes, failed_codes=failed_codes,
+                source=batch_source_str,
+                lowest_fare_yields_str=lowest_fare_yields_str
             )
         except Exception as e:
             self.logger.error(f"Failed to update batch audit record: {str(e)}")
@@ -1980,8 +2061,9 @@ class LadderGen:
                 except Exception as e:
                     self.logger.warning(f"City pair data collection failed: {str(e)}")
                 
-                ladder_result = self.generate_default_ladder()
-                
+                default_channel = None if self.b2b_flag == 'Y' else self.B2C_CHANNEL
+                ladder_result = self.generate_default_ladder(channel=default_channel)
+
                 if not ladder_result:
                     return {
                         'ladder_result': None,
@@ -1992,6 +2074,9 @@ class LadderGen:
                         'status': 'FAILED',
                         'reason': self.failure_reason or 'Default ladder generation failed'
                     }
+
+                b2b_fares = ladder_result.get('ladder_fares_b2b') or []
+                b2c_fares = ladder_result.get('ladder_fares_b2c') or []
                 
                 # Save results
                 try:
@@ -2022,12 +2107,13 @@ class LadderGen:
                     'sector': self.sector,
                     'status': 'SUCCESS',
                     'summary': {
-                        'b2c_total_ladder_points': len(ladder_result['ladder_fares_b2c']),
-                        'b2c_min_fare': round(min(ladder_result['ladder_fares_b2c']), 2),
-                        'b2c_max_fare': round(max(ladder_result['ladder_fares_b2c']), 2),
-                        'b2b_total_ladder_points': len(ladder_result['ladder_fares_b2b']),
-                        'b2b_min_fare': round(min(ladder_result['ladder_fares_b2b']), 2),
-                        'b2b_max_fare': round(max(ladder_result['ladder_fares_b2b']), 2),
+                        'b2c_total_ladder_points': len(b2c_fares),
+                        'b2c_min_fare': round(min(b2c_fares), 2) if b2c_fares else None,
+                        'b2c_max_fare': round(max(b2c_fares), 2) if b2c_fares else None,
+                        'b2b_total_ladder_points': len(b2b_fares),
+                        'b2b_min_fare': round(min(b2b_fares), 2) if b2b_fares else None,
+                        'b2b_max_fare': round(max(b2b_fares), 2) if b2b_fares else None,
+                        'fare_source': 'default',
                         'data_period_b2c': 'Default',
                         'data_period_b2b': 'Default',
                         'booking_records_used_b2c': 0,
@@ -2058,6 +2144,8 @@ class LadderGen:
             
             # Generate ladder (handles per-channel default fallback internally)
             ladder_result = self.generate_saver_ladder()
+            b2b_fares = ladder_result.get('ladder_fares_b2b') or []
+            b2c_fares = ladder_result.get('ladder_fares_b2c') or []
             
             if not ladder_result:
                 return {
@@ -2101,14 +2189,17 @@ class LadderGen:
                 'sector': self.sector,
                 'status': 'SUCCESS',
                 'summary': {
-                    'b2c_total_ladder_points': len(ladder_result['ladder_fares_b2c']),
-                    'b2c_min_fare': round(min(ladder_result['ladder_fares_b2c']), 2),
-                    'b2c_max_fare': round(max(ladder_result['ladder_fares_b2c']), 2),
-                    'b2b_total_ladder_points': len(ladder_result['ladder_fares_b2b']),
-                    'b2b_min_fare': round(min(ladder_result['ladder_fares_b2b']), 2),
-                    'b2b_max_fare': round(max(ladder_result['ladder_fares_b2b']), 2),
+                    'b2c_total_ladder_points': len(b2c_fares),
+                    'b2c_min_fare': round(min(b2c_fares), 2) if b2c_fares else None,
+                    'b2c_max_fare': round(max(b2c_fares), 2) if b2c_fares else None,
+                    'b2b_total_ladder_points': len(b2b_fares),
+                    'b2b_min_fare': round(min(b2b_fares), 2) if b2b_fares else None,
+                    'b2b_max_fare': round(max(b2b_fares), 2) if b2b_fares else None,
                     'data_period_b2c': ladder_result['data_period_b2c'],
                     'data_period_b2b': ladder_result['data_period_b2b'],
+                    'fare_source': ladder_result.get('fare_source'),
+                    'fare_source_b2c': ladder_result.get('fare_source_b2c'),
+                    'fare_source_b2b': ladder_result.get('fare_source_b2b'),
                     'booking_records_used_b2c': ladder_result['total_booking_records_b2c'],
                     'booking_records_used_b2b': ladder_result['total_booking_records_b2b'],
                     'distinct_fares_analyzed_b2c': ladder_result['distinct_fares_count_b2c'],

@@ -207,19 +207,20 @@ class GraphMailClient:
 
         return response.json()["access_token"]
 
-    def send_email(self, subject, body, recipient, is_html=False, attachments=None):
+    def send_email(self, subject, body, recipient, is_html=False, attachments=None, cc=None):
         """
         Send an email via Microsoft Graph API (draft + send pattern).
 
         Args:
             subject: Email subject line.
             body: Email body content.
-            recipient: Recipient email address (single string).
+            recipient: Recipient email address (single string or list of strings).
             is_html: If True, body is treated as HTML; otherwise plain text.
             attachments: Optional list of dicts with keys:
                 - 'filename': Name of the file (e.g., 'report.csv')
                 - 'content': Raw string content of the file
                 - 'file_type': Type of file ('csv' or 'txt'). Used for encoding.
+            cc: Optional list of CC email addresses.
         """
 
         try:
@@ -234,6 +235,13 @@ class GraphMailClient:
 
             # Step 2: Draft the mail
             content_type = "HTML" if is_html else "Text"
+
+            # Build toRecipients (support single string or list)
+            if isinstance(recipient, list):
+                to_recipients = [{"emailAddress": {"address": addr}} for addr in recipient]
+            else:
+                to_recipients = [{"emailAddress": {"address": recipient}}]
+
             draft_payload = {
                 "subject": subject,
                 "importance": "Normal",
@@ -241,14 +249,14 @@ class GraphMailClient:
                     "contentType": content_type,
                     "content": body
                 },
-                "toRecipients": [
-                    {
-                        "emailAddress": {
-                            "address": recipient
-                        }
-                    }
-                ]
+                "toRecipients": to_recipients
             }
+
+            # Add CC recipients if provided
+            if cc:
+                draft_payload["ccRecipients"] = [
+                    {"emailAddress": {"address": addr}} for addr in cc
+                ]
 
             draft_url = f"https://graph.microsoft.com/v1.0/users/{user_id}/messages"
             draft_response = requests.post(draft_url, headers=headers, json=draft_payload)

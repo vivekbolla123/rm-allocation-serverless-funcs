@@ -105,6 +105,10 @@ class MarketListRow:
         self.ALLIN_AF_NB_LM = currParams.get("ALLIN_AF_NB_LM", 0)
         self.ALLIN_AF_NB_LY = currParams.get("ALLIN_AF_NB_LY", 0)
         self.forecast_variance = currParams.get("forecast_variance",CONST_NA)
+        self.Adjustment_Factor = currParams.get("Adjustment_Factor", CONST_NA)
+        self.Expected_PLF = currParams.get("Expected_PLF", CONST_NA)
+        self.Flown_Target_Load = currParams.get("Flown_Target_Load", CONST_NA)
+        self.forecast_model = currParams.get("forecast_model", CONST_NA)
         self.b2bStrategy = currParams.get("b2bStrategy",CONST_NA)
         self.forecastAllocFlag = parse_int_flag(currParams.get("forecastAllocFlag"), 0)
         self.afForecastAllocFlag = parse_int_flag(currParams.get("afForecastAllocFlag"), 0)
@@ -119,3 +123,11 @@ class MarketListRow:
 
         # Portfolio-only flag — set to 1 for sibling records used only for portfolio calc and not allocated
         self.portfolio_only = parse_int_flag(currParams.get("portfolio_only"), 0)
+
+        # Flag: when 1, use increment-factor-adjusted profile fares (from group_incremented_profile_fares)
+        # for normal B2C allocations instead of config_profile_fares
+        self.incrementedProfileFareFlag = parse_int_flag(currParams.get("incrementedProfileFareFlag"), 0)
+
+        # Profile fare upsell percentage — applied when incrementedProfileFareFlag is 1
+        # (replaces the standard station upsell with a market-list-level override)
+        self.profileFareUpsell = currParams.get("ProfileFareUpsell", CONST_NA)

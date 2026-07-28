@@ -18,7 +18,7 @@ CONNECTION_CARRIER_INCLUSION = '["6E","AI","IX","XY","FZ","GF","J9","KU","FD","S
 NAVODS_ALERT_SECTOR_LIST = '["BOMDEL1127", "BOMDEL1120", "DELBOM1719", "DELBOM1411", "BOMDBR1529", "DBRBOM1530", "CCUBOM1125", "CCUBOM1173"]'
 NAVODS_ALERT_MAX_NDO = 3
 
-DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1"}'
+DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0"}'
 DEFAULT_MARKET_LIST_DAYS = 30
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
@@ -57,8 +57,8 @@ ADHOC_BATCH_SIZE = 4000
 CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
 
-# Prefetch Lambda settings
-PREFETCH_CHUNK_SIZE = 15000
+# Portfolio sibling enrichment: max unique departure dates processed per window
+PORTFOLIO_SIBLING_BATCH_SIZE = 7
 
 THRESHOLD_TIME = 12
 PF_UPSELL_VALUE = '47'
@@ -128,6 +128,7 @@ CWT_UPSELL = {
     '5002': {'type': 'PERCENTAGE', 'value': 5, 'min_value': None, 'max_value': None},
     '5006': {'type': 'PERCENTAGE', 'value': 5, 'min_value': None, 'max_value': None},
 }
+GENERATE_CWT_RULES = "True"
 
 W_PLF = 0.7
 W_AF = 0.3
@@ -176,6 +177,7 @@ ADHOC_BATCH_SIZE_KEY = 'ADHOC_BATCH_SIZE'
 CHECK_THRESHOLD_FETCH_INPUTS_KEY = 'CHECK_THRESHOLD_FETCH_INPUTS'
 TIME_BEFORE_DEPARTURE_KEY = 'TIME_BEFORE_DEPARTURE'
 PREFETCH_CHUNK_SIZE_KEY = 'PREFETCH_CHUNK_SIZE'
+PORTFOLIO_SIBLING_BATCH_SIZE_KEY = 'PORTFOLIO_SIBLING_BATCH_SIZE'
 FETCH_INPUTS_TRIGGER_QUEUE_URL_KEY = 'FETCH_INPUTS_TRIGGER_QUEUE_URL'
 MFMIN0_KEY = 'MFMIN0'
 MFMIN1_KEY = 'MFMIN1'
@@ -185,6 +187,8 @@ OVERBOOKING_MANUAL_LF_KEY = 'OVERBOOKING_MANUAL_LF'
 OVERBOOKING_MAX_COUNT_KEY = 'OVERBOOKING_MAX_COUNT'
 OVERBOOKING_CAP_KEY = 'OVERBOOKING_CAP'
 CUG_DISCOUNT_KEY = 'CUG_DISCOUNT'
+IMP_FORECAST_DEDUCTION_ML_KEY = 'IMP_FORECAST_DEDUCTION_ML'
+IMP_FORECAST_DEDUCTION_LB_KEY = 'IMP_FORECAST_DEDUCTION_LB'
 IMP_FORECAST_DEDUCTION_KEY = 'IMP_FORECAST_DEDUCTION'
 TOLERANCE_MAP_KEY = 'TOLERANCE_MAP'
 B2B_FACTOR_MAP_KEY = 'B2B_FACTOR_MAP'
@@ -202,6 +206,7 @@ D3_MAX_RULES_KEY = 'D3_MAX_RULES'
 RM_ALERT_MAIL_ID_KEY = 'RM_ALERT_MAIL_ID'
 CLOSED_RM_ALERT_MAIL_ID_KEY = 'CLOSED_RM_ALERT_MAIL_ID'
 TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
+DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
 
@@ -269,10 +274,12 @@ FARECAP_DISTANCE_CONFIG_KEY = "FARECAP_DISTANCE_CONFIG"
 YQ_DISTANCE_CONFIG_KEY = "YQ_DISTANCE_CONFIG"
 CURRENCY_ROUND_OFF_LIST_KEY = "CURRENCY_ROUND_OFF_LIST"
 ACTIVE_SECTORS_DEFAULT_FIELDS_KEY = "ACTIVE_SECTORS_DEFAULT_FIELDS"
+DEFAULT_ML_CONFIG_KEY = "DEFAULT_ML_CONFIG"
 GDS_RBD_VALUES_KEY = "GDS_RBD_VALUES"
 GRACE_PERIOD_MINUTES_KEY = "GRACE_PERIOD_MINUTES"
 WINDOW_MINUTES_KEY = "WINDOW_MINUTES"
 CWT_UPSELL_KEY = "CWT_UPSELL"
+GENERATE_CWT_RULES_KEY = "GENERATE_CWT_RULES"
 GROUP_SCALING_FACTOR_KEY = "GROUP_SCALING_FACTOR"
 GROUP_AU_BATCH_KEY = "GROUP_AU_BATCH"
 GROUP_IMP_FORECAST_REDUCTION_KEY = "GROUP_IMP_FORECAST_REDUCTION"
@@ -369,6 +376,23 @@ CONST_AU_GRID_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_outpu
 CONST_SUMMARY_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_sales.csv"
 CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/testcases/output/generated_output/AUGrid_Connections.csv"
 CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_Connections.csv"
+
+CONST_OUTPUT_SUMMARY_ORDER = [
+    'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
+    'bookingLastHour', 'bookedPlf', 'actualbookedPlf', 'currentTgtLoad',
+    'TgtLoad', 'endOfDayTgtLoad', 'Variance', 'forecastPLF', 'ImputedForecastPLF',
+    'endOfDaydlfBand', 'bookingToday', 'Backstop', 'hardAnchorFare', 'strategyFare',
+    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'toleranceValue',
+    'anchorFare', 'OpenRBD', 'SellingFare', 'Channel', 'HowDetermined', 'RunId',
+    'criteria', 'fareOffset', 'FlightNumber_Min', 'MktFare_Max', 'FlightNumber_Max',
+    'TimeRange', 'startTime', 'endTime', 'FirstRBDAlloc', 'OtherRBDAlloc',
+    'autoBackstop', 'StrategyReference', 'CurveId', 'dlfBand', 'ndoBand',
+    'overBookingCount', 'ExpectedNoShows', 'status', 'w0Flag', 'mktFile',
+    'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM', 'ALLIN_AF_NB_LY',
+    'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
+    'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
+    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor'
+]
 
 
 KEY_B2B_PENDING_COUNT = 'b2b_pending_count_'
@@ -480,7 +504,9 @@ DOMESTIC_PLF_THRESHOLD = 95.0
 INTERNATIONAL_PLF_THRESHOLD = 80.0
 CUG_DISCOUNT = 5
 
-IMP_FORECAST_DEDUCTION = 2
+IMP_FORECAST_DEDUCTION_LB = 0
+IMP_FORECAST_DEDUCTION_ML = 0
+IMP_FORECAST_DEDUCTION = 0
 TOLERANCE_MAP = '{"4": -1, "3": 10, "2": 15, "1": 25, "0": 25}'
 B2B_FACTOR_MAP = '{"4": 0, "3": 0, "2": 0.5, "1": 1, "0": 1}'
 
@@ -500,6 +526,7 @@ D3_MAX_RULES = '{"L": {"forecast_start":-9999, "forecast_end":84, "max_value": 1
 RM_ALERT_MAIL_ID = 'rm.italerts@akasaair.com'
 CLOSED_RM_ALERT_MAIL_ID = 'closed.rm.italerts@akasaair.com'
 TARIFF_ALERT_MAIL_ID = 'pa.it.alerts@akasaair.com'
+DEFAULT_ML_ALERT_MAIL_ID = '{"to": ["closed.rm.italerts@akasaair.com"], "cc": []}'
 
 GDS_MAPPING = {
     'Y': 'YT', 'B': 'BT', 'C': 'CT', 'D': 'DT', 'E': 'ET', 'F': 'FT',
@@ -515,3 +542,17 @@ EQT_RECIPIENTS_KEY = "EQT_RECIPIENTS"
 GROUP_SCALING_FACTOR = 0.7
 GROUP_AU_BATCH = 5
 GROUP_IMP_FORECAST_REDUCTION = 95
+DEFAULT_ML_CONFIG = '{ "top_rbd_count": { "B2C": 8, "B2B": 3 }, "top_gp_factor": 1.2 }'
+
+#HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
+#HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
+#HOLD_BOOKING_ALERT_THRESHOLD = 20
+#HOLD_BOOKING_ALERT_NDO = 7
+#
+#HOLD_BOOKING_EMAIL_SUBJECT_KEY = "HOLD_BOOKING_EMAIL_SUBJECT"
+#HOLD_BOOKING_EMAIL_RECIPIENTS_KEY = "HOLD_BOOKING_EMAIL_RECIPIENTS"
+#HOLD_BOOKING_ALERT_THRESHOLD_KEY = "HOLD_BOOKING_ALERT_THRESHOLD"
+#HOLD_BOOKING_ALERT_NDO_KEY = "HOLD_BOOKING_ALERT_NDO"
+
+HOLD_BOOKING_ALERT_CONFIGURATION = {"email_subject":"Hold Booking Alert","email_recipients": ["closed.rm.italerts@akasaair.com"], "email_cc": [],"alert_threshold":20,"alert_ndo":7}
+HOLD_BOOKING_ALERT_CONFIGURATION_KEY = "HOLD_BOOKING_ALERT_CONFIGURATION"

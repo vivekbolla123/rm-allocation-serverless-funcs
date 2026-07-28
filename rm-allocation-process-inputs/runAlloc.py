@@ -43,6 +43,7 @@ from models.output_summary import OutputSummary
 from models.au_grid_row import AuGridRow
 from models.flight_state import FlightState
 from models.anchor_result import AnchorResult
+from utilities.how_determined_parser import HowDeterminedParser
 
 warnings.filterwarnings('ignore')
 
@@ -674,25 +675,31 @@ class DynAlloc:
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
 
-		# Use forecast data only if within 30 NDOs
-		imp_forecast = CONST_NA
-		PLF_Gain = CONST_NA
-		Af_Nb_Allin = CONST_NA
-		if ndocounter <= 30:
-			imp_forecast = getParsedImputedForecast(self, variance_full)
-		if(imp_forecast != CONST_NA):
-			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)))
-			PLF_Gain = ((imp_forecast) - round(final_plf,2))
-
-		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
-		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
-
+		# Forecast PLF — computed first because the imputed-forecast guard/fallback
+		# cases below return forecast_plf when the adjustment can't be applied.
 		forecast_plf = forecastBand = CONST_NA
 		if ndocounter <= 30:
 			forecast_plf = getParsedForecast(self)
 		if forecast_plf != CONST_NA and not pd.isna(forecast_plf):
 			forecastBand = self.rmdatabasehelper.getForecastBand(forecast_plf)
-		
+
+		# ==================== IMPUTED FORECAST (Phase 2 BRD) ====================
+		# imp_forecast_load = Forecast_Load + (CB - CB_r) - [Adjustment_Factor*(CT - CT_r)]
+		# imputed forecast  = round(imp_forecast_load) / capacity * 100
+		imp_forecast = CONST_NA
+		PLF_Gain = CONST_NA
+		Af_Nb_Allin = CONST_NA
+		if ndocounter <= 30:
+			imp_forecast = getParsedImputedForecast(
+				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+			)
+		if imp_forecast != CONST_NA:
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, final_totalCapacity)
+			PLF_Gain = ((imp_forecast) - round(final_plf,2))
+
+		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
+		dplfBand_full = self.rmdatabasehelper.getdpflBand(variance_full)
+
 		imp_forecast_band = CONST_NA
 		af_forecast_band = CONST_NA
 		group_forecast_band = CONST_NA
@@ -914,8 +921,38 @@ class DynAlloc:
 		elif input_source_lsf == DB:
 			redis_key_lsf = f"LastSoldFare:{self.currParams.origin}{self.currParams.destin}{param_flight_number_str}_{currFltDate_dt.date()}"
 			if self.cache_client.exists(redis_key_lsf):
-				fare_manifest_str = self.cache_client.get(redis_key_lsf).decode('utf-8')
-				last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+				fare_manifest_str = None
+				try:
+					fare_manifest_str = self.cache_client.get(redis_key_lsf)
+					if fare_manifest_str is not None:
+						fare_manifest_str = fare_manifest_str.decode('utf-8')
+				except Exception as e:
+					self.logger.error(f"Error fetching {redis_key_lsf} from Redis: {e}")
+					# Optionally try to get it as a hash if it's the wrong type
+					try:
+						if self.cache_client.type(redis_key_lsf).decode('utf-8') == 'hash':
+							hash_data = self.cache_client.hgetall(redis_key_lsf)
+							# Reconstruct json string if needed, or simply log it.
+							self.logger.error(f"Key {redis_key_lsf} is a hash. Data: {hash_data}")
+					except:
+						pass
+
+				if fare_manifest_str:
+					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+					
+					qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+					if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
+						self.qpcurrency = str(qpcurrency_df['currency'].iloc[0]).strip()
+					else:
+						self.qpcurrency = 'INR'
+
+					if self.qpcurrency != 'INR' and self.qpcurrency != '' and self.qpcurrency.upper() != 'NAN' and self.qpcurrency != 'None':
+						if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):
+							last_seven_avg_val = self.convert_currency('INR', self.qpcurrency, last_seven_avg_val)
+						if lastSoldFareb2b_val != CONST_NA and not pd.isna(lastSoldFareb2b_val):
+							lastSoldFareb2b_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2b_val)
+						if lastSoldFareb2c_val != CONST_NA and not pd.isna(lastSoldFareb2c_val):
+							lastSoldFareb2c_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2c_val)
 
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
@@ -1035,7 +1072,7 @@ class DynAlloc:
 		mkt_fare_flag = int(self.currParams.mkt_fare_flag)
 
 		profileFare = CONST_NA
-		profileFaresData = self.rmdatabasehelper.getProfileFares(self.currParams.origin + self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full)
+		profileFaresData = self.rmdatabasehelper.getProfileFares(self.currParams.origin + self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full, self.currParams.incrementedProfileFareFlag)
 
 		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
 			upsellValue_full = 0
@@ -1044,8 +1081,19 @@ class DynAlloc:
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0]!="":
 				profileFare = float(profileFaresData['price'][0])
-				if upsellValue_full != 0:
-					profileFare = (profileFare * (1 + float(upsellValue_full)/100))
+				if int(self.currParams.incrementedProfileFareFlag) == 1:
+					# When flag is on, apply ML-level profileFareUpsell instead of station upsell
+					ml_upsell = self.currParams.profileFareUpsell
+					if ml_upsell not in (None, '', 'NA', CONST_NA):
+						try:
+							ml_upsell_pct = float(ml_upsell)
+							if ml_upsell_pct != 0:
+								profileFare = profileFare * (1 + ml_upsell_pct / 100)
+						except (ValueError, TypeError):
+							pass
+				else:
+					if upsellValue_full != 0:
+						profileFare = (profileFare * (1 + float(upsellValue_full)/100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -1267,6 +1315,7 @@ class DynAlloc:
 		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
 		sod_startOfDayBookLoad_factor = state.sod_startOfDayBookLoad_factor
 		sod_startOfDayTgtBookedLoad_abs = state.sod_startOfDayTgtBookedLoad_abs
+		b2c_backstop_final = state.b2c_backstop_final
 
 		# --- AU Grid Allocation (Full Mode) ---
 		currRec_fullalloc = AuGridRow(self.AU_COLUMN_LENGTH) # AU_COLUMN_LENGTH from _initialize_params
@@ -1284,16 +1333,10 @@ class DynAlloc:
 			currRec_fullalloc.b2crunid = self.outputSummaryRow_b2c.Id
 			currRec_fullalloc.b2brunid = self.outputSummaryRow_b2b.Id
 
-		# Profile Fares list for allocations
-		profileExtract_df_fullalloc = self.rmdatabasehelper.profileFaresExtract(
-			self.currParams.origin, self.currParams.destin, month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm
-		)
-		profileFares_list_sorted_fullalloc = []
-		if not profileExtract_df_fullalloc.empty:
-			profileFares_list_sorted_fullalloc = sorted(pd.to_numeric(
-					profileExtract_df_fullalloc.transpose().values.flatten(),
-					errors='coerce'
-			).tolist())
+		# Profile Fares list for allocations — reuse the DataFrame already
+		# fetched during _rehydrateFlightState to avoid a duplicate MongoDB call.
+		profileExtract_df_fullalloc = state.profileExtract_df_fullalloc
+		profileFares_list_sorted_fullalloc = state.profileFares_list_sorted_fullalloc
 
 		# Proceed with AU allocation if B2C determination was somewhat successful
 		# Check if 'statusInd' key exists before trying to access its value
@@ -1377,9 +1420,12 @@ class DynAlloc:
 			b2c_selling_fare = safe_get_from_dict(openDataB2C_details, "Fare")
 			param_autoGroup = getattr(self.currParams, 'autoGroup', 0)
 			group_bookings=self.currParams.group_bookings# Default
+			# For group allocation: always use ML profileFareUpsell
+			group_upsell = self.currParams.profileFareUpsell
 			current_brd_counter, state.grp_adj_profile_fare, state.grp_adj_bookload, state.grp_fare_anchor = self.allocations.group_quote_alloc(
-				profileExtract_df_fullalloc, current_brd_counter, currRec_fullalloc, param_autoGroup,
-				base_adjustedCapacity, upsellValue_full, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
+				current_brd_counter, currRec_fullalloc, param_autoGroup,
+				base_adjustedCapacity, group_upsell, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
+				b2c_backstop_final,
 				ndocounter=ndocounter, imp_forecast=imp_forecast,
 				sod_tgtAtCurrentHour_abs=sod_tgtAtCurrentHour_abs,
 				sod_startOfDayBookLoad_factor=sod_startOfDayBookLoad_factor,
@@ -1481,6 +1527,9 @@ class DynAlloc:
 		grp_adj_profile_fare = state.grp_adj_profile_fare
 		grp_adj_bookload = state.grp_adj_bookload
 		grp_fare_anchor = state.grp_fare_anchor
+		forecast_plf = state.forecast_plf
+		final_totalCapacity = state.final_totalCapacity
+		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
 		param_profileFares = getattr(self.currParams, 'profileFares', 1)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
@@ -1512,7 +1561,7 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = getParsedForecast(self)
-		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(self, variance_full)
+		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity)
 		self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 		self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
 		self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
@@ -1528,9 +1577,13 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.DepDate = str(currFltDate); self.outputSummaryRow_b2c.BookedLoad = str(currBookedLoad)
 		self.outputSummaryRow_b2c.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2c.ndoBand = str(ndoBand_full)
 		self.outputSummaryRow_b2c.anchorFare = str(safe_get_from_dict(openDataB2C_details, "anchorFare"))
-		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD'))
 		self.outputSummaryRow_b2c.SellingFare = str(safe_get_from_dict(openDataB2C_details, "Fare")); self.outputSummaryRow_b2c.Channel = B2C_CHANNEL
-		self.outputSummaryRow_b2c.HowDetermined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
+		
+		# Parse and format the raw FareResult string
+		raw_b2c_how_determined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
+		self.outputSummaryRow_b2c.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2c_how_determined)
+		
+		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD', default='Z'))
 		self.outputSummaryRow_b2c.Backstop = param_b2c_backstop_full; self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop_str
 		self.outputSummaryRow_b2c.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2c.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2c.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2c.allocationStatus = safe_get_from_dict(openDataB2C_details, 'allocationStatus', default=0)
@@ -1555,12 +1608,17 @@ class DynAlloc:
 		self.outputSummaryRow_b2b.DepDate = str(currFltDate); self.outputSummaryRow_b2b.BookedLoad = str(currBookedLoad)
 		self.outputSummaryRow_b2b.TgtLoad = str(round(sod_startOfDayTgtBookedLoad_abs,2)); self.outputSummaryRow_b2b.ndoBand = str(ndoBand_full)
 		self.outputSummaryRow_b2b.anchorFare = str(safe_get_from_dict(openDataB2B_details, "anchorFare"))
-		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD'))
 		self.outputSummaryRow_b2b.SellingFare = str(safe_get_from_dict(openDataB2B_details, "Fare")); self.outputSummaryRow_b2b.Channel = B2B_CHANNEL
-		self.outputSummaryRow_b2b.HowDetermined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+
+		raw_b2b_how_determined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
+		
 		# Override B2B HowDetermined with simplified format
-		if b2b_anchor_source is not None:
-			self.outputSummaryRow_b2b.HowDetermined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
+		if b2b_anchor_source and "hardanchorfare" not in b2b_anchor_source.lower():
+			raw_b2b_how_determined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
+
+		self.outputSummaryRow_b2b.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2b_how_determined)
+		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD', default='Z'))
+		
 		self.outputSummaryRow_b2b.Backstop = param_b2b_backstop_full; self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop_str
 		self.outputSummaryRow_b2b.Variance = str(round(variance_full,2)); self.outputSummaryRow_b2b.analystName = param_analyst_name_full
 		self.outputSummaryRow_b2b.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2b.allocationStatus = safe_get_from_dict(openDataB2B_details, 'allocationStatus', default=0)
@@ -1585,14 +1643,14 @@ class DynAlloc:
 
 	def w_rbd_allocation(self, currRec, brd_counter):
 		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
-		default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
+		# default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
 		
 		ind = 2
 		# Set class_of_service for each RBD dynamically
 		for rbd in rbds:
 			currRec.set_class_attribute(brd_counter + ind, 'class_of_service', rbd)
-			if default_ml_flag == 1 and rbd == "S":
-				currRec.set_class_attribute(brd_counter + ind, 'ap_restriction', 365)
+			# if default_ml_flag == 1 and rbd == "S":
+			# 	currRec.set_class_attribute(brd_counter + ind, 'ap_restriction', 365)
 			ind += 1
 		
 		ind = 2
@@ -1835,6 +1893,9 @@ class DynAlloc:
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
 			df = pd.DataFrame([vars(row) for row in self.allocResults])
+			final_order = [col for col in CONST_OUTPUT_SUMMARY_ORDER if col in df.columns]
+			missing_cols = [col for col in df.columns if col not in final_order]
+			df = df[final_order + missing_cols]
 			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
 			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
 
@@ -1975,6 +2036,9 @@ class DynAlloc:
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
+		self.qpcurrency = "INR"
+		self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
+
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
 		self.LINEAR_JUMP_VALUE = self.constantsUtils.LINEAR_JUMP_VALUE
 		self.PLF_CURVE_VALUE = self.constantsUtils.PLF_CURVE_VALUE
@@ -2004,6 +2068,28 @@ class DynAlloc:
 			if can_copy == False:
 				self.logger.info('Waiting as inputs are busy...')
 				time_sleep.sleep(WAIT_TIME)
+
+	def convert_currency(self, from_currency, to_currency, value):
+		if str(value) == CONST_NA or pd.isna(value) or value == '':
+			return value
+
+		conversion = self.conversion_data[
+			(self.conversion_data['FromCurrencyCode'] == from_currency) &
+			(self.conversion_data['ToCurrencyCode'] == to_currency)
+		]
+		
+		if conversion.empty:
+			raise ValueError(f"No conversion rate found for {from_currency} to {to_currency}")
+		
+		conversion_rate = conversion['ConversionRate'].values[0]
+		converted_value = float(value) * conversion_rate
+		if self.qpcurrency!='INR':
+			if hasattr(self, 'outputSummaryRow_b2b'):
+				self.outputSummaryRow_b2b.conversionRate=conversion_rate
+			if hasattr(self, 'outputSummaryRow_b2c'):
+				self.outputSummaryRow_b2c.conversionRate=conversion_rate
+				
+		return converted_value
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
@@ -2194,6 +2280,7 @@ class DynAlloc:
 		profileFaresData = self.rmdatabasehelper.getProfileFares(
 			self.currParams.origin + self.currParams.destin,
 			month_str_for_profile, dow_str_for_profile, deptTime_str_hhmm, percentile_str_full,
+			self.currParams.incrementedProfileFareFlag,
 		)
 
 		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
@@ -2203,8 +2290,19 @@ class DynAlloc:
 		if len(profileFaresData) != 0:
 			if profileFaresData['price'][0] != "":
 				profileFare = float(profileFaresData['price'][0])
-				if upsellValue_full != 0:
-					profileFare = (profileFare * (1 + float(upsellValue_full) / 100))
+				if int(self.currParams.incrementedProfileFareFlag) == 1:
+					# When flag is on, apply ML-level profileFareUpsell instead of station upsell
+					ml_upsell = self.currParams.profileFareUpsell
+					if ml_upsell not in (None, '', 'NA', CONST_NA):
+						try:
+							ml_upsell_pct = float(ml_upsell)
+							if ml_upsell_pct != 0:
+								profileFare = profileFare * (1 + ml_upsell_pct / 100)
+						except (ValueError, TypeError):
+							pass
+				else:
+					if upsellValue_full != 0:
+						profileFare = (profileFare * (1 + float(upsellValue_full) / 100))
 
 		# Determine if we should process (enter the main block)
 		should_process = False
@@ -2727,6 +2825,7 @@ class DynAlloc:
 			entry = instance.runFareAnchorPass()
 		except Exception as e:
 			instance.logger.error(f"Unhandled exception in runFareAnchorPass: {e}")
+			traceback.print_exc()
 			entry = instance._build_fallback_portfolio_entry(e)
 
 		if instance._maybeShortCircuitSingleFlight(entry):
@@ -3310,6 +3409,8 @@ class DynAlloc:
 			"portfolio_count": "portfolio_count",
 			"portfolio_only": "portfolio_only",
 			"strategy": "fareAnchor",  # strategy is derived from fare_anchor
+			"incrementedProfileFareFlag": "incrementedProfileFareFlag",
+			"profileFareUpsell": "ProfileFareUpsell",
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
@@ -3598,6 +3699,7 @@ class DynAlloc:
 		state.profileExtract_df_fullalloc = self.rmdatabasehelper.profileFaresExtract(
 			self.currParams.origin, self.currParams.destin,
 			state.month_str_for_profile, state.dow_str_for_profile, state.deptTime_str_hhmm,
+			self.currParams.incrementedProfileFareFlag,
 		)
 		profileFares_list_sorted_fullalloc = []
 		if not state.profileExtract_df_fullalloc.empty:

@@ -269,6 +269,9 @@ class RMDatabaseHelper:
     "ForecastAF_Allin": "$fr.ForecastAF_Allin",
     "ALLIN_AF_NB_LM": "$fr.ALLIN_AF_NB_LM",
     "ALLIN_AF_NB_LY": "$fr.ALLIN_AF_NB_LY",
+    "Adjustment_Factor": "$fr.Adjustment_Factor",
+    "Expected_PLF": "$fr.Expected_PLF",
+    "Flown_Target_Load": "$fr.Flown_Target_Load",
     "Imputed_Forecast_6hrs": "$fr.Imputed_Forecast_6hrs",
     "forecast_run_plf": "$fr.forecast_run_plf",
     "seats_sold_L": {"$ifNull": ["$cr.seats_sold_L", 0]},
@@ -866,7 +869,9 @@ class RMDatabaseHelper:
                 "Portfolio_Anchor": str(latest_row.Portfolio_Anchor),
                 "z_score88": str(latest_row.z_score88),
                 "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
-                "portfolio_count": str(latest_row.portfolio_count)
+                "portfolio_count": str(latest_row.portfolio_count),
+                "conversionRate": str(latest_row.conversionRate),
+                "currency": str(latest_row.currency)
             }
 
             try:
@@ -1231,7 +1236,7 @@ class RMDatabaseHelper:
                         {"$match": base_match_conditions},
                         {"$addFields": {
                             "source_table": "AG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_AG"]}
                         }},
                         {"$project": {
                             "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
@@ -1278,7 +1283,7 @@ class RMDatabaseHelper:
     }},
                         {"$addFields": {
                             "source_table": "RG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_RG"]}
                         }},
                         {"$project": {
                             "gross_fare": 1, "outbound_airline_code": 1, "outbound_flight": 1,
@@ -1453,7 +1458,7 @@ class RMDatabaseHelper:
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "AG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_AG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_AG"]}
                         }},
                         {"$project": projection}
                     ]
@@ -1472,7 +1477,7 @@ class RMDatabaseHelper:
                         {"$match": match_conditions},
                         {"$addFields": {
                             "source_table": "RG",
-                            "mktFile": {"$concat": ["$scrape_file_name", "_RG"]}
+                            "mktFile": {"$concat": [{"$toString": "$scrape_file_name"}, "_RG"]}
                         }},
                         {"$project": projection}
                     ]
@@ -1560,7 +1565,8 @@ class RMDatabaseHelper:
             results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
-                "RBD": {"$in": tbf_rbds}
+                "RBD": {"$in": tbf_rbds},
+                "TOTAL": {"$ne": 1}
             }))
             rbddata = pd.DataFrame(results)
             is_valid = (
@@ -1605,7 +1611,7 @@ class RMDatabaseHelper:
             return openResult, pd.DataFrame()
         
         try:
-            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route}))
+            results = list(self.db.fares.find({"Org": origin, "Dst": destin, "route": route, "TOTAL": {"$ne": 1}}))
             rbddata = pd.DataFrame(results)
         except Exception as e:
             self.logger.error(e)
@@ -1622,11 +1628,12 @@ class RMDatabaseHelper:
         # exclude_rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
 
         query = {
-    "Org": origin,
-    "Dst": destin,
-    "route": route,
-    "RBD": {"$in": self.rbd_list_builder(channel)}
-}
+            "Org": origin,
+            "Dst": destin,
+            "route": route,
+            "RBD": {"$in": self.rbd_list_builder(channel)},
+            "TOTAL": {"$ne": 1}
+        }
 
         sortorder = -1  # desc
         use_pipeline = False
@@ -1660,7 +1667,7 @@ class RMDatabaseHelper:
                 ]
                 use_pipeline = True
             else:
-                query["TOTAL"] = {"$lt": int(anchorFare)}
+                query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
         if int(offset) >= 0:
@@ -1694,9 +1701,9 @@ class RMDatabaseHelper:
                     ]
                     use_pipeline = True
                 else:
-                    query["TOTAL"] = {"$gte": int(anchorFare)}
+                    query["TOTAL"] = {"$gte": int(anchorFare), "$ne": 1}
             else:
-                query["TOTAL"] = {"$gte": 1000000}
+                query["TOTAL"] = {"$gte": 1000000, "$ne": 1}
             sortorder = 1
 
         if self.debugMode:
@@ -1723,7 +1730,8 @@ class RMDatabaseHelper:
             "Org": origin,
             "Dst": destin,
             "route": route,
-            "RBD": {"$in": self.rbd_list_builder(channel)}
+            "RBD": {"$in": self.rbd_list_builder(channel)},
+            "TOTAL": {"$ne": 1}
         }
 
         # Add channel-specific regex filter
@@ -1733,7 +1741,7 @@ class RMDatabaseHelper:
         #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
         # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop)}
+        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
@@ -1842,7 +1850,7 @@ class RMDatabaseHelper:
             self.logger.error(e)
             return pd.DataFrame()
 
-    def getProfileFares(self, sector, month, dow, currTime, percentile):
+    def getProfileFares(self, sector, month, dow, currTime, percentile, incremented_profile_fare_flag=0):
         try:
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
@@ -1859,7 +1867,13 @@ class RMDatabaseHelper:
             else:
                 cluster = 5
 
-            result = self.db.config_profile_fares.find_one({
+            # Choose collection based on flag
+            if int(incremented_profile_fare_flag) == 1:
+                collection = self.db.group_incremented_profile_fares
+            else:
+                collection = self.db.config_profile_fares
+
+            result = collection.find_one({
                 "sector": sector,
                 "month": month,
                 "dow": dow,
@@ -1889,13 +1903,19 @@ class RMDatabaseHelper:
             cluster = 5
         return cluster
 
-    def profileFaresExtract(self, origin, destin, month, dow, currTime):
+    def profileFaresExtract(self, origin, destin, month, dow, currTime, incremented_profile_fare_flag=0):
         try:
             sector = origin + destin
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = self.getCluster(time_obj)
 
-            result = self.db.config_profile_fares.find_one(
+            # Choose collection based on flag
+            if int(incremented_profile_fare_flag) == 1:
+                collection = self.db.group_incremented_profile_fares
+            else:
+                collection = self.db.config_profile_fares
+
+            result = collection.find_one(
     {
         "sector": sector,
         "month": month,
@@ -1911,8 +1931,6 @@ class RMDatabaseHelper:
         "Q20": 1  # include only Q0 to Q20
     }
 )
-
-
 
             return pd.DataFrame([result]) if result else pd.DataFrame()
         except Exception as e:
@@ -2153,13 +2171,15 @@ class RMDatabaseHelper:
             sector1_result = self.db.fares.find_one({
                 "SECTOR": sector1,
                 "route": "L",
-                "RBD": rbd_sector1
+                "RBD": rbd_sector1,
+                "TOTAL": {"$ne": 1}
             })
 
             sector2_result = self.db.fares.find_one({
                 "SECTOR": sector2,
                 "route": "L",
-                "RBD": rbd_sector2
+                "RBD": rbd_sector2,
+                "TOTAL": {"$ne": 1}
             })
 
             if not sector1_result or not sector2_result:
@@ -2182,7 +2202,8 @@ class RMDatabaseHelper:
                 "$and": [
                     {"SECTOR": sector},
                     {"RBD": rbd},
-                    {"route": route}
+                    {"route": route},
+                    {"TOTAL": {"$ne": 1}}
                 ]
             })
 
@@ -2588,7 +2609,8 @@ class RMDatabaseHelper:
             results = list(self.db.fares.find({
                 "Org": origin,
                 "Dst": destin,
-                "RBD": {"$in": cug_rbds}
+                "RBD": {"$in": cug_rbds},
+                "TOTAL": {"$ne": 1}
             }))
             rbddata = pd.DataFrame(results)
             is_valid = (
@@ -2629,10 +2651,37 @@ class RMDatabaseHelper:
             self.logger.error(f"Error fetching group profile fare increments: {e}")
             return None
 
+    def get_all_group_forecast_bands(self):
+        """
+        Fetch all documents from group_forecast_bands collection at once.
+        Returns a list of band dicts sorted by 'start' ascending.
+        Each dict contains: band, start, end, b2c_discount, fare_anchor_strategy,
+        b2c_fare_weight, profile_fare_weight.
+        """
+        try:
+            results = list(self.db.group_forecast_bands.find({}).sort("start", 1))
+            bands = []
+            for r in results:
+                bands.append({
+                    'band': int(r.get('band', 0)),
+                    'start': r.get('start', 0),
+                    'end': r.get('end', 0),
+                    'b2c_discount': r.get('b2c_discount', 0),
+                    'fare_anchor_strategy': r.get('fare_anchor_strategy', 'min'),
+                    'b2c_fare_weight': r.get('b2c_fare_weight', 0),
+                    'profile_fare_weight': r.get('profile_fare_weight', 1),
+                })
+            return bands
+        except Exception as e:
+            self.logger.error(f"Error fetching all group forecast bands: {e}")
+            return []
+
     def get_group_forecast_band(self, imp_forecast):
         """
-        Fetch group forecast band, b2c_discount, and fare_anchor_strategy from group_forecast_bands collection.
-        Returns a dict with 'band', 'b2c_discount', and 'fare_anchor_strategy' keys, or defaults.
+        Fetch group forecast band, b2c_discount, fare_anchor_strategy, and weight fields
+        from group_forecast_bands collection.
+        Returns a dict with 'band', 'b2c_discount', 'fare_anchor_strategy',
+        'b2c_fare_weight', and 'profile_fare_weight' keys, or defaults.
         """
         try:
             result = self.db.group_forecast_bands.find_one({
@@ -2643,30 +2692,14 @@ class RMDatabaseHelper:
                 return {
                     'band': int(result['band']),
                     'b2c_discount': result.get('b2c_discount', 0),
-                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
+                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min'),
+                    'b2c_fare_weight': result.get('b2c_fare_weight', 0),
+                    'profile_fare_weight': result.get('profile_fare_weight', 1),
                 }
-            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
         except Exception as e:
             self.logger.error(f"Error fetching group forecast band for forecast {imp_forecast}: {e}")
-            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
-
-    def get_group_b2c_discount_by_band(self, band):
-        """
-        Fetch b2c_discount and fare_anchor_strategy from group_forecast_bands collection using band number.
-        Used when band is already determined via dplf_bands (variance path).
-        Returns a dict with 'b2c_discount' and 'fare_anchor_strategy'.
-        """
-        try:
-            result = self.db.group_forecast_bands.find_one({"band": int(band)})
-            if result:
-                return {
-                    'b2c_discount': result.get('b2c_discount', 0),
-                    'fare_anchor_strategy': result.get('fare_anchor_strategy', 'min')
-                }
-            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
-        except Exception as e:
-            self.logger.error(f"Error fetching group b2c discount for band {band}: {e}")
-            return {'b2c_discount': 0, 'fare_anchor_strategy': 'min'}
+            return {'band': 0, 'b2c_discount': 0, 'fare_anchor_strategy': 'min', 'b2c_fare_weight': 0, 'profile_fare_weight': 1}
 
     def get_tbf_seats_blocked(self, orgcode, departuredate):
         try:

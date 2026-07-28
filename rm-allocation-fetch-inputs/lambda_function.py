@@ -585,7 +585,7 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY
+            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY, fr.Adjustment_Factor, fr.Expected_PLF, fr.Flown_Target_Load
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
@@ -611,6 +611,18 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     For Adhoc/Scheduled_Thirty runs, fetches missing sibling flights from the main
     market list table so that portfolio aggregation is correct, but flags them with
     portfolio_only=1 so they don't produce downstream outputs.
+
+    Memory-optimized: processes the date range in small windows of
+    PORTFOLIO_SIBLING_BATCH_SIZE days each, calling fetch_market_list_for_specific_dates
+    per window. This bounds peak memory to (total_docs_in_collection x days_in_window)
+    regardless of how many sectors or how wide the NDO span is.
+
+    For each window:
+      1. Call fetch_market_list_for_specific_dates with the exact window dates (NOT a range)
+         so that only the specifically requested departure dates are cross-joined — avoids
+         fetching an entire year's worth of data when min/max dates are far apart.
+      2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
+      3. Append sibling rows, free intermediate memory, move to next window
     """
     if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
@@ -623,40 +635,81 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
     # 1. Main table logic based on region
     main_table = "market_list" if region == "Domestic" else "market_list_international"
 
-    # 2. Extract unique (Origin, Destin, PerStart) pairs from adhoc mkt_list to filter the main table
+    # 2. Extract unique (Origin, Destin, PerStart) pairs from adhoc mkt_list
     unique_pairs = mkt_list[['Origin', 'Destin', 'PerStart']].drop_duplicates()
     if unique_pairs.empty:
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
-    # Revise start_period and end_period based on actual dates present in mkt_list
-    dates = pd.to_datetime(unique_pairs['PerStart'], format='%m/%d/%Y')
-    actual_start = dates.min().strftime('%Y-%m-%d')
-    actual_end = dates.max().strftime('%Y-%m-%d')
+    # 3. Get sorted unique departure dates from the adhoc list
+    unique_pairs['_date'] = pd.to_datetime(unique_pairs['PerStart'], format='%m/%d/%Y')
+    sorted_dates = sorted(unique_pairs['_date'].unique())
+    actual_start = pd.Timestamp(sorted_dates[0]).strftime('%Y-%m-%d')
+    actual_end = pd.Timestamp(sorted_dates[-1]).strftime('%Y-%m-%d')
 
-    # 3. Fetch from main table
-    logger.info(f"Enriching portfolio with siblings from {main_table} for {len(unique_pairs)} origin/destin/date pairs ({actual_start} to {actual_end})")
-    main_df = fetch_and_process_market_list(actual_start, actual_end, main_table, query_type)
-    
-    if main_df.empty:
+    logger.info(
+        f"Enriching portfolio with siblings from {main_table} for "
+        f"{len(unique_pairs)} departuredates ({actual_start} to {actual_end}), "
+        f"{len(sorted_dates)} unique dates"
+    )
+
+    # 4. Batch dates into windows of PORTFOLIO_SIBLING_BATCH_SIZE days
+    days_per_window = constantsutils.PORTFOLIO_SIBLING_BATCH_SIZE
+    all_siblings = []
+    total_windows = (len(sorted_dates) + days_per_window - 1) // days_per_window
+
+    logger.info(f"Processing in {total_windows} date-windows of {days_per_window} days each")
+
+    for window_idx in range(0, len(sorted_dates), days_per_window):
+        window_dates = sorted_dates[window_idx:window_idx + days_per_window]
+
+        # 4a. Fetch market list for exactly this set of dates.
+        # Using fetch_market_list_for_specific_dates instead of fetch_and_process_market_list
+        # avoids the bug where the latter would generate a full date-range from min to max
+        # (e.g. if window contains Jan 1 and Dec 31, the old code fetched all 365 days).
+        window_df = fetch_market_list_for_specific_dates(window_dates, main_table, query_type)
+
+        if window_df.empty:
+            continue
+
+        # 4b. Build the set of (Origin, Destin, PerStart) tuples that fall in this window
+        window_date_set = set(pd.Timestamp(d).strftime('%m/%d/%Y') for d in window_dates)
+        window_pairs = unique_pairs[unique_pairs['PerStart'].isin(window_date_set)][['Origin', 'Destin', 'PerStart']]
+
+        if window_pairs.empty:
+            del window_df
+            continue
+
+        # 4c. Filter to only OD-date combos that are in our adhoc list
+        window_filtered = pd.merge(window_df, window_pairs, on=['Origin', 'Destin', 'PerStart'], how='inner')
+
+        if not window_filtered.empty:
+            all_siblings.append(window_filtered)
+
+        # Free intermediate memory
+        del window_df, window_filtered
+
+    log_memory("after all sibling windows")
+
+    if not all_siblings:
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
-    # 4. Filter main_df to only those Origin-Destin-PerStart pairs that are in our adhoc list
-    keys = ['Origin', 'Destin', 'PerStart']
-    main_filtered = pd.merge(main_df, unique_pairs, on=keys, how='inner')
+    main_filtered = pd.concat(all_siblings, ignore_index=True)
+    del all_siblings
 
     # 5. Remove exact matches that already exist in the adhoc list
     adhoc_keys = mkt_list[['Origin', 'Destin', 'PerStart', 'FlightNumber']].copy()
     adhoc_keys['is_adhoc'] = 1
 
     main_joined = pd.merge(
-        main_filtered, 
-        adhoc_keys, 
-        on=['Origin', 'Destin', 'PerStart', 'FlightNumber'], 
+        main_filtered,
+        adhoc_keys,
+        on=['Origin', 'Destin', 'PerStart', 'FlightNumber'],
         how='left'
     )
     siblings = main_joined[main_joined['is_adhoc'].isnull()].drop(columns=['is_adhoc'])
+    del main_filtered, main_joined
 
     # 6. Flag and concat
     mkt_list['portfolio_only'] = 0
@@ -664,8 +717,15 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
         siblings['portfolio_only'] = 1
         mkt_list = pd.concat([mkt_list, siblings], ignore_index=True)
         logger.info(f"Added {len(siblings)} portfolio_only sibling flights")
+    else:
+        logger.info("No sibling flights found")
+
+    # Clean up temp column
+    if '_date' in mkt_list.columns:
+        mkt_list = mkt_list.drop(columns=['_date'], errors='ignore')
 
     return mkt_list
+
 
 def stamp_direct_route_portfolio_fields(mkt_list, route_type, salesinv):
     """Stamp ``pass`` and ``portfolio_count`` on direct-route messages (R13).
@@ -790,11 +850,14 @@ def left_join_forecast(mkt_list, forecast_df, model_map):
         suffixes=('', '_drop')
     )
 
+    # Preserve original LB forecastPLF before ML substitution
+    mkt['forecastPLF_lb'] = mkt['forecastPLF'].copy()
+
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['forecastPLF_ml'].notna()) & (mkt['forecastPLF_ml'].astype(str).str.strip() != ''), 'forecastPLF'] = mkt['forecastPLF_ml']
 
     mkt.loc[(mkt['forecast_model'] == 'ML') & (mkt['adjustedPLF_ml'].notna()) & (mkt['adjustedPLF_ml'].astype(str).str.strip() != ''), 'adjustedPLF'] = mkt['adjustedPLF_ml']
 
-    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml', 'forecast_model'], inplace=True, errors='ignore')
+    mkt.drop(columns=['Destination', 'Destination_drop', 'forecastPLF_ml', 'adjustedPLF_ml'], inplace=True, errors='ignore')
     return mkt
 
 def get_connection_departure_dates(nav_helper, min_date, max_date):
@@ -984,84 +1047,12 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
             logger.info(f"Market list {market_list_table} is empty.")
             return pd.DataFrame()
 
-        # Define projection columns based on query type
-        standard_cols = [
-            'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
-            'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
-            'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
-            'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
-            'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
-            'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-            'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag'
-        ]
-        sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
-        connection_cols = [
-            'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
-            'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
-            'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
-            'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
-        ]
-
-        projection_cols = []
-        if query_type == 'standard':
-            projection_cols = standard_cols
-        elif query_type == 'sales':
-            projection_cols = sales_cols
-        elif query_type == 'connections':
-            projection_cols = connection_cols
-
-        existing_cols = [col for col in projection_cols if col in base_ml_df.columns]
-        required_cols = existing_cols + ['PerStart', 'PerEnd', 'DOW']
-        base_ml_df = base_ml_df[list(set(required_cols))]
-
-        # Generate Date Range
+        # Generate full date range for cross-join
         s_date = datetime.strptime(start_period, "%Y-%m-%d")
         e_date = datetime.strptime(end_period, "%Y-%m-%d")
-        date_range = pd.date_range(start=s_date, end=e_date , freq='D')
-        date_df = pd.DataFrame({'Date': date_range})
+        date_df = pd.DataFrame({'Date': pd.date_range(start=s_date, end=e_date, freq='D')})
 
-        # Cross Join
-        base_ml_df['key'] = 1
-        date_df['key'] = 1
-        mkt_list = pd.merge(date_df, base_ml_df, on='key').drop("key", axis=1)
-
-        # Apply Filters
-        mkt_list['PerStart_dt'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y')
-        mkt_list['PerEnd_dt'] = pd.to_datetime(mkt_list['PerEnd'], format='%m/%d/%Y')
-
-        mkt_list = mkt_list[
-            (mkt_list['Date'] >= mkt_list['PerStart_dt']) &
-            (mkt_list['Date'] <= mkt_list['PerEnd_dt'])
-        ]
-
-        # Apply DOW Filter
-        def check_dow(row):
-            pandas_dow = row['Date'].dayofweek
-            mysql_dow = (pandas_dow + 2)
-            if mysql_dow > 7:
-                mysql_dow = 1
-
-            dow_string = row['DOW']
-            try:
-                flag = str(dow_string)[mysql_dow - 1]
-                return flag == '1'
-            except (IndexError, TypeError):
-                return False
-
-        mkt_list['Flag'] = mkt_list.apply(check_dow, axis=1)
-        mkt_list = mkt_list[mkt_list['Flag'] == True]
-
-        # Format Final Output
-        mkt_list['PerStart'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
-        mkt_list['PerEnd'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
-        
-        final_cols = existing_cols + ['PerStart', 'PerEnd']
-        mkt_list = mkt_list[final_cols]
-
-        if query_type != 'connections':
-            mkt_list = mkt_list.sort_values(by=['Origin', 'Destin', 'FlightNumber'])
-        
-        return mkt_list
+        return _process_market_list_docs(base_ml_df, date_df, query_type)
 
     except Exception as e:
         logger.error(f"Error in fetch_and_process_market_list: {str(e)}")
@@ -1069,7 +1060,131 @@ def fetch_and_process_market_list(start_period, end_period, market_list_table, q
     finally:
         log_time.end("fetch_and_process_market_list")
 
-# Helper functions with retry
+def fetch_market_list_for_specific_dates(specific_dates, market_list_table, query_type='standard'):
+    """
+    Fetches market list docs from MongoDB for exactly the given dates (pd.Timestamps).
+
+    Since PerStart == PerEnd always (each doc is a single-date entry), the filter is a
+    simple $in on PerStart — no range logic needed.
+    """
+    log_time.start()
+    try:
+        if not specific_dates:
+            return pd.DataFrame()
+
+        # PerStart == PerEnd always, so a direct $in on PerStart is sufficient.
+        date_strs = [pd.Timestamp(d).strftime('%m/%d/%Y') for d in specific_dates]
+        market_list_filter = {'PerStart': {'$in': date_strs}}
+
+        if market_list_table != "market_list" and query_type != 'connections':
+            market_list_filter['defaultMlFlag'] = 0
+
+        cursor = mongo_find_with_retry(market_list_table, market_list_filter)
+        base_ml_df = pd.DataFrame(cursor)
+
+        if base_ml_df.empty:
+            logger.info(f"Market list {market_list_table} is empty for the requested dates.")
+            return pd.DataFrame()
+
+        # Cross-join against ONLY the exact requested dates (not a full range)
+        date_df = pd.DataFrame({'Date': [pd.Timestamp(d) for d in specific_dates]})
+
+        return _process_market_list_docs(base_ml_df, date_df, query_type)
+
+    except Exception as e:
+        logger.error(f"Error in fetch_market_list_for_specific_dates: {str(e)}")
+        raise
+    finally:
+        log_time.end("fetch_market_list_for_specific_dates")
+
+
+
+def _process_market_list_docs(base_ml_df, date_df, query_type):
+    """
+    Shared core for fetch_and_process_market_list and fetch_market_list_for_specific_dates.
+
+    Given a raw DataFrame of MongoDB market-list documents and a DataFrame of dates to
+    expand against, applies:
+      - Column projection based on query_type
+      - Cross-join of docs x dates
+      - PerStart/PerEnd validity filter
+      - DOW (day-of-week) filter
+      - Final column formatting (PerStart / PerEnd stamped to the expanded date)
+
+    `date_df` must have a single column named 'Date' containing pd.Timestamps.
+    This is the ONLY thing that differs between the range and specific-dates callers.
+    """
+    standard_cols = [
+        'Origin','Destin','FlightNumber','DOW','TimeWindowStart','TimeWindowEnd','CurveID','CarrExlusionB2C',
+        'CarrExlusionB2B','flightExclusionB2C','flightExclusionB2B','fareAnchor','hardAnchor','plfThreshold',
+        'fareOffset','FirstRBDAlloc','OtherRBDAlloc','B2BBackstop','B2CBackstop','B2BFactor','obSeats',
+        'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
+        'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
+        'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
+        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag'
+    ]
+    sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
+    connection_cols = [
+        'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
+        'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
+        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
+        'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
+    ]
+
+    projection_cols = []
+    if query_type == 'standard':
+        projection_cols = standard_cols
+    elif query_type == 'sales':
+        projection_cols = sales_cols
+    elif query_type == 'connections':
+        projection_cols = connection_cols
+
+    existing_cols = [col for col in projection_cols if col in base_ml_df.columns]
+    required_cols = existing_cols + ['PerStart', 'PerEnd', 'DOW']
+    base_ml_df = base_ml_df[list(set(required_cols))]
+
+    # Cross Join
+    base_ml_df['key'] = 1
+    date_df = date_df.copy()
+    date_df['key'] = 1
+    mkt_list = pd.merge(date_df, base_ml_df, on='key').drop('key', axis=1)
+
+    # Apply PerStart / PerEnd validity filter
+    mkt_list['PerStart_dt'] = pd.to_datetime(mkt_list['PerStart'], format='%m/%d/%Y')
+    mkt_list['PerEnd_dt']   = pd.to_datetime(mkt_list['PerEnd'],   format='%m/%d/%Y')
+    mkt_list = mkt_list[
+        (mkt_list['Date'] >= mkt_list['PerStart_dt']) &
+        (mkt_list['Date'] <= mkt_list['PerEnd_dt'])
+    ]
+
+    # Apply DOW Filter
+    def check_dow(row):
+        pandas_dow = row['Date'].dayofweek
+        mysql_dow  = (pandas_dow + 2)
+        if mysql_dow > 7:
+            mysql_dow = 1
+        dow_string = row['DOW']
+        try:
+            flag = str(dow_string)[mysql_dow - 1]
+            return flag == '1'
+        except (IndexError, TypeError):
+            return False
+
+    mkt_list['Flag'] = mkt_list.apply(check_dow, axis=1)
+    mkt_list = mkt_list[mkt_list['Flag'] == True]
+
+    # Format Final Output
+    mkt_list['PerStart'] = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+    mkt_list['PerEnd']   = mkt_list['Date'].dt.strftime('%m/%d/%Y')
+
+    final_cols = existing_cols + ['PerStart', 'PerEnd']
+    mkt_list = mkt_list[final_cols]
+
+    if query_type != 'connections':
+        mkt_list = mkt_list.sort_values(by=['Origin', 'Destin', 'FlightNumber'])
+
+    return mkt_list
+
 
 def insert_run_start(start_time, run_id, start_interval, end_interval, market_list_table, username, type, is_connections_required, update_navitaire_method, region, count):
     log_time.start()
@@ -1289,6 +1404,60 @@ def get_sector_forecast_model_map():
 
     return df
 
+def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
+                             booked_pax_col='bookedPax', capacity_col='capacity',
+                             forecast_model_col=None, lb_forecast_col=None):
+    """BRD: if the sector uses ML model and the ML forecastPLF is below the current
+    booked PLF, switch forecast to LB — i.e. revert forecastPLF to the original
+    LB value (fr.forecastPLF).
+
+    Only applies to ML sectors. LB sectors are unaffected (no switch needed).
+
+    Args:
+        lb_forecast_col: Column containing the original LB forecastPLF (before ML substitution).
+                         When switch triggers, forecastPLF is reverted to this value.
+
+    Must run AFTER left_join_forecast (so forecastPLF is model-resolved)
+    AND after booked_loads is merged (so booked PLF is available)."""
+    missing = [c for c in (forecast_col, booked_pax_col, capacity_col)
+               if c not in mkt_list.columns]
+    if missing:
+        logger.warning(f"LB switch skipped — missing columns: {missing}")
+        return mkt_list, 0
+
+    cap = pd.to_numeric(mkt_list[capacity_col], errors='coerce')
+    pax = pd.to_numeric(mkt_list[booked_pax_col], errors='coerce')
+    fc  = pd.to_numeric(mkt_list[forecast_col], errors='coerce')
+
+    booked_plf = pd.Series(
+        np.where(cap > 0, (pax / cap) * 100.0, np.nan),
+        index=mkt_list.index
+    ).round(1)
+
+    # Only switch for ML sectors where ML forecast < booked PLF
+    if forecast_model_col and forecast_model_col in mkt_list.columns:
+        is_ml = mkt_list[forecast_model_col].astype(str).str.strip().str.upper() == 'ML'
+    else:
+        is_ml = pd.Series(True, index=mkt_list.index)
+
+    switch_mask = is_ml & fc.notna() & booked_plf.notna() & (fc < booked_plf)
+
+    # Revert forecastPLF to the original LB value (not booked PLF)
+    if lb_forecast_col and lb_forecast_col in mkt_list.columns:
+        mkt_list.loc[switch_mask, forecast_col] = mkt_list.loc[switch_mask, lb_forecast_col]
+    else:
+        # Fallback: if no LB column available, use booked PLF
+        mkt_list.loc[switch_mask, forecast_col] = booked_plf[switch_mask]
+
+    # Update forecast_model to LB for switched rows
+    if forecast_model_col and forecast_model_col in mkt_list.columns:
+        mkt_list.loc[switch_mask, forecast_model_col] = 'LB'
+
+    lb_count = int(switch_mask.sum())
+    logger.info(f"LB switch: {lb_count} ML flights had forecast < booked PLF; "
+                f"forecast switched to LB.")
+    return mkt_list, lb_count
+
 # ==========================
 # Main Lambda Handler
 # ==========================
@@ -1498,6 +1667,11 @@ def lambda_handler(event, context):
         log_memory("after merge booked_loads")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
 
+        # BRD: switch forecast to LB where ML forecast < booked PLF
+        mkt_list, lb_switch_count = apply_lb_forecast_switch(
+            mkt_list, forecast_model_col='forecast_model', lb_forecast_col='forecastPLF_lb')
+        logger.info(f"mkt_list shape after LB switch: {mkt_list.shape}")
+
         mkt_list = left_join_with_destination_mapping(mkt_list, seats_sold_pivot)
         log_memory("after merge seats_sold_pivot")
         logger.info(f"mkt_list shape: {mkt_list.shape}")
@@ -1582,13 +1756,16 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
 
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF1', 'forecastPLF_ml': 'forecastPLF_ml1', 'adjustedPLF': 'adjustedPLF1', 'adjustedPLF_ml': 'adjustedPLF_ml1', 'forecast_run_plf': 'forecast_run_plf1', 'Expected_PLF': 'Expected_PLF1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+
+        # Preserve original LB forecastPLF before ML substitution
+        mkt_list['forecastPLF_lb1'] = mkt_list['forecastPLF1'].copy()
 
         mkt_list.loc[(mkt_list['forecast_model1'] == 'ML') & (mkt_list['forecastPLF_ml1'].notna()) & (mkt_list['forecastPLF_ml1'].astype(str).str.strip() != ''),
             'forecastPLF1'
@@ -1607,14 +1784,17 @@ def lambda_handler(event, context):
         .drop(columns=['Origin', 'Destination'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml']],
+            forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecastPLF', 'forecastPLF_ml', 'adjustedPLF', 'adjustedPLF_ml', 'forecast_run_plf', 'Expected_PLF']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2'}).drop(
+        ).rename(columns={'forecastPLF': 'forecastPLF2', 'forecastPLF_ml': 'forecastPLF_ml2', 'adjustedPLF': 'adjustedPLF2', 'adjustedPLF_ml': 'adjustedPLF_ml2', 'forecast_run_plf': 'forecast_run_plf2', 'Expected_PLF': 'Expected_PLF2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
+        # Preserve original LB forecastPLF before ML substitution
+        mkt_list['forecastPLF_lb2'] = mkt_list['forecastPLF2'].copy()
+
         mkt_list.loc[(mkt_list['forecast_model2'] == 'ML') & (mkt_list['forecastPLF_ml2'].notna()) & (mkt_list['forecastPLF_ml2'].astype(str).str.strip() != ''),
             'forecastPLF2'
         ] = mkt_list['forecastPLF_ml2']
@@ -1623,7 +1803,7 @@ def lambda_handler(event, context):
             'adjustedPLF2'
         ] = mkt_list['adjustedPLF_ml2']
 
-        mkt_list.drop(columns=['forecast_model1', 'forecastPLF_ml1', 'adjustedPLF_ml1', 'forecast_model2', 'forecastPLF_ml2', 'adjustedPLF_ml2'], inplace=True, errors='ignore')
+        mkt_list.drop(columns=['forecastPLF_ml1', 'adjustedPLF_ml1', 'forecastPLF_ml2', 'adjustedPLF_ml2'], inplace=True, errors='ignore')
         
         mkt_list = mkt_list.merge(
             forecast_plf_list[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'forecast_variance']],
@@ -1678,6 +1858,18 @@ def lambda_handler(event, context):
             suffixes=('', '_drop')
         ).rename(columns={'capacity': 'Lid2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
+
+        # BRD: Apply LB switch per sector for connections
+        # Only switches ML sectors where ML forecast < booked PLF → reverts to LB forecastPLF
+        mkt_list, lb_count1 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF1',
+                                                        booked_pax_col='BookedPax1', capacity_col='Lid1',
+                                                        forecast_model_col='forecast_model1',
+                                                        lb_forecast_col='forecastPLF_lb1')
+        mkt_list, lb_count2 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF2',
+                                                        booked_pax_col='BookedPax2', capacity_col='Lid2',
+                                                        forecast_model_col='forecast_model2',
+                                                        lb_forecast_col='forecastPLF_lb2')
+        logger.info(f"Connections LB switch: sector1={lb_count1}, sector2={lb_count2}")
 
         mkt_list = mkt_list.merge(
             opening_rbds[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'OpeningRBDB2B', 'OpeningRBDB2C']],

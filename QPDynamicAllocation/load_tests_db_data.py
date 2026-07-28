@@ -76,6 +76,7 @@ class Schema:
         self.load_generic_collection("group_forecast_bands", "group_forecast_bands.csv")
         self.load_generic_collection("group_profile_fare_increments", "group_profile_fare_increments.csv")
         self.load_generic_collection("group_profile_fares", "group_profile_fares.csv")
+        self.load_generic_collection("group_incremented_profile_fares", "group_incremented_profile_fares.csv")
         
         self.transformCollections()
 

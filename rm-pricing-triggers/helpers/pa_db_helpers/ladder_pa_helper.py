@@ -641,7 +641,7 @@ class LadderPAHelper:
             ladder_documents = []
             
             # Save B2B ladder first
-            ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', [])
+            ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', []) or []
             self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: {self.TOTAL_B2B_FARES})")
             
             if ladder_fares_b2b:
@@ -683,6 +683,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
+                        'allin_fare_difference': round(new_all_in - current_all_in, 2),
                         'data_period': ladder_result['data_period_b2b'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2b', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2b', 0),
@@ -693,7 +694,7 @@ class LadderPAHelper:
                     ladder_documents.append(doc)
             
             # Save B2C ladder
-            ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', [])
+            ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', []) or []
             self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: {self.TOTAL_B2C_FARES})")
             
             if ladder_fares_b2c:
@@ -721,7 +722,15 @@ class LadderPAHelper:
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
                     new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
-                    
+                    is_default_b2c = ladder_result.get('data_period_b2c') == 'Default'
+                    is_default_b2b = ladder_result.get('data_period_b2b') == 'Default'
+
+                    if is_default_b2c or is_default_b2b:
+                        new_all_in = new_base
+                        new_base = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="base")
+                    else:
+                        new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
+
                     doc = {
                         'ladder_code': ladder_result['ladder_code'],
                         'sector': ladder_result['sector'],
@@ -735,6 +744,7 @@ class LadderPAHelper:
                         'current_qp_all_in_fare': round(current_all_in, 2),
                         'new_base_ladder_fare': round(new_base, 2),
                         'new_all_in_ladder_fare': round(new_all_in, 2),
+                        'allin_fare_difference': round(new_all_in - current_all_in, 2),
                         'data_period': ladder_result['data_period_b2c'],
                         'distinct_fares_count': ladder_result.get('distinct_fares_count_b2c', 0),
                         'total_booking_records': ladder_result.get('total_booking_records_b2c', 0),
@@ -748,11 +758,11 @@ class LadderPAHelper:
             b2b_docs = len([d for d in ladder_documents if d['channel']=='B2B'])
             b2c_docs = len([d for d in ladder_documents if d['channel']=='B2C'])
             total_docs = len(ladder_documents)
-            
+            expected_total = (self.TOTAL_B2C_FARES if ladder_fares_b2c else 0) + (self.TOTAL_B2B_FARES if ladder_fares_b2b else 0)
             self.logger.info(f"Document count summary: B2B={b2b_docs}, B2C={b2c_docs}, Total={total_docs}")
             
-            if total_docs != self.TOTAL_FARES:
-                self.logger.warning(f"Expected {self.TOTAL_FARES} ladder documents but got {total_docs}")
+            if total_docs != expected_total:
+                self.logger.warning(f"Expected {expected_total} ladder documents but got {total_docs}")
                 self.logger.warning(f"  B2B documents: {b2b_docs} (expected: {self.TOTAL_B2B_FARES})")
                 self.logger.warning(f"  B2C documents: {b2c_docs} (expected: {self.TOTAL_B2C_FARES})")
             
@@ -776,7 +786,7 @@ class LadderPAHelper:
 
     def save_batch_run_audit(self, sectors, route, analystName, outlier_count, start_time, currVersion, run_id, 
                   failure_reason, ladder_results, file_path, status='SUCCESS', is_initial=False,
-                  successful_codes=None, failed_codes=None, source=None, batch_total=None):
+                  successful_codes=None, failed_codes=None, source=None, batch_total=None, lowest_fare_yields_str=None):
         """Save or update batch audit for multiple ladder codes under one run_id.
         
         Parallel-safe: unique index on run_id prevents duplicates, $inc for counters,
@@ -810,6 +820,7 @@ class LadderPAHelper:
                     'qp_fares': qp_fares_version,
                     'tax_master': tax_master_version,
                     'analyst': analystName,
+                    'configured_source': source,
                 }
                 if batch_total is not None:
                     set_on_insert['batch_total'] = int(batch_total)
@@ -839,6 +850,12 @@ class LadderPAHelper:
                 set_fields = {
                     'end_time': datetime.now(pytz.timezone('Asia/Kolkata')),
                 }
+
+                if source:
+                    set_fields['source'] = source
+                
+                if lowest_fare_yields_str is not None:
+                    set_fields['Lowest fare yield'] = lowest_fare_yields_str
                 
                 if ladder_results:
                     for lr in ladder_results:
@@ -846,6 +863,8 @@ class LadderPAHelper:
                         set_fields[f'results.{lc}'] = {
                             'sector': lr.get('sector'),
                             'fare_source': lr.get('fare_source'),
+                            'fare_source_b2c': lr.get('fare_source_b2c'),
+                            'fare_source_b2b': lr.get('fare_source_b2b'),
                             'data_period_b2c': lr.get('data_period_b2c'),
                             'data_period_b2b': lr.get('data_period_b2b'),
                             'booking_records': {
