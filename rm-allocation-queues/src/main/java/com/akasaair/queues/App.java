@@ -4459,6 +4459,7 @@ public class App implements CommandLineRunner {
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
+                .auto_tolerance_flag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG)))
                 .incrementedProfileFareFlag(convertYNToBoolean(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG)))
                 .ProfileFareUpsell(record.get(CSV_HEADER_PROFILE_FARE_UPSELL))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
@@ -4688,6 +4689,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG))) {
+                listOfErrors.get().add("Line " + lineNum + " Auto Tolerance Flag (" + record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG) + ") has value other than 'Y' or 'N'.");
+            }
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG))) {
                 listOfErrors.get().add(lineNum + "incrementedProfileFareFlag has value other than 'Y' or 'N'");

@@ -138,4 +138,6 @@ public class MarketListEntity {
     public String incrementedProfileFareFlag;
     @Column(name = "ProfileFareUpsell")
     public String ProfileFareUpsell;
+    @Column(name = "auto_tolerance_flag")
+    public String autoToleranceFlag;
 }
