@@ -1,6 +1,7 @@
 import json
 import configsettings
 import pandas as pd
+import numpy as np
 from datetime import datetime, timezone, timedelta
 from constants_utils import ConstantsUtils
 import traceback
@@ -18,11 +19,12 @@ class defaultMarketlist:
     def __init__(self, logger, params, overrides, context):
         self.context = context
         self.logger = logger
+        self.overrides = overrides
         self.navconn = params['navconn']  # Keep SQL for Navitaire
         self.mongo_conn = params['mongoconn']  # Single MongoDB connection
         self.dwconn = params.get('dwconn')
         self.db = self.mongo_conn["qp_dw_rmalloc"]
-        self.master_db = params['mongo_master_db']
+        # self.master_db = params['mongo_master_db']
         self.cache_client = params['cache_client']
         self.constants = ConstantsUtils(self.db)
         self.default_list = json.loads(self.constants.DEFAULT_MARKET_LIST)
@@ -38,7 +40,11 @@ class defaultMarketlist:
         try:
             self.logger.info("Starting the run method.")
             currDate = datetime.now(timezone.utc)
-            endDate = currDate + timedelta(days=self.max_days)
+            start_day = int(self.overrides.get('start_day', 0)) if self.overrides else 0
+            end_day = int(self.overrides.get('end_day', self.max_days)) if self.overrides else self.max_days
+            startDate = currDate + timedelta(days=start_day)
+            endDate = currDate + timedelta(days=end_day)
+            startDate = startDate.date()
             endDate = endDate.date()
 
             # Navitaire query remains SQL (different system)
@@ -54,7 +60,7 @@ class defaultMarketlist:
                     {configsettings.NAV_DB_NAME}[rez].InventoryLeg IL
                 WHERE IL.Lid > 0
                     AND IL.Status NOT IN (2, 3)
-                    AND IL.DepartureDate >= CAST(GETDATE() AS DATE)
+                    AND IL.DepartureDate >= '{startDate}'
                     AND IL.DepartureDate <= '{endDate}'
             """
             navFlights = pd.read_sql(NavitaireQuery, self.navconn)
@@ -68,7 +74,7 @@ class defaultMarketlist:
                 raise ValueError("No flights found in NavODS")
 
             # Fetch market_list from MongoDB
-            mlFlights = self._fetch_marketlist_flights(endDate)
+            mlFlights = self._fetch_marketlist_flights(startDate, endDate)
 
             if mlFlights.empty or len(mlFlights) == 0:
                 raise ValueError("No flights found in Marketlist")
@@ -104,36 +110,22 @@ class defaultMarketlist:
                 how='left'
             )
 
-            # Get default values
-            default_list = self.default_list
-            if len(default_list) == 0:
-                raise ValueError("No default values found for market_list")
-            column_names = list(default_list.keys())
+            unmatched_navFlights = unmatched_navFlights.merge(
+                city_pair_map[['DepartureStation', 'ArrivalStation', 'ActualDistance']],
+                left_on=['Origin', 'Destination'],
+                right_on=['DepartureStation', 'ArrivalStation'],
+                how='left'
+            )
 
-            # Prepare data for insertion
-            insert_data = []
-            for _, row in unmatched_navFlights.iterrows():
-                record = default_list.copy()
-                record['Origin'] = row['Origin']
-                record['Destin'] = row['Destination']
-                record['PerStart'] = row['DepartureDate'].strftime('%m/%d/%Y')
-                record['PerEnd'] = row['DepartureDate'].strftime('%m/%d/%Y')
-                record['FlightNumber'] = int(row['FlightNumber'])
-                analyst = row['user1']
-                record['analystName'] = f"SYS / {str(analyst).strip()}" if pd.notna(analyst) and str(analyst).strip() else "SYS"
-                record['UUID'] = str(uuid.uuid4())
-                record['defaultMlFlag'] = 1
-                record['createdAt'] = datetime.now(timezone.utc)
-                weekday_num = row['DepartureDate'].weekday()
+            # 1. Time Windows
+            unmatched_navFlights = self._calculate_time_windows(unmatched_navFlights)
 
-                sunday_based_day = (weekday_num + 1) % 7
-                dow_base = list('9999999')
-                dow_base[sunday_based_day] = '1'
-                record['DOW'] = int(''.join(dow_base))
-                insert_data.append([record.get(col, '') for col in column_names])
+            # 2. Dynamic Backstops
+            # date_list = [(startDate + timedelta(days=i)).strftime('%m/%d/%Y') for i in range((endDate - startDate).days + 1)]
+            unmatched_navFlights = self._calculate_dynamic_backstops(unmatched_navFlights)
 
-            # Create DataFrame for insertion
-            insert_df = pd.DataFrame(insert_data, columns=column_names)
+            # 3. Build Insert DataFrame
+            insert_df = self._build_insert_dataframe(unmatched_navFlights)
 
             final_df = insert_df.merge(
                 city_pair_map,
@@ -163,9 +155,13 @@ class defaultMarketlist:
             # international_df = international_df.drop(columns=columns_to_drop, errors='ignore')
             domestic_df = domestic_df.drop(columns=columns_to_drop, errors='ignore')
 
+            # Restrict to only the expected columns from DEFAULT_MARKET_LIST
+            expected_columns = list(insert_df.columns)
+            domestic_df_to_insert = domestic_df[[c for c in expected_columns if c in domestic_df.columns]]
+
             # Insert into MongoDB collections
-            self._insert_to_mongodb('market_list', domestic_df)
-            # self._insert_to_mongodb('market_list_international', international_df)
+            self._insert_to_mongodb('market_list', domestic_df_to_insert)
+            # self._insert_to_mongodb('market_list_international', international_df_to_insert)
 
             self.logger.info(f"Inserted {len(domestic_df)} unmatched records into market_list.")
             # self.logger.info(f"Inserted {len(international_df)} unmatched records into market_list_international.")
@@ -173,14 +169,252 @@ class defaultMarketlist:
             # Build and upload audit logs for new records (mirrors AuditHelper.buildAuditLogs in Java)
             self._build_and_upload_audit_logs(domestic_df, "SYS")
 
-            self._send_marketlist_alert()
+            start_date_str = startDate.strftime('%Y-%m-%d')
+            end_date_str = endDate.strftime('%Y-%m-%d')
+            
+            # Fetch all existing unmanaged flights for the alert, regardless of date range
+            existing_unmanaged = self._fetch_all_unmanaged_default_ml()
+
+            self._send_marketlist_alert(domestic_df, existing_unmanaged, start_date_str, end_date_str)
                 
             self.logger.info("Run method completed.")
             
         except Exception as e:
             self.logger.error(f"An error occurred in the run method: {traceback.format_exc()}")
 
-    def _send_marketlist_alert(self):
+    def _calculate_time_windows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate TimeWindowStart and TimeWindowEnd dynamically based on DepartureTime."""
+        if df.empty:
+            df['TimeWindowStart'] = None
+            df['TimeWindowEnd'] = None
+            return df
+            
+        ml_config = getattr(self.constants, 'DEFAULT_ML_CALC_CONFIG', {}) or {}
+        time_window_hours = int(ml_config.get('time_window_hours', 2))
+            
+        dep_dt = pd.to_datetime(df['DepartureTime'], format='%H:%M', errors='coerce')
+        df['TimeWindowStart'] = (dep_dt - pd.Timedelta(hours=time_window_hours)).dt.strftime('%H:%M')
+        df['TimeWindowEnd'] = (dep_dt + pd.Timedelta(hours=time_window_hours)).dt.strftime('%H:%M')
+        return df
+
+    def _calculate_dynamic_backstops(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calculate dynamic B2B and B2C backstops using config collections in batches."""
+        def get_default(key, default_val):
+            try:
+                v = self.default_list.get(key)
+                if not v or str(v).strip() == "":
+                    return default_val
+                return float(v)
+            except (ValueError, TypeError):
+                return default_val
+                
+        default_b2b = get_default('B2BBackstop', 8000)
+        default_b2c = get_default('B2CBackstop', 8000)
+        
+        if df.empty:
+            df['B2BBackstop'] = default_b2b
+            df['B2CBackstop'] = default_b2c
+            return df
+            
+        ml_config = getattr(self.constants, 'DEFAULT_ML_CALC_CONFIG', {}) or {}
+        backstop_mult = float(ml_config.get('backstop_distance_multiplier', 6))
+        q_fare_level = str(ml_config.get('q_fare_level', '10'))
+        q_fare_col = f"Q{q_fare_level}"
+
+        df['sector'] = df['Origin'] + df['Destination']
+        df['date_str'] = df['DepartureDate'].dt.strftime('%m/%d/%Y')
+        df['dow_name'] = df['DepartureDate'].dt.strftime('%A')
+        
+        # 1. Global Pre-fetches
+        # Date events (no filters as requested)
+        config_date_event_cur = self.db['config_date_event'].find({}, {
+            '_id': 0,
+            'date': 1,
+            'mappedMonth': 1
+        })
+        date_events_df = pd.DataFrame(list(config_date_event_cur))
+        if not date_events_df.empty:
+            date_events_df = date_events_df[['date', 'mappedMonth']].drop_duplicates()
+            
+        # Clusters (no filters)
+        config_clusters_cur = self.db['config_clusters'].find({}, {'_id': 0})
+        clusters_df = pd.DataFrame(list(config_clusters_cur))
+        
+        # 2. Assign clusters globally
+        if not clusters_df.empty:
+            def map_cluster(dep_time_str):
+                try:
+                    dep_dt = datetime.strptime(dep_time_str, '%H:%M')
+                    dep_time = dep_dt.time()
+                    for _, cl in clusters_df.iterrows():
+                        start_time_str = cl.get('startTime')
+                        end_time_str = cl.get('endTime')
+                        if not start_time_str or not end_time_str:
+                            continue
+                        try:
+                            st = datetime.strptime(start_time_str, '%H:%M:%S').time()
+                        except ValueError:
+                            st = datetime.strptime(start_time_str, '%H:%M').time()
+                        try:
+                            et = datetime.strptime(end_time_str, '%H:%M:%S').time()
+                        except ValueError:
+                            et = datetime.strptime(end_time_str, '%H:%M').time()
+                        
+                        if st <= et:
+                            if st <= dep_time < et:
+                                return cl.get('cluster')
+                        else:
+                            if dep_time >= st or dep_time < et:
+                                return cl.get('cluster')
+                except Exception:
+                    pass
+                return None
+                
+            df['cluster'] = df['DepartureTime'].apply(map_cluster)
+        else:
+            df['cluster'] = None
+            
+        # 3. Batch processing for heavy collections (upsell & profile fares)
+        unique_sectors = df['sector'].dropna().unique().tolist()
+        chunk_size = 5
+        processed_batches = []
+        
+        for i in range(0, len(unique_sectors), chunk_size):
+            batch_sectors = unique_sectors[i:i + chunk_size]
+            batch_df = df[df['sector'].isin(batch_sectors)].copy()
+            
+            # Merge mappedMonth
+            if not date_events_df.empty:
+                batch_df = batch_df.merge(date_events_df, left_on='date_str', right_on='date', how='left')
+            else:
+                batch_df['mappedMonth'] = None
+                
+            # Fetch Upsell for batch (sector filter only)
+            upsell_cur = self.db['config_profile_fare_station_upsell'].find({'sector': {'$in': batch_sectors}}, {
+                '_id': 0,
+                'sector': 1,
+                'date': 1,
+                'value': 1
+            })
+            upsell_df = pd.DataFrame(list(upsell_cur))
+            if not upsell_df.empty:
+                upsell_df['value'] = pd.to_numeric(upsell_df['value'], errors='coerce').fillna(0)
+                upsell_df = upsell_df[['sector', 'date', 'value']].drop_duplicates(subset=['sector', 'date'])
+                upsell_df.rename(columns={'value': 'upsell'}, inplace=True)
+                batch_df = batch_df.merge(upsell_df, left_on=['sector', 'date_str'], right_on=['sector', 'date'], how='left')
+            else:
+                batch_df['upsell'] = 0.0
+            batch_df['upsell'] = batch_df['upsell'].fillna(0.0)
+                
+            # Fetch Profile Fares for batch (sector and mapped_month filter)
+            mapped_months = batch_df['mappedMonth'].dropna().unique().tolist()
+            if mapped_months:
+                profile_fares_cur = self.db['config_profile_fares'].find({
+                    'sector': {'$in': batch_sectors},
+                    'month': {'$in': mapped_months}
+                }, {
+                    '_id': 0,
+                    'sector': 1,
+                    'month': 1,
+                    'dow': 1,
+                    'cluster': 1,
+                    q_fare_col: 1
+                })
+                profile_fares_df = pd.DataFrame(list(profile_fares_cur))
+                if not profile_fares_df.empty and q_fare_col in profile_fares_df.columns:
+                    profile_fares_df = profile_fares_df[['sector', 'month', 'dow', 'cluster', q_fare_col]].drop_duplicates()
+                    batch_df = batch_df.merge(
+                        profile_fares_df, 
+                        left_on=['sector', 'mappedMonth', 'dow_name', 'cluster'],
+                        right_on=['sector', 'month', 'dow', 'cluster'],
+                        how='left'
+                    )
+                else:
+                    batch_df[q_fare_col] = None
+            else:
+                batch_df[q_fare_col] = None
+                
+            # Calculate Backstop for batch
+            batch_df['ActualDistance'] = pd.to_numeric(batch_df['ActualDistance'], errors='coerce')
+            dist_scaled = batch_df['ActualDistance'] * backstop_mult
+            q_fare_val = pd.to_numeric(batch_df[q_fare_col], errors='coerce')
+            q_upsell = q_fare_val * (1 + batch_df['upsell'] / 100)
+            
+            mask_missing_dist = batch_df['ActualDistance'].isna()
+            mask_missing_q = batch_df[q_fare_col].isna()
+            mask_both_missing = mask_missing_dist & mask_missing_q
+            
+            if mask_missing_dist.any():
+                missing_info_dist = batch_df[mask_missing_dist].apply(lambda r: f"{r.get('FlightNumber')}({r.get('date_str')})", axis=1).tolist()
+                self.logger.warning(f"Missing ActualDistance for flights: {', '.join(missing_info_dist)}")
+                
+            if mask_missing_q.any():
+                missing_info_q = batch_df[mask_missing_q].apply(lambda r: f"{r.get('FlightNumber')}({r.get('date_str')})", axis=1).tolist()
+                self.logger.warning(f"Missing {q_fare_col} for flights: {', '.join(missing_info_q)}")
+                
+            if mask_both_missing.any():
+                missing_info_both = batch_df[mask_both_missing].apply(lambda r: f"{r.get('FlightNumber')}({r.get('date_str')})", axis=1).tolist()
+                self.logger.warning(f"Default Backstops (B2B:{default_b2b}/B2C:{default_b2c}) applied due to missing BOTH Dist and {q_fare_col} for: {', '.join(missing_info_both)}")
+            
+            # Use np.fmax which ignores NaN values (unless both are NaN)
+            max_val = np.fmax(dist_scaled, q_upsell)
+            batch_df['B2BBackstop'] = max_val.fillna(default_b2b)
+            batch_df['B2CBackstop'] = max_val.fillna(default_b2c)
+            
+            processed_batches.append(batch_df)
+            
+        final_df = pd.concat(processed_batches, ignore_index=True) if processed_batches else df
+        return final_df
+
+    def _build_insert_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Build the DataFrame for insertion using vector operations."""
+        if df.empty:
+            return pd.DataFrame(columns=list(self.default_list.keys()))
+
+        # Start with default values broadcasted across all rows
+        insert_df = pd.DataFrame([self.default_list] * len(df))
+        
+        insert_df['Origin'] = df['Origin'].values
+        insert_df['Destin'] = df['Destination'].values
+        insert_df['PerStart'] = df['date_str'].values
+        insert_df['PerEnd'] = df['date_str'].values
+        insert_df['FlightNumber'] = df['FlightNumber'].astype(int).values
+        
+        analyst = df['user1'].fillna('')
+        insert_df['analystName'] = np.where(
+            analyst.str.strip() != '', 
+            'SYS / ' + analyst.str.strip(), 
+            'SYS'
+        )
+        insert_df['UUID'] = [str(uuid.uuid4()) for _ in range(len(df))]
+        insert_df['defaultMlFlag'] = 1
+        insert_df['createdAt'] = datetime.now(timezone.utc)
+        
+        # DOW logic
+        weekday_num = df['DepartureDate'].dt.weekday
+        sunday_based_day = (weekday_num + 1) % 7
+        
+        def make_dow(s):
+            b = list('9999999')
+            b[s] = '1'
+            return int(''.join(b))
+            
+        insert_df['DOW'] = sunday_based_day.apply(make_dow).values
+        
+        # Add dynamic calculated values
+        if 'TimeWindowStart' in df.columns:
+            insert_df['TimeWindowStart'] = df['TimeWindowStart'].values
+        if 'TimeWindowEnd' in df.columns:
+            insert_df['TimeWindowEnd'] = df['TimeWindowEnd'].values
+        if 'B2BBackstop' in df.columns:
+            insert_df['B2BBackstop'] = df['B2BBackstop'].values
+        if 'B2CBackstop' in df.columns:
+            insert_df['B2CBackstop'] = df['B2CBackstop'].values
+            
+        # Ensure column order matches default_list keys
+        return insert_df[list(self.default_list.keys())]
+
+    def _send_marketlist_alert(self, new_records_df: pd.DataFrame, existing_records_df: pd.DataFrame, start_date_str: str, end_date_str: str):
         try:
             import pytz
             ist_tz = pytz.timezone('Asia/Kolkata')
@@ -188,44 +422,128 @@ class defaultMarketlist:
             timestamp = ist_now.strftime('%Y-%m-%d %H:%M:%S IST')
             date_str = ist_now.strftime('%Y%m%d')
 
-            query = {'defaultMlFlag': {'$in': [1, "1"]}}
-            projection = {'_id': 0, 'Origin': 1, 'Destin': 1, 'PerStart': 1, 'FlightNumber': 1, 'analystName': 1, 'createdAt': 1}
-            dom_records = list(self.db['market_list'].find(query, projection))
-            # intl_records = list(self.db['market_list_international'].find(query, projection))
+            # Use columns from default_list but exclude specific internal fields for the CSV
+            exclude_cols = {'PerType', 'UUID', 'createdAt'}
+            col_list = [c for c in self.default_list.keys() if c not in exclude_cols]
+
+            def prepare_csv(df):
+                if df.empty:
+                    return ""
+                existing_cols = [c for c in col_list if c in df.columns]
+                df = df[existing_cols]
+                csv_buffer = io.StringIO()
+                df.to_csv(csv_buffer, index=False)
+                return csv_buffer.getvalue()
+
+            new_csv_content = prepare_csv(new_records_df)
+            existing_csv_content = prepare_csv(existing_records_df)
+
+            attachments = []
+            if new_csv_content:
+                attachments.append({
+                    'filename': f"newly_added_default_ml_{date_str}.csv",
+                    'content': new_csv_content,
+                    'file_type': 'csv'
+                })
             
-            all_records = dom_records # + intl_records
-            if not all_records:
-                self.logger.info("No records found with defaultMlFlag=1. Skipping alert.")
+            if existing_csv_content:
+                attachments.append({
+                    'filename': f"existing_unmanaged_default_ml_{date_str}.csv",
+                    'content': existing_csv_content,
+                    'file_type': 'csv'
+                })
+
+            if not attachments:
+                self.logger.info("No records found to alert for defaultMlFlag=1. Skipping alert.")
                 return
-
-            all_flights_df = pd.DataFrame(all_records)
-
-            csv_buffer = io.StringIO()
-            all_flights_df.to_csv(csv_buffer, index=False)
-            csv_content = csv_buffer.getvalue()
-            filename = f"default_marketlist_{date_str}.csv"
 
             html_body = f"""
             <html>
-            <body>
-                <h2>Default ML Flights Alert</h2>
-                <p><strong>Time:</strong> {timestamp}</p>
-                <p>Default ML Flights Count: {len(all_flights_df)}</p>
-                <p style='margin-top: 20px;'>
-                    Please find the detailed list in the attached CSV file.
-                </p>
-                <p style='margin-top: 20px; font-style: italic; color: #555;'>
-                    <strong>Note:</strong> While making changes to these default Market List Flights, turn off the 'defaultMlFlag' and upload for the changes to be applied.
-                </p>
+            <body style="margin:0; padding:0; background-color:none; font-family:Arial, Helvetica, sans-serif;">
+                <td align="center">
+                    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border:1px solid #e5e7eb; border-radius:8px;">
+
+                        <!-- Header -->
+                        <tr>
+                            <td style="padding:24px 32px 16px 32px; border-bottom:1px solid #eeeeee;">
+                                <h2 style="margin:0; color:#111111; font-size:19px; font-weight:600;">
+                                    Default ML Flights Alert
+                                </h2>
+                                <p style="margin:6px 0 0 0; font-size:12px; color:#888888;">
+                                    {timestamp}
+                                </p>
+                            </td>
+                        </tr>
+
+                        <!-- Body -->
+                        <tr>
+                            <td style="padding:24px 32px;">
+
+                                <!-- Summary stats -->
+                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:26px;">
+                                    <tr>
+                                        <td style="width:50%; padding-right:16px; border-left:3px solid #5c0fd9; padding-left:12px;">
+                                            <div style="font-size:12px; color:#888888; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">
+                                                Newly Added ML Records
+                                            </div>
+                                            <div style="font-size:26px; color:#5c0fd9; font-weight:700;">
+                                                {len(new_records_df)}
+                                            </div>
+                                            <div style="font-size:12px; color:#999999; margin-top:2px;">
+                                                {start_date_str} to {end_date_str}
+                                            </div>
+                                        </td>
+                                        <td style="width:50%; border-left:3px solid #c2650f; padding-left:12px;">
+                                            <div style="font-size:12px; color:#888888; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">
+                                                Existing Unmanaged Records
+                                            </div>
+                                            <div style="font-size:26px; color:#c2650f; font-weight:700;">
+                                                {len(existing_records_df)}
+                                            </div>
+                                            <div style="font-size:12px; color:#999999; margin-top:2px;">
+                                                Needs analyst review
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </table>
+
+                                <!-- Details -->
+                                <p style="margin:0 0 4px 0; font-size:12.5px; color:#888888; line-height:1.5;">
+                                    Please find the detailed lists in the attached CSV files:
+                                </p>
+                                <p style="margin:0 0 4px 0; font-size:12.5px; color:#888888; line-height:1.6;">
+                                    <strong style="color:#666666;">newly_added_default_ml</strong> — records just inserted by this job execution.
+                                </p>
+                                <p style="margin:0 0 8px 0; font-size:12.5px; color:#888888; line-height:1.6;">
+                                    <strong style="color:#666666;">existing_unmanaged_default_ml</strong> — records still in the DB with
+                                    <code style="background-color:#f5f5f5; padding:1px 4px; border-radius:3px; font-size:11.5px;">defaultMlFlag=1</code>
+                                    not yet managed by an analyst. Please review these at the earliest.
+                                </p>
+
+                                <!-- Note -->
+                                <p style="margin:0; padding-top:16px; font-size:12.5px; color:#8a6d1f; line-height:1.6;">
+                                    <strong>Note:</strong> while making changes to these default Market List Flights, turn off the
+                                    <code style="background-color:#f5f5f5; padding:1px 4px; border-radius:3px;">defaultMlFlag</code>
+                                    and upload for the changes to be applied.
+                                </p>
+
+                            </td>
+                        </tr>
+
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding:14px 32px; border-top:1px solid #eeeeee;">
+                                <p style="margin:0; font-size:11px; color:#aaaaaa;">
+                                    Automated notification — Default ML Flights job
+                                </p>
+                            </td>
+                        </tr>
+
+                    </table>
+                </td>
             </body>
             </html>
             """
-
-            attachments = [{
-                'filename': filename,
-                'content': csv_content,
-                'file_type': 'csv'
-            }]
 
             self.mail_client.send_email(
                 'Default Marketlist - System Added Flights Alert',
@@ -235,59 +553,79 @@ class defaultMarketlist:
                 attachments=attachments,
                 cc=self.alert_email_config.get('cc', [])
             )
-            self.logger.info(f"Alert email sent to {self.alert_email_config.get('to', [])} with {len(all_flights_df)} system-added flights.")
 
         except Exception as e:
             self.logger.error(f"Failed to send default marketlist alert email: {str(e)}\\n{traceback.format_exc()}")
 
-    def _fetch_marketlist_flights(self, endDate):
+    def _fetch_marketlist_flights(self, startDate, endDate):
         """
         Fetch flights from market_list and market_list_international collections.
         Equivalent to UNION query in MySQL.
         """
         try:
-            current_date = datetime.now().date()
-            
             # Helper function to fetch from a collection
             def fetch_from_collection(collection_name):
                 collection = self.db[collection_name]
                 
-                # MongoDB query
-                # Note: Handling both string and datetime formats for PerStart
-                cursor = collection.find(
-                    {},
+                # Convert startDate and endDate to datetime objects for MongoDB comparison
+                start_dt = datetime(startDate.year, startDate.month, startDate.day)
+                end_dt = datetime(endDate.year, endDate.month, endDate.day, 23, 59, 59)
+                
+                # MongoDB aggregation pipeline to parse dates and filter at DB level
+                pipeline = [
                     {
-                        '_id': 0,
-                        'Origin': 1,
-                        'Destin': 1,
-                        'PerStart': 1,
-                        'FlightNumber': 1
+                        "$addFields": {
+                            "parsedDate": {
+                                "$cond": {
+                                    "if": { "$eq": [{ "$type": "$PerStart" }, "string"] },
+                                    "then": {
+                                        "$dateFromString": {
+                                            "dateString": "$PerStart",
+                                            "format": "%m/%d/%Y",
+                                            "onError": None
+                                        }
+                                    },
+                                    "else": "$PerStart"
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "$match": {
+                            "parsedDate": {
+                                "$gte": start_dt,
+                                "$lte": end_dt
+                            }
+                        }
+                    },
+                    {
+                        "$project": {
+                            '_id': 0,
+                            'Origin': 1,
+                            'Destin': 1,
+                            'PerStart': 1,
+                            'FlightNumber': 1,
+                            'defaultMlFlag': 1,
+                            'analystName': 1,
+                            'createdAt': 1,
+                            'parsedDate': 1
+                        }
                     }
-                )
-                
-                df = pd.DataFrame(list(cursor))
-                if df.empty:
-                    return pd.DataFrame(columns=['Origin', 'Destination', 'DepartureDate', 'FlightNumber'])
-                
-                # Rename Destin to Destination for consistency
-                df = df.rename(columns={'Destin': 'Destination'})
-                
-                # Convert PerStart to datetime (handle both string and datetime)
-                df['DepartureDate'] = df['PerStart'].apply(
-                    lambda x: pd.to_datetime(x, format='%m/%d/%Y', errors='coerce') 
-                    if isinstance(x, str) else pd.to_datetime(x, errors='coerce')
-                )
-                
-                # Filter by date range
-                df = df[
-                    (df['DepartureDate'].dt.date >= current_date) &
-                    (df['DepartureDate'].dt.date <= endDate)
                 ]
+                
+                cursor = collection.aggregate(pipeline)
+                df = pd.DataFrame(list(cursor))
+                
+                if df.empty:
+                    return pd.DataFrame(columns=['Origin', 'Destination', 'DepartureDate', 'FlightNumber', 'defaultMlFlag', 'analystName', 'createdAt'])
+                
+                # Rename Destin to Destination and parsedDate to DepartureDate for consistency
+                df = df.rename(columns={'Destin': 'Destination', 'parsedDate': 'DepartureDate'})
                 
                 # Clean FlightNumber (trim whitespace)
                 df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
                 
-                return df[['Origin', 'Destination', 'DepartureDate', 'FlightNumber']]
+                return df[['Origin', 'Destination', 'DepartureDate', 'FlightNumber', 'defaultMlFlag', 'analystName', 'createdAt']]
             
             # Fetch from both collections
             domestic_flights = fetch_from_collection('market_list')
@@ -325,7 +663,7 @@ class defaultMarketlist:
         """Fetch city pair mappings from Data Warehouse (QP_DWH_MASTER.CityPair)."""
         try:
             query = """
-                SELECT DepartureStation, ArrivalStation, InternationalFlag, DomesticFlag
+                SELECT DepartureStation, ArrivalStation, InternationalFlag, DomesticFlag, ActualDistance
                 FROM QP_DWH_MASTER.CityPair
                 WHERE ConnectionFlag = 0 AND InActive = 0
             """
@@ -342,6 +680,32 @@ class defaultMarketlist:
             
         except Exception as e:
             self.logger.error(f"Error fetching city pair map from DW: {traceback.format_exc()}")
+            return pd.DataFrame()
+
+    def _fetch_all_unmanaged_default_ml(self) -> pd.DataFrame:
+        """Fetch all existing market list records across all dates that have defaultMlFlag = 1."""
+        try:
+            pipeline = [
+                {
+                    "$match": {
+                        "defaultMlFlag": 1
+                    }
+                }
+            ]
+            
+            cursor = self.db['market_list'].aggregate(pipeline)
+            df = pd.DataFrame(list(cursor))
+            
+            if df.empty:
+                return pd.DataFrame(columns=['Origin', 'Destin', 'PerStart', 'FlightNumber', 'defaultMlFlag', 'analystName', 'createdAt'])
+            
+            if 'FlightNumber' in df.columns:
+                df['FlightNumber'] = df['FlightNumber'].astype(str).str.strip()
+            
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching all unmanaged default ML flights: {e}")
             return pd.DataFrame()
 
     def _insert_to_mongodb(self, collection_name, df):
@@ -381,7 +745,10 @@ class defaultMarketlist:
                 str_val = str(val).strip()
                 
                 # Empty string handling
-                if str_val == '' or str_val.lower() in ['nan', 'none', 'null']:
+                if str_val == '':
+                    return ""
+                
+                if str_val.lower() in ['nan', 'none', 'null']:
                     return None
                 
                 # Try integer conversion first
@@ -434,8 +801,11 @@ class defaultMarketlist:
                         record[col] = str(val).strip() if pd.notna(val) else None
                     
                     elif col == 'createdAt':
-                        # Keep datetime object for MongoDB
-                        record[col] = val if pd.notna(val) else None
+                        # Keep datetime object for MongoDB, converting pandas Timestamp to native datetime
+                        if pd.notna(val):
+                            record[col] = val.to_pydatetime() if isinstance(val, pd.Timestamp) else val
+                        else:
+                            record[col] = None
                     
                     else:
                         # Apply general type conversion
