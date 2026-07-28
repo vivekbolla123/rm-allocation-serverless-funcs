@@ -139,5 +139,5 @@ public class MarketListEntity {
     @Column(name = "ProfileFareUpsell")
     public String ProfileFareUpsell;
     @Column(name = "auto_tolerance_flag")
-    public String autoToleranceFlag;
+    public String auto_tolerance_flag;
 }
