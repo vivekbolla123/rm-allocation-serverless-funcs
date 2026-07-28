@@ -287,10 +287,9 @@ class DynAlloc:
 						self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_REF_CURVE)	
 		except Exception as e:
 			self.logger.info("Exception occurred")
-			traceback.print_exc()
-			self.logger.info(e)
 			import traceback
 			traceback.print_exc()
+			self.logger.info(e)
 			self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, f"Unhandled exception: {str(e)}")
 
 		if not self.inputSource.isUpdateNavitaire:
@@ -3642,6 +3641,13 @@ class DynAlloc:
 		except (TypeError, ValueError):
 			state.currFltDate_dt = None
 			state.dateFormatted_yyyymmdd = payload.get("currFltDate_yyyymmdd", "")
+
+		if not state.deptTime_str_hhmm:
+			try:
+				time_object_dep = datetime.strptime(state.currFltDepartureTime, TIME_FORMAT).time()
+				state.deptTime_str_hhmm = f"{time_object_dep.hour:02d}:{time_object_dep.minute:02d}"
+			except (TypeError, ValueError):
+				state.deptTime_str_hhmm = "00:00"
 
 		# Refresh the per-flight summary rows so Phase N has the F/G
 		# metadata it needs without re-running Phases F or G.

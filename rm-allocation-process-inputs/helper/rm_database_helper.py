@@ -1511,6 +1511,10 @@ class RMDatabaseHelper:
 
 
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate, starttime):
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        default_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
+        self.currentTime = default_time
+
         if currentTimeFlag:
             currFltDate = datetime.strptime(currFltDate, "%m/%d/%Y").strftime("%Y-%m-%d")
             try:
@@ -1520,13 +1524,11 @@ class RMDatabaseHelper:
                     "Destin": currParams.destin,
                     "FlightDate": currFltDate
                 })
-                self.currentTime = result["runTime"] if result else None
+                if result and "runTime" in result and result["runTime"]:
+                    self.currentTime = result["runTime"]
             except Exception as e:
                 self.logger.error(e)
-        else:
-            ist_timezone = pytz.timezone('Asia/Kolkata')
-            cur_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
-            self.currentTime = cur_time
+
         return self.currentTime
 
     def get_qp_currency(self, origin, destin):
@@ -1769,8 +1771,8 @@ class RMDatabaseHelper:
                 return pd.DataFrame()
 
             ndo_value = ndo_result['value']
-            currTime = currTime + ':00'
-
+            if not currTime:
+                currTime = '00:00'
             # Determine cluster based on time
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
@@ -1839,6 +1841,8 @@ class RMDatabaseHelper:
 
     def getProfileFares(self, sector, month, dow, currTime, percentile, incremented_profile_fare_flag=0):
         try:
+            if not currTime:
+                currTime = '00:00'
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
             if datetime.strptime('02:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('07:30:00', '%H:%M:%S').time():
@@ -2415,10 +2419,15 @@ class RMDatabaseHelper:
     #         return pd.DataFrame()
     
     def fetch_all_conversion_data(self):
-        if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
-            query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
-            df = pd.read_sql(query, self.dwconn)
-        else:
+        try:
+            if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+                query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
+                df = pd.read_sql(query, self.dwconn)
+                return df
+        except Exception as e:
+            self.logger.error(f"Error fetching conversion data from MySQL, falling back to MongoDB: {e}")
+            
+        try:
             collection = self.db['currency_conversion']
 
             # Using find() to get all documents with only specific fields
@@ -2434,7 +2443,10 @@ class RMDatabaseHelper:
 
             # Convert to pandas DataFrame
             df = pd.DataFrame(list(cursor))
-        return df
+            return df
+        except Exception as e:
+            self.logger.error(f"Error fetching conversion data from MongoDB: {e}")
+            return pd.DataFrame()
 
     def get_curveids(self, sector1, sector2, fltno1, fltno2, dep1, dep2):
         try:

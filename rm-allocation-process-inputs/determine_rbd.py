@@ -662,7 +662,8 @@ class DetermineRBD:
                 
                 history = []
                 try:
-                    state_str = self.redishelper.cache_client.hget(redis_key, hash_field)
+                    if self.redishelper:
+                        state_str = self.redishelper.hget(redis_key, hash_field)
                     if state_str:
                         history = __import__('json').loads(state_str)
                 except Exception:
@@ -838,9 +839,11 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 try:
-                    self.redishelper.cache_client.hset(redis_key, hash_field, __import__('json').dumps(history))
-                except Exception:
-                    pass
+                    if self.redishelper:
+                        self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
+                    
+                except Exception as e:
+                    print(f"REDIS HSET ERROR for {redis_key}: {e}")
                 
                 try:
                     mongo_doc = {
@@ -1188,7 +1191,8 @@ class DetermineRBD:
                 
                 history = []
                 try:
-                    state_str = self.redishelper.cache_client.hget(redis_key, hash_field)
+                    if self.redishelper:
+                        state_str = self.redishelper.hget(redis_key, hash_field)
                     if state_str:
                         history = __import__('json').loads(state_str)
                 except Exception:
@@ -1364,7 +1368,8 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 try:
-                    self.redishelper.cache_client.hset(redis_key, hash_field, __import__('json').dumps(history))
+                    if self.redishelper:
+                        self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
                 except Exception:
                     pass
                 
