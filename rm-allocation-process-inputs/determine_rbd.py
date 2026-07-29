@@ -847,23 +847,25 @@ class DetermineRBD:
                 if len(history) > max_history:
                     history = history[-max_history:]
                 
-                try:
-                    if self.redishelper:
-                        self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
-                    
-                except Exception as e:
-                    print(f"REDIS HSET ERROR for {redis_key}: {e}")
-                
-
-                if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
+                if not is_portfolio_only:
                     try:
-                        mongo_doc = {
-                            "redis_key": redis_key,
-                            "autotolerance_history": history
-                        }
-                        self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
-                    except Exception:
-                        pass
+                        if self.redishelper:
+                            self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
+                        
+                    except Exception as e:
+                        print(f"REDIS HSET ERROR for {redis_key}: {e}")
+                    
+    
+                    if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                        try:
+                            mongo_doc = {
+                                "redis_key": redis_key,
+                                "autotolerance_history": history
+                            }
+                            self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                        except Exception:
+                            pass
                 
                 auto_limit = float(strategyFare) - final_T
                 toleranceValue = f"{auto_limit:.2f}"
@@ -1384,23 +1386,25 @@ class DetermineRBD:
                 if len(history) > max_history:
                     history = history[-max_history:]
                 
-                try:
-                    if self.redishelper:
-                        self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
-                except Exception:
-                    pass
-                
-
-                
-                if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
+                if not is_portfolio_only:
                     try:
-                        mongo_doc = {
-                            "redis_key": redis_key,
-                            "autotolerance_history": history
-                        }
-                        self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                        if self.redishelper:
+                            self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
                     except Exception:
                         pass
+                    
+    
+                    
+                    if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                        try:
+                            mongo_doc = {
+                                "redis_key": redis_key,
+                                "autotolerance_history": history
+                            }
+                            self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                        except Exception:
+                            pass
                 
                 auto_limit = float(strategyFare) - final_T
                 toleranceValue = f"{auto_limit:.2f}"
