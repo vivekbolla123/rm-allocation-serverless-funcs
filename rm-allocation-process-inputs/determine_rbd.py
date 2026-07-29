@@ -777,7 +777,7 @@ class DetermineRBD:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
 
-                    target_t_v = target_record.get("T_V", t_v_prev)
+                    target_t_v = target_record.get("T_prime", t_v_prev)
                     if target_t_v is not None:
                         floor_fare = float(strategyFare) - float(target_t_v)
                         x = floor_fare - float(anchor_fare)
@@ -840,7 +840,7 @@ class DetermineRBD:
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
-                    "T_V": float(final_T),
+                    "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
                     "b2c_tolerance": current_b2c_tol_str
@@ -1240,7 +1240,7 @@ class DetermineRBD:
                     last_record = history[-1]
                     saved_b2c_tolerance = last_record.get("b2c_tolerance")
                     t_prime = last_record.get("T_prime")
-                    t_v_prev = last_record.get("T_V")
+                    t_v_prev = last_record.get("T_prime")
                     run_count = last_record.get("run_count", 0)
                 else:
                     saved_b2c_tolerance = None
@@ -1325,8 +1325,12 @@ class DetermineRBD:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
 
-                    target_t_v = target_record.get("T_V", t_v_prev)
-                    x = target_t_v - float(pre_tolerance_anchor) if target_t_v is not None else 0
+                    target_t_v = target_record.get("T_prime", t_v_prev)
+                    if target_t_v is not None:
+                        floor_fare = float(strategyFare) - float(target_t_v)
+                        x = floor_fare - float(pre_tolerance_anchor)
+                    else:
+                        x = 0
                     
                     if x > 0:
                         prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
@@ -1384,7 +1388,7 @@ class DetermineRBD:
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
-                    "T_V": float(final_T),
+                    "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
                     "b2c_tolerance": current_b2c_tol_str
