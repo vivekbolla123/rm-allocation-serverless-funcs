@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 import json
+import os
 import pandas as pd
 from Constants import *
 import random
@@ -45,7 +46,7 @@ class DetermineRBD:
             anchor_result, currParams, backstop, offset, strategy_criteria,
         )
 
-    def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=False):
         """Phase K head: candidate-selection + ``final_fare_anchor_*`` / ``finalFareAnchor`` calls.
 
         Performs the initial price-ladder lookup that establishes ``strategyFare``, runs
@@ -198,14 +199,14 @@ class DetermineRBD:
                         strategyFare, profileFare, lastSoldFareForAnchor, CONST_NA,
                         anchorValue, dPLF, None, currParams, plf, overBookingCount,
                         dplfBand, BookingsInHour, last7avg, isProfileAnchor,
-                        b2b_discount_fare, anchorFare, obfare, ndocounter, imp_forecast
+                        b2b_discount_fare, anchorFare, obfare, ndocounter, imp_forecast, is_portfolio_flow
                     )
  
                 anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.final_fare_anchor_forecast(
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
-                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare
+                    afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare, is_portfolio_flow
                 )
                 howDetermined = f"F_{imp_forecast_band}_{dplfBand}_{howDetermined}"
                 
@@ -590,7 +591,7 @@ class DetermineRBD:
 
         return temp_fareanchor, howDetermined, toleranceValue
 
-    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare=None):
+    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare=None, is_portfolio_flow=False):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -636,6 +637,8 @@ class DetermineRBD:
                     tolerance_fare != -1)
         
         def apply_tolerance_logic(anchor_fare, tolerance_fare, how_determined):
+            if is_portfolio_flow:
+                return anchor_fare, how_determined
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
             if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
@@ -669,7 +672,9 @@ class DetermineRBD:
                 except Exception:
                     pass
                     
-                if not history:
+
+                
+                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
                     try:
                         mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
                         if mongo_state and "autotolerance_history" in mongo_state:
@@ -849,14 +854,16 @@ class DetermineRBD:
                 except Exception as e:
                     print(f"REDIS HSET ERROR for {redis_key}: {e}")
                 
-                try:
-                    mongo_doc = {
-                        "redis_key": redis_key,
-                        "autotolerance_history": history
-                    }
-                    self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
-                except Exception:
-                    pass
+
+                if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                    try:
+                        mongo_doc = {
+                            "redis_key": redis_key,
+                            "autotolerance_history": history
+                        }
+                        self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                    except Exception:
+                        pass
                 
                 auto_limit = float(strategyFare) - final_T
                 toleranceValue = f"{auto_limit:.2f}"
@@ -1138,7 +1145,7 @@ class DetermineRBD:
 
         return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance
     
-    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast=None):
+    def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast=None, is_portfolio_flow=False):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -1171,6 +1178,8 @@ class DetermineRBD:
             return capped_fare, decision_text
         
         def calculate_tolerance_value(pre_tolerance_anchor=None):
+            if is_portfolio_flow:
+                return 0
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
@@ -1204,7 +1213,9 @@ class DetermineRBD:
                 except Exception:
                     pass
                     
-                if not history:
+
+                
+                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
                     try:
                         mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
                         if mongo_state and "autotolerance_history" in mongo_state:
@@ -1379,14 +1390,17 @@ class DetermineRBD:
                 except Exception:
                     pass
                 
-                try:
-                    mongo_doc = {
-                        "redis_key": redis_key,
-                        "autotolerance_history": history
-                    }
-                    self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
-                except Exception:
-                    pass
+
+                
+                if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                    try:
+                        mongo_doc = {
+                            "redis_key": redis_key,
+                            "autotolerance_history": history
+                        }
+                        self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+                    except Exception:
+                        pass
                 
                 auto_limit = float(strategyFare) - final_T
                 toleranceValue = f"{auto_limit:.2f}"

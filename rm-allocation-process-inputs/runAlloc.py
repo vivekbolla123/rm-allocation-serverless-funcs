@@ -2433,7 +2433,7 @@ class DynAlloc:
 				overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val,
 				is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 				param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band,
-				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=True
 			)
 			# Capture the F/G metadata onto the AnchorResult so the
 			# serialised PortfolioEntry can carry it across the SQS hop
@@ -2516,7 +2516,7 @@ class DynAlloc:
 					overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
 					False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 					param_obFare, profileFare, False, imp_forecast, imp_forecast_band,
-					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=True
 				)
 				anchorResult_b2b.strategyFare = self.outputSummaryRow_b2b.strategyFare
 				self._copyOutputSummaryToAnchor(anchorResult_b2b, self.outputSummaryRow_b2b)
