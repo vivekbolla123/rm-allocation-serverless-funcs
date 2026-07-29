@@ -3958,6 +3958,7 @@ public class App implements CommandLineRunner {
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("incrementedProfileFareFlag", toIntOrKeepSame(marketListEntity.getIncrementedProfileFareFlag()))
+                    .append("auto_tolerance_flag", toIntOrKeepSame(marketListEntity.getAuto_tolerance_flag()))
                     .append("ProfileFareUpsell", toIntOrKeepSame(marketListEntity.getProfileFareUpsell()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
@@ -4058,6 +4059,7 @@ public class App implements CommandLineRunner {
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
                 .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
                 .append("incrementedProfileFareFlag", toIntOrKeepSame(e.getIncrementedProfileFareFlag()))
+                .append("auto_tolerance_flag", toIntOrKeepSame(e.getAuto_tolerance_flag()))
                 .append("ProfileFareUpsell", toIntOrKeepSame(e.getProfileFareUpsell()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
@@ -4689,9 +4691,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
+            }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG))) {
                 listOfErrors.get().add("Line " + lineNum + " Auto Tolerance Flag (" + record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG) + ") has value other than 'Y' or 'N'.");
-            }
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG))) {
                 listOfErrors.get().add(lineNum + "incrementedProfileFareFlag has value other than 'Y' or 'N'");
