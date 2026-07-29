@@ -781,8 +781,14 @@ class DetermineRBD:
 
                     target_t_prime = target_record.get("T_prime")
                     target_t = target_record.get("T")
-                    target_tolerance = target_t_prime if target_t_prime not in (None, "", "NA") else target_t
                     
+                    if target_t_prime not in (None, "", "NA"):
+                        target_tolerance = target_t_prime
+                    elif target_t is not None:
+                        target_tolerance = target_t
+                    else:
+                        target_tolerance = T
+                        
                     if target_tolerance is not None:
                         floor_fare = float(strategyFare) - float(target_tolerance)
                         x = floor_fare - float(anchor_fare)
@@ -827,7 +833,7 @@ class DetermineRBD:
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
-                        prev_t_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else float(t_val)
+                        prev_t_prime = float(target_tolerance) if target_tolerance is not None else float(T)
                         calculated_t_prime = (x * g_value) + prev_t_prime
                         
                         if calculated_t_prime > float(strategyFare):
@@ -855,7 +861,9 @@ class DetermineRBD:
                 }
                 if not is_duplicate_run:
                     history.append(new_record)
-                
+                else:
+                    if len(history) > 0:
+                        history[-1] = new_record
                 max_history = max(6, N + 2)
                 if len(history) > max_history:
                     history = history[-max_history:]
@@ -1336,8 +1344,14 @@ class DetermineRBD:
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
                     target_t_prime = target_record.get("T_prime")
                     target_t = target_record.get("T")
-                    target_tolerance = target_t_prime if target_t_prime not in (None, "", "NA") else target_t
                     
+                    if target_t_prime not in (None, "", "NA"):
+                        target_tolerance = target_t_prime
+                    elif target_t is not None:
+                        target_tolerance = target_t
+                    else:
+                        target_tolerance = T
+                        
                     if target_tolerance is not None:
                         floor_fare = float(strategyFare) - float(target_tolerance)
                         x = floor_fare - float(pre_tolerance_anchor)
@@ -1382,7 +1396,7 @@ class DetermineRBD:
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
-                        prev_t_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else float(t_val)
+                        prev_t_prime = float(target_tolerance) if target_tolerance is not None else float(T)
                         calculated_t_prime = (x * g_value) + prev_t_prime
                         
                         if calculated_t_prime > float(strategyFare):
@@ -1410,7 +1424,9 @@ class DetermineRBD:
                 }
                 if not is_duplicate_run:
                     history.append(new_record)
-                
+                else:
+                    if len(history) > 0:
+                        history[-1] = new_record
                 max_history = max(6, N + 2)
                 if len(history) > max_history:
                     history = history[-max_history:]
