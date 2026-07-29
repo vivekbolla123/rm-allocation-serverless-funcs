@@ -639,7 +639,9 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_hard_anchor_cap(fare, how_determined):
+        def apply_strategy_and_hard_anchor_cap(fare, how_determined, strategyFare):
+            fare = max(fare, float(strategyFare))
+
             if not has_hard_anchor():
                 return fare, how_determined
             
@@ -891,7 +893,7 @@ class DetermineRBD:
             if should_use_tolerance:
                 anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
             
-            anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+            anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
         # ------
 
         # Overbooking logic & Final Adjustments
@@ -919,7 +921,9 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_hard_anchor_cap(fare, decision_text):
+        def apply_strategy_and_hard_anchor_cap(fare, decision_text, strategyFare):
+            fare = max(fare, float(strategyFare))
+            
             if not has_hard_anchor():
                 return fare, decision_text
             
@@ -1037,7 +1041,7 @@ class DetermineRBD:
                         elif dplfBand in [4, 5, 6]:
                             anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList, "last_sold_and_profile")
                         
-                        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
                     
                     # lastSoldFare >= profileFare and lastSoldFare >= strategyFare
                     elif last_sold_val >= profile_val and last_sold_val >= float(strategyFare):
@@ -1049,7 +1053,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                         
-                        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
                 
                 # Without profileFare
                 else:
@@ -1069,7 +1073,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                     
-                    anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                    anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
             
             # Case: No lastSoldFare but profileFare exists
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
@@ -1082,13 +1086,13 @@ class DetermineRBD:
                     anchorFare = max_fare
                     howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN'
                 
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
             
             # Case: Neither lastSoldFare nor profileFare
             else:
                 anchorFare = float(strategyFare)
                 howDetermined = 'AllocationY_Startegy_fare_UpsellN'
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
 
         # Main logic for value 'B'
         elif value == 'B':
