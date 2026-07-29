@@ -691,13 +691,13 @@ class DetermineRBD:
                 if len(history) > 0:
                     last_record = history[-1]
                     saved_b2c_tolerance = last_record.get("b2c_tolerance")
-                    t_prime = last_record.get("T_prime")
-                    t_v_prev = last_record.get("T_V")
+                    t_val = last_record.get("T")
+                    t_prime_val = last_record.get("T_prime")
                     run_count = last_record.get("run_count", 0)
                 else:
                     saved_b2c_tolerance = None
-                    t_prime = None
-                    t_v_prev = None
+                    t_val = None
+                    t_prime_val = None
                     run_count = 0
                 
                 current_b2c_tol_str = str(tolerance_fare) if has_tol else ""
@@ -707,15 +707,15 @@ class DetermineRBD:
                         saved_f = float(saved_b2c_tolerance)
                         curr_f = float(tolerance_fare) if has_tol else -1.0
                         if saved_f != curr_f:
-                            t_prime = None
-                            t_v_prev = None
+                            t_val = None
+                            t_prime_val = None
                             analyst_changed = True
                             run_count = 0
                             history = []
                     except:
                         if str(saved_b2c_tolerance) != current_b2c_tol_str:
-                            t_prime = None
-                            t_v_prev = None
+                            t_val = None
+                            t_prime_val = None
                             analyst_changed = True
                             run_count = 0
                             history = []
@@ -759,32 +759,39 @@ class DetermineRBD:
                         break
                         
                 calc_new_t_prime = False
-                prev_t_prime = T
                 x = 0
                 delta_variance = 0
                 
-                if t_v_prev is None:
+                if t_val is None:
                     if not has_tol:
-                        final_T = 0.10 * float(strategyFare)
+                        t_val = 0.10 * float(strategyFare)
                     else:
-                        final_T = float(T)
-                    t_prime = final_T
+                        t_val = float(T)
+                    final_T = t_val
                 else:
-                    final_T = float(t_v_prev)
-                    t_prime = float(t_prime) if t_prime is not None else float(T)
+                    t_val = float(t_val)
+                    if t_prime_val not in (None, "", "NA"):
+                        final_T = float(t_prime_val)
+                    else:
+                        final_T = t_val
 
                 if flag_val in (1, '1') and is_execution_run and target_record is not None:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
 
-                    target_t_v = target_record.get("T_prime", t_v_prev)
-                    if target_t_v is not None:
-                        floor_fare = float(strategyFare) - float(target_t_v)
+                    target_t_prime = target_record.get("T_prime")
+                    target_t = target_record.get("T")
+                    target_tolerance = target_t_prime if target_t_prime not in (None, "", "NA") else target_t
+                    
+                    if target_tolerance is not None:
+                        floor_fare = float(strategyFare) - float(target_tolerance)
                         x = floor_fare - float(anchor_fare)
                     else:
                         x = 0
                     
-                    if x > 0:
+                    if True:
+                        if x<0:
+                            x=0
                         prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
                         curr_metric = current_imp_forecast if is_forecast else current_dplf
                         delta_variance = curr_metric - prev_metric
@@ -820,26 +827,27 @@ class DetermineRBD:
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
-                        prev_t_prime = target_record.get("T_prime", T)
+                        prev_t_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else float(t_val)
                         calculated_t_prime = (x * g_value) + prev_t_prime
                         
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        t_prime = calculated_t_prime
-                        final_T = t_prime
+                        t_prime_val = calculated_t_prime
+                        final_T = t_prime_val
                         
                     if 0 <= ndocounter <= 7:
                         try:
                             final_T = (float(n_value) / 100.0) * float(strategyFare)
-                            t_prime = final_T
+                            t_prime_val = final_T
                         except:
                             pass
 
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
-                    "T_prime": float(t_prime),
+                    "T": float(t_val),
+                    "T_prime": float(t_prime_val) if t_prime_val not in (None, "", "NA") else "NA",
                     "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
@@ -1239,13 +1247,13 @@ class DetermineRBD:
                 if len(history) > 0:
                     last_record = history[-1]
                     saved_b2c_tolerance = last_record.get("b2c_tolerance")
-                    t_prime = last_record.get("T_prime")
-                    t_v_prev = last_record.get("T_prime")
+                    t_val = last_record.get("T")
+                    t_prime_val = last_record.get("T_prime")
                     run_count = last_record.get("run_count", 0)
                 else:
                     saved_b2c_tolerance = None
-                    t_prime = None
-                    t_v_prev = None
+                    t_val = None
+                    t_prime_val = None
                     run_count = 0
                 
                 current_b2c_tol_str = str(toleranceFare) if has_tol else ""
@@ -1255,15 +1263,15 @@ class DetermineRBD:
                         saved_f = float(saved_b2c_tolerance)
                         curr_f = float(toleranceFare) if has_tol else -1.0
                         if saved_f != curr_f:
-                            t_prime = None
-                            t_v_prev = None
+                            t_val = None
+                            t_prime_val = None
                             analyst_changed = True
                             run_count = 0
                             history = []
                     except:
                         if str(saved_b2c_tolerance) != current_b2c_tol_str:
-                            t_prime = None
-                            t_v_prev = None
+                            t_val = None
+                            t_prime_val = None
                             analyst_changed = True
                             run_count = 0
                             history = []
@@ -1307,32 +1315,38 @@ class DetermineRBD:
                         break
                         
                 calc_new_t_prime = False
-                prev_t_prime = T
                 x = 0
                 delta_variance = 0
                 
-                if t_v_prev is None:
+                if t_val is None:
                     if not has_tol:
-                        final_T = 0.10 * float(strategyFare)
+                        t_val = 0.10 * float(strategyFare)
                     else:
-                        final_T = float(T)
-                    t_prime = final_T
+                        t_val = float(T)
+                    final_T = t_val
                 else:
-                    final_T = float(t_v_prev)
-                    t_prime = float(t_prime) if t_prime is not None else float(T)
+                    t_val = float(t_val)
+                    if t_prime_val not in (None, "", "NA"):
+                        final_T = float(t_prime_val)
+                    else:
+                        final_T = t_val
 
                 if flag_val in (1, '1') and is_execution_run and target_record is not None:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
-
-                    target_t_v = target_record.get("T_prime", t_v_prev)
-                    if target_t_v is not None:
-                        floor_fare = float(strategyFare) - float(target_t_v)
+                    target_t_prime = target_record.get("T_prime")
+                    target_t = target_record.get("T")
+                    target_tolerance = target_t_prime if target_t_prime not in (None, "", "NA") else target_t
+                    
+                    if target_tolerance is not None:
+                        floor_fare = float(strategyFare) - float(target_tolerance)
                         x = floor_fare - float(pre_tolerance_anchor)
                     else:
                         x = 0
                     
-                    if x > 0:
+                    if True:
+                        if x<0:
+                            x=0
                         prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
                         curr_metric = current_imp_forecast if is_forecast else current_dplf
                         delta_variance = curr_metric - prev_metric
@@ -1368,26 +1382,27 @@ class DetermineRBD:
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
-                        prev_t_prime = target_record.get("T_prime", T)
+                        prev_t_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else float(t_val)
                         calculated_t_prime = (x * g_value) + prev_t_prime
                         
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        t_prime = calculated_t_prime
-                        final_T = t_prime
+                        t_prime_val = calculated_t_prime
+                        final_T = t_prime_val
                         
                     if 0 <= ndocounter <= 7:
                         try:
                             final_T = (float(n_value) / 100.0) * float(strategyFare)
-                            t_prime = final_T
+                            t_prime_val = final_T
                         except:
                             pass
 
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
-                    "T_prime": float(t_prime),
+                    "T": float(t_val),
+                    "T_prime": float(t_prime_val) if t_prime_val not in (None, "", "NA") else "NA",
                     "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
