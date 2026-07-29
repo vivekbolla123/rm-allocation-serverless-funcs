@@ -158,13 +158,13 @@ class defaultMarketlist:
             # Restrict to only the expected columns from DEFAULT_MARKET_LIST
             expected_columns = list(insert_df.columns)
             domestic_df_to_insert = domestic_df[[c for c in expected_columns if c in domestic_df.columns]]
+            
+            # Fetch all existing unmanaged flights for the alert before insertion, regardless of date range
+            existing_unmanaged = self._fetch_all_unmanaged_default_ml()
 
             # Insert into MongoDB collections
             self._insert_to_mongodb('market_list', domestic_df_to_insert)
             # self._insert_to_mongodb('market_list_international', international_df_to_insert)
-
-            self.logger.info(f"Inserted {len(domestic_df)} unmatched records into market_list.")
-            # self.logger.info(f"Inserted {len(international_df)} unmatched records into market_list_international.")
 
             # Build and upload audit logs for new records (mirrors AuditHelper.buildAuditLogs in Java)
             self._build_and_upload_audit_logs(domestic_df, "SYS")
@@ -172,9 +172,6 @@ class defaultMarketlist:
             start_date_str = startDate.strftime('%Y-%m-%d')
             end_date_str = endDate.strftime('%Y-%m-%d')
             
-            # Fetch all existing unmanaged flights for the alert, regardless of date range
-            existing_unmanaged = self._fetch_all_unmanaged_default_ml()
-
             self._send_marketlist_alert(domestic_df, existing_unmanaged, start_date_str, end_date_str)
                 
             self.logger.info("Run method completed.")
