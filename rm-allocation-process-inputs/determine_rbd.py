@@ -854,9 +854,11 @@ class DetermineRBD:
                 except Exception:
                     pass
                 
+                auto_limit = float(strategyFare) - final_T
+                toleranceValue = f"{auto_limit:.2f}"
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
-                    tolerance_limit = float(strategyFare) - final_T
+                    tolerance_limit = auto_limit
 
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return anchor_fare, how_determined
@@ -1382,9 +1384,11 @@ class DetermineRBD:
                 except Exception:
                     pass
                 
+                auto_limit = float(strategyFare) - final_T
+                toleranceValue = f"{auto_limit:.2f}"
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
-                    tolerance_limit = float(strategyFare) - final_T
+                    tolerance_limit = auto_limit
 
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return 0
@@ -1425,25 +1429,17 @@ class DetermineRBD:
             else:
                 avg_label = "AVG[LastSold,Profile]"
             
-            if has_tolerance_fare():
-                v1 = calculate_tolerance_value(v2)
-                if v1 > v2:
-                    decision = f"ToleranceHit_max_{max_desc}"
-                    final_fare = v1
-                else:
-                    decision = f"{avg_label}_max_{max_desc}"
-                    final_fare = v2
-                if has_hard_anchor() and float(hardAnchorFare) < final_fare:
-                    final_fare = float(hardAnchorFare)
-                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+            v1 = calculate_tolerance_value(v2)
+            if v1 > v2:
+                decision = f"ToleranceHit_max_{max_desc}"
+                final_fare = v1
             else:
-                if has_hard_anchor() and float(hardAnchorFare) < v2:
-                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
-                    final_fare = float(hardAnchorFare)
-                else:
-                    decision = f"{avg_label}_max_{max_desc}"
-                    final_fare = v2
-                
+                decision = f"{avg_label}_max_{max_desc}"
+                final_fare = v2
+            if has_hard_anchor() and float(hardAnchorFare) < final_fare:
+                final_fare = float(hardAnchorFare)
+                decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+            
             return final_fare, f'AllocationY_{decision}_UpsellN'
         
         def process_dplf_bands_4_5_6(fares_list, max_desc):
@@ -1453,25 +1449,18 @@ class DetermineRBD:
             max_value = max(fares_list)
             v1, upsell_text = handle_upsell_logic(upsell, max_value, BookingsInHour)
             
-            if has_tolerance_fare():
-                t1 = calculate_tolerance_value(v1)
-                if t1 > v1:
-                    decision = f"ToleranceHit_max_{max_desc}"
-                    final_fare = t1
-                else:
-                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
-                    final_fare = v1
-                if has_hard_anchor() and float(hardAnchorFare) < final_fare:
-                    final_fare = float(hardAnchorFare)
-                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+            t1 = calculate_tolerance_value(v1)
+            if t1 > v1:
+                decision = f"ToleranceHit_max_{max_desc}"
+                final_fare = t1
             else:
-                if has_hard_anchor() and float(hardAnchorFare) < v1:
-                    decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
-                    final_fare = float(hardAnchorFare)
-                else:
-                    decision = f"Upsold_Last_sold_fare_max_{max_desc}"
-                    final_fare = v1
-                
+                decision = f"max_{max_desc}_{upsell_text}"
+                final_fare = v1
+            
+            if has_hard_anchor() and float(hardAnchorFare) < final_fare:
+                final_fare = float(hardAnchorFare)
+                decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
+            
             return final_fare, f'AllocationY_{decision}_{upsell_text}'
 
         # Main logic for value 'A'
@@ -1531,13 +1520,10 @@ class DetermineRBD:
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
                 max_fare = max(float(profileFare), float(strategyFare))
                 anchorFareBeforeTolerance = max_fare
-                if has_tolerance_fare():
-                    tolerance_val = calculate_tolerance_value(max_fare)
-                    anchorFare = max(max_fare, tolerance_val)
-                    howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
-                else:
-                    anchorFare = max_fare
-                    howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN'
+                
+                tolerance_val = calculate_tolerance_value(max_fare)
+                anchorFare = max(max_fare, tolerance_val)
+                howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
                 
                 anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
             
