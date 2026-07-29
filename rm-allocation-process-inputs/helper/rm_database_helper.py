@@ -879,6 +879,20 @@ class RMDatabaseHelper:
             except Exception as e:
                 self.logger.error(e)
 
+            # Upsert into run_summary_latest — keeps only the latest record
+            # per flight+departure_date+sector+channel combination
+            try:
+                latest_filter = {
+                    "FltNum": doc["FltNum"],
+                    "DepDate": doc["DepDate"],
+                    "Origin": doc["Origin"],
+                    "Destin": doc["Destin"],
+                    "Channel": doc["Channel"]
+                }
+                self.db.run_summary_latest.replace_one(latest_filter, doc, upsert=True)
+            except Exception as e:
+                self.logger.error(f"Error upserting run_summary_latest: {e}")
+
     def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
         if ndocounter < 0:
             ndocounter = 0
@@ -2259,6 +2273,22 @@ class RMDatabaseHelper:
                 self.db.run_summary_connections.insert_one(doc)
             except Exception as e:
                 self.logger.error(e)
+
+            # Upsert into run_summary_connections_latest — keeps only the latest
+            # record per flight1+flight2+sector1+sector2+depdate1+depdate2+channel
+            try:
+                latest_filter = {
+                    "FltNum1": doc["FltNum1"],
+                    "FltNum2": doc["FltNum2"],
+                    "Sector1": doc["Sector1"],
+                    "Sector2": doc["Sector2"],
+                    "DepDate1": doc["DepDate1"],
+                    "DepDate2": doc["DepDate2"],
+                    "Channel": doc["Channel"]
+                }
+                self.db.run_summary_connections_latest.replace_one(latest_filter, doc, upsert=True)
+            except Exception as e:
+                self.logger.error(f"Error upserting run_summary_connections_latest: {e}")
 
     def getcurrentRBD(self, current_date, flight, channel, sector, bookload):
         try:

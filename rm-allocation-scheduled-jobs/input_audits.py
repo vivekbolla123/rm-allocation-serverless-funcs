@@ -364,22 +364,33 @@ class S3AuditProcessor:
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100].strip()
                 
-                # Check if this is a new record (source=2) or update (source=0)
-                is_new_record = row.get('newRecord', False)
-                source_type = 2 if is_new_record else 0
+                # Check if this is a new record (source=2) or update (source=0) or explicit source
+                if pd.notna(row.get('source', None)):
+                    source_type = 3
+                else:
+                    source_type = 2 if row.get('newRecord', False) else 0
                 
                 # Normalize date from MM-DD-YYYY to YYYY-MM-DD
                 normalized_date = self.normalize_date(dept_date)
                 dept_date_int = self.to_date_int(normalized_date)
                 
                 # Extract date and time separately
+                if pd.isna(changed_at):
+                    changed_at = ''
+                elif hasattr(changed_at, 'isoformat'):
+                    changed_at = changed_at.isoformat()
+                else:
+                    changed_at = str(changed_at)
+                if 'T' not in changed_at and ' ' in changed_at:
+                    changed_at = changed_at.replace(' ', 'T')
+                    
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
-                # Skip connection-specific metadata fields and newRecord flag
+                # Skip connection-specific metadata fields, newRecord flag, and explicit source
                 skip_columns = [
                     'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
-                    'sector1', 'sector2', 'flight1', 'flight2', 'newRecord'
+                    'sector1', 'sector2', 'flight1', 'flight2', 'newRecord', 'source'
                 ]
                 
                 # Process each column as a potential change
@@ -445,16 +456,31 @@ class S3AuditProcessor:
                 analyst = str(row.get('userName', ''))[:100].strip()
                 changed_at = row.get('changedAt', '')
                 
+                if pd.notna(row.get('source', None)):
+                    source_type = 3
+                else:
+                    source_type = 1
+
+                
                 # Normalize date from MM-DD-YYYY to YYYY-MM-DD
                 normalized_date = self.normalize_date(csv_date)
                 dept_date_int = self.to_date_int(normalized_date)
                 
                 # Extract date and time separately
+                if pd.isna(changed_at):
+                    changed_at = ''
+                elif hasattr(changed_at, 'isoformat'):
+                    changed_at = changed_at.isoformat()
+                else:
+                    changed_at = str(changed_at)
+                if 'T' not in changed_at and ' ' in changed_at:
+                    changed_at = changed_at.replace(' ', 'T')
+                    
                 changed_at_date_int = self.to_date_int(changed_at.split('T')[0]) if 'T' in changed_at else 0
                 changed_at_time_int = self.to_time_int(changed_at)
                 
                 for col, val in row.items():
-                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName']:
+                    if col in ['date', 'flightNo', 'sector', 'changeType', 'changedAt', 'userName', 'source']:
                         continue
                     if pd.isna(val):
                         continue
@@ -463,7 +489,7 @@ class S3AuditProcessor:
                         'sector': csv_sector,
                         'flightNo': csv_flight,
                         'departureDate': dept_date_int,
-                        'source': 1,
+                        'source': source_type,
                         'changedAtDate': changed_at_date_int,
                         'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
