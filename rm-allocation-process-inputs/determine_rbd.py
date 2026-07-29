@@ -771,7 +771,11 @@ class DetermineRBD:
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
 
                     target_t_v = target_record.get("T_V", t_v_prev)
-                    x = target_t_v - float(anchor_fare) if target_t_v is not None else 0
+                    if target_t_v is not None:
+                        floor_fare = float(strategyFare) - float(target_t_v)
+                        x = floor_fare - float(anchor_fare)
+                    else:
+                        x = 0
                     
                     if x > 0:
                         prev_metric = target_record.get("actual_imp_forecast", 0) if is_forecast else target_record.get("actual_dplf", 0)
