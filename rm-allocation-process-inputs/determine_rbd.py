@@ -816,7 +816,7 @@ class DetermineRBD:
                                         continue
                         
                         if grid_df is not None and delta_band_id is not None:
-                            match = grid_df[(grid_df['band_id'].astype(str) == target_band_id) & (grid_df['delta_band_id'] == delta_band_id)]
+                            match = grid_df[(grid_df['band_id'].astype(str) == str(target_band_id)) & (grid_df['delta_band_id'].astype(str) == str(delta_band_id))]
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
@@ -1360,7 +1360,7 @@ class DetermineRBD:
                                         continue
                         
                         if grid_df is not None and delta_band_id is not None:
-                            match = grid_df[(grid_df['band_id'].astype(str) == target_band_id) & (grid_df['delta_band_id'] == delta_band_id)]
+                            match = grid_df[(grid_df['band_id'].astype(str) == str(target_band_id)) & (grid_df['delta_band_id'].astype(str) == str(delta_band_id))]
                             if not match.empty:
                                 g_value = match.iloc[0]['g_value']
                                 
