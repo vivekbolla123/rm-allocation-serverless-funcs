@@ -720,7 +720,9 @@ class DetermineRBD:
                             run_count = 0
                             history = []
                     
-                run_count += 1
+                is_duplicate_run = (len(history) > 0 and history[-1].get("run_id") == self.rmdatabasehelper.runId)
+                if not is_duplicate_run:
+                    run_count += 1
                 
                 ndo_df = self.auto_tolerance_config.get("ndo_config")
                 n_value = 1
@@ -834,14 +836,17 @@ class DetermineRBD:
                         except:
                             pass
 
-                history.append({
+                new_record = {
+                    "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
                     "T_V": float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
                     "b2c_tolerance": current_b2c_tol_str
-                })
+                }
+                if not is_duplicate_run:
+                    history.append(new_record)
                 
                 max_history = max(6, N + 2)
                 if len(history) > max_history:
@@ -1263,7 +1268,9 @@ class DetermineRBD:
                             run_count = 0
                             history = []
                     
-                run_count += 1
+                is_duplicate_run = (len(history) > 0 and history[-1].get("run_id") == self.rmdatabasehelper.runId)
+                if not is_duplicate_run:
+                    run_count += 1
                 
                 ndo_df = self.auto_tolerance_config.get("ndo_config")
                 n_value = 1
@@ -1373,14 +1380,17 @@ class DetermineRBD:
                         except:
                             pass
 
-                history.append({
+                new_record = {
+                    "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
                     "T_prime": float(t_prime),
                     "T_V": float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
                     "b2c_tolerance": current_b2c_tol_str
-                })
+                }
+                if not is_duplicate_run:
+                    history.append(new_record)
                 
                 max_history = max(6, N + 2)
                 if len(history) > max_history:
