@@ -1530,7 +1530,12 @@ class DetermineRBD:
             # Case: Neither lastSoldFare nor profileFare
             else:
                 anchorFare = float(strategyFare)
-                howDetermined = 'AllocationY_Startegy_fare_UpsellN'
+                anchorFareBeforeTolerance = anchorFare
+                
+                tolerance_val = calculate_tolerance_value(anchorFare)
+                anchorFare = max(anchorFare, tolerance_val)
+                howDetermined = 'AllocationY_Startegy_fare_UpsellN' if anchorFare == float(strategyFare) else 'AllocationY_ToleranceHit_UpsellN'
+                
                 anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
 
         # Main logic for value 'B'
@@ -1549,9 +1554,14 @@ class DetermineRBD:
             # No valid fares found
             if max_value == 0:
                 anchorFare = float(strategyFare)
-                decision = "StrategyFare"
+                anchorFareBeforeTolerance = anchorFare
+                
+                tolerance_val = calculate_tolerance_value(anchorFare)
+                anchorFare = max(anchorFare, tolerance_val)
+                decision = "StrategyFare" if anchorFare == float(strategyFare) else "ToleranceHit"
+                
                 if has_hard_anchor():
-                    anchorFare = min(float(strategyFare), float(hardAnchorFare))
+                    anchorFare = min(anchorFare, float(hardAnchorFare))
                     if anchorFare == float(hardAnchorFare):
                         decision = f"hardanchorfare_{getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', ''))}"
                 howDetermined = f"AllocationY_{decision}_UpsellN"
