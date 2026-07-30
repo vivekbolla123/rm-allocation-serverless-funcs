@@ -469,40 +469,12 @@ class DetermineRBD:
         if PLF_Gain < 0:
             howDetermined = f'AF_Forecast_PLFGainNeg_LowerBound'
             temp_fareanchor = forecastFareAnchor
-            # Apply tolerance
-            if has_tolerance(tolerance_per):
-                t2 = reduce_by_tolerance(strategyFare, tolerance_per)
-                temp_fareanchor = max(temp_fareanchor, t2)
-                if temp_fareanchor == t2:
-                    howDetermined += '_ToleranceHit'
-                    toleranceValue = t2
-            # Apply hard anchor cap
-            if has_hard_anchor():
-                capped = min(temp_fareanchor, float(hardAnchorFare))
-                if capped == float(hardAnchorFare):
-                    thresh_suffix = self._format_thresh(plfThreshold)
-                    howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
-                temp_fareanchor = capped
             return temp_fareanchor, howDetermined, toleranceValue
 
         # --- AF_NB < 0 but PLF_Gain > 0: use ForecastFareAnchor as-is ---
         if Af_Nb_Allin < 0 and PLF_Gain > 0:
             howDetermined = f'AF_Forecast_AfNbNeg_PLFGainPos'
             temp_fareanchor = forecastFareAnchor
-            # Apply tolerance
-            if has_tolerance(tolerance_per):
-                t2 = reduce_by_tolerance(strategyFare, tolerance_per)
-                temp_fareanchor = max(temp_fareanchor, t2)
-                if temp_fareanchor == t2:
-                    howDetermined += '_ToleranceHit'
-                    toleranceValue = t2
-            # Apply hard anchor cap
-            if has_hard_anchor():
-                capped = min(temp_fareanchor, float(hardAnchorFare))
-                if capped == float(hardAnchorFare):
-                    thresh_suffix = self._format_thresh(plfThreshold)
-                    howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
-                temp_fareanchor = capped
             return temp_fareanchor, howDetermined, toleranceValue
 
         # --- All other cases: Interpolation logic ---
@@ -573,22 +545,7 @@ class DetermineRBD:
                 temp_fareanchor = temp_fareanchor_1
                 howDetermined += '_Band3'
 
-        # Final Fare Anchor with Tolerance Constraint
-        # T1 = Temp_Fareanchor, T2 = Strategy - Tolerance
-        if has_tolerance(tolerance_per):
-            t2 = reduce_by_tolerance(strategyFare, tolerance_per)
-            temp_fareanchor = max(temp_fareanchor, t2)
-            if temp_fareanchor == t2:
-                howDetermined += '_ToleranceHit'
-                toleranceValue = t2
-        # Hard anchor cap
-        if has_hard_anchor():
-            capped = min(temp_fareanchor, float(hardAnchorFare))
-            if capped == float(hardAnchorFare):
-                thresh_suffix = self._format_thresh(plfThreshold)
-                howDetermined = f'AF_Forecast_harAnchorfare{thresh_suffix}'
-            temp_fareanchor = capped
-
+        # Final Fare Anchor will have tolerance/hard anchor applied by wrapper
         return temp_fareanchor, howDetermined, toleranceValue
 
     def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare=None, is_portfolio_flow=False):
@@ -914,6 +871,8 @@ class DetermineRBD:
             capped_fare = min(fare, float(hardAnchorFare))
             if capped_fare == float(hardAnchorFare):
                 thresh_suffix = self._format_thresh(getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None)))
+                if how_determined.startswith("AF_Forecast"):
+                    return capped_fare, f"AF_Forecast_harAnchorfare{thresh_suffix}"
                 return capped_fare, f"AllocationY_harAnchorfare{thresh_suffix}_UpsellN"
             return capped_fare, how_determined
         
@@ -1154,11 +1113,12 @@ class DetermineRBD:
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
                 hardAnchorFare, tolerance_per, toleranceValue, imp_forecast_band, getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None))
             )
-        else:
-            if should_use_tolerance:
-                anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
-            
-            anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+            should_use_tolerance = True
+
+        if should_use_tolerance:
+            anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+        
+        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
