@@ -681,10 +681,15 @@ class DetermineRBD:
                 if not is_duplicate_run:
                     run_count += 1
                 
+                try:
+                    ndoc_val = int(float(ndocounter))
+                except Exception:
+                    ndoc_val = 999
+                    
                 ndo_df = self.auto_tolerance_config.get("ndo_config")
                 n_value = 1
                 if ndo_df is not None:
-                    match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
+                    match = ndo_df[(ndo_df['ndo_min'] <= ndoc_val) & (ndo_df['ndo_max'] >= ndoc_val)]
                     if not match.empty:
                         n_value = match.iloc[0]['n_value']
                         
@@ -771,7 +776,7 @@ class DetermineRBD:
                         
                         target_band_id = str(imp_forecast_band)
                         
-                        if is_forecast and ndocounter <= 30:
+                        if is_forecast and ndoc_val <= 30:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -799,7 +804,7 @@ class DetermineRBD:
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
-                    if 0 <= ndocounter <= 7:
+                    if 0 <= ndoc_val <= 7:
                         try:
                             final_T = (float(n_value) / 100.0) * float(strategyFare)
                             t_prime_val = final_T
@@ -1248,10 +1253,15 @@ class DetermineRBD:
                 if not is_duplicate_run:
                     run_count += 1
                 
+                try:
+                    ndoc_val = int(float(ndocounter))
+                except Exception:
+                    ndoc_val = 999
+                    
                 ndo_df = self.auto_tolerance_config.get("ndo_config")
                 n_value = 1
                 if ndo_df is not None:
-                    match = ndo_df[(ndo_df['ndo_min'] <= ndocounter) & (ndo_df['ndo_max'] >= ndocounter)]
+                    match = ndo_df[(ndo_df['ndo_min'] <= ndoc_val) & (ndo_df['ndo_max'] >= ndoc_val)]
                     if not match.empty:
                         n_value = match.iloc[0]['n_value']
                         
@@ -1337,7 +1347,7 @@ class DetermineRBD:
                         
                         target_band_id = str(dplfBand)
                         
-                        if is_forecast and ndocounter <= 30:
+                        if is_forecast and ndoc_val <= 30:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -1365,7 +1375,7 @@ class DetermineRBD:
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
-                    if 0 <= ndocounter <= 7:
+                    if 0 <= ndoc_val <= 7:
                         try:
                             final_T = (float(n_value) / 100.0) * float(strategyFare)
                             t_prime_val = final_T
