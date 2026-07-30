@@ -423,19 +423,32 @@ class defaultMarketlist:
             exclude_cols = {'PerType', 'UUID', 'createdAt'}
             col_list = [c for c in self.default_list.keys() if c not in exclude_cols]
 
-            # Fetch flag columns to map 1/0 to Y/N
+            # Fetch column configurations
             flag_cols = []
+            ordered_cols = []
             try:
-                flag_doc = self.db['config_column_names'].find_one({"tableName": "market_list_flags"})
-                if flag_doc and 'columns' in flag_doc:
-                    flag_cols = [col.strip() for col in flag_doc['columns'].split(',') if col.strip()]
+                config_docs = self.db['config_column_names'].find({
+                    "tableName": {"$in": ["market_list_flags", "market_list"]}
+                })
+                for doc in config_docs:
+                    if doc.get('tableName') == "market_list_flags" and 'columns' in doc:
+                        flag_cols = [col.strip() for col in doc['columns'].split(',') if col.strip()]
+                    elif doc.get('tableName') == "market_list" and 'columns' in doc:
+                        ordered_cols = [col.strip() for col in doc['columns'].split(',') if col.strip()]
             except Exception as e:
-                self.logger.error(f"Error fetching flag columns from config_column_names: {e}")
+                self.logger.error(f"Error fetching column configurations from config_column_names: {e}")
 
             def prepare_csv(df):
                 if df.empty:
                     return ""
                 existing_cols = [c for c in col_list if c in df.columns]
+                
+                # Rearrange based on the config collection if available
+                if ordered_cols:
+                    rearranged_cols = [c for c in ordered_cols if c in existing_cols]
+                    remaining_cols = [c for c in existing_cols if c not in rearranged_cols]
+                    existing_cols = rearranged_cols + remaining_cols
+                
                 df_csv = df[existing_cols].copy()
                 
                 if flag_cols:
