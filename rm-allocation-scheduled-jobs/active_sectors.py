@@ -16,6 +16,7 @@ class ActiveSectors:
         # Get MongoDB client and access the database
         self.mongo_client = params['mongoconn']
         self.mongo_master_db = params['mongo_master_db']
+        self.mongo_db = self.mongo_client["qp_dw_rmalloc"]
         self.nav_db_name = configsettings.NAV_DB_NAME
         self.nav_conn = params['navconn']
         self.constants = ConstantsUtils(self.mongo_db)
