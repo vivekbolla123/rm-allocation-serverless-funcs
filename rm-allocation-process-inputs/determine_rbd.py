@@ -1083,12 +1083,10 @@ class DetermineRBD:
                     anchorFare, fareType = get_fare_and_type(profileFare=profileFare, avgLastSoldStrategy=avgLastSoldStrategy)
                         
                     howDetermined += fareType + '_UpsellN'
-                    should_use_tolerance = True
 
                 elif is_greater(profileFare, strategyFare) and is_greater(strategyFare, maxLastSoldFare):
                     anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare, strategyFare=strategyFare, func=statistics.mean)
                     howDetermined += fareType + '_UpsellN'
-                    should_use_tolerance = True
             
                 else:
                     anchorFare, fareType = get_fare_and_type(maxLastSoldFare=maxLastSoldFare)
@@ -1100,6 +1098,8 @@ class DetermineRBD:
                         howDetermined += '_UpsellY'
                     else:
                         howDetermined += '_UpsellN'
+            
+            should_use_tolerance = True
 
             # assign_b2b_factor(currParams, b2b_factor_value)
         
