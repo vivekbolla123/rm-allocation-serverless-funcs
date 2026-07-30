@@ -867,7 +867,7 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
-                if not is_portfolio_only and not is_portfolio_flow:
+                if not is_portfolio_only:
                     try:
                         if self.redishelper:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
@@ -1428,7 +1428,7 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
-                if not is_portfolio_only and not is_portfolio_flow:
+                if not is_portfolio_only:
                     try:
                         if self.redishelper:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
