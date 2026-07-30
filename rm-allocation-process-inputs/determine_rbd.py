@@ -252,7 +252,7 @@ class DetermineRBD:
                 self.logger.info("Profile Fare: " + str(profileFare))
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast,is_portfolio_flow)
                 if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
                     anchorFare = anchorFare+int(currParams.market_discount)
 
@@ -637,8 +637,6 @@ class DetermineRBD:
                     tolerance_fare != -1)
         
         def apply_tolerance_logic(anchor_fare, tolerance_fare, how_determined):
-            if is_portfolio_flow:
-                return anchor_fare, how_determined
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
             if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
@@ -869,7 +867,7 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
-                if not is_portfolio_only:
+                if not is_portfolio_only and not is_portfolio_flow:
                     try:
                         if self.redishelper:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
@@ -1201,8 +1199,6 @@ class DetermineRBD:
             return capped_fare, decision_text
         
         def calculate_tolerance_value(pre_tolerance_anchor=None):
-            if is_portfolio_flow:
-                return 0
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
@@ -1432,7 +1428,7 @@ class DetermineRBD:
                     history = history[-max_history:]
                 
                 is_portfolio_only = str(getattr(currParams, 'portfolio_only', '0')) == '1'
-                if not is_portfolio_only:
+                if not is_portfolio_only and not is_portfolio_flow:
                     try:
                         if self.redishelper:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
