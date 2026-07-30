@@ -33,6 +33,7 @@ class AnchorResult:
 
     # Final anchor outputs
     anchorFare: Any = 0
+    anchorFareBeforeTolerance: Any = CONST_NA
     strategyFare: Any = CONST_NA
     anchorFareDiscounted: Any = CONST_NA
     profileFare: Any = CONST_NA
