@@ -271,6 +271,7 @@ def lambda_handler(event, context):
 #     "overrides": {"cleanup": ["market_list", "market_list_connections"]},
 #     "modules": {"mkt_cleanup": 1}
 # }
+# messageBody = {"overrides": {"start_day": 0,"end_day": 30}, "modules": {"default_ml": 1}}
 
 # event = {'Records':[{'body':json.dumps(messageBody)}]}
 # lambda_handler(event,None)

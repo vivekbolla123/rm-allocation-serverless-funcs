@@ -1,0 +1,4 @@
+id,band_name,min_value,max_value
+1,Negative,-9999,-3
+2,No Change,-2,2
+3,Positive,3,9999
