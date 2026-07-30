@@ -19,7 +19,7 @@ class RBDAllocations:
         self.mathutils = mathutils
         self.timeutils = timeutils
 
-    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
+    def b2CAllocation(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, imp_forecast,startegyfare,hard_anchor_fare,plfthreshold,bookedload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None, b2c_backstop_final=None):
         # If adjustedCapacity is None, use totalCapacity as the base
         baseCapacity = adjustedCapacity if adjustedCapacity is not None else totalCapacity
         
@@ -312,8 +312,17 @@ class RBDAllocations:
         if is_spoilage_reduction_active and pd.notna(last_seven_avg_fare):
             self.logger.info("Applying D-0 Spoilage Reduction override.")
             try:
+                param_b2c_backstop_full = str(b2c_backstop_final if b2c_backstop_final is not None and b2c_backstop_final != CONST_NA else getattr(currParams, 'b2c_backstop', CONST_NA))
+                b2c_backstop_val = 0
+                if param_b2c_backstop_full != CONST_NA and param_b2c_backstop_full.strip() != "":
+                    try:
+                        b2c_backstop_val = float(param_b2c_backstop_full)
+                    except ValueError:
+                        pass
+
                 # 1. Find the RBD closest to the last seven sold average fare
-                B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(max(last_seven_avg_fare,0.75*float(startegyfare)))
+                target_fare = float(max(last_seven_avg_fare,0.75*float(startegyfare),b2c_backstop_val))
+                B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - target_fare
                 higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] > 0]
                 target_rbd_df_index = higher_fares['FareDiff'].idxmin()
                 
@@ -332,6 +341,18 @@ class RBDAllocations:
                     
                     # Override allocations in currRec
                     status = "D-0 Spoilage Reduction - 97% at Target RBD"
+                    
+                    target_rbd_label = B2CRBDs['RBD'].iloc[target_rbd_df_index]
+                    target_rbd_fare = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
+                    
+                    if isinstance(openDataB2C.get('RBD'), list) and len(openDataB2C['RBD']) > 0:
+                        openDataB2C['RBD'][0] = target_rbd_label
+                    if isinstance(openDataB2C.get('Fare'), list) and len(openDataB2C['Fare']) > 0:
+                        openDataB2C['Fare'][0] = target_rbd_fare
+                    if isinstance(openDataB2C.get('FareResult'), list) and len(openDataB2C['FareResult']) > 0:
+                        openDataB2C['FareResult'][0] = str(openDataB2C['FareResult'][0]) + " Spoilage Reduction"
+                        
+                    openingRBDPrice = target_rbd_fare
                     
                     # Set allocations for all RBDs
                     for i in range(B2CRBDs.shape[0]):
@@ -377,6 +398,8 @@ class RBDAllocations:
 
                         # 5. Override allocations in currRec from the target RBD onwards
                         status = "D-0 Spoilage Reduction" # Update the status message
+                        if isinstance(openDataB2C.get('FareResult'), list) and len(openDataB2C['FareResult']) > 0:
+                            openDataB2C['FareResult'][0] = str(openDataB2C['FareResult'][0]) + " Spoilage Reduction"
                         
                         # Iterate through the DataFrame from the target index to the end
                         for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
@@ -412,7 +435,7 @@ class RBDAllocations:
 
         return b2cAllocationsUnits, b2cctr + 1, status, df_unique, fullRbds, openingRBDPrice, first_rbd_alloc, other_rbd_alloc
 
-    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None):
+    def b2CAllocations(self, currBookedLoad, openDataB2C, currRec, totalCapacity, bookedDeficit, dPLF, remainingCapacity, ndocounter, currParams, profileFare, profileExtract, bookloadPercentile, upsellValue, openingRBDPrice, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare=None, adjustedCapacity=None,is_spoilage_reduction_active=False, last_seven_avg_fare=None, b2c_backstop_final=None):
         # Store the original rbdPushFlag
         
         # Create a copy of currParams to modify
@@ -423,7 +446,7 @@ class RBDAllocations:
         _, _, _, df_unique_0, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
+            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare, b2c_backstop_final
         )
         
         currRec_copy = copy.deepcopy(currRec)
@@ -433,7 +456,7 @@ class RBDAllocations:
         _, _, _, df_unique_1, _, _, _, _ = self.b2CAllocation(
             currBookedLoad, openDataB2C, currRec_copy, totalCapacity, bookedDeficit, dPLF, 
             remainingCapacity, ndocounter, currParams, profileFare, profileExtract, 
-            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare
+            bookloadPercentile, upsellValue, imp_forecast,strategyfare,hard_anchor_fare,plfthreshold,bookload, overBookingFare, adjustedCapacity,is_spoilage_reduction_active, last_seven_avg_fare, b2c_backstop_final
         )
         
         df_unique_1_modified = df_unique_1.copy()

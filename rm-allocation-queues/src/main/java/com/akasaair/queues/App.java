@@ -543,6 +543,45 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadAutoToleranceGridFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Auto Tolerance Config to DB. Please check file content");
+                            throw new RuntimeException("Error processing auto tolerance config: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 case STRATEGY_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -2022,6 +2061,7 @@ public class App implements CommandLineRunner {
                 case HISTORIC_GRID_DROP_TABLE_NAME -> getGridDropData(csvData).values().stream().toList();
                 case DISTRESS_INVENTORY_STRATEGY_TABLE_NAME -> getDistressStrategy(csvData).values().stream().toList();
                 case SERIES_BLOCKING_TABLE_NAME -> createListOfMapSeriesBlock(csvData);
+                case AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME -> getAutoToleranceGridData(csvData).values().stream().toList();
                 default -> createListOfMap(csvData, headers);
             };
 
@@ -2657,6 +2697,40 @@ public class App implements CommandLineRunner {
         String[] gridValueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
         return createTransformDataSetDistress(csvData, ndoBandHeader, startColumn, DISTRESS_NDO_BANDS_COLUMN_NAME,
                 gridValueNames, DISTRESS_DLF_BANDS_COLUMN_NAME);
+    }
+
+    public Map<String, Map<String, String>> getAutoToleranceGridData(List<List<String>> csvData) {
+        Map<String, Map<String, String>> resultMap = new LinkedHashMap<>();
+        int dplfIdHeader = 0;
+        int dplfNameHeader = 1;
+        int forecastBandNameHeader = 2;
+        int startColumn = 3;
+        String[] valueNames = csvData.get(0).subList(startColumn, csvData.get(0).size()).toArray(new String[0]);
+        
+        for (int i = 1; i < csvData.size(); i++) {
+            List<String> inputRow = csvData.get(i);
+            String dplfId = csvData.get(i).get(dplfIdHeader);
+            String dplfName = csvData.get(i).get(dplfNameHeader);
+            String forecastBandName = csvData.get(i).get(forecastBandNameHeader);
+            for (int j = startColumn; j < inputRow.size(); j++) {
+                String value = csvData.get(i).get(j);
+                String deltaHeader = valueNames[j - startColumn];
+                String deltaId = deltaHeader.replace("delta_", "");
+                
+                String keyVal = dplfId + "_" + deltaId;
+                if (!resultMap.containsKey(keyVal)) {
+                    Map<String, String> map = new HashMap<>();
+                    map.put("band_id", dplfId);
+                    map.put("dplf_band_name", dplfName);
+                    map.put("forecast_band_name", forecastBandName);
+                    map.put("delta_band_id", deltaId);
+                    resultMap.put(keyVal, map);
+                }
+                Map<String, String> map = resultMap.get(keyVal);
+                map.put("g_value", value);
+            }
+        }
+        return resultMap;
     }
 
     public Map<String, Map<String, String>> getHourlyDropData(List<List<String>> csvData) {
@@ -3418,6 +3492,18 @@ public class App implements CommandLineRunner {
             return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
         }
 
+        if (AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "ndo_min,ndo_max,n_value";
+        }
+
+        if (AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "id,band_name,min_value,max_value";
+        }
+
+        if (AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME.equalsIgnoreCase(value)) {
+            return "band_id,dplf_band_name,forecast_band_name,delta_band_id,g_value";
+        }
+
         try {
             MongoCollection<Document> collection = database.getCollection("config_column_names");
             Document doc = collection.find(eq("tableName", value)).first();
@@ -3872,6 +3958,7 @@ public class App implements CommandLineRunner {
                     .append("forecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("afForecastAllocFlag", toIntOrKeepSame(marketListEntity.getForecastAllocFlag()))
                     .append("incrementedProfileFareFlag", toIntOrKeepSame(marketListEntity.getIncrementedProfileFareFlag()))
+                    .append("auto_tolerance_flag", toIntOrKeepSame(marketListEntity.getAuto_tolerance_flag()))
                     .append("ProfileFareUpsell", toIntOrKeepSame(marketListEntity.getProfileFareUpsell()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
@@ -3972,6 +4059,7 @@ public class App implements CommandLineRunner {
                 .append("forecastAllocFlag", toIntOrKeepSame(e.getForecastAllocFlag()))
                 .append("afForecastAllocFlag", toIntOrKeepSame(e.getAfForecastAllocFlag()))
                 .append("incrementedProfileFareFlag", toIntOrKeepSame(e.getIncrementedProfileFareFlag()))
+                .append("auto_tolerance_flag", toIntOrKeepSame(e.getAuto_tolerance_flag()))
                 .append("ProfileFareUpsell", toIntOrKeepSame(e.getProfileFareUpsell()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
@@ -4373,6 +4461,7 @@ public class App implements CommandLineRunner {
                 .Marketfare_Upsell(record.get(CSV_HEADER_MKTFARE_UPSELL))
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
+                .auto_tolerance_flag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG)))
                 .incrementedProfileFareFlag(convertYNToBoolean(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG)))
                 .ProfileFareUpsell(record.get(CSV_HEADER_PROFILE_FARE_UPSELL))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
@@ -4602,6 +4691,9 @@ public class App implements CommandLineRunner {
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG))) {
                 listOfErrors.get().add(lineNum + "afForecastAllocFlag has value other than 'Y' or 'N'");
+            }
+            if (!checkAutoTimeFlag(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG))) {
+                listOfErrors.get().add("Line " + lineNum + " Auto Tolerance Flag (" + record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG) + ") has value other than 'Y' or 'N'.");
             }
             if (!checkAutoTimeFlag(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG))) {
                 listOfErrors.get().add(lineNum + "incrementedProfileFareFlag has value other than 'Y' or 'N'");
@@ -5917,6 +6009,84 @@ public class App implements CommandLineRunner {
             error_occurred.set(1);
             log.error("Error processing SaleInv RBL:{}", e.getMessage());
             listOfErrors.get().add("Failed to process SaleInv RBL file");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadAutoToleranceGridFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            if (csvData.isEmpty() || csvData.size() < 2) {
+                listOfErrors.get().add("File is empty or missing data rows.");
+                error_occurred.set(1);
+                return;
+            }
+
+            List<String> headers = csvData.get(0);
+            int bandIdIndex = headers.indexOf("band_id");
+            int dplfBandNameIndex = headers.indexOf("dplf_band_name");
+            int forecastBandNameIndex = headers.indexOf("forecast_band_name");
+
+            if (bandIdIndex == -1 || dplfBandNameIndex == -1 || forecastBandNameIndex == -1) {
+                listOfErrors.get().add("Missing required columns (band_id, dplf_band_name, forecast_band_name).");
+                error_occurred.set(1);
+                return;
+            }
+
+            List<Document> gridDocuments = new ArrayList<>();
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                if (row.isEmpty() || row.size() <= Math.max(Math.max(bandIdIndex, dplfBandNameIndex), forecastBandNameIndex)) {
+                    continue;
+                }
+                
+                int bandId = Integer.parseInt(row.get(bandIdIndex).trim());
+                String dplfBandName = row.get(dplfBandNameIndex).trim();
+                String forecastBandName = row.get(forecastBandNameIndex).trim();
+
+                for (int j = 0; j < headers.size(); j++) {
+                    if (j == bandIdIndex || j == dplfBandNameIndex || j == forecastBandNameIndex) {
+                        continue;
+                    }
+                    
+                    String headerVal = headers.get(j).trim();
+                    try {
+                        int deltaBandId = Integer.parseInt(headerVal);
+                        double gValue = row.size() > j && !row.get(j).trim().isEmpty() ? Double.parseDouble(row.get(j).trim()) : 0.0;
+                        
+                        Document doc = new Document();
+                        doc.put("band_id", bandId);
+                        doc.put("dplf_band_name", dplfBandName);
+                        doc.put("forecast_band_name", forecastBandName);
+                        doc.put("delta_band_id", deltaBandId);
+                        doc.put("g_value", gValue);
+                        gridDocuments.add(doc);
+                    } catch (NumberFormatException ignored) {
+                        // Header wasn't a delta band id or value wasn't a float
+                    }
+                }
+            }
+
+            if (!gridDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document()); // clear old data
+                collection.insertMany(gridDocuments);
+            }
+
+            s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Auto Tolerance Config: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Auto Tolerance Config file");
             addErrorsToTable(listOfErrors.get(), obj_id);
             throw e;
         } finally {
