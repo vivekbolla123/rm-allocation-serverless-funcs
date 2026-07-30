@@ -141,6 +141,7 @@ class DynAlloc:
 			# For each NDO
 			for ndocounter in range(startNDO, endNDO+1):
 				self.outputSummaryRow_b2c = OutputSummary()
+				self.outputSummaryRow_b2b = OutputSummary()
 				self.outputSummaryRow_b2c.w0Flag = self.w0Flag
 				currDate = self.timeutils.getCurrentDate()
 				tgtDate = datetime.strftime(currDate + timedelta(days=ndocounter), DATE_FORMAT_2)
@@ -207,7 +208,7 @@ class DynAlloc:
 					print("TBF Flag: ", self.currParams.tbfFlag)
 					if len(tgtBookedLoadList) > 0:
 						if not qpFares.empty:
-							if int(self.currParams.tbfFlag) == 1 and not TBFExist:
+							if str(self.currParams.tbfFlag) in ('1', '1.0', 'True', 'true', 'Y', 'y') and not TBFExist:
 								self.logger.info("Unable to get TBF Fares - Check the fares table")
 								self.outputSummaryRow_b2c.Id = self.utils.getUniqueId()
 								self.outputSummaryRow_b2c.RunId = self.runId
@@ -286,6 +287,7 @@ class DynAlloc:
 						self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, HD_NO_REF_CURVE)	
 		except Exception as e:
 			self.logger.info("Exception occurred")
+			import traceback
 			traceback.print_exc()
 			self.logger.info(e)
 			self._triggerDummyAbortedFlightLocal(FlightNumber, bookedLoad, f"Unhandled exception: {str(e)}")
@@ -864,9 +866,14 @@ class DynAlloc:
 		sector_full = self.currParams.origin + self.currParams.destin
 		upsellValueData_full = self.rmdatabasehelper.getUpsellValue(currFltDate, sector_full) # currFltDate is MM/DD/YYYY
 		upsellValue_full = 0.0
-		if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns and pd.notna(upsellValueData_full.percentage.iloc[0]):
-			try: upsellValue_full = upsellValueData_full.percentage.iloc[0]
-			except (ValueError, TypeError): self.logger.info("Could not convert upsell percentage to float.")
+		if not upsellValueData_full.empty and 'percentage' in upsellValueData_full.columns:
+			raw_val = upsellValueData_full.percentage.iloc[0]
+			if pd.notna(raw_val) and str(raw_val).strip().lower() != 'nan':
+				try: 
+					upsellValue_full = float(raw_val)
+				except (ValueError, TypeError): 
+					self.logger.info(f"Could not convert upsell percentage '{raw_val}' to float.")
+					upsellValue_full = 0.0
 
 		state.bookloadPercentile_full = bookloadPercentile_full
 		state.percentile_str_full = percentile_str_full
@@ -2051,6 +2058,8 @@ class DynAlloc:
 		self.HIGHEST_B2B_RBD_VALUE = self.constantsUtils.HIGHEST_B2B_RBD_VALUE
 		self.HIGHEST_B2C_RBD_VALUE = self.constantsUtils.HIGHEST_B2C_RBD_VALUE
 		
+		self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
+		
 		# Increase AU_COLUMN_LENGTH to accommodate GDS RBDs
 		# self.AU_COLUMN_LENGTH += len(GDS_MAPPING)
 
@@ -2283,7 +2292,7 @@ class DynAlloc:
 			self.currParams.incrementedProfileFareFlag,
 		)
 
-		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() == 'NA':
+		if upsellValue_full is None or str(upsellValue_full).strip() == '' or str(upsellValue_full).strip().upper() in ('NA', 'NAN') or pd.isna(upsellValue_full):
 			upsellValue_full = 0
 			state.upsellValue_full = upsellValue_full
 
@@ -2424,7 +2433,7 @@ class DynAlloc:
 				overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val,
 				is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 				param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band,
-				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=True
 			)
 			# Capture the F/G metadata onto the AnchorResult so the
 			# serialised PortfolioEntry can carry it across the SQS hop
@@ -2507,7 +2516,7 @@ class DynAlloc:
 					overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
 					False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 					param_obFare, profileFare, False, imp_forecast, imp_forecast_band,
-					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=True
 				)
 				anchorResult_b2b.strategyFare = self.outputSummaryRow_b2b.strategyFare
 				self._copyOutputSummaryToAnchor(anchorResult_b2b, self.outputSummaryRow_b2b)
@@ -3633,6 +3642,13 @@ class DynAlloc:
 			state.currFltDate_dt = None
 			state.dateFormatted_yyyymmdd = payload.get("currFltDate_yyyymmdd", "")
 
+		if not state.deptTime_str_hhmm:
+			try:
+				time_object_dep = datetime.strptime(state.currFltDepartureTime, TIME_FORMAT).time()
+				state.deptTime_str_hhmm = f"{time_object_dep.hour:02d}:{time_object_dep.minute:02d}"
+			except (TypeError, ValueError):
+				state.deptTime_str_hhmm = "00:00"
+
 		# Refresh the per-flight summary rows so Phase N has the F/G
 		# metadata it needs without re-running Phases F or G.
 		self.outputSummaryRow_b2c = OutputSummary()
@@ -3783,6 +3799,7 @@ class DynAlloc:
 		summary_row.lastSellingFare = anchor_result.lastSellingFare
 		summary_row.hardAnchorFare = anchor_result.hardAnchorFare
 		summary_row.upsell = anchor_result.upsell
+		summary_row.anchorFareBeforeTolerance = getattr(anchor_result, 'anchorFareBeforeTolerance', CONST_NA)
 		summary_row.toleranceValue = anchor_result.toleranceValue
 
 	# ------------------------------------------------------------------

@@ -24,6 +24,7 @@ class OutputSummary:
         self.profileFare = CONST_NA
         self.lastSevenAvgFare = CONST_NA
         self.upsell = CONST_NA
+        self.anchorFareBeforeTolerance = CONST_NA
         self.anchorFare = CONST_NA
         self.OpenRBD = CONST_NA
         self.SellingFare = CONST_NA
