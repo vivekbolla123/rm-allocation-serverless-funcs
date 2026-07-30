@@ -17,7 +17,7 @@ class DetermineRBD:
         self.constantsutils = constantsutils
         self.mathutils = mathutils
         self.redishelper = redisHelper
-        self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
+        self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig() or {}
 
     def _format_thresh(self, val):
         if not val:
@@ -637,8 +637,7 @@ class DetermineRBD:
                     tolerance_fare != -1)
         
         def apply_tolerance_logic(anchor_fare, tolerance_fare, how_determined):
-            if is_portfolio_flow:
-                return anchor_fare, how_determined
+            
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
             if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
@@ -665,12 +664,13 @@ class DetermineRBD:
                 
                 history = []
                 try:
+                    state_str = None
                     if self.redishelper:
                         state_str = self.redishelper.hget(redis_key, hash_field)
                     if state_str:
                         history = __import__('json').loads(state_str)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"REDIS HGET ERROR (forecast path) for {redis_key}: {e}")
                     
 
                 
@@ -690,6 +690,8 @@ class DetermineRBD:
                 
                 if len(history) > 0:
                     last_record = history[-1]
+                    if not isinstance(last_record, dict):
+                        last_record = {}
                     saved_b2c_tolerance = last_record.get("b2c_tolerance")
                     t_val = last_record.get("T")
                     t_prime_val = last_record.get("T_prime")
@@ -875,7 +877,7 @@ class DetermineRBD:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
                         
                     except Exception as e:
-                        print(f"REDIS HSET ERROR for {redis_key}: {e}")
+                        print(f"REDIS HSET ERROR (forecast path) for {redis_key}: {e}")
                     
     
                     if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
@@ -1149,14 +1151,21 @@ class DetermineRBD:
             should_use_tolerance = True
 
         if afForecastAllocFlag == 1 and Af_Nb_Allin != CONST_NA and Af_Nb_Allin > 0:
+            # Call apply_tolerance_logic first to save auto-learn run-history to Redis/DB.
+            # Its fare result is intentionally discarded — final_fare_anchor_af_forecast
+            # recomputes the anchor and toleranceValue independently and overwrites them.
+            apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
             anchorFare, howDetermined, toleranceValue = self.final_fare_anchor_af_forecast(
                 anchorFare, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain,
                 strategyFare, plf, forecast_plf, lastSoldFare, profileFare, maxLastSoldFare,
                 hardAnchorFare, tolerance_per, toleranceValue, imp_forecast_band, getattr(currParams, 'plfThreshold', getattr(currParams, 'plfthreshold', None))
             )
         else:
-            if should_use_tolerance:
-                anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+            # Always call apply_tolerance_logic so auto-learn history is saved for ALL
+            # forecast bands (not just bands 0 and 1 where should_use_tolerance=True).
+            # When should_use_tolerance is False, the tolerance capping is skipped inside
+            # the function but the run-history write to Redis/DB still happens.
+            anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
             
             anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         # ------        # Overbooking logic & Final Adjustments
@@ -1229,12 +1238,13 @@ class DetermineRBD:
                 
                 history = []
                 try:
+                    state_str = None
                     if self.redishelper:
                         state_str = self.redishelper.hget(redis_key, hash_field)
                     if state_str:
                         history = __import__('json').loads(state_str)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"REDIS HGET ERROR (variance path) for {redis_key}: {e}")
                     
 
                 
@@ -1254,6 +1264,8 @@ class DetermineRBD:
                 
                 if len(history) > 0:
                     last_record = history[-1]
+                    if not isinstance(last_record, dict):
+                        last_record = {}
                     saved_b2c_tolerance = last_record.get("b2c_tolerance")
                     t_val = last_record.get("T")
                     t_prime_val = last_record.get("T_prime")
@@ -1436,8 +1448,8 @@ class DetermineRBD:
                     try:
                         if self.redishelper:
                             self.redishelper.hset(redis_key, hash_field, __import__('json').dumps(history))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"REDIS HSET ERROR (variance path) for {redis_key}: {e}")
                     
     
                     
