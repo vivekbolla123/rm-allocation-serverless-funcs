@@ -423,13 +423,28 @@ class defaultMarketlist:
             exclude_cols = {'PerType', 'UUID', 'createdAt'}
             col_list = [c for c in self.default_list.keys() if c not in exclude_cols]
 
+            # Fetch flag columns to map 1/0 to Y/N
+            flag_cols = []
+            try:
+                flag_doc = self.db['config_column_names'].find_one({"tableName": "market_list_flags"})
+                if flag_doc and 'columns' in flag_doc:
+                    flag_cols = [col.strip() for col in flag_doc['columns'].split(',') if col.strip()]
+            except Exception as e:
+                self.logger.error(f"Error fetching flag columns from config_column_names: {e}")
+
             def prepare_csv(df):
                 if df.empty:
                     return ""
                 existing_cols = [c for c in col_list if c in df.columns]
-                df = df[existing_cols]
+                df_csv = df[existing_cols].copy()
+                
+                if flag_cols:
+                    for col in flag_cols:
+                        if col in df_csv.columns:
+                            df_csv[col] = df_csv[col].apply(lambda x: 'Y' if str(x) in ['1', '1.0'] else ('N' if str(x) in ['0', '0.0'] else x))
+
                 csv_buffer = io.StringIO()
-                df.to_csv(csv_buffer, index=False)
+                df_csv.to_csv(csv_buffer, index=False)
                 return csv_buffer.getvalue()
 
             new_csv_content = prepare_csv(new_records_df)
