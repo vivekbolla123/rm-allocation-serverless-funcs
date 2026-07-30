@@ -1352,7 +1352,7 @@ class DynAlloc:
 					remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 					profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,self.currParams.plfthreshold,self.actualplf,
 					determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
-					last_seven_avg_fare=last_seven_avg_val
+					last_seven_avg_fare=last_seven_avg_val, b2c_backstop_final=b2c_backstop_final
 				)
 
 			# This call also modifies currRec_fullalloc, for TBF.
@@ -1361,7 +1361,7 @@ class DynAlloc:
 				remainingCapacity_val, ndocounter, self.currParams, self.outputSummaryRow_b2c.profileFare,
 				profileFares_list_sorted_fullalloc, bookloadPercentile_full, upsellValue_full, b2c_opening_price_val, # Use opening price from b2CAllocation
 				imp_forecast,self.outputSummaryRow_b2c.strategyFare,hardfareb2c,self.currParams.plfthreshold,self.actualplf, determined_overBookingFare, base_adjustedCapacity,is_spoilage_reduction_active=is_spoilage_reduction_active,
-					last_seven_avg_fare=last_seven_avg_val
+					last_seven_avg_fare=last_seven_avg_val, b2c_backstop_final=b2c_backstop_final
 			)
 
 			self.outputSummaryRow_b2c.status = b2c_status_val
