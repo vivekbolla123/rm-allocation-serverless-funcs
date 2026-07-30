@@ -456,7 +456,7 @@ class ConstantsUtils:
             elif parameter_key == HOLD_BOOKING_ALERT_CONFIGURATION_KEY:
                 self.HOLD_BOOKING_ALERT_CONFIGURATION = json.loads(parameter_value)
             elif parameter_key == DEFAULT_ML_CONFIG_KEY:
-                self.DEFAULT_ML_CONFIG = parameter_value
+                self.DEFAULT_ML_CONFIG = json.loads(parameter_value)
             elif parameter_key == DEFAULT_ML_CALC_CONFIG_KEY:
                 self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
                 
