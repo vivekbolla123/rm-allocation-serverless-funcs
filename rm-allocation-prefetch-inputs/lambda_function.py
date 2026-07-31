@@ -191,7 +191,7 @@ def lambda_handler(event, context):
     """
     # Generate a single run_id to trace all chunks together
     run_id = base_payload.get('run_id') or str(uuid.uuid4())
-    logger.info(f"prefetchLambda start | run_id: {run_id}")
+    logger.info(f"prefetchLambda start | run_id: {run_id} | event: {json.dumps(event)}")
     
     logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
 
