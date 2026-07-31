@@ -189,9 +189,6 @@ def lambda_handler(event, context):
         "mongodb": "0"
     }
     """
-    # Generate a single run_id to trace all chunks together
-    run_id = base_payload.get('run_id') or str(uuid.uuid4())
-    logger.info(f"prefetchLambda start | run_id: {run_id} | event: {json.dumps(event)}")
     
     #logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
 
@@ -200,6 +197,10 @@ def lambda_handler(event, context):
         event = json.loads(event['body'])
     elif 'body' in event and isinstance(event['body'], dict):
         event = event['body']
+
+    # Generate a single run_id to trace all chunks together
+    run_id = event.get('run_id') or str(uuid.uuid4())
+    logger.info(f"prefetchLambda start | run_id: {run_id} | event: {json.dumps(event)}")
 
     logger.info(f"Parsed event body: {json.dumps(event)}")
 
