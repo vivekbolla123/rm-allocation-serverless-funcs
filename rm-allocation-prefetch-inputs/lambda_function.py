@@ -193,7 +193,7 @@ def lambda_handler(event, context):
     run_id = base_payload.get('run_id') or str(uuid.uuid4())
     logger.info(f"prefetchLambda start | run_id: {run_id} | event: {json.dumps(event)}")
     
-    logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
+    #logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
 
     # Unwrap nested body if event came from SQS/EventBridge wrapping
     if 'body' in event and isinstance(event['body'], str):
