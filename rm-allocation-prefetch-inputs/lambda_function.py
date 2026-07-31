@@ -189,6 +189,10 @@ def lambda_handler(event, context):
         "mongodb": "0"
     }
     """
+    # Generate a single run_id to trace all chunks together
+    run_id = base_payload.get('run_id') or str(uuid.uuid4())
+    logger.info(f"prefetchLambda start | run_id: {run_id}")
+    
     logger.info(f"prefetchLambda invoked with event: {json.dumps(event)}")
 
     # Unwrap nested body if event came from SQS/EventBridge wrapping
@@ -248,8 +252,7 @@ def lambda_handler(event, context):
     PREFETCH_ONLY_KEYS = {'start_interval', 'end_interval'}
     base_payload = {k: v for k, v in event.items() if k not in PREFETCH_ONLY_KEYS}
 
-    # Generate a single run_id to trace all chunks together
-    run_id = base_payload.get('run_id') or str(uuid.uuid4())
+
     base_payload['run_id'] = run_id
     base_payload['overall_start'] = overall_start
     base_payload['overall_end'] = overall_end
@@ -276,6 +279,7 @@ def lambda_handler(event, context):
     total_records = counts_df['record_count'].sum()
     logger.info(f"Done. Dispatched {len(chunks)} chunks covering ~{total_records} total records.")
 
+    logger.info(f"prefetchLambda complete | run_id: {run_id}")
     return {
         'statusCode': 200,
         'body': json.dumps({
