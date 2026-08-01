@@ -83,3 +83,5 @@ class OutputSummary:
         
         self.conversionRate = CONST_NA
         self.currency = CONST_NA
+        self.region = DOMESTIC_VALUE
+        self.DepDateObj = CONST_NA

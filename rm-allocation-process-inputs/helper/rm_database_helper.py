@@ -791,6 +791,17 @@ class RMDatabaseHelper:
         except Exception:
             return date_val
 
+    def parse_date_to_ist_datetime(self, date_val):
+        try:
+            if date_val is None or pd.isna(date_val):
+                return None
+            ist_timezone = pytz.timezone('Asia/Kolkata')
+            naive_dt = pd.to_datetime(str(date_val)).normalize().to_pydatetime()
+            # use localize(), NOT replace(tzinfo=...) — see note below
+            return ist_timezone.localize(naive_dt)
+        except Exception:
+            return None
+
     def insertSummaryRow(self, allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocResults[-1]
@@ -872,7 +883,9 @@ class RMDatabaseHelper:
                 "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
                 "portfolio_count": str(latest_row.portfolio_count),
                 "conversionRate": str(latest_row.conversionRate),
-                "currency": str(latest_row.currency)
+                "currency": str(latest_row.currency),
+                "region": str(latest_row.region),
+                "DepDateObj": self.parse_date_to_ist_datetime(latest_row.DepDate)
             }
 
             try:

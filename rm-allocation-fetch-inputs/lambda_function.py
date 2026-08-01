@@ -1655,6 +1655,7 @@ def lambda_handler(event, context):
         ))
         mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
         mkt_list = mkt_list.reset_index(drop=True)
+        mkt_list["region"] = region
         log_memory("after nav existence filter")
         logger.info(f"mkt_list after nav filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)})")
         markets_count = mkt_list.shape[0]
