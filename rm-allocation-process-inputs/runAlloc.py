@@ -551,7 +551,7 @@ class DynAlloc:
 			self.getStartOfDayValues(
 				currBookedLoad, currFltDate, ndocounter,
 				tgtBookedLoadPercent, # Passed parameter
-				final_totalCapacity, currFltDepartureTime
+				(state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity), currFltDepartureTime
 			)
 
 		distress_pax_count = round(sod_startOfDayTgtBookedLoad_abs - float(currBookedLoad))
@@ -671,8 +671,9 @@ class DynAlloc:
 		sod_eodTgtBookedLoad_abs = state.sod_eodTgtBookedLoad_abs
 		sod_dplfBand = state.sod_dplfBand
 
+		eff_capacity_for_variance = state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity
 		variance_full = calculateVariance(
-			float(currBookedLoad), final_totalCapacity, ndocounter,
+			float(currBookedLoad), eff_capacity_for_variance, ndocounter,
 			sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
@@ -693,10 +694,10 @@ class DynAlloc:
 		Af_Nb_Allin = CONST_NA
 		if ndocounter <= 30:
 			imp_forecast = getParsedImputedForecast(
-				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, eff_capacity_for_variance
 			)
 		if imp_forecast != CONST_NA:
-			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, final_totalCapacity)
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, eff_capacity_for_variance)
 			PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
@@ -1153,7 +1154,7 @@ class DynAlloc:
 			# determineRBDToOpen needs YYYY-MM-DD date
 			openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
 			self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
-			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue = self.determinerbd.determineRBDToOpen(
+			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.Tdash = self.determinerbd.determineRBDToOpen(
 											self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL,
 											dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
 											b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
@@ -1233,7 +1234,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2b.fareOffset=0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
-				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue = \
+				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.Tdash = \
 					self.determinerbd.determineRBDToOpen(
 						self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL,
 						dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
