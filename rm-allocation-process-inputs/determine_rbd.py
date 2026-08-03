@@ -19,6 +19,35 @@ class DetermineRBD:
         self.redishelper = redisHelper
         self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
 
+    def get_autotolerance_history(self, currParams):
+        redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+        hash_field = "autotolerance_history"
+        
+        history = []
+        try:
+            if self.redishelper:
+                state_str = self.redishelper.hget(redis_key, hash_field)
+            if state_str:
+                history = __import__('json').loads(state_str)
+        except Exception:
+            pass
+            
+        if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+            try:
+                mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                if mongo_state and "autotolerance_history" in mongo_state:
+                    h_val = mongo_state["autotolerance_history"]
+                    if isinstance(h_val, str):
+                        try:
+                            h_val = __import__('json').loads(h_val)
+                        except Exception:
+                            h_val = []
+                    history = h_val
+            except Exception:
+                pass
+                
+        return history
+
     def _format_thresh(self, val):
         if not val:
             return ""
@@ -617,33 +646,7 @@ class DetermineRBD:
             auto_tolerance_applied = False
             
             if anchor_fare is not None:
-                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
-                hash_field = "autotolerance_history"
-                
-                history = []
-                try:
-                    if self.redishelper:
-                        state_str = self.redishelper.hget(redis_key, hash_field)
-                    if state_str:
-                        history = __import__('json').loads(state_str)
-                except Exception:
-                    pass
-                    
-
-                
-                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
-                    try:
-                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
-                        if mongo_state and "autotolerance_history" in mongo_state:
-                            h_val = mongo_state["autotolerance_history"]
-                            if isinstance(h_val, str):
-                                try:
-                                    h_val = __import__('json').loads(h_val)
-                                except Exception:
-                                    h_val = []
-                            history = h_val
-                    except Exception:
-                        pass
+                history = self.get_autotolerance_history(currParams)
                 
                 if len(history) > 0:
                     last_record = history[-1]
@@ -1189,33 +1192,7 @@ class DetermineRBD:
 
             # Auto-tolerance logic
             if pre_tolerance_anchor is not None:
-                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
-                hash_field = "autotolerance_history"
-                
-                history = []
-                try:
-                    if self.redishelper:
-                        state_str = self.redishelper.hget(redis_key, hash_field)
-                    if state_str:
-                        history = __import__('json').loads(state_str)
-                except Exception:
-                    pass
-                    
-
-                
-                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
-                    try:
-                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
-                        if mongo_state and "autotolerance_history" in mongo_state:
-                            h_val = mongo_state["autotolerance_history"]
-                            if isinstance(h_val, str):
-                                try:
-                                    h_val = __import__('json').loads(h_val)
-                                except Exception:
-                                    h_val = []
-                            history = h_val
-                    except Exception:
-                        pass
+                history = self.get_autotolerance_history(currParams)
                 
                 if len(history) > 0:
                     last_record = history[-1]
