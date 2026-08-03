@@ -2453,7 +2453,7 @@ class DynAlloc:
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
 			 self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell,
 			 determined_overBookingFare, hard_anchor_flag,
-			 self.outputSummaryRow_b2c.toleranceValue) = b2c_tuple
+			 self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime) = b2c_tuple
 
 			# Get B2C Opening Price for potential B2B derivation
 			B2C_opening_price_val = None
@@ -2589,7 +2589,7 @@ class DynAlloc:
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
 			 self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell,
 			 state.determined_overBookingFare, state.hard_anchor_flag,
-			 self.outputSummaryRow_b2c.toleranceValue) = b2c_tuple
+			 self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime) = b2c_tuple
 		else:
 			# No B2C anchor result — set fallback so Phase L sees the
 			# expected dict structure.
@@ -2608,7 +2608,7 @@ class DynAlloc:
 			 _b2b_strategyFare, self.outputSummaryRow_b2b.profileFare,
 			 self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell,
 			 _b2b_overBookingFare, state.hard_anchor_flag,
-			 self.outputSummaryRow_b2b.toleranceValue) = b2b_tuple
+			 self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime) = b2b_tuple
 		else:
 			# No B2B anchor result (market fare unavailable or threshold
 			# hit during fare-anchor pass) — set the expected fallback dict
