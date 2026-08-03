@@ -447,6 +447,9 @@ class AdditivePickupModelProcessor:
     def _get_s3(self):
         return self.s3_client
 
+    def _get_esb_engine(self):
+        return self.esb_engine
+
     def _fetch_all_data(self):
         """
         Incremental data fetching strategy:
@@ -958,7 +961,7 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Computing fare buckets from qp_dw_rmalloc.fares (GP logic)...")
         try:
-            docs = list(self._db.fares.find(
+            docs = list(self.db.fares.find(
                 {
                     "SECTOR": {"$in": self.active_sectors},
                     "TOTAL": {"$ne": 1},

@@ -5,13 +5,12 @@ import configsettings
 import sys
 import json
 
-from redis import Redis
 from datetime import datetime
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
-from common_utils import instrument_engine
 from constants_utils import ConstantsUtils
 from additive_model import AdditivePickupModelProcessor
+
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -21,13 +20,6 @@ ESB_DB = f"mysql+pymysql://{configsettings.ESB_DB_USERNAME}:{configsettings.ESB_
 try:
 
     rm_rd_esb_conn = create_engine(ESB_DB)
-
-    NavitaireConnection = create_engine(
-        f"mssql+pymssql://{configsettings.NAV_DB_USER}:"
-        f"{quote_plus(configsettings.NAV_DB_PASSWORD)}@"
-        f"{configsettings.NAV_DB_HOST}"
-    )
-    instrument_engine(NavitaireConnection)
     
     mongo_client = MongoClient(
             host=configsettings.MONGO_URL,
@@ -39,8 +31,6 @@ try:
     db = mongo_client["qp_dw_rmalloc"]
     db_master = mongo_client[configsettings.MONGO_MASTER_DB]
 
-    sqs = boto3.client('sqs')
-    
     s3 = boto3.client("s3")
 
 except Exception as e:
@@ -48,29 +38,29 @@ except Exception as e:
     sys.exit()
 
 module_map = {
-    'additive_process' : AdditivePickupModelProcessor,
+    'additive_process': AdditivePickupModelProcessor,
 }
 
 
 def lambda_handler(event, context):
-    events = boto3.client('events')
     if "Records" in event:
-        # SQS event
-        events = event["Records"]
-        for i in events:
-            body = i["body"]
+        # SQS event (from rm-additive-prefetch)
+        records = event["Records"]
+        for record in records:
+            body = record["body"]
     elif "body" in event:
         # API Gateway event
         body = event["body"]
     else:
+        # Direct invocation
         body = json.dumps(event)
         
     data = json.loads(body)
-    print(data)
+    logger.info(f"Received event: {json.dumps(data, default=str)}")
 
     if "modules" not in data:
-        logger.info("Error! 'modules' key missing in body ")
-        return False
+        logger.error("'modules' key missing in body")
+        return {"statusCode": 400, "body": "'modules' key missing"}
 
     modules = data["modules"]
 
@@ -78,41 +68,49 @@ def lambda_handler(event, context):
     params = {}
 
     if "overrides" in data:
-        # Direct invocation / local testing — overrides nested under 'overrides' key
+        # SQS message from rm-additive-prefetch OR direct invocation
+        # Message contract: sectors, run_id, batch_index, batch_total,
+        # sectors_expected, mode, force_backfill, refresh_spec, analyst
         overrides = data["overrides"]
     else:
-        # SQS message from rm-pricing-fetch-inputs — flat structure
-        # Build overrides from top-level keys
+        # Flat structure fallback
         overrides = {
-            k: data[k] for k in ('route', 'analyst', 'run_id', 'batch_index',
-                                  'batch_total', 'ladder_codes')
+            k: data[k] for k in ('sectors', 'run_id', 'batch_index',
+                                  'batch_total', 'sectors_expected',
+                                  'mode', 'force_backfill', 'refresh_spec',
+                                  'analyst')
             if k in data
         }
 
     for module_key in modules.keys():
         params["rdEsbConn"] = rm_rd_esb_conn
-        params["mongo"]=db
+        params["mongo"] = db
         params["mongo_master"] = db_master
-        params['navconn'] = NavitaireConnection
-        params['sqs'] = sqs
         params['s3'] = s3
-        params['events'] = events 
         params['constantutils'] = ConstantsUtils(db)
         
         Module = module_map[module_key]
-        Module_obj = Module(logger, params, overrides, context)
-        Module_obj.run()
+        module_obj = Module(logger, params, overrides, context)
+        result = module_obj.run()
 
     return {
-        "statusCode": 200, 
-        "body": "Cron job executed successfully."
+        "statusCode": 200,
+        "body": json.dumps(result, default=str) if result else "Executed successfully."
     }
 
 
-# --- local testing ---
+# --- Local testing ---
 # messageBody = {
 #     "modules": {"additive_process": 1},
-#     "overrides": {"sectors": ["BOMDEL", "DELBOM"], "run_uuid": "test-123", "env": "uat"}
+#     "overrides": {
+#         "sectors": ["AUHBLR"],
+#         "run_id": "test-local-001",
+#         "batch_index": 0,
+#         "batch_total": 1,
+#         "sectors_expected": 1,
+#         "mode": "TEST",
+#         "analyst": "Kenneth Menezes"
+#     }
 # }
 # event = {'Records': [{'body': json.dumps(messageBody)}]}
 # lambda_handler(event, None)
