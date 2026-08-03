@@ -156,6 +156,7 @@ class DetermineRBD:
         anchorValue = ''
     
         toleranceValue = CONST_NA
+        T_prime = CONST_NA
 
         if channel == B2B_CHANNEL:
             anchorFare = strategyFare
