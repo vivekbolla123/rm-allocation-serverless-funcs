@@ -2383,9 +2383,11 @@ class AdditivePickupModelProcessor:
         collide. The next prefetch reads `sector_stats` to bin-pack.
         """
         if self.mode != 'PROD' or self.db is None:
+            logger.info(f"[audit] Skipped — mode={self.mode}, db={'ok' if self.db else 'None'}")
             return
         try:
-            self.db.additive_model_run_audit.update_one(
+            logger.info(f"[audit] Writing sector={sector} to run_id={self.run_id}")
+            result = self.db.additive_model_run_audit.update_one(
                 {'run_id': self.run_id},
                 {
                     '$set': {
@@ -2404,6 +2406,8 @@ class AdditivePickupModelProcessor:
                 },
                 upsert=True,
             )
+            logger.info(f"[audit] {sector}: matched={result.matched_count}, "
+                        f"modified={result.modified_count}, upserted={result.upserted_id}")
         except Exception as e:
             logger.error(f"audit upsert failed for {sector}: {e}")
 

@@ -16,12 +16,17 @@ The planner / load balancer. Sole job: build sector bins and route them.
 Cost-based binning (LPT) uses the previous run's per-sector seconds from
 additive_model_run_audit so no single Lambda exceeds TARGET_BIN_SECONDS.
 
+Override: sectors_per_bin
+  If set to 1, bypasses LPT and sends exactly 1 sector per SQS message
+  (1 Lambda per sector). Useful for debugging or when you want maximum
+  parallelism regardless of cost balancing.
+
 Message contract (SQS -> rm-additive-process):
 {
   "modules": {"additive_process": 1},
   "overrides": {
     "sectors": ["AUHBLR", "BOMDXB", ...],
-    "run_id": "2026-07-03T02:00:05Z-ab12",
+    "run_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "batch_index": 3,
     "batch_total": 10,
     "sectors_expected": 48,
@@ -31,6 +36,7 @@ Message contract (SQS -> rm-additive-process):
 """
 
 import logging
+import math
 import boto3
 import json
 import os
@@ -103,19 +109,20 @@ def _latest_sector_times():
     }
 
 
-def _lpt_bin_pack(sectors, times):
+def _lpt_bin_pack(sectors, times, target=TARGET_BIN_SECONDS, max_bins=MAX_PARALLEL,
+                  default_cost=DEFAULT_SECTOR_COST):
     """
     Longest-Processing-Time-first greedy bin-packing (min-makespan).
 
-    1. Cost each sector from audit history; unknown -> high default.
-    2. Choose bin count k = clamp(ceil(total_cost / TARGET), 1, MAX_PARALLEL).
+    1. Cost each sector from audit history; unknown -> default_cost.
+    2. Choose bin count k = clamp(ceil(total_cost / target), 1, max_bins).
     3. Sort sectors by cost descending.
     4. Greedy assign: place each sector into the currently-lightest bin.
     """
-    costs = {s: times.get(s, DEFAULT_SECTOR_COST) for s in sectors}
+    costs = {s: times.get(s, default_cost) for s in sectors}
     total_cost = sum(costs.values())
 
-    k = max(1, min(MAX_PARALLEL, int(math.ceil(total_cost / TARGET_BIN_SECONDS))))
+    k = max(1, min(max_bins, int(math.ceil(total_cost / target))))
 
     # Sort descending by cost (LPT)
     ranked = sorted(sectors, key=lambda s: costs[s], reverse=True)
@@ -132,12 +139,10 @@ def _lpt_bin_pack(sectors, times):
     # Remove empty bins (if k > len(sectors))
     bins = [b for b in bins if b]
 
-    logger.info(f"[LPT] {len(sectors)} sectors -> {len(bins)} bins, "
+    logger.info(f"[LPT] {len(sectors)} sectors -> {len(bins)} bins "
+                f"(target={target}s, max_bins={max_bins}), "
                 f"loads: {[round(l, 1) for l in sorted(bin_loads, reverse=True) if l > 0]}")
     return bins
-
-
-import math  # noqa: E402 (already imported at top but kept for clarity)
 
 
 def _send_process_message(bin_sectors, run_id, batch_index, batch_total, sectors_expected, mode):
@@ -209,12 +214,18 @@ def lambda_handler(event, context):
     overrides = data.get("overrides", data)
 
     # --- resolve parameters ---
-    run_id = overrides.get('run_id') or f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')}-{uuid4().hex[:4]}"
+    run_id = overrides.get('run_id') or str(uuid4())
     mode = overrides.get('mode', 'PROD').upper()
     force_backfill = str(overrides.get('force_backfill', 'false')).lower() == 'true'
     refresh_spec = overrides.get('refresh_spec')        # int N or 'YYYY-MM,...'
     analyst = overrides.get('analyst', 'system')
     target_sectors = overrides.get('sectors')            # optional explicit list
+    sectors_per_bin = overrides.get('sectors_per_bin')   # int: bypass LPT, fixed N per message
+
+    # Bin-packing tunables (override hardcoded defaults)
+    target_bin_seconds = float(overrides.get('target_bin_seconds', TARGET_BIN_SECONDS))
+    max_parallel = int(overrides.get('max_parallel', MAX_PARALLEL))
+    default_sector_cost = float(overrides.get('default_sector_cost', DEFAULT_SECTOR_COST))
 
     # --- load active sectors ---
     if target_sectors:
@@ -251,13 +262,24 @@ def lambda_handler(event, context):
         _start_glue_fetch(batch, run_id, force_backfill, refresh_spec)
         glue_units += 1
 
-    # --- route CACHED -> SQS -> process Lambdas (LPT bin-packed) ---
+    # --- route CACHED -> SQS -> process Lambdas (LPT bin-packed or fixed-size) ---
     lambda_units = 0
     bins = []
 
     if cached_sectors:
-        times = _latest_sector_times()
-        bins = _lpt_bin_pack(cached_sectors, times)
+        if sectors_per_bin:
+            # Fixed-size bins: bypass LPT, send exactly N sectors per message
+            n = int(sectors_per_bin)
+            bins = [cached_sectors[i:i + n]
+                    for i in range(0, len(cached_sectors), n)]
+            logger.info(f"[prefetch] Fixed binning: {n} sector(s)/message -> {len(bins)} bins")
+        else:
+            # LPT cost-balanced binning
+            times = _latest_sector_times()
+            bins = _lpt_bin_pack(cached_sectors, times,
+                                 target=target_bin_seconds,
+                                 max_bins=max_parallel,
+                                 default_cost=default_sector_cost)
 
         sectors_expected = len(cached_sectors)
         batch_total = len(bins)
