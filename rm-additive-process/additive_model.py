@@ -791,6 +791,12 @@ class AdditivePickupModelProcessor:
         if unresolved:
             logger.warning(f"  {unresolved} rows have no STD after merge.")
 
+        # --- Flight count summary per sector (unique InventoryLegIDs = unique flights) ---
+        sector_flight_counts = std_cache.groupby('Sector')['InventoryLegID'].nunique()
+        for sector in self.active_sectors:
+            count = int(sector_flight_counts.get(sector, 0))
+            logger.info(f"[STD] {sector}: {count} unique flights in full historical range")
+
         self._data_cache['hist_raw_df'] = merged
 
     def _sector_other_taxes(self, sector):
@@ -2310,12 +2316,20 @@ class AdditivePickupModelProcessor:
         """Run steps 1-15 for one sector batch. Saves every step's output in TEST mode."""
         self._reset_batch_cache()
 
+        t_fetch_start = _time.perf_counter()
+
         # --- Step 1: Fare buckets ---
         farebasis_df = self._fetch_fare_buckets()
         self._save_intermediate(farebasis_df, '01_fare_buckets')
 
         # --- Step 2: Fetch (cached) ---
         self._fetch_all_data()
+
+        t_fetch_end = _time.perf_counter()
+        fetch_secs = round(t_fetch_end - t_fetch_start, 2)
+        logger.info(f"[TIMING] {sectors} — FETCH (Steps 1-2): {fetch_secs}s")
+
+        t_process_start = _time.perf_counter()
 
         # --- Step 3: Derive datasets ---
         flown_df = self._derive_flown_data()
@@ -2397,9 +2411,22 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(result_final_df, '12c_flight_after_remaining_normal')
         self._save_intermediate(weighted_final_df, '12d_flight_after_remaining_weighted')
 
+        t_process_end = _time.perf_counter()
+        process_secs = round(t_process_end - t_process_start, 2)
+        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-12): {process_secs}s")
+
+        t_save_start = _time.perf_counter()
+
         # --- Step 15: Save final results ---
         self._save_results(result_merged_df, result_final_df, None,
                            weighted_merged_df, weighted_final_df, sectors=sectors)
+
+        t_save_end = _time.perf_counter()
+        save_secs = round(t_save_end - t_save_start, 2)
+        logger.info(f"[TIMING] {sectors} — SAVE (Step 15): {save_secs}s")
+        logger.info(f"[TIMING] {sectors} — TOTAL: fetch={fetch_secs}s, "
+                    f"process={process_secs}s, save={save_secs}s, "
+                    f"sum={round(fetch_secs + process_secs + save_secs, 2)}s")
     def _audit_upsert_sector(self, sector, stat):
         """Write this sector's timing into the single run document.
 
