@@ -68,7 +68,7 @@ class OutputSummary:
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
         self.toleranceValue=CONST_NA
-        self.Tdash=CONST_NA
+        self.T_prime=CONST_NA
         self.grpAdjProfileFare=CONST_NA
         self.grpAdjPLF=CONST_NA
         self.grpFareAnchor=CONST_NA

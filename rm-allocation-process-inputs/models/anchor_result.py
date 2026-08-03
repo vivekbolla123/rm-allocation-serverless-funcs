@@ -41,7 +41,7 @@ class AnchorResult:
     hardAnchorFare: Any = CONST_NA
     hard_anchor_flag: bool = False
     toleranceValue: Any = CONST_NA
-    Tdash: Any = CONST_NA
+    T_prime: Any = CONST_NA
     anchor_source: Any = CONST_NA  # the howDetermined string
     channel: str = ""
     upsell: Any = CONST_NA

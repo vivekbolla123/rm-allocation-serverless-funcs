@@ -755,17 +755,20 @@ class DynAlloc:
 
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
+		# Strategy Band logic
+		strategy_band = group_forecast_band if forecastAllocFlag == 1 else dplfBand_full
+
 		# Get Dynamic D1 (Time Window)
 		self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicTime(self.currParams, strategy_band, ndoBand_full, group_forecast_band, DaySpan_full, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange, hardstartTimeB2C, hardendTimeB2C = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
+			self.dynamictimed2.getDynamicTime(self.currParams, strategy_band, ndoBand_full, group_forecast_band, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
 
 		# Get Dynamic D2 (Criteria, Offset, StrategyRef)
 		self.outputSummaryRow_b2b.criteria, hardcriteriaB2B, self.outputSummaryRow_b2b.fareOffset, hardoffsetB2B, self.outputSummaryRow_b2b.StrategyReference, hardfareb2b = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, strategy_band, ndoBand_full, group_forecast_band, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.criteria, hardcriteriaB2C, self.outputSummaryRow_b2c.fareOffset, hardoffsetB2C, self.outputSummaryRow_b2c.StrategyReference, hardfareb2c = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2C_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, strategy_band, ndoBand_full, group_forecast_band, B2C_CHANNEL, final_plf)
 
 		# IDs for summary rows (already set in common init, but ensure unique if re-running parts)
 		self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
@@ -1154,7 +1157,7 @@ class DynAlloc:
 			# determineRBDToOpen needs YYYY-MM-DD date
 			openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
 			self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
-			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.Tdash = self.determinerbd.determineRBDToOpen(
+			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime = self.determinerbd.determineRBDToOpen(
 											self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL,
 											dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
 											b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
@@ -1234,7 +1237,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2b.fareOffset=0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
-				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.Tdash = \
+				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime = \
 					self.determinerbd.determineRBDToOpen(
 						self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL,
 						dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
