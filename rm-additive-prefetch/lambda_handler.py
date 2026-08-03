@@ -140,7 +140,7 @@ def lambda_handler(event, context):
         active = list(target_sectors)
     else:
         docs = mongo_client['qp_rm_master'].active_sectors.find(
-            {}, {"_id": 0, "sector": 1})
+            {"sector": "DELBOM"}, {"_id": 0, "sector": 1})
         active = [d['sector'] for d in docs if d.get('sector')]
     active = sorted(set(active))
     logger.info(f"[prefetch] {len(active)} active sectors, force={force_backfill}, "
