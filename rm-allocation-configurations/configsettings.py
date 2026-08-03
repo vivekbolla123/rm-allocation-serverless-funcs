@@ -158,7 +158,7 @@ if env == 'prod':
     PA_FILE_PATH = 'prod/PA/'
     ADDITIVE_MODEL_BUCKET = "qp-s3-fs"
     ADDITIVE_MODEL_FILE_PATH = 'prod/additive_model/'
-    ADDITIVE_PROCESS_LAMBDA_NAME = "rm-additive-process"
+    ADDITIVE_PROCESS_LAMBDA_NAME = "rm-allocation-serverless-funcs_rm-additive-process"
     ADDITIVE_GLUE_NAME = "rm-additive-model"
     ADDITIVE_SQS_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-additive-model"
 
