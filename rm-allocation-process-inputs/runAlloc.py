@@ -756,7 +756,8 @@ class DynAlloc:
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
 		# Strategy Band logic
-		strategy_band = group_forecast_band if forecastAllocFlag == 1 else dplfBand_full
+		forecastAllocNdoMax = int(getattr(self.constantsUtils, 'FORECAST_ALLOC_NDO_MAX', 30))
+		strategy_band = group_forecast_band if (forecastAllocFlag == 1 and ndocounter <= forecastAllocNdoMax) else dplfBand_full
 
 		# Get Dynamic D1 (Time Window)
 		self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
