@@ -724,12 +724,25 @@ class AdditivePickupModelProcessor:
         """
         Fetch STD per InventoryLegID for legs not already cached, then merge STD
         into hist_df and store it on _data_cache['hist_raw_df'].
-        """
-        logger.info("[Query 2] Fetching STD lookup (incremental)...")
 
-        std_cache = self._store_read('std_lookup.parquet')
-        if std_cache is None:
-            std_cache = pd.DataFrame(columns=['InventoryLegID', 'STD'])
+        STD cache is SECTOR-PARTITIONED to avoid write races when multiple
+        parallel workers (Glue or Lambda) run concurrently:
+            _cache/std_lookup/sector=BOMDEL.parquet
+            _cache/std_lookup/sector=DELBOM.parquet
+        Each worker only reads/writes its own sectors' files.
+        """
+        logger.info("[Query 2] Fetching STD lookup (incremental, sector-partitioned)...")
+
+        # --- Read existing STD cache for this batch's sectors only ---
+        std_frames = []
+        for sector in self.active_sectors:
+            cached = self._store_read(f'std_lookup/sector={sector}.parquet')
+            if cached is not None and not cached.empty:
+                cached['Sector'] = sector
+                std_frames.append(cached)
+
+        std_cache = pd.concat(std_frames, ignore_index=True) if std_frames else \
+            pd.DataFrame(columns=['InventoryLegID', 'STD', 'Sector'])
 
         all_ids = set(hist_df['InventoryLegID'].unique())
         cached_ids = (set(std_cache['InventoryLegID'].unique())
@@ -742,22 +755,35 @@ class AdditivePickupModelProcessor:
             new_dfs = []
             for i in range(0, len(missing), 5000):
                 ids_str = ", ".join(str(int(x)) for x in missing[i:i + 5000])
-                q = f"""SELECT InventoryLegID, STD
+                q = f"""SELECT InventoryLegID, STD,
+                        CONCAT(DepartureStation, ArrivalStation) AS Sector
                         FROM {DatabaseConfig.FLIGHT_MASTER_TABLE}
                         WHERE InventoryLegID IN ({ids_str})"""
                 with engine.connect() as conn:
                     new_dfs.append(pd.read_sql(text(q), conn))
 
             if new_dfs:
-                std_cache = pd.concat([std_cache] + new_dfs, ignore_index=True)
+                new_std = pd.concat(new_dfs, ignore_index=True)
+                std_cache = pd.concat([std_cache, new_std], ignore_index=True)
                 std_cache.drop_duplicates(subset=['InventoryLegID'],
                                           keep='last', inplace=True)
-                self._store_write(std_cache, 'std_lookup.parquet')
-                logger.info(f"  STD cache updated: {len(std_cache)} entries.")
+
+                # Write back per-sector (only this batch's sectors)
+                for sector in self.active_sectors:
+                    sector_std = std_cache[std_cache['Sector'] == sector]
+                    if not sector_std.empty:
+                        self._store_write(
+                            sector_std[['InventoryLegID', 'STD']],
+                            f'std_lookup/sector={sector}.parquet')
+                logger.info(f"  STD cache updated: {len(std_cache)} entries "
+                            f"across {std_cache['Sector'].nunique()} sectors.")
         else:
             logger.info(f"  All {len(all_ids)} leg IDs found in STD cache.")
 
-        merged = hist_df.merge(std_cache, on='InventoryLegID', how='left')
+        # Merge STD into hist_df (drop Sector from std_cache to avoid collision)
+        merged = hist_df.merge(
+            std_cache[['InventoryLegID', 'STD']].drop_duplicates(subset=['InventoryLegID']),
+            on='InventoryLegID', how='left')
         merged['STD'] = pd.to_datetime(merged['STD']).dt.time
         merged.drop(columns=['InventoryLegID'], inplace=True)
 

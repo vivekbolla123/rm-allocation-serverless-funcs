@@ -50,7 +50,6 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # --- AWS clients (created at module load, reused across warm invocations) ---
-lambda_client = boto3.client('lambda')
 glue = boto3.client('glue')
 sqs = boto3.client('sqs')
 s3 = boto3.client('s3')
@@ -70,7 +69,6 @@ ENV                = os.environ.get('ENV', 'uat')
 S3_BUCKET          = configsettings.ADDITIVE_MODEL_BUCKET
 CACHE_PREFIX       = f"{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache/hist_flown"
 PROCESS_QUEUE_URL  = configsettings.ADDITIVE_SQS_URL   # SQS queue -> process Lambda
-PROCESS_LAMBDA     = configsettings.ADDITIVE_PROCESS_LAMBDA_NAME
 GLUE_FETCH_JOB     = configsettings.ADDITIVE_GLUE_NAME
 
 # Bin-packing parameters
@@ -163,16 +161,28 @@ def _send_process_message(bin_sectors, run_id, batch_index, batch_total, sectors
         MessageBody=json.dumps(message))
 
 
-def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec):
-    """Start a Glue fetch-only job directly (no SQS — Glue has its own retry)."""
+def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
+                      sectors_expected=0, mode='PROD'):
+    """
+    Start a Glue job that does fetch-only (populates S3 cache).
+
+    After caching completes, the Glue job sends 1 SQS message per sector
+    to PROCESS_QUEUE_URL so process Lambdas pick them up. This keeps all
+    processing logic in Lambdas.
+
+    Glue arguments include the SQS URL, run_id, and sectors_expected so it
+    can form the correct message contract.
+    """
     glue.start_job_run(
         JobName=GLUE_FETCH_JOB,
         Arguments={
             '--SECTORS': ','.join(sectors),
             '--RUN_ID': run_id,
-            '--FETCH_ONLY': 'true',
-            '--FORCE_BACKFILL': 'true' if force_backfill else 'false',
+            '--FORCE_BACKFILL': 'true' if force_backfill else '',
             '--REFRESH_SPEC': str(refresh_spec or ''),
+            '--SECTORS_EXPECTED': str(sectors_expected),
+            '--MODE': mode,
+            '--PROCESS_QUEUE_URL': PROCESS_QUEUE_URL,
             '--ENV': ENV,
         })
 
@@ -253,14 +263,21 @@ def lambda_handler(event, context):
 
     logger.info(f"[prefetch] cached={len(cached_sectors)}, uncached={len(uncached_sectors)}")
 
-    # --- route UNCACHED -> Glue fetch-only (direct start) ---
+    # --- ALL sectors that will produce forecasts (both lanes) ---
+    # Uncached sectors will be processed AFTER Glue populates their cache,
+    # but we count them now so finalization knows the total.
+    sectors_expected = len(active)
+
+    # --- route UNCACHED -> Glue (fetch-only, populates cache) ---
+    # After Glue finishes, it sends 1 SQS message per sector to the process
+    # queue with the same run_id. Process Lambda then runs them like any other.
     glue_units = 0
-    GLUE_BATCH_SIZE = 10  # sectors per Glue run (Glue can handle larger batches)
+    glue_batches = []
+    GLUE_BATCH_SIZE = 10  # sectors per Glue run
 
     for i in range(0, len(uncached_sectors), GLUE_BATCH_SIZE):
         batch = uncached_sectors[i:i + GLUE_BATCH_SIZE]
-        _start_glue_fetch(batch, run_id, force_backfill, refresh_spec)
-        glue_units += 1
+        glue_batches.append(batch)
 
     # --- route CACHED -> SQS -> process Lambdas (LPT bin-packed or fixed-size) ---
     lambda_units = 0
@@ -281,20 +298,33 @@ def lambda_handler(event, context):
                                  max_bins=max_parallel,
                                  default_cost=default_sector_cost)
 
-        sectors_expected = len(cached_sectors)
-        batch_total = len(bins)
+    # --- Write audit skeleton BEFORE dispatching ---
+    # batch_total for the cached lane only (Glue lane adds its own messages later)
+    batch_total_cached = len(bins)
+    snapshot_date = datetime.utcnow().strftime('%Y-%m-%d')
 
-        for idx, bin_sectors in enumerate(bins):
-            _send_process_message(
-                bin_sectors, run_id, idx, batch_total, sectors_expected, mode)
-            lambda_units += 1
+    planned = []
+    for i, b in enumerate(bins):
+        planned.append({'batch_index': i, 'sectors': b, 'lane': 'lambda'})
+    for j, b in enumerate(glue_batches):
+        planned.append({'sectors': b, 'lane': 'glue_then_lambda'})
 
-        # --- write audit skeleton (only for process lane) ---
-        snapshot_date = datetime.utcnow().strftime('%Y-%m-%d')
+    if sectors_expected > 0:
         _write_audit_skeleton(
             run_id, snapshot_date, sectors_expected,
-            planned_bins=[{'batch_index': i, 'sectors': b} for i, b in enumerate(bins)],
-            mode=mode, analyst=analyst)
+            planned_bins=planned, mode=mode, analyst=analyst)
+
+    # --- Dispatch Glue jobs (fetch-only — Glue sends SQS after caching) ---
+    for j, batch in enumerate(glue_batches):
+        _start_glue_fetch(batch, run_id, force_backfill, refresh_spec,
+                          sectors_expected=sectors_expected, mode=mode)
+        glue_units += 1
+
+    # --- Dispatch SQS messages for cached sectors ---
+    for idx, bin_sectors in enumerate(bins):
+        _send_process_message(
+            bin_sectors, run_id, idx, batch_total_cached, sectors_expected, mode)
+        lambda_units += 1
 
     logger.info(f"[prefetch] DONE — {lambda_units} SQS messages (process), "
                 f"{glue_units} Glue jobs (fetch-only) | run_id={run_id}")
