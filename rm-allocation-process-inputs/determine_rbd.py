@@ -622,7 +622,7 @@ class DetermineRBD:
 
             auto_tolerance_applied = False
             
-            if anchor_fare is not None:
+            if anchor_fare is not None and flag_val in (1, '1'):
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -863,10 +863,9 @@ class DetermineRBD:
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
 
+            toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return anchor_fare, how_determined
-
-            toleranceValue = f"{tolerance_limit:.2f}"
             anchor_fare = max(tolerance_limit, anchor_fare)
             if (anchor_fare == tolerance_limit):
                 how_determined += '_ToleranceHit'
@@ -1127,15 +1126,14 @@ class DetermineRBD:
             )
             should_use_tolerance = True
 
-        if should_use_tolerance:
-            anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+        anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
         
         anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
-        if should_use_tolerance and "_Auto_Tolerance_Hit" not in howDetermined:
+        if "_Auto_Tolerance_Hit" not in howDetermined:
             howDetermined += "_Auto_Tolerance_Hit"
 
         return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime
@@ -1197,7 +1195,7 @@ class DetermineRBD:
                 tolerance_limit = 0
 
             # Auto-tolerance logic
-            if pre_tolerance_anchor is not None:
+            if pre_tolerance_anchor is not None and flag_val in (1, '1'):
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1437,10 +1435,9 @@ class DetermineRBD:
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
 
+            toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return 0
-
-            toleranceValue = f"{tolerance_limit:.2f}"
             return tolerance_limit
         
         def build_fares_list():
@@ -1686,6 +1683,9 @@ class DetermineRBD:
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
+        if toleranceValue == CONST_NA:
+            calculate_tolerance_value(anchorFareBeforeTolerance)
+
         if auto_tolerance_applied and "_Auto_Tolerance_Hit" not in howDetermined:
             howDetermined += "_Auto_Tolerance_Hit"
             
