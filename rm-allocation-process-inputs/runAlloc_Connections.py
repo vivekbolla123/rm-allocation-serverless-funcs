@@ -12,6 +12,7 @@ import pandas as pd
 import time as time_sleep
 
 from Constants import *
+from common.compute_utils import safe_float
 
 from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
@@ -327,15 +328,10 @@ class DynAllocConnections:
         self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2
         self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
-        def _safe_float(val, default):
-            try:
-                fval = float(val)
-                return fval if fval > 0 else default
-            except (ValueError, TypeError):
-                return default
-        
-        eff_capacity1 = _safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), self.currParams.Lid1)
-        eff_capacity2 = _safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), self.currParams.Lid2)
+        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
+        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
 
         # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
@@ -1262,15 +1258,10 @@ class DynAllocConnections:
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
         
-        def _safe_float(val, default):
-            try:
-                fval = float(val)
-                return fval if fval > 0 else default
-            except (ValueError, TypeError):
-                return default
-        
-        eff_capacity1 = _safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), self.currParams.Lid1)
-        eff_capacity2 = _safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), self.currParams.Lid2)
+        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
+        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
         
         plf1 = (bookload1 / eff_capacity1 * 100) if eff_capacity1 > 0 else 0
         plf2 = (bookload2 / eff_capacity2 * 100) if eff_capacity2 > 0 else 0
