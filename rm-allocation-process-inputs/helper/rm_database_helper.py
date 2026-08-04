@@ -848,6 +848,7 @@ class RMDatabaseHelper:
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
                 "mktFile": str(latest_row.mktFile),
+                "T_prime": str(latest_row.T_prime),
                 "ForecastAF_Allin": str(latest_row.ForecastAF_Allin),
                 "AF_Allin": str(latest_row.AF_Allin),
                 "AF_NB_Allin": str(latest_row.AF_NB_Allin),

@@ -48,6 +48,7 @@ class ConstantsUtils:
         self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         self.TBF_SEATS = TBF_SEATS
+        self.FORECAST_ALLOC_NDO_MAX = FORECAST_ALLOC_NDO_MAX
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
@@ -265,6 +266,8 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_FETCH_INPUTS = int(parameter_value)
             elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
+            elif parameter_key == FORECAST_ALLOC_NDO_MAX_KEY:
+                self.FORECAST_ALLOC_NDO_MAX = int(parameter_value)
             # elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
             #     self.PREFETCH_CHUNK_SIZE = json.loads(parameter_value)
             elif parameter_key == PORTFOLIO_SIBLING_BATCH_SIZE_KEY:
