@@ -613,8 +613,6 @@ class DetermineRBD:
                     tolerance_fare != -1)
         
         def apply_tolerance_logic(anchor_fare, tolerance_fare, how_determined):
-            if is_portfolio_flow:
-                return anchor_fare, how_determined
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
             nonlocal T_prime
@@ -878,6 +876,8 @@ class DetermineRBD:
                     tolerance_limit = auto_limit
 
             toleranceValue = f"{tolerance_limit:.2f}"
+            if is_portfolio_flow:
+                return anchor_fare, how_determined
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return anchor_fare, how_determined
             anchor_fare = max(tolerance_limit, anchor_fare)
