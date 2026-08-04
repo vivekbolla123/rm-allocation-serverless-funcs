@@ -2481,7 +2481,7 @@ class AdditivePickupModelProcessor:
             if not doc:
                 return
             expected = doc.get('sectors_expected')
-            completed = doc.get('sectors_completed', 0)
+            completed = len(doc.get('sector_stats', {}))   # distinct sectors, idempotent
             if expected is None or completed < expected:
                 return
 
