@@ -91,6 +91,20 @@ class DetermineRBD:
         # toleranceValue) but reproduces today's quirky values verbatim so callers see
         # byte-identical results (R2.2, R11.1).
         def _build_early_return(open_result_value, current_strategy_fare):
+            computed_tolerance_value = CONST_NA
+            if current_strategy_fare not in (CONST_NA, None) and not pd.isna(current_strategy_fare):
+                has_tol = (toleranceFare is not None and pd.isna(toleranceFare) == False and 
+                           toleranceFare != CONST_NA and toleranceFare != '' and 
+                           pd.isnull(toleranceFare) == False and toleranceFare != -1)
+                if has_tol:
+                    try:
+                        calc_limit = float(current_strategy_fare) - float(toleranceFare)
+                        computed_tolerance_value = f"{calc_limit:.2f}"
+                    except Exception:
+                        computed_tolerance_value = "0.00"
+                else:
+                    computed_tolerance_value = "0.00"
+
             return (
                 open_result_value,
                 lastSoldFare,
@@ -100,7 +114,7 @@ class DetermineRBD:
                 hardAnchorFare,
                 overBookingFare,
                 hardAnchorFare,
-                CONST_NA,
+                computed_tolerance_value,
                 CONST_NA,
             )
 
