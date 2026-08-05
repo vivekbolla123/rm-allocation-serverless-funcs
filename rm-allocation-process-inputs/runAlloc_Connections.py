@@ -328,16 +328,12 @@ class DynAllocConnections:
         self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2
         self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
-        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
-        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
-        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
-        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
 
         # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
-            eff_capacity1
+            self.currParams.Lid1
         tgtBookedLoad2 = tgtBookedLoad2 * \
-            eff_capacity2
+            self.currParams.Lid2
         
         # Compute intraday-adjusted targets (aligned with direct variance logic)
         try:
@@ -349,13 +345,13 @@ class DynAllocConnections:
             areaAtCurrentTime = 1.0  # Fallback: use end-of-day target
         
         if startOfDayTgt1 is not None:
-            startOfDayTgtAbs1 = startOfDayTgt1 * eff_capacity1
+            startOfDayTgtAbs1 = startOfDayTgt1 * self.currParams.Lid1
             self.tgtAtCurrentHour1 = (tgtBookedLoad1 - startOfDayTgtAbs1) * areaAtCurrentTime + startOfDayTgtAbs1
         else:
             self.tgtAtCurrentHour1 = tgtBookedLoad1
         
         if startOfDayTgt2 is not None:
-            startOfDayTgtAbs2 = startOfDayTgt2 * eff_capacity2
+            startOfDayTgtAbs2 = startOfDayTgt2 * self.currParams.Lid2
             self.tgtAtCurrentHour2 = (tgtBookedLoad2 - startOfDayTgtAbs2) * areaAtCurrentTime + startOfDayTgtAbs2
         else:
             self.tgtAtCurrentHour2 = tgtBookedLoad2
@@ -444,9 +440,9 @@ class DynAllocConnections:
             bookload1 = bookedLoadSingleRowSector1
             bookload2 = bookedLoadSingleRowSector2
             minLid = min(
-                eff_capacity1, eff_capacity2)
+                self.currParams.Lid1,self.currParams.Lid2)
             bookload = max(
-                bookload1 - (eff_capacity1 - minLid), bookload2 - (eff_capacity2 - minLid))
+                bookload1 - (self.currParams.Lid1 - minLid), bookload2 - (self.currParams.Lid2 - minLid))
             print("Combined Booked Load for " + str(flight1)+" "+str(
                 flight2) + " on " + str(current_date1) + " is :" + str(bookload))
             
@@ -538,14 +534,14 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-self.tgtAtCurrentHour1)*100/eff_capacity1
-                self.outputSummaryRow_b2c.variance2=(bookload2-self.tgtAtCurrentHour2)*100/eff_capacity2
-                self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/eff_capacity1
-                self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/eff_capacity2
+                self.outputSummaryRow_b2c.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2c.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
+                self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
+                self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
                 
                 imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
-                    capacity=eff_capacity1, bookload=bookload1,
+                    capacity=self.currParams.Lid1, bookload=bookload1,
                     curve_id=getattr(self, 'CurveId1', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf1', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF1', CONST_NA),
@@ -553,7 +549,7 @@ class DynAllocConnections:
                     forecast_model=getattr(self.currParams, 'forecast_model1', 'LB'))
                 imp2 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2,
-                    capacity=eff_capacity2, bookload=bookload2,
+                    capacity=self.currParams.Lid2, bookload=bookload2,
                     curve_id=getattr(self, 'CurveId2', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf2', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF2', CONST_NA),
@@ -1258,13 +1254,8 @@ class DynAllocConnections:
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
         
-        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
-        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
-        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
-        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
-        
-        plf1 = (bookload1 / eff_capacity1 * 100) if eff_capacity1 > 0 else 0
-        plf2 = (bookload2 / eff_capacity2 * 100) if eff_capacity2 > 0 else 0
+        plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
+        plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
         
         # For domestic legs at NDO 30+, use DPLF band (3-6 = meets threshold) instead of forecast PLF
         if is_sector1_domestic and ndocounter >= 30 and variance1 is not None:
