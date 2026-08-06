@@ -795,10 +795,7 @@ class RMDatabaseHelper:
         try:
             if date_val is None or pd.isna(date_val):
                 return None
-            ist_timezone = pytz.timezone('Asia/Kolkata')
-            naive_dt = pd.to_datetime(str(date_val)).normalize().to_pydatetime()
-            # use localize(), NOT replace(tzinfo=...) — see note below
-            return ist_timezone.localize(naive_dt)
+            return pd.to_datetime(str(date_val)).normalize().tz_localize('UTC').to_pydatetime()
         except Exception:
             return None
 

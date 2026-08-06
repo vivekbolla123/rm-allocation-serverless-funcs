@@ -3434,6 +3434,7 @@ class DynAlloc:
 			"profileFareUpsell": "ProfileFareUpsell", 
 			"currency": "currency",
 			"conversion_rate": "conversion_rate",
+			"region": "region"
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
