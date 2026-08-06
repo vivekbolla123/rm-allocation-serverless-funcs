@@ -1493,6 +1493,9 @@ def lambda_handler(event, context):
         body = event['body']
         data = json.loads(body)
 
+    run_id = data.get('run_id') or str(uuid4())
+    logger.info(f"fetchLambda start | run_id: {run_id}")
+    
     # Defaults
     start_interval = 30
     end_interval = 90
@@ -2085,7 +2088,7 @@ def lambda_handler(event, context):
 
     # Proceed with SQS
     start_time = datetime.now()
-    run_id = data.get('run_id') or str(uuid4())
+    #run_id = data.get('run_id') or str(uuid4())
     overall_start = data.get('overall_start', start_interval)
     overall_end = data.get('overall_end', end_interval)
 
@@ -2197,6 +2200,7 @@ def lambda_handler(event, context):
         insert_file_upload_s3(run_id, start_time)
 
     log_time.send_time_log_db()
+    logger.info(f"fetchLambda complete | run_id: {run_id}")
     return {
         "statusCode": 200,
         "body": markets_count
