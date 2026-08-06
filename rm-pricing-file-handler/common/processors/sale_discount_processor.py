@@ -74,7 +74,7 @@ def pivot_sale_fares(df):
     
     # Create sale_id 
     data_df_numeric['sale_id'] = data_df_numeric.apply(
-        lambda row: _generate_sale_id(row['sector'], row['sale_start'], row['sale_end']),
+        lambda row: _generate_sale_id(row['key'], row['sector'], row['sale_start'], row['sale_end']),
         axis=1
     )
     data_df_numeric.dropna(subset=['sector', 'type', 'sale_start', 'sale_end'], how='all', inplace=True)
@@ -102,10 +102,10 @@ def pivot_sale_fares(df):
     
     return sales_df, discounts_df
 
-def _generate_sale_id(sector, sale_start, sale_end):
+def _generate_sale_id(key, sector, sale_start, sale_end):
     """
-    Generate unique sale_id from sector, sale_start, and sale_end.
-    Format: sector_salestart_saleend (lowercase, no spaces/dashes)
+    Generate unique sale_id from key, sector, sale_start, and sale_end.
+    Format: key_sector_salestart_saleend (lowercase, no spaces/dashes)
     """
-    sale_id = f"{sector}_{sale_start}_{sale_end}".lower().replace(' ', '_').replace('-', '')
+    sale_id = f"{key}_{sector}_{sale_start}_{sale_end}".lower().replace(' ', '_').replace('-', '')
     return sale_id
