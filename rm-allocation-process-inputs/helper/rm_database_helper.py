@@ -791,7 +791,7 @@ class RMDatabaseHelper:
         except Exception:
             return date_val
 
-    def parse_date_to_ist_datetime(self, date_val):
+    def parse_date_to_datetime_obj(self, date_val):
         try:
             if date_val is None or pd.isna(date_val):
                 return None
@@ -883,7 +883,7 @@ class RMDatabaseHelper:
                 "conversionRate": str(latest_row.conversionRate),
                 "currency": str(latest_row.currency),
                 "region": str(latest_row.region),
-                "DepDateObj": self.parse_date_to_ist_datetime(latest_row.DepDate)
+                "DepDateObj": self.parse_date_to_datetime_obj(latest_row.DepDate)
             }
 
             try:
