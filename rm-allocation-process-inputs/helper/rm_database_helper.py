@@ -791,6 +791,14 @@ class RMDatabaseHelper:
         except Exception:
             return date_val
 
+    def parse_date_to_datetime_obj(self, date_val):
+        try:
+            if date_val is None or pd.isna(date_val):
+                return None
+            return pd.to_datetime(str(date_val)).normalize().tz_localize('UTC').to_pydatetime()
+        except Exception:
+            return None
+
     def insertSummaryRow(self, allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocResults[-1]
@@ -873,7 +881,9 @@ class RMDatabaseHelper:
                 "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
                 "portfolio_count": str(latest_row.portfolio_count),
                 "conversionRate": str(latest_row.conversionRate),
-                "currency": str(latest_row.currency)
+                "currency": str(latest_row.currency),
+                "region": str(latest_row.region),
+                "DepDateObj": self.parse_date_to_datetime_obj(latest_row.DepDate)
             }
 
             try:

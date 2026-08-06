@@ -73,8 +73,12 @@ def lambda_handler(event, context):
         content = record['body']
         data = json.loads(content)
         runid = data["run_id"]
-        logger.info(f"started ftp upload: {runid}")
+        #logger.info(f"started ftp upload: {runid}")
+        logger.info(f"updateRBDFTPLambda start | run_id: {runid}")
+
         processor.fetch_data(runid)
+
+        logger.info(f"updateRBDFTPLambda complete | run_id: {runid}")
     return {
         'statusCode': 200,
         'body': 'success'
