@@ -1550,10 +1550,10 @@ def lambda_handler(event, context):
     # Start program
     if type == "Adhoc":
         cache_client.set(unique_key_value, 0, 18000)
-        available_slot = deduct_available_slot()
-        if not available_slot:
-            logger.info("No slots available to run Adhoc API!")
-            return False
+        # available_slot = deduct_available_slot()
+        # if not available_slot:
+        #     logger.info("No slots available to run Adhoc API!")
+        #     return False
 
     current_utc_time = datetime.utcnow()
     utc_timezone = pytz.timezone('UTC')
