@@ -24,6 +24,7 @@ class OutputSummary:
         self.profileFare = CONST_NA
         self.lastSevenAvgFare = CONST_NA
         self.upsell = CONST_NA
+        self.anchorFareBeforeTolerance = CONST_NA
         self.anchorFare = CONST_NA
         self.OpenRBD = CONST_NA
         self.SellingFare = CONST_NA
@@ -67,6 +68,7 @@ class OutputSummary:
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
         self.toleranceValue=CONST_NA
+        self.T_prime=CONST_NA
         self.grpAdjProfileFare=CONST_NA
         self.grpAdjPLF=CONST_NA
         self.grpFareAnchor=CONST_NA

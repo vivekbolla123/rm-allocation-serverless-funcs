@@ -48,6 +48,7 @@ class ConstantsUtils:
         self.PROF_OPEN_COUNT = PROF_OPEN_COUNT
         self.B2B_DISCOUNT_MAP = B2B_DISCOUNT_MAP
         self.TBF_SEATS = TBF_SEATS
+        self.FORECAST_ALLOC_NDO_MAX = FORECAST_ALLOC_NDO_MAX
         self.ADHOC_BATCH_SIZE = ADHOC_BATCH_SIZE
         self.CHECK_THRESHOLD_FETCH_INPUTS = ADHOC_BATCH_SIZE
         self.TIME_BEFORE_DEPARTURE = ADHOC_BATCH_SIZE
@@ -150,6 +151,7 @@ class ConstantsUtils:
         self.MOVEMENT_FLOOR_PCT = MOVEMENT_FLOOR_PCT
         self.MOVEMENT_CEIL_PCT = MOVEMENT_CEIL_PCT
         self.DEFAULT_ML_CONFIG = DEFAULT_ML_CONFIG
+        self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
 
 
         self.logger = logging.getLogger()
@@ -264,6 +266,8 @@ class ConstantsUtils:
                 self.CHECK_THRESHOLD_FETCH_INPUTS = int(parameter_value)
             elif parameter_key == TIME_BEFORE_DEPARTURE_KEY:
                 self.TIME_BEFORE_DEPARTURE = int(parameter_value)
+            elif parameter_key == FORECAST_ALLOC_NDO_MAX_KEY:
+                self.FORECAST_ALLOC_NDO_MAX = int(parameter_value)
             # elif parameter_key == PREFETCH_CHUNK_SIZE_KEY:
             #     self.PREFETCH_CHUNK_SIZE = json.loads(parameter_value)
             elif parameter_key == PORTFOLIO_SIBLING_BATCH_SIZE_KEY:
@@ -456,6 +460,8 @@ class ConstantsUtils:
                 self.HOLD_BOOKING_ALERT_CONFIGURATION = json.loads(parameter_value)
             elif parameter_key == DEFAULT_ML_CONFIG_KEY:
                 self.DEFAULT_ML_CONFIG = json.loads(parameter_value)
+            elif parameter_key == DEFAULT_ML_CALC_CONFIG_KEY:
+                self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

@@ -33,6 +33,7 @@ class AnchorResult:
 
     # Final anchor outputs
     anchorFare: Any = 0
+    anchorFareBeforeTolerance: Any = CONST_NA
     strategyFare: Any = CONST_NA
     anchorFareDiscounted: Any = CONST_NA
     profileFare: Any = CONST_NA
@@ -40,6 +41,7 @@ class AnchorResult:
     hardAnchorFare: Any = CONST_NA
     hard_anchor_flag: bool = False
     toleranceValue: Any = CONST_NA
+    T_prime: Any = CONST_NA
     anchor_source: Any = CONST_NA  # the howDetermined string
     channel: str = ""
     upsell: Any = CONST_NA

@@ -56,6 +56,7 @@ LAST_N_AVG_FARE = 7
 ADHOC_BATCH_SIZE = 4000
 CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
+FORECAST_ALLOC_NDO_MAX = 30
 
 # Portfolio sibling enrichment: max unique departure dates processed per window
 PORTFOLIO_SIBLING_BATCH_SIZE = 7
@@ -209,6 +210,7 @@ TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
 DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
+FORECAST_ALLOC_NDO_MAX_KEY = 'FORECAST_ALLOC_NDO_MAX'
 
 THRESHOLD_TIME_KEY = "THRESHOLD_TIME"
 PF_UPSELL_VALUE_KEY = "PF_UPSELL_VALUE"
@@ -275,6 +277,7 @@ YQ_DISTANCE_CONFIG_KEY = "YQ_DISTANCE_CONFIG"
 CURRENCY_ROUND_OFF_LIST_KEY = "CURRENCY_ROUND_OFF_LIST"
 ACTIVE_SECTORS_DEFAULT_FIELDS_KEY = "ACTIVE_SECTORS_DEFAULT_FIELDS"
 DEFAULT_ML_CONFIG_KEY = "DEFAULT_ML_CONFIG"
+DEFAULT_ML_CALC_CONFIG_KEY = "DEFAULT_ML_CALC_CONFIG"
 GDS_RBD_VALUES_KEY = "GDS_RBD_VALUES"
 GRACE_PERIOD_MINUTES_KEY = "GRACE_PERIOD_MINUTES"
 WINDOW_MINUTES_KEY = "WINDOW_MINUTES"
@@ -382,7 +385,7 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'bookingLastHour', 'bookedPlf', 'actualbookedPlf', 'currentTgtLoad',
     'TgtLoad', 'endOfDayTgtLoad', 'Variance', 'forecastPLF', 'ImputedForecastPLF',
     'endOfDaydlfBand', 'bookingToday', 'Backstop', 'hardAnchorFare', 'strategyFare',
-    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'toleranceValue',
+    'lastSellingFare', 'profileFare', 'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue',
     'anchorFare', 'OpenRBD', 'SellingFare', 'Channel', 'HowDetermined', 'RunId',
     'criteria', 'fareOffset', 'FlightNumber_Min', 'MktFare_Max', 'FlightNumber_Max',
     'TimeRange', 'startTime', 'endTime', 'FirstRBDAlloc', 'OtherRBDAlloc',
@@ -543,6 +546,7 @@ GROUP_SCALING_FACTOR = 0.7
 GROUP_AU_BATCH = 5
 GROUP_IMP_FORECAST_REDUCTION = 95
 DEFAULT_ML_CONFIG = '{ "top_rbd_count": { "B2C": 8, "B2B": 3 }, "top_gp_factor": 1.2 }'
+DEFAULT_ML_CALC_CONFIG = '{ "backstop_distance_multiplier": 6, "q_fare_level": "10" }'
 
 #HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
 #HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
