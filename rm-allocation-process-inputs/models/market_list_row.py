@@ -118,6 +118,7 @@ class MarketListRow:
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
         self.market_station_mapping = parse_int_flag(currParams.get("market_station_mapping"), 0)
         self.farecap = currParams.get("farecap", CONST_NA)
+        self.region = currParams.get("region", "Domestic")
 
         # Portfolio count
         self.portfolio_count = currParams.get("portfolio_count", CONST_NA)

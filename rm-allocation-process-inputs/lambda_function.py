@@ -113,6 +113,8 @@ def lambda_handler(event, context):
         
         route_type = data.get("route_type")
         run_id = data.get("runId")
+        logger.info(f"processLambda start | run_id: {run_id}")
+        
         is_sales_inventory = str(data.get("saleinvflag")) == "1"
         # Two-pass split (R1): direct-route messages carry a "pass" field of
         # "anchor" (fare-anchor pass) or "allocation" (allocation pass). A
@@ -149,6 +151,8 @@ def lambda_handler(event, context):
                 DynAlloc.from_anchor_payload(input_data, data)
         else:
             logger.warning(f"No valid route found for run_id: {run_id}. Flags: saleinvflag='{data.get('saleinvflag')}', route_type='{route_type}'")
+        
+        logger.info(f"processLambda complete | run_id: {run_id}")
 
 
 

@@ -156,6 +156,12 @@ if env == 'prod':
     
     PA_BUCKET_NAME = "qp-s3-fs"
     PA_FILE_PATH = 'prod/PA/'
+    ADDITIVE_MODEL_BUCKET = "qp-s3-fs"
+    ADDITIVE_MODEL_FILE_PATH = 'prod/additive_model/'
+    ADDITIVE_PROCESS_LAMBDA_NAME = "rm-allocation-serverless-funcs_rm-additive-process"
+    ADDITIVE_GLUE_NAME = "rm_additive_model"
+    ADDITIVE_SQS_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-additive-model"
+
     ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
     ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
     ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
@@ -255,6 +261,12 @@ if env == 'uat':
         
     PA_BUCKET_NAME = "uat-qp-s3-fs"
     PA_FILE_PATH = 'uat/PA/'
+    ADDITIVE_MODEL_BUCKET = "uat-qp-s3-fs"
+    ADDITIVE_MODEL_FILE_PATH = 'uat/additive_model/'
+    ADDITIVE_PROCESS_LAMBDA_NAME = "uat-rm-additive-process"
+    ADDITIVE_GLUE_NAME = "uat-rm_additive_model"
+    ADDITIVE_SQS_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-additive-model"
+
     ALERTS_CLIENT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_ID', '')
     ALERTS_TENANT_ID = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_TENANT_ID', '')
     ALERTS_CLIENT_SECRET = credentials.get('/rm/' + env + '/rm-allocation/RM_ALERTS_CLIENT_SECRET', '')
