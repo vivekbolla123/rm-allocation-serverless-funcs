@@ -551,7 +551,7 @@ class DynAlloc:
 			self.getStartOfDayValues(
 				currBookedLoad, currFltDate, ndocounter,
 				tgtBookedLoadPercent, # Passed parameter
-				final_totalCapacity, currFltDepartureTime
+				(state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity), currFltDepartureTime
 			)
 
 		distress_pax_count = round(sod_startOfDayTgtBookedLoad_abs - float(currBookedLoad))
@@ -671,8 +671,9 @@ class DynAlloc:
 		sod_eodTgtBookedLoad_abs = state.sod_eodTgtBookedLoad_abs
 		sod_dplfBand = state.sod_dplfBand
 
+		eff_capacity_for_variance = state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity
 		variance_full = calculateVariance(
-			float(currBookedLoad), final_totalCapacity, ndocounter,
+			float(currBookedLoad), eff_capacity_for_variance, ndocounter,
 			sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
@@ -693,10 +694,10 @@ class DynAlloc:
 		Af_Nb_Allin = CONST_NA
 		if ndocounter <= 30:
 			imp_forecast = getParsedImputedForecast(
-				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, eff_capacity_for_variance
 			)
 		if imp_forecast != CONST_NA:
-			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, final_totalCapacity)
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, eff_capacity_for_variance)
 			PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
@@ -754,17 +755,21 @@ class DynAlloc:
 
 		DaySpan_full, input_time_str_dep_full = self.autoTimeRange(currFltDepartureTime) # currFltDepartureTime is HH:MM:SS
 
+		# Strategy Band logic
+		forecastAllocNdoMax = int(getattr(self.constantsUtils, 'FORECAST_ALLOC_NDO_MAX', 30))
+		strategy_band = group_forecast_band if (forecastAllocFlag == 1 and ndocounter <= forecastAllocNdoMax) else dplfBand_full
+
 		# Get Dynamic D1 (Time Window)
 		self.outputSummaryRow_b2b.startTime, self.outputSummaryRow_b2b.endTime, self.outputSummaryRow_b2b.TimeRange, hardstartTimeB2B, hardendTimeB2B = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicTime(self.currParams, strategy_band, ndoBand_full, group_forecast_band, DaySpan_full, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.startTime, self.outputSummaryRow_b2c.endTime, self.outputSummaryRow_b2c.TimeRange, hardstartTimeB2C, hardendTimeB2C = \
-			self.dynamictimed2.getDynamicTime(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
+			self.dynamictimed2.getDynamicTime(self.currParams, strategy_band, ndoBand_full, group_forecast_band, DaySpan_full, B2C_CHANNEL, final_plf) # Typo was c2c
 
 		# Get Dynamic D2 (Criteria, Offset, StrategyRef)
 		self.outputSummaryRow_b2b.criteria, hardcriteriaB2B, self.outputSummaryRow_b2b.fareOffset, hardoffsetB2B, self.outputSummaryRow_b2b.StrategyReference, hardfareb2b = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2B_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, strategy_band, ndoBand_full, group_forecast_band, B2B_CHANNEL, final_plf)
 		self.outputSummaryRow_b2c.criteria, hardcriteriaB2C, self.outputSummaryRow_b2c.fareOffset, hardoffsetB2C, self.outputSummaryRow_b2c.StrategyReference, hardfareb2c = \
-			self.dynamictimed2.getDynamicD2Value(self.currParams, dplfBand_full, ndoBand_full, group_forecast_band, B2C_CHANNEL, final_plf)
+			self.dynamictimed2.getDynamicD2Value(self.currParams, strategy_band, ndoBand_full, group_forecast_band, B2C_CHANNEL, final_plf)
 
 		# IDs for summary rows (already set in common init, but ensure unique if re-running parts)
 		self.outputSummaryRow_b2b.Id = self.utils.getUniqueId()
@@ -1153,7 +1158,7 @@ class DynAlloc:
 			# determineRBDToOpen needs YYYY-MM-DD date
 			openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
 			self.outputSummaryRow_b2c.profileFare, self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell, \
-			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue = self.determinerbd.determineRBDToOpen(
+			determined_overBookingFare,hard_anchor_flag, self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime = self.determinerbd.determineRBDToOpen(
 											self.outputSummaryRow_b2c.anchorFare, self.outputSummaryRow_b2c.fareOffset, B2C_CHANNEL,
 											dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
 											b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
@@ -1233,7 +1238,7 @@ class DynAlloc:
 					self.outputSummaryRow_b2b.fareOffset=0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
-				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue = \
+				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime = \
 					self.determinerbd.determineRBDToOpen(
 						self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL,
 						dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
@@ -2453,7 +2458,7 @@ class DynAlloc:
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
 			 self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell,
 			 determined_overBookingFare, hard_anchor_flag,
-			 self.outputSummaryRow_b2c.toleranceValue) = b2c_tuple
+			 self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime) = b2c_tuple
 
 			# Get B2C Opening Price for potential B2B derivation
 			B2C_opening_price_val = None
@@ -2589,7 +2594,7 @@ class DynAlloc:
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
 			 self.outputSummaryRow_b2c.hardAnchorFare, self.outputSummaryRow_b2c.upsell,
 			 state.determined_overBookingFare, state.hard_anchor_flag,
-			 self.outputSummaryRow_b2c.toleranceValue) = b2c_tuple
+			 self.outputSummaryRow_b2c.toleranceValue, self.outputSummaryRow_b2c.T_prime) = b2c_tuple
 		else:
 			# No B2C anchor result — set fallback so Phase L sees the
 			# expected dict structure.
@@ -2608,7 +2613,7 @@ class DynAlloc:
 			 _b2b_strategyFare, self.outputSummaryRow_b2b.profileFare,
 			 self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell,
 			 _b2b_overBookingFare, state.hard_anchor_flag,
-			 self.outputSummaryRow_b2b.toleranceValue) = b2b_tuple
+			 self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime) = b2b_tuple
 		else:
 			# No B2B anchor result (market fare unavailable or threshold
 			# hit during fare-anchor pass) — set the expected fallback dict

@@ -859,6 +859,7 @@ class RMDatabaseHelper:
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
                 "mktFile": str(latest_row.mktFile),
+                "T_prime": str(latest_row.T_prime),
                 "ForecastAF_Allin": str(latest_row.ForecastAF_Allin),
                 "AF_Allin": str(latest_row.AF_Allin),
                 "AF_NB_Allin": str(latest_row.AF_NB_Allin),
@@ -903,6 +904,7 @@ class RMDatabaseHelper:
                     "Destin": doc["Destin"],
                     "Channel": doc["Channel"]
                 }
+                doc.pop('_id', None)
                 self.db.run_summary_latest.replace_one(latest_filter, doc, upsert=True)
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_latest: {e}")
@@ -2258,7 +2260,6 @@ class RMDatabaseHelper:
                 "OpenRBD2": str(latest_row.OpenRBD2),
                 "Discount": str(latest_row.Discount),
                 "anchorFare": latest_row.anchorFare,
-                "anchorFareBeforeTolerance": latest_row.anchorFareBeforeTolerance,
                 "OpenRBD": str(latest_row.OpenRBD),
                 "SellingFare": str(latest_row.SellingFare),
                 "Channel": latest_row.Channel,
@@ -2308,6 +2309,7 @@ class RMDatabaseHelper:
                     "DepDate2": doc["DepDate2"],
                     "Channel": doc["Channel"]
                 }
+                doc.pop('_id', None)
                 self.db.run_summary_connections_latest.replace_one(latest_filter, doc, upsert=True)
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_connections_latest: {e}")
