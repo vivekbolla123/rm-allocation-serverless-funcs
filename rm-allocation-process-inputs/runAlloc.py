@@ -392,7 +392,7 @@ class DynAlloc:
 		self._phaseE_dynamicTimeAndD2(state)
 		self._phaseF_marketFares(state)
 		self._phaseG_profileFares(state)
-		self._phaseH_backstops(state)
+		# self._phaseH_backstops(state)
 		self._phaseI_lastSoldFare(state)
 		self._phaseJ_spoilageReduction(state)
 		self._phaseK_anchorAndLadder(state)
@@ -502,6 +502,12 @@ class DynAlloc:
 
 		state.base_totalCapacity = base_totalCapacity
 		state.base_adjustedCapacity = base_adjustedCapacity
+
+		# Initialize backstop values in state
+		state.b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA)
+		state.b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA)
+		state.auto_b2b_backstop_str = "NA"
+		state.auto_b2c_backstop_str = "NA"
 
 	def _phaseB_overbooking(self, state):
 		"""Phase B — overbooking calc, post-OB PLF, start-of-day values, distress
@@ -873,33 +879,24 @@ class DynAlloc:
 		state.sector_full = sector_full
 		state.upsellValue_full = upsellValue_full
 
-	def _phaseH_backstops(self, state):
-		"""Phase H — read configured B2C/B2B backstop, optionally override with
-		auto-backstop computed from the final market fare."""
-		currFltDate = state.currFltDate
-		dplfBand_full = state.dplfBand_full
-		DaySpan_full = state.DaySpan_full
-		input_time_str_dep_full = state.input_time_str_dep_full
-
-		# Backstop Logic
-		b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA) # Safely get
-		b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA) # Safely get
-		auto_b2b_backstop_str = "NA"
-		auto_b2c_backstop_str = "NA"
-
-		effective_autoBackstopFlag = str(getattr(self.currParams, 'autoBackstopFlag', '0')) # Safely get
-		if effective_autoBackstopFlag == "1":
-			# determineFinalMF needs MM/DD/YYYY date
-			final_mkt_fare_b2b_for_ab, final_mkt_fare_b2c_for_ab = self.determineFinalMF(dplfBand_full, currFltDate, DaySpan_full, input_time_str_dep_full)
-			auto_b2b_backstop_str = self.auto_backstop(effective_autoBackstopFlag, b2b_backstop_final, dplfBand_full, final_mkt_fare_b2b_for_ab)
-			auto_b2c_backstop_str = self.auto_backstop(effective_autoBackstopFlag, b2c_backstop_final, dplfBand_full, final_mkt_fare_b2c_for_ab)
-			if auto_b2c_backstop_str != "NA": b2c_backstop_final = auto_b2c_backstop_str
-			if auto_b2b_backstop_str != "NA": b2b_backstop_final = auto_b2b_backstop_str
-
-		state.b2c_backstop_final = b2c_backstop_final
-		state.b2b_backstop_final = b2b_backstop_final
-		state.auto_b2b_backstop_str = auto_b2b_backstop_str
-		state.auto_b2c_backstop_str = auto_b2c_backstop_str
+	# def _phaseH_backstops(self, state):
+	# 	"""Phase H — read configured B2C/B2B backstop, optionally override with
+	# 	auto-backstop computed from the final market fare."""
+	# 	currFltDate = state.currFltDate
+	# 	dplfBand_full = state.dplfBand_full
+	# 	DaySpan_full = state.DaySpan_full
+	# 	input_time_str_dep_full = state.input_time_str_dep_full
+	# 
+	# 	# Backstop Logic
+	# 	b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA) # Safely get
+	# 	b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA) # Safely get
+	# 	auto_b2b_backstop_str = "NA"
+	# 	auto_b2c_backstop_str = "NA"
+	# 
+	# 	state.b2c_backstop_final = b2c_backstop_final
+	# 	state.b2b_backstop_final = b2b_backstop_final
+	# 	state.auto_b2b_backstop_str = auto_b2b_backstop_str
+	# 	state.auto_b2c_backstop_str = auto_b2c_backstop_str
 
 	def _phaseI_lastSoldFare(self, state):
 		"""Phase I — last selling fare and seven-day average (from CSV fixtures or
@@ -1151,7 +1148,7 @@ class DynAlloc:
 											dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
 											b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 											overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val,
-											is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+											is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state
 										)
 
 			# Get B2C Opening Price for potential B2B derivation
@@ -1232,7 +1229,7 @@ class DynAlloc:
 						dateFormatted_yyyymmdd, dplfBand_full, ndocounter, float(currBookedLoad), final_totalCapacity, self.currParams,
 						b2b_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2b_tolerance, final_plf,
 						overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
-						False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf
+						False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag, param_obFare, profileFare, False, imp_forecast, imp_forecast_band, self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state
 					)
 
 			# Removed last_seven_avg_val from B2B Strategy Fare Calculation
@@ -2424,7 +2421,7 @@ class DynAlloc:
 				overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val,
 				is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 				param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band,
-				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state
 			)
 			# Capture the F/G metadata onto the AnchorResult so the
 			# serialised PortfolioEntry can carry it across the SQS hop
@@ -2507,7 +2504,7 @@ class DynAlloc:
 					overBookingCount, hardfareb2b, hardoffsetB2B, sod_BookingsInHour, lastSoldFareb2b_val, last_seven_avg_val,
 					False, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
 					param_obFare, profileFare, False, imp_forecast, imp_forecast_band,
-					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+					self.outputSummaryRow_b2b.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state
 				)
 				anchorResult_b2b.strategyFare = self.outputSummaryRow_b2b.strategyFare
 				self._copyOutputSummaryToAnchor(anchorResult_b2b, self.outputSummaryRow_b2b)
@@ -2751,7 +2748,7 @@ class DynAlloc:
 		self._phaseE_dynamicTimeAndD2(state)
 		self._phaseF_marketFares(state)
 		self._phaseG_profileFares(state)
-		self._phaseH_backstops(state)
+		# self._phaseH_backstops(state)
 		self._phaseI_lastSoldFare(state)
 		self._phaseJ_spoilageReduction(state)
 		self._phaseK_anchorCandidate(state)
