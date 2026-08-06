@@ -1605,7 +1605,7 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.ExpectedNoShows = expectedNoShows
 		self.outputSummaryRow_b2c.currency = self.outputSummaryRow_b2b.currency = currency
 		self.outputSummaryRow_b2c.conversionRate = self.outputSummaryRow_b2b.conversionRate = conversion_rate
-		self.outputSummaryRow_b2b.region = self.outputSummaryRow_b2c.region = getattr(self, 'region', DOMESTIC_VALUE)
+		self.outputSummaryRow_b2b.region = self.outputSummaryRow_b2c.region = getattr(self.currParams, 'region', DOMESTIC_VALUE)
 		
 		CurveId = getattr(self.currParams, 'curve_id', CONST_NA)
 		self.outputSummaryRow_b2c.CurveId = CurveId if CurveId is not None else CONST_NA
@@ -3433,7 +3433,7 @@ class DynAlloc:
 			"incrementedProfileFareFlag": "incrementedProfileFareFlag",
 			"profileFareUpsell": "ProfileFareUpsell", 
 			"currency": "currency",
-			"conversion_rate": "conversion_rate",
+			"conversion_rate": "conversionRate",
 			"region": "region"
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
