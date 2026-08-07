@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env
+.git/
+.gitignore
+
+# Deployment scripts
+*.sh
+Dockerfile
+.dockerignore
+README.md
+*.md
+
+# Test artifacts
+testcases/
+additive_model_output/
+additive_model_cache/

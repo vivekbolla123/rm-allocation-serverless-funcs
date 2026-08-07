@@ -312,6 +312,8 @@ def lambda_handler(event, context):
         # allocation_data = content
         # logger.info(allocation_data)
         run_id = allocation_data["runId"]
+        logger.info(f"updateRBDLambda start | run_id: {run_id}")
+        
         au_classes = allocation_data['auClasses']
         start_date = allocation_data['startDate']
         end_date = allocation_data['endDate']
@@ -354,6 +356,8 @@ def lambda_handler(event, context):
         updateRunAudit(run_id, start_date_f,origin+destination, identifier, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
         log_time.send_time_log_db()
+        
+        logger.info(f"updateRBDLambda complete | run_id: {run_id}")
 
     return {
         'statusCode': 200,
