@@ -1633,7 +1633,7 @@ public class App implements CommandLineRunner {
 
                 if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     try {
-                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName);
+                        auditHelper.buildAuditLogs(validMarketListEntityList, userName, currentDateTime, tableName, obj_id);
                     } catch (Exception e) {
                         log.error("Failed to build audit logs for table: {}. Error: {}", tableName, e.getMessage());
                     }
@@ -2841,7 +2841,7 @@ public class App implements CommandLineRunner {
 
                 if (!tableName.startsWith(MARKET_LIST_ADHOC_TABLE_NAME)) {
                     try {
-                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName);
+                        auditHelper.buildConnAuditLogs(validMarketListConnectionsEntityList, userName, currentDateTime, tableName, obj_id);
                     } catch (Exception e) {
                         log.error("Failed to build connection audit logs for table: {}. Error: {}", tableName, e.getMessage());
                     }
