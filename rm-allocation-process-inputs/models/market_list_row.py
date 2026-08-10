@@ -39,6 +39,7 @@ class MarketListRow:
         self.rbdPushFlag = parse_int_flag(currParams.get("rbdPushFlag"), CONST_NA)
         self.b2c_tolerance = currParams.get("B2CTolerance", CONST_NA)
         self.b2b_tolerance = currParams.get("B2BTolerance", CONST_NA)
+        self.auto_tolerance_flag = parse_int_flag(currParams.get("auto_tolerance_flag", currParams.get("autoToleranceFlag", 0)), 0)
         self.distressInventoryFlag = parse_int_flag(currParams.get("distressInventoryFlag"), CONST_NA)
         self.seriesBlock = currParams.get("seriesBlock", CONST_NA)
         self.autoGroup = currParams.get("autoGroup", CONST_NA)
@@ -117,6 +118,7 @@ class MarketListRow:
         self.adjustedPLF = currParams.get("adjustedPLF", CONST_NA)
         self.market_station_mapping = parse_int_flag(currParams.get("market_station_mapping"), 0)
         self.farecap = currParams.get("farecap", CONST_NA)
+        self.region = currParams.get("region", "Domestic")
 
         # Portfolio count
         self.portfolio_count = currParams.get("portfolio_count", CONST_NA)

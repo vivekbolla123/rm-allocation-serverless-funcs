@@ -1121,7 +1121,7 @@ def _process_market_list_docs(base_ml_df, date_df, query_type):
         'obFare','SkippingFactor','DaySpan','AutoTimeRangeFlag','analystName','openingFares','OverBooking',
         'profileFares','rbdPushFlag','B2BTolerance','B2CTolerance','distressInventoryFlag','seriesBlock',
         'autoGroup','tbfFlag','CugFlag','MktFareFlag','autoBackstopFlag','directFlag','TBFEnhFlag',
-        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag'
+        'defaultMlFlag','b2bStrategy','Marketfare_Upsell','Outbound_Stop','forecastAllocFlag','Spoilage_Flag', 'CanAdjustedForecast', 'market_station_mapping','afForecastAllocFlag', 'ProfileFareUpsell', 'incrementedProfileFareFlag','auto_tolerance_flag'
     ]
     sales_cols = ['Origin','Destin','FlightNumber','DOW','CurveID','saleflag']
     connection_cols = [
@@ -1493,6 +1493,9 @@ def lambda_handler(event, context):
         body = event['body']
         data = json.loads(body)
 
+    run_id = data.get('run_id') or str(uuid4())
+    logger.info(f"fetchLambda start | run_id: {run_id}")
+    
     # Defaults
     start_interval = 30
     end_interval = 90
@@ -1547,10 +1550,10 @@ def lambda_handler(event, context):
     # Start program
     if type == "Adhoc":
         cache_client.set(unique_key_value, 0, 18000)
-        available_slot = deduct_available_slot()
-        if not available_slot:
-            logger.info("No slots available to run Adhoc API!")
-            return False
+        # available_slot = deduct_available_slot()
+        # if not available_slot:
+        #     logger.info("No slots available to run Adhoc API!")
+        #     return False
 
     current_utc_time = datetime.utcnow()
     utc_timezone = pytz.timezone('UTC')
@@ -1655,6 +1658,7 @@ def lambda_handler(event, context):
         ))
         mkt_list = mkt_list[mkt_list['_nav_key'].isin(nav_flight_keys)].drop(columns=['_nav_key'])
         mkt_list = mkt_list.reset_index(drop=True)
+        mkt_list["region"] = region
         log_memory("after nav existence filter")
         logger.info(f"mkt_list after nav filter: {pre_filter_count} -> {len(mkt_list)} (removed {pre_filter_count - len(mkt_list)})")
         markets_count = mkt_list.shape[0]
@@ -2084,7 +2088,7 @@ def lambda_handler(event, context):
 
     # Proceed with SQS
     start_time = datetime.now()
-    run_id = data.get('run_id') or str(uuid4())
+    #run_id = data.get('run_id') or str(uuid4())
     overall_start = data.get('overall_start', start_interval)
     overall_end = data.get('overall_end', end_interval)
 
@@ -2196,6 +2200,7 @@ def lambda_handler(event, context):
         insert_file_upload_s3(run_id, start_time)
 
     log_time.send_time_log_db()
+    logger.info(f"fetchLambda complete | run_id: {run_id}")
     return {
         "statusCode": 200,
         "body": markets_count

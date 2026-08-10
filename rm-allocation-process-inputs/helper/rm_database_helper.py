@@ -791,6 +791,14 @@ class RMDatabaseHelper:
         except Exception:
             return date_val
 
+    def parse_date_to_datetime_obj(self, date_val):
+        try:
+            if date_val is None or pd.isna(date_val):
+                return None
+            return pd.to_datetime(str(date_val)).normalize().tz_localize('UTC').to_pydatetime()
+        except Exception:
+            return None
+
     def insertSummaryRow(self, allocResults):
         if self.inputSource.logs[CONST_RUN_SUMMARY] == DB:
             latest_row = allocResults[-1]
@@ -848,6 +856,7 @@ class RMDatabaseHelper:
                 "status": str(latest_row.status),
                 "w0Flag": str(latest_row.w0Flag),
                 "mktFile": str(latest_row.mktFile),
+                "T_prime": str(latest_row.T_prime),
                 "ForecastAF_Allin": str(latest_row.ForecastAF_Allin),
                 "AF_Allin": str(latest_row.AF_Allin),
                 "AF_NB_Allin": str(latest_row.AF_NB_Allin),
@@ -859,6 +868,7 @@ class RMDatabaseHelper:
                 "ImputedForecastPLF": str(latest_row.ImputedForecastPLF),
                 "B2BFactor": str(latest_row.B2BFactor),
                 "toleranceValue": str(latest_row.toleranceValue),
+                "anchorFareBeforeTolerance": str(latest_row.anchorFareBeforeTolerance),
                 "grpAdjProfileFare": str(latest_row.grpAdjProfileFare),
                 "grpAdjPLF": str(latest_row.grpAdjPLF),
                 "grpFareAnchor": str(latest_row.grpFareAnchor),
@@ -871,7 +881,9 @@ class RMDatabaseHelper:
                 "Portfolio88_Anchor": str(latest_row.Portfolio88_Anchor),
                 "portfolio_count": str(latest_row.portfolio_count),
                 "conversionRate": str(latest_row.conversionRate),
-                "currency": str(latest_row.currency)
+                "currency": str(latest_row.currency),
+                "region": str(latest_row.region),
+                "DepDateObj": self.parse_date_to_datetime_obj(latest_row.DepDate)
             }
 
             try:
@@ -889,6 +901,7 @@ class RMDatabaseHelper:
                     "Destin": doc["Destin"],
                     "Channel": doc["Channel"]
                 }
+                doc.pop('_id', None)
                 self.db.run_summary_latest.replace_one(latest_filter, doc, upsert=True)
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_latest: {e}")
@@ -1302,7 +1315,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection: {e}")
  
             if not all_results:
-                self.logger.warning("No market fare records found")
+                self.logger.info("No market fare records found")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'mktFile'])
  
  
@@ -1489,7 +1502,7 @@ class RMDatabaseHelper:
                     self.logger.error(f"Error querying RG collection for connections: {e}")
             
             if not all_results:
-                self.logger.warning("No market fare connection records found for the given criteria.")
+                self.logger.info("No market fare connection records found for the given criteria.")
                 return pd.DataFrame(columns=['gross_fare', 'outbound_airline_code', 'outbound_flight', 'currency', 'mktFile'])
 
         
@@ -1524,6 +1537,10 @@ class RMDatabaseHelper:
 
 
     def getCurrentTime(self, currentTimeFlag, currParams, currFltDate, starttime):
+        ist_timezone = pytz.timezone('Asia/Kolkata')
+        default_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
+        self.currentTime = default_time
+
         if currentTimeFlag:
             currFltDate = datetime.strptime(currFltDate, "%m/%d/%Y").strftime("%Y-%m-%d")
             try:
@@ -1533,13 +1550,11 @@ class RMDatabaseHelper:
                     "Destin": currParams.destin,
                     "FlightDate": currFltDate
                 })
-                self.currentTime = result["runTime"] if result else None
+                if result and "runTime" in result and result["runTime"]:
+                    self.currentTime = result["runTime"]
             except Exception as e:
                 self.logger.error(e)
-        else:
-            ist_timezone = pytz.timezone('Asia/Kolkata')
-            cur_time = starttime.astimezone(ist_timezone).time().strftime("%H:%M")
-            self.currentTime = cur_time
+
         return self.currentTime
 
     def get_qp_currency(self, origin, destin):
@@ -1782,8 +1797,8 @@ class RMDatabaseHelper:
                 return pd.DataFrame()
 
             ndo_value = ndo_result['value']
-            currTime = currTime + ':00'
-
+            if not currTime:
+                currTime = '00:00'
             # Determine cluster based on time
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
@@ -1852,6 +1867,8 @@ class RMDatabaseHelper:
 
     def getProfileFares(self, sector, month, dow, currTime, percentile, incremented_profile_fare_flag=0):
         try:
+            if not currTime:
+                currTime = '00:00'
             time_obj = datetime.strptime(currTime, '%H:%M').time()
             cluster = None
             if datetime.strptime('02:30:00', '%H:%M:%S').time() <= time_obj < datetime.strptime('07:30:00', '%H:%M:%S').time():
@@ -1952,7 +1969,10 @@ class RMDatabaseHelper:
                 "sector": sector
             })
             if result:
-                value = str(result['value']).replace('%', '')
+                val = result.get('value')
+                if pd.isna(val) or (isinstance(val, float) and __import__('math').isnan(val)):
+                    return pd.DataFrame()
+                value = str(val).replace('%', '')
                 return pd.DataFrame([{"percentage": value}])
             return pd.DataFrame()
         except Exception as e:
@@ -2286,6 +2306,7 @@ class RMDatabaseHelper:
                     "DepDate2": doc["DepDate2"],
                     "Channel": doc["Channel"]
                 }
+                doc.pop('_id', None)
                 self.db.run_summary_connections_latest.replace_one(latest_filter, doc, upsert=True)
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_connections_latest: {e}")
@@ -2440,10 +2461,15 @@ class RMDatabaseHelper:
     #         return pd.DataFrame()
     
     def fetch_all_conversion_data(self):
-        if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
-            query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
-            df = pd.read_sql(query, self.dwconn)
-        else:
+        try:
+            if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
+                query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
+                df = pd.read_sql(query, self.dwconn)
+                return df
+        except Exception as e:
+            self.logger.error(f"Error fetching conversion data from MySQL, falling back to MongoDB: {e}")
+            
+        try:
             collection = self.db['currency_conversion']
 
             # Using find() to get all documents with only specific fields
@@ -2459,7 +2485,10 @@ class RMDatabaseHelper:
 
             # Convert to pandas DataFrame
             df = pd.DataFrame(list(cursor))
-        return df
+            return df
+        except Exception as e:
+            self.logger.error(f"Error fetching conversion data from MongoDB: {e}")
+            return pd.DataFrame()
 
     def get_curveids(self, sector1, sector2, fltno1, fltno2, dep1, dep2):
         try:
@@ -2759,6 +2788,26 @@ class RMDatabaseHelper:
             # Default to domestic if there's an error
             return True, True
 
+    def getAutoToleranceConfig(self):
+        try:
+            ndo_cursor = self.db["auto_tolerance_ndo_config"].find({}, {"_id": 0})
+            ndo_config = pd.DataFrame(list(ndo_cursor))
+            
+            delta_cursor = self.db["auto_tolerance_delta_bands"].find({}, {"_id": 0})
+            delta_bands = pd.DataFrame(list(delta_cursor))
+            
+            grid_cursor = self.db["auto_tolerance_grid_values"].find({}, {"_id": 0})
+            grid_values = pd.DataFrame(list(grid_cursor))
+            
+            return {
+                "ndo_config": ndo_config,
+                "delta_bands": delta_bands,
+                "grid_values": grid_values
+            }
+        except Exception as e:
+            self.logger.error("Error in getAutoToleranceConfig: " + str(e))
+            return None
+
     def get_stage_length(self, departure_station, arrival_station):
         """
         Get the ActualDistance (stage length) from MySQL CityPair table or MongoDB city_pair collection.
@@ -2804,3 +2853,30 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(f"Error fetching stage length for {departure_station}-{arrival_station}: {e}")
             return 0
+
+    def getAutoToleranceState(self, redis_key):
+        try:
+            result = self.db.auto_tolerance_redis_state.find_one({"redis_key": redis_key})
+            if result:
+                return result
+            
+            # Fallback for old format if migrating from auto_tolerance_
+            if redis_key.startswith("run_history:"):
+                old_key = redis_key.replace("run_history:", "auto_tolerance_", 1)
+                old_result = self.db.auto_tolerance_redis_state.find_one({"redis_key": old_key})
+                if old_result:
+                    return old_result
+        except Exception as e:
+            self.logger.error(f"Error fetching auto_tolerance_redis_state from Mongo: {e}")
+        return None
+
+    def setAutoToleranceState(self, redis_key, state_dict):
+        try:
+            state_dict["redis_key"] = redis_key
+            self.db.auto_tolerance_redis_state.update_one(
+                {"redis_key": redis_key},
+                {"$set": state_dict},
+                upsert=True
+            )
+        except Exception as e:
+            self.logger.error(f"Error setting auto_tolerance_redis_state to Mongo: {e}")

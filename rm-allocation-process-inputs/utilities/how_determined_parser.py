@@ -23,6 +23,7 @@ class HowDeterminedParser:
         cond = []
         qp = []
         forecast = []
+        spoilage = []
         
         # 1. Logic
         if "AF_Forecast" in raw_str:
@@ -165,8 +166,13 @@ class HowDeterminedParser:
         cond_str = ", ".join(cond) if cond else "N/A"
         qp_str = ", ".join(qp) if qp else "N/A"
         forecast_str = ", ".join(forecast) if forecast else "N/A"
+
+        if "Spoilage Reduction" in raw_str:
+            spoilage.append("Spoilage Reduction")
         
-        parts = [logic_str, fare_str, cond_str, qp_str, forecast_str]
+        spoilage_str = ", ".join(spoilage) if spoilage else "N/A"
+        
+        parts = [logic_str, fare_str, cond_str, qp_str, forecast_str, spoilage_str]
         valid_parts = [p for p in parts if p != "N/A"]
         
         return " | ".join(valid_parts).replace(" ", "_") if valid_parts else "N/A"

@@ -2,7 +2,7 @@ package
 *.pyc
 
 \venv
-
+*.log
 .vscode/
 .idea/
 local.env
