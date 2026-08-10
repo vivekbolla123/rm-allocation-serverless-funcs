@@ -1555,8 +1555,8 @@ class DynAlloc:
 
 
 		param_analyst_name_full = str(getattr(self.currParams, 'analyst_name', CONST_NA))
-		param_b2c_backstop_full = str(b2c_backstop_final if b2c_backstop_final != CONST_NA else getattr(self.currParams, 'b2c_backstop', CONST_NA))
-		param_b2b_backstop_full = str(b2b_backstop_final if b2b_backstop_final != CONST_NA else getattr(self.currParams, 'b2b_backstop', CONST_NA))
+		param_b2c_backstop_full = getattr(self.currParams, 'b2c_backstop', CONST_NA)
+		param_b2b_backstop_full = getattr(self.currParams, 'b2b_backstop', CONST_NA)
 
 
 		# B2C Summary Row Population

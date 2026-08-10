@@ -153,12 +153,12 @@ class DetermineRBD:
             try:
                 strategy_val = float(strategyFare)
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
-                if effective_autoBackstopFlag == "1":
+                if effective_autoBackstopFlag == "1" and int(dplfBand) in (0, 1, 2):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
                             backstop = min(strategy_val, b2c_val)
-                            currParams.b2c_backstop = backstop
+                            # currParams.b2c_backstop = backstop
                             if state:
                                 state.b2c_backstop_final = backstop
                                 state.auto_b2c_backstop_str = str(backstop)
@@ -166,7 +166,7 @@ class DetermineRBD:
                         b2b_val = float(currParams.b2b_backstop)
                         if b2b_val > 0:
                             backstop = min(strategy_val, b2b_val)
-                            currParams.b2b_backstop = backstop
+                            # currParams.b2b_backstop = backstop
                             if state:
                                 state.b2b_backstop_final = backstop
                                 state.auto_b2b_backstop_str = str(backstop)
