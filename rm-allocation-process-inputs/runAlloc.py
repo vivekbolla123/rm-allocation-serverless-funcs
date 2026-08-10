@@ -916,11 +916,15 @@ class DynAlloc:
 		currFltDate = state.currFltDate
 		currFltDate_dt = state.currFltDate_dt
 		param_flight_number_str = state.param_flight_number_str
-
+		conversion_rate = "NA"
 		# Last Selling Fare
 		lastSoldFareb2c_val = CONST_NA; lastSoldFareb2b_val = CONST_NA; last_seven_avg_val = CONST_NA
 		input_source_lsf = self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) # Default to TEST_DATA if not set
-
+		qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+		if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
+			self.currency = str(qpcurrency_df['currency'].iloc[0]).strip()
+		else:
+			self.currency = 'INR'
 		if input_source_lsf == TEST_DATA:
 			farePrice_data = self.rmdatabasehelper.getLastSellingFare(currFltDate, self.currParams) # currFltDate is MM/DD/YYYY
 			if not farePrice_data.empty:
@@ -948,24 +952,20 @@ class DynAlloc:
 
 				if fare_manifest_str:
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
-					
-					qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
-					if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
-						self.qpcurrency = str(qpcurrency_df['currency'].iloc[0]).strip()
-					else:
-						self.qpcurrency = 'INR'
 
-					if self.qpcurrency != 'INR' and self.qpcurrency != '' and self.qpcurrency.upper() != 'NAN' and self.qpcurrency != 'None':
+					if self.currency != 'INR' and self.currency != '' and self.currency.upper() != 'NAN' and self.currency != 'None':
 						if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):
-							last_seven_avg_val = self.convert_currency('INR', self.qpcurrency, last_seven_avg_val)
+							last_seven_avg_val, conversion_rate = self.convert_currency('INR', self.currency, last_seven_avg_val)
 						if lastSoldFareb2b_val != CONST_NA and not pd.isna(lastSoldFareb2b_val):
-							lastSoldFareb2b_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2b_val)
+							lastSoldFareb2b_val, conversion_rate = self.convert_currency('INR', self.currency, lastSoldFareb2b_val)
 						if lastSoldFareb2c_val != CONST_NA and not pd.isna(lastSoldFareb2c_val):
-							lastSoldFareb2c_val = self.convert_currency('INR', self.qpcurrency, lastSoldFareb2c_val)
+							lastSoldFareb2c_val, conversion_rate = self.convert_currency('INR', self.currency, lastSoldFareb2c_val)
 
 		state.lastSoldFareb2c_val = lastSoldFareb2c_val
 		state.lastSoldFareb2b_val = lastSoldFareb2b_val
 		state.last_seven_avg_val = last_seven_avg_val
+		state.currency = self.currency
+		state.conversion_rate = conversion_rate
 
 	def _phaseJ_spoilageReduction(self, state):
 		"""Phase J — NDO-0 spoilage-reduction trigger (PLF threshold, time-to-
@@ -1539,6 +1539,8 @@ class DynAlloc:
 		forecast_plf = state.forecast_plf
 		final_totalCapacity = state.final_totalCapacity
 		sod_tgtAtCurrentHour_abs = state.sod_tgtAtCurrentHour_abs
+		conversion_rate = state.conversion_rate
+		currency = state.currency
 		param_profileFares = getattr(self.currParams, 'profileFares', 1)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
@@ -1598,6 +1600,9 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.bookedPlf = str(round(final_plf,2)); self.outputSummaryRow_b2c.allocationStatus = safe_get_from_dict(openDataB2C_details, 'allocationStatus', default=0)
 		self.outputSummaryRow_b2c.overBookingCount = overBookingCount; self.outputSummaryRow_b2c.actualbookedPlf = round(self.actualplf,2)
 		self.outputSummaryRow_b2c.ExpectedNoShows = expectedNoShows
+		self.outputSummaryRow_b2c.currency = self.outputSummaryRow_b2b.currency = currency
+		self.outputSummaryRow_b2c.conversionRate = self.outputSummaryRow_b2b.conversionRate = conversion_rate
+		self.outputSummaryRow_b2b.region = self.outputSummaryRow_b2c.region = getattr(self.currParams, 'region', DOMESTIC_VALUE)
 		
 		CurveId = getattr(self.currParams, 'curve_id', CONST_NA)
 		self.outputSummaryRow_b2c.CurveId = CurveId if CurveId is not None else CONST_NA
@@ -2045,7 +2050,7 @@ class DynAlloc:
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
 
-		self.qpcurrency = "INR"
+		self.currency = "INR"
 		self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
 
 		self.MIN_D3_D4_VALUE = self.constantsUtils.MIN_D3_D4_VALUE
@@ -2094,13 +2099,13 @@ class DynAlloc:
 		
 		conversion_rate = conversion['ConversionRate'].values[0]
 		converted_value = float(value) * conversion_rate
-		if self.qpcurrency!='INR':
-			if hasattr(self, 'outputSummaryRow_b2b'):
-				self.outputSummaryRow_b2b.conversionRate=conversion_rate
-			if hasattr(self, 'outputSummaryRow_b2c'):
-				self.outputSummaryRow_b2c.conversionRate=conversion_rate
+		# if self.currency!='INR':
+		# 	if hasattr(self, 'outputSummaryRow_b2b'):
+		# 		self.outputSummaryRow_b2b.conversionRate=conversion_rate
+		# 	if hasattr(self, 'outputSummaryRow_b2c'):
+		# 		self.outputSummaryRow_b2c.conversionRate=conversion_rate
 				
-		return converted_value
+		return converted_value, conversion_rate
 
 	def getBookloadSeries(self,dep_date,currBookedLoad):
 		blocked_seats = self.rmdatabasehelper.getSeriesBlockedSeats(dep_date)
@@ -3279,6 +3284,8 @@ class DynAlloc:
 		entry["last_seven_avg_val"] = state.last_seven_avg_val
 		entry["is_spoilage_reduction_active"] = state.is_spoilage_reduction_active
 		entry["hardfare_b2c"] = state.hardfare_b2c
+		entry["conversion_rate"] = state.conversion_rate
+		entry["currency"] = state.currency
 
 		entry["B2B_thresholdflag"] = bool(getattr(self, 'B2B_thresholdflag', False))
 		entry["p_thresholdflag"] = bool(getattr(self, 'p_thresholdflag', False))
@@ -3421,7 +3428,10 @@ class DynAlloc:
 			"portfolio_only": "portfolio_only",
 			"strategy": "fareAnchor",  # strategy is derived from fare_anchor
 			"incrementedProfileFareFlag": "incrementedProfileFareFlag",
-			"profileFareUpsell": "ProfileFareUpsell",
+			"profileFareUpsell": "ProfileFareUpsell", 
+			"currency": "currency",
+			"conversion_rate": "conversionRate",
+			"region": "region"
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
@@ -3631,6 +3641,8 @@ class DynAlloc:
 			lowmktFile_b2c=payload.get("lowmktFile_b2c", ""),
 			is_last7avg_anchor_b2c=payload.get("is_last7avg_anchor_b2c", False),
 			is_profile_anchor_b2c=payload.get("is_profile_anchor_b2c", False),
+			currency=payload.get("currency", "NA"),
+			conversion_rate=payload.get("conversion_rate", "NA"),
 		)
 		# Re-derive parsed datetime / yyyymmdd helpers because the
 		# downstream phases read them from ``state``.

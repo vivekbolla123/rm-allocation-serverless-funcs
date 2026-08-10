@@ -1,5 +1,38 @@
 package com.akasaair.queues.common.helpers;
 
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.reflect.FieldUtils;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Encoder;
+import org.apache.spark.sql.Encoders;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.functions;
+import org.bson.Document;
+import org.bson.conversions.Bson;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.stereotype.Component;
+
+import static com.akasaair.queues.common.constants.Constants.AUDIT_EMPTY_IDENTIFIER;
+import static com.akasaair.queues.common.constants.Constants.AUDIT_KEY_DELIMITER;
 import com.akasaair.queues.common.entity.MarketListAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnAuditEntity;
 import com.akasaair.queues.common.entity.MarketListConnectionsEntity;
@@ -7,35 +40,13 @@ import com.akasaair.queues.common.entity.MarketListEntity;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
-import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.reflect.FieldUtils;
-import org.apache.spark.SparkContext;
-import org.apache.spark.sql.*;
-import org.bson.Document;
-import org.bson.conversions.Bson;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.task.TaskExecutor;
-import org.springframework.stereotype.Component;
-import org.springframework.beans.BeanUtils;
-import software.amazon.awssdk.regions.Region;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Indexes;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.persistence.Column;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.sql.*;
-import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
-
-import static com.akasaair.queues.common.constants.Constants.*;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component
@@ -73,14 +84,82 @@ public class AuditHelper {
      */
     private static final int AUDIT_PIPELINE_BATCH_SIZE = 50_000;
 
-    public void buildAuditLogs(List<MarketListEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    /**
+     * Clones all documents from {@code sourceCollection} into a new collection named {@code targetCollection}
+     * using an aggregation $out pipeline. The target collection is created (or replaced) atomically.
+     * The caller is responsible for dropping the target collection when it is no longer needed.
+     *
+     * @param sourceCollection the existing collection to clone
+     * @param targetCollection the name of the new snapshot collection to create
+     */
+    public void cloneCollection(String sourceCollection, String targetCollection) {
+        database.getCollection(sourceCollection).aggregate(
+                List.of(new Document("$out", targetCollection))
+        ).toCollection();
+        log.info("Clone complete: '{}'", targetCollection);
+    }
 
-        // Process asynchronously in pipelined batches to bound memory usage
+    /**
+     * Drops a collection from the database. Safe to call even if the collection does not exist.
+     *
+     * @param collectionName the collection to drop
+     */
+    public void dropCollection(String collectionName) {
+        try {
+            database.getCollection(collectionName).drop();
+            log.info("Dropped snapshot collection '{}'", collectionName);
+        } catch (Exception e) {
+            log.warn("Failed to drop snapshot collection '{}': {}", collectionName, e.getMessage());
+        }
+    }
+
+    /**
+     * Builds audit logs asynchronously for the given collection.
+     * <p>
+     * Internally, this method creates a point-in-time snapshot of {@code collectionName} before
+     * spawning the async task. The async batched processing reads exclusively from this snapshot,
+     * so concurrent deletes/inserts on the live collection cannot corrupt the audit delta.
+     * A {@code try-finally} block inside the async task guarantees the snapshot is dropped
+     * when processing completes (or if any error occurs).
+     *
+     * @param newRecords       the new records being uploaded
+     * @param userName         the user performing the upload
+     * @param currentDateTime  the timestamp of the upload
+     * @param collectionName   the live collection being updated (snapshot is taken from here)
+     * @param objId            the upload request's obj_id, used in the snapshot name for easy tracking
+     */
+    public void buildAuditLogs(List<MarketListEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName, String objId) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+
+        // Clone the live collection into a stable snapshot BEFORE the async task starts,
+        // so the task always reads the correct pre-upload state regardless of what the
+        // main thread does to the live collection after this returns.
+        // Snapshot name embeds objId for easy identification in MongoDB (e.g. via db.listCollections()).
+        String snapshotCollectionName = collectionName + "_" + objId;
+        cloneCollection(collectionName, snapshotCollectionName);
+
+        // Process asynchronously in pipelined batches to bound memory usage.
+        // Reads from the snapshot collection so that concurrent deletes/inserts on the
+        // live collection do not corrupt the audit delta calculation.
         CompletableFuture.runAsync(() -> {
             try {
                 int totalRecords = newRecords.size();
                 int totalBatches = (int) Math.ceil((double) totalRecords / AUDIT_PIPELINE_BATCH_SIZE);
-                log.info("Audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
+                log.info("Audit pipeline: {} records in {} batch(es) of {} (snapshot: '{}')",
+                        totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE, snapshotCollectionName);
+
+                // 0. Create a compound index on the sector fields (Origin, Destin) before querying.
+                // $out does not copy indexes, so without this every fetchExistingRecords call would
+                // do a full collection scan. The index is built here (async, off main thread) so the
+                // HTTP response is not delayed, but is ready before any batch query runs.
+                try {
+                    database.getCollection(snapshotCollectionName)
+                            .createIndex(Indexes.compoundIndex(Indexes.ascending("Origin"), Indexes.ascending("Destin")),
+                                    new IndexOptions().background(false).name("snap_origin_destin"));
+                    log.info("Audit snapshot index created on (Origin, Destin) for '{}'", snapshotCollectionName);
+                } catch (Exception idxEx) {
+                    log.warn("Could not create snapshot index for '{}', queries will use collection scan: {}",
+                            snapshotCollectionName, idxEx.getMessage());
+                }
 
                 for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
                     log.info("Audit batch {}/{}: started", batchIdx + 1, totalBatches);
@@ -93,8 +172,8 @@ public class AuditHelper {
                             .map(record -> createCompositeKey(record.getOrigin() + record.getDestination(), record.getFlightNo(), record.getStartDate()))
                             .collect(Collectors.toSet());
 
-                    // 2. Fetch existing records for this batch only
-                    Map<String, MarketListEntity> existingMap = fetchExistingRecords(batchKeys, MarketListEntity.class, collectionName);
+                    // 2. Fetch existing records from the SNAPSHOT (not the live collection)
+                    Map<String, MarketListEntity> existingMap = fetchExistingRecords(batchKeys, MarketListEntity.class, snapshotCollectionName);
 
                     // 3. Compute delta for this batch
                     List<MarketListAuditEntity> changeMap = buildDeltaRecords(batch, existingMap, userName, currentDateTime);
@@ -113,7 +192,11 @@ public class AuditHelper {
                 }
 
             } catch (Throwable e) {
-                log.error("Error processing audit delta: {}", e.getMessage(), e);
+                log.error("Error processing audit delta (snapshot: '{}'): {}", snapshotCollectionName, e.getMessage(), e);
+            } finally {
+                // Always drop the snapshot collection to avoid orphaned collections,
+                // regardless of whether the audit processing succeeded or failed.
+                dropCollection(snapshotCollectionName);
             }
         }, taskExecutor);
 
@@ -259,14 +342,53 @@ public class AuditHelper {
         return changeMap;
     }
 
-    public void buildConnAuditLogs(List<MarketListConnectionsEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
+    /**
+     * Builds connection audit logs asynchronously for the given collection.
+     * <p>
+     * Internally, this method creates a point-in-time snapshot of {@code collectionName} before
+     * spawning the async task. The async batched processing reads exclusively from this snapshot,
+     * so concurrent deletes/inserts on the live collection cannot corrupt the audit delta.
+     * A {@code try-finally} block inside the async task guarantees the snapshot is dropped
+     * when processing completes (or if any error occurs).
+     *
+     * @param newRecords       the new connection records being uploaded
+     * @param userName         the user performing the upload
+     * @param currentDateTime  the timestamp of the upload
+     * @param collectionName   the live collection being updated (snapshot is taken from here)
+     * @param objId            the upload request's obj_id, used in the snapshot name for easy tracking
+     */
+    public void buildConnAuditLogs(List<MarketListConnectionsEntity> newRecords, String userName, LocalDateTime currentDateTime, String collectionName, String objId) throws InvocationTargetException, NoSuchMethodException, InstantiationException, IllegalAccessException {
 
-        // Process asynchronously in pipelined batches to bound memory usage
+        // Clone the live collection into a stable snapshot BEFORE the async task starts,
+        // so the task always reads the correct pre-upload state regardless of what the
+        // main thread does to the live collection after this returns.
+        // Snapshot name embeds objId for easy identification in MongoDB (e.g. via db.listCollections()).
+        String snapshotCollectionName = collectionName + "_" + objId;
+        cloneCollection(collectionName, snapshotCollectionName);
+
+        // Process asynchronously in pipelined batches to bound memory usage.
+        // Reads from the snapshot collection so that concurrent deletes/inserts on the
+        // live collection do not corrupt the audit delta calculation.
         CompletableFuture.runAsync(() -> {
             try {
                 int totalRecords = newRecords.size();
                 int totalBatches = (int) Math.ceil((double) totalRecords / AUDIT_PIPELINE_BATCH_SIZE);
-                log.info("Connection audit pipeline: {} records in {} batch(es) of {}", totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE);
+                log.info("Connection audit pipeline: {} records in {} batch(es) of {} (snapshot: '{}')",
+                        totalRecords, totalBatches, AUDIT_PIPELINE_BATCH_SIZE, snapshotCollectionName);
+
+                // 0. Create a compound index on the sector fields (Sector1, Sector2) before querying.
+                // $out does not copy indexes, so without this every fetchExistingRecords call would
+                // do a full collection scan. The index is built here (async, off main thread) so the
+                // HTTP response is not delayed, but is ready before any batch query runs.
+                try {
+                    database.getCollection(snapshotCollectionName)
+                            .createIndex(Indexes.compoundIndex(Indexes.ascending("Sector1"), Indexes.ascending("Sector2")),
+                                    new IndexOptions().background(false).name("snap_sector1_sector2"));
+                    log.info("Conn audit snapshot index created on (Sector1, Sector2) for '{}'", snapshotCollectionName);
+                } catch (Exception idxEx) {
+                    log.warn("Could not create snapshot index for '{}', queries will use collection scan: {}",
+                            snapshotCollectionName, idxEx.getMessage());
+                }
 
                 for (int batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
                     log.info("Connection audit batch {}/{}: started", batchIdx + 1, totalBatches);
@@ -280,8 +402,8 @@ public class AuditHelper {
                                     record.getFlight1() + "-" + record.getFlight2(), record.getStartDate()))
                             .collect(Collectors.toSet());
 
-                    // 2. Fetch existing records for this batch only
-                    Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(batchKeys, MarketListConnectionsEntity.class, collectionName);
+                    // 2. Fetch existing records from the SNAPSHOT (not the live collection)
+                    Map<String, MarketListConnectionsEntity> existingMap = fetchExistingRecords(batchKeys, MarketListConnectionsEntity.class, snapshotCollectionName);
 
                     // 3. Compute delta for this batch
                     List<MarketListConnAuditEntity> changeMap = buildConnDeltaRecords(batch, existingMap, userName, currentDateTime);
@@ -300,7 +422,11 @@ public class AuditHelper {
                 }
 
             } catch (Throwable e) {
-                log.error("Error processing connection audit delta: {}", e.getMessage(), e);
+                log.error("Error processing connection audit delta (snapshot: '{}'): {}", snapshotCollectionName, e.getMessage(), e);
+            } finally {
+                // Always drop the snapshot collection to avoid orphaned collections,
+                // regardless of whether the audit processing succeeded or failed.
+                dropCollection(snapshotCollectionName);
             }
         }, taskExecutor);
 
