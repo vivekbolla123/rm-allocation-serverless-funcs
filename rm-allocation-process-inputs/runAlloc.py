@@ -2454,8 +2454,8 @@ class DynAlloc:
 		try:
 			history = self.determinerbd.get_autotolerance_history(self.currParams)
 			if history:
-				plf_change_per = float(self.currParams.get("plf_change_per", 2.0))
-				plf_change_n_runs = int(self.currParams.get("plf_change_n_runs", 4))
+				plf_change_per = float(getattr(self.constantsUtils, 'plf_change_per', 2.0))
+				plf_change_n_runs = int(getattr(self.constantsUtils, 'plf_change_n_runs', 4))
 				
 				if len(history) >= plf_change_n_runs:
 					nth_run = history[-plf_change_n_runs]
