@@ -2513,13 +2513,8 @@ class DynAlloc:
 				b2c_backstop_final, self.currentTime, sod_dplfBand, variance_full, param_b2c_tolerance, final_plf,
 				overBookingCount, hardfareb2c, hardoffsetB2C, sod_BookingsInHour, lastSoldFareb2c_val, last_seven_avg_val,
 				is_last7avg_anchor, b2b_discount_fare_active, current_discount_amount, current_w0Flag, current_directFlag,
-<<<<<<< HEAD
 				param_obFare, profileFare, is_profile_anchor, imp_forecast, imp_forecast_band,
 				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, True, state
-=======
-				param_obFare, profileFare_b2c, is_profile_anchor, imp_forecast, imp_forecast_band,
-				self.outputSummaryRow_b2c.criteria, af_forecast_band, Af_Nb_Allin_b2c, PLF_Gain, forecast_plf, is_portfolio_flow=True
->>>>>>> d9c1ad778aea442f7b023dff23d34c7f78005d22
 			)
 			# Capture the F/G metadata onto the AnchorResult so the
 			# serialised PortfolioEntry can carry it across the SQS hop
