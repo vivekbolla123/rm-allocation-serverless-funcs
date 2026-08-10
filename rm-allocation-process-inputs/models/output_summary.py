@@ -68,6 +68,7 @@ class OutputSummary:
         self.OtherRBDAlloc=CONST_NA
         self.B2BFactor=CONST_NA
         self.toleranceValue=CONST_NA
+        self.T_prime=CONST_NA
         self.grpAdjProfileFare=CONST_NA
         self.grpAdjPLF=CONST_NA
         self.grpFareAnchor=CONST_NA
@@ -83,3 +84,5 @@ class OutputSummary:
         
         self.conversionRate = CONST_NA
         self.currency = CONST_NA
+        self.region = DOMESTIC_VALUE
+        self.DepDateObj = CONST_NA

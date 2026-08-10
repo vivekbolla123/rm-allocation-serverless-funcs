@@ -56,6 +56,7 @@ LAST_N_AVG_FARE = 7
 ADHOC_BATCH_SIZE = 4000
 CHECK_THRESHOLD_FETCH_INPUTS = 5
 TIME_BEFORE_DEPARTURE = 30
+FORECAST_ALLOC_NDO_MAX = 30
 
 # Portfolio sibling enrichment: max unique departure dates processed per window
 PORTFOLIO_SIBLING_BATCH_SIZE = 7
@@ -209,6 +210,7 @@ TARIFF_ALERT_MAIL_ID_KEY = 'TARIFF_ALERT_MAIL_ID'
 DEFAULT_ML_ALERT_MAIL_ID_KEY = 'DEFAULT_ML_ALERT_MAIL_ID'
 
 MARKET_FARES_THRESHOLD_KEY = 'MARKET_FARES_THRESHOLD'
+FORECAST_ALLOC_NDO_MAX_KEY = 'FORECAST_ALLOC_NDO_MAX'
 
 THRESHOLD_TIME_KEY = "THRESHOLD_TIME"
 PF_UPSELL_VALUE_KEY = "PF_UPSELL_VALUE"
@@ -313,6 +315,7 @@ CONST_ABSOLUTE = 'ABS'
 CONST_RELATIVE = 'REL'
 CONST_REFERENCE = 'REF'
 CONST_NA = 'NA'
+DOMESTIC_VALUE = 'Domestic'
 
 DATE_TIME_FORMAT = '%Y-%m-%d %H:%M:%S'
 DATE_TIME_FORMAT2 = '%m/%d/%Y %H:%M'
@@ -558,3 +561,45 @@ DEFAULT_ML_CALC_CONFIG = '{ "backstop_distance_multiplier": 6, "q_fare_level": "
 
 HOLD_BOOKING_ALERT_CONFIGURATION = {"email_subject":"Hold Booking Alert","email_recipients": ["closed.rm.italerts@akasaair.com"], "email_cc": [],"alert_threshold":20,"alert_ndo":7}
 HOLD_BOOKING_ALERT_CONFIGURATION_KEY = "HOLD_BOOKING_ALERT_CONFIGURATION"
+
+
+# Master data cached once per run (survives per-sector cache resets).
+RUN_SCOPED_CACHE_KEYS = (
+    'tax_mast_dom', 'tax_mast_intl',
+    'pricing_duf_sectors', 'pricing_gst_sectors', 'pricing_rcs_sectors',
+)
+
+# =============================================================================
+# BACKFILL / REFRESH CONTROLS (overridable via overrides)
+# =============================================================================
+# FORCE_BACKFILL: 'true' -> ignore cache, refetch full window for the sectors.
+FORCE_BACKFILL = ''
+# REFRESH_SPEC: '' none | '3' last-3-months | '2025-03,2025-11' explicit months.
+REFRESH_SPEC = ''
+# In the Lambda, the assigned bin IS the unit of work; sectors are processed one
+# at a time for accurate per-sector timing, so this only bounds a standalone run.
+SECTOR_BATCH_SIZE = 6
+
+# =============================================================================
+# MODEL PARAMETERS
+# =============================================================================
+NDO_RANGE = list(range(181))           # 0..180
+PREDICTION_HORIZON_DAYS = 180
+MIN_FLIGHT_MATCHES = 13
+WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
+WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
+PARQUET_ROW_THRESHOLD = 250_000
+
+REQUIRED_RBDS = [
+    'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',
+    'M', 'N', 'N0', 'N1', 'N2', 'N3', 'N4', 'O',
+    'O0', 'O1', 'O2', 'O3', 'O4', 'P0', 'P1', 'P2', 'P3',
+    'P4', 'Q', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4', 'Q5', 'Q6', 'Q7',
+    'Q8', 'Q9', 'R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7',
+    'R8', 'R9', 'T0', 'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7',
+    'T8', 'T9', 'U0', 'U1', 'U2', 'U3', 'U4', 'U5', 'U6', 'U7',
+    'U8', 'U9', 'V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7',
+    'V8', 'V9', 'Y', 'Z0', 'Z1', 'Z2', 'Z3', 'Z4', 'Z5', 'Z6',
+    'Z7', 'Z8', 'Z9', 'ZA', 'ZB', 'ZC', 'ZD', 'ZE', 'ZF', 'ZH',
+    'ZI', 'ZJ',
+]

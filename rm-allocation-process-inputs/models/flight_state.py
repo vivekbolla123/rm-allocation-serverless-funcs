@@ -149,6 +149,9 @@ class FlightState:
 	lastSoldFareb2c_val: Any = None
 	lastSoldFareb2b_val: Any = None
 	last_seven_avg_val: Any = None
+	currency: Any = None
+	conversion_rate: Any = None
+	region: Any = None
 
 	# Phase J
 	is_spoilage_reduction_active: bool = False

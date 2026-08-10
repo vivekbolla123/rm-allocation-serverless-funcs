@@ -120,6 +120,20 @@ class DetermineRBD:
         # toleranceValue) but reproduces today's quirky values verbatim so callers see
         # byte-identical results (R2.2, R11.1).
         def _build_early_return(open_result_value, current_strategy_fare):
+            computed_tolerance_value = CONST_NA
+            if current_strategy_fare not in (CONST_NA, None) and not pd.isna(current_strategy_fare):
+                has_tol = (toleranceFare is not None and pd.isna(toleranceFare) == False and 
+                           toleranceFare != CONST_NA and toleranceFare != '' and 
+                           pd.isnull(toleranceFare) == False and toleranceFare != -1)
+                if has_tol:
+                    try:
+                        calc_limit = float(current_strategy_fare) - float(toleranceFare)
+                        computed_tolerance_value = f"{calc_limit:.2f}"
+                    except Exception:
+                        computed_tolerance_value = "0.00"
+                else:
+                    computed_tolerance_value = "0.00"
+
             return (
                 open_result_value,
                 lastSoldFare,
@@ -129,6 +143,7 @@ class DetermineRBD:
                 hardAnchorFare,
                 overBookingFare,
                 hardAnchorFare,
+                computed_tolerance_value,
                 CONST_NA,
             )
 
@@ -184,6 +199,7 @@ class DetermineRBD:
         anchorValue = ''
     
         toleranceValue = CONST_NA
+        T_prime = CONST_NA
 
         if channel == B2B_CHANNEL:
             anchorFare = strategyFare
@@ -231,7 +247,7 @@ class DetermineRBD:
                         b2b_discount_fare, anchorFare, obfare, ndocounter, imp_forecast, is_portfolio_flow
                     )
  
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.final_fare_anchor_forecast(
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = self.final_fare_anchor_forecast(
                     strategyFare, profileFare, lastSoldFare, last7AvgVal, hardAnchorFare, currParams,
                     plf, overBookingCount, BookingsInHour, last7avg, isProfileAnchor, b2b_discount_fare,
                     anchorFare, obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band,
@@ -281,7 +297,7 @@ class DetermineRBD:
                 self.logger.info("Profile Fare: " + str(profileFare))
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
-                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
+                anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
                 if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
                     anchorFare = anchorFare+int(currParams.market_discount)
 
@@ -325,6 +341,7 @@ class DetermineRBD:
             openResult=openResult,
             early_return=False,
             early_return_tuple=None,
+            T_prime=T_prime,
         )
 
     def applyAnchorToLadder(self, anchor_result, currParams, backstop, offset=0, strategy_criteria=None):
@@ -372,6 +389,7 @@ class DetermineRBD:
             anchor_result.overBookingFare,
             anchor_result.hard_anchor_flag,
             anchor_result.toleranceValue,
+            anchor_result.T_prime,
         )
 
     def calculate_overbooking_fare_and_status(
@@ -585,6 +603,7 @@ class DetermineRBD:
         overBookingFare = 0
         toleranceValue = CONST_NA
         anchorFareBeforeTolerance = CONST_NA
+        T_prime = CONST_NA
         should_use_tolerance = False
         B2B_FACTOR_MAP = self.constantsutils.B2B_FACTOR_MAP
         tolerance_per = toleranceFare
@@ -623,10 +642,9 @@ class DetermineRBD:
                     tolerance_fare != -1)
         
         def apply_tolerance_logic(anchor_fare, tolerance_fare, how_determined):
-            if is_portfolio_flow:
-                return anchor_fare, how_determined
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
+            nonlocal T_prime
             if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
                 anchorFareBeforeTolerance = anchor_fare
 
@@ -645,8 +663,34 @@ class DetermineRBD:
 
             auto_tolerance_applied = False
             
-            if anchor_fare is not None:
-                history = self.get_autotolerance_history(currParams)
+            if anchor_fare is not None and flag_val in (1, '1'):
+                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+                hash_field = "autotolerance_history"
+                
+                history = []
+                try:
+                    if self.redishelper:
+                        state_str = self.redishelper.hget(redis_key, hash_field)
+                    if state_str:
+                        history = __import__('json').loads(state_str)
+                except Exception:
+                    pass
+                    
+
+                
+                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                    try:
+                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                        if mongo_state and "autotolerance_history" in mongo_state:
+                            h_val = mongo_state["autotolerance_history"]
+                            if isinstance(h_val, str):
+                                try:
+                                    h_val = __import__('json').loads(h_val)
+                                except Exception:
+                                    h_val = []
+                            history = h_val
+                    except Exception:
+                        pass
                 
                 if len(history) > 0:
                     last_record = history[-1]
@@ -807,12 +851,13 @@ class DetermineRBD:
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
-                    if 0 <= ndoc_val <= 7:
-                        try:
-                            final_T = (float(n_value) / 100.0) * float(strategyFare)
-                            t_prime_val = final_T
-                        except:
-                            pass
+                if 0 <= ndoc_val <= 7:
+                    try:
+                        T_prime = (float(n_value) / 100.0) * float(strategyFare)
+                        final_T = T_prime
+                        t_prime_val = final_T
+                    except:
+                        pass
 
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
@@ -859,10 +904,11 @@ class DetermineRBD:
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
 
+            toleranceValue = f"{tolerance_limit:.2f}"
+            if is_portfolio_flow:
+                return anchor_fare, how_determined
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return anchor_fare, how_determined
-
-            toleranceValue = f"{tolerance_limit:.2f}"
             anchor_fare = max(tolerance_limit, anchor_fare)
             if (anchor_fare == tolerance_limit):
                 how_determined += '_ToleranceHit'
@@ -1123,18 +1169,17 @@ class DetermineRBD:
             )
             should_use_tolerance = True
 
-        if should_use_tolerance:
-            anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
+        anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
         
         anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
         # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
-        if should_use_tolerance and "_Auto_Tolerance_Hit" not in howDetermined:
+        if "_Auto_Tolerance_Hit" not in howDetermined:
             howDetermined += "_Auto_Tolerance_Hit"
 
-        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance
+        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime
     
     def finalFareAnchor(self, strategyFare, profileFare, lastSoldFare,hardAnchorFare, value, dPLF, toleranceFare, currParams, plf, overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast=None, is_portfolio_flow=False):
         anchorFare = 0
@@ -1145,6 +1190,7 @@ class DetermineRBD:
         toleranceValue = CONST_NA
         auto_tolerance_applied = False
         anchorFareBeforeTolerance = CONST_NA
+        T_prime = CONST_NA
         
         # Helper functions to reduce code duplication
         def has_tolerance_fare():
@@ -1174,6 +1220,7 @@ class DetermineRBD:
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
+            nonlocal T_prime
             if anchorFareBeforeTolerance == CONST_NA and pre_tolerance_anchor is not None:
                 anchorFareBeforeTolerance = pre_tolerance_anchor
 
@@ -1191,8 +1238,34 @@ class DetermineRBD:
                 tolerance_limit = 0
 
             # Auto-tolerance logic
-            if pre_tolerance_anchor is not None:
-                history = self.get_autotolerance_history(currParams)
+            if pre_tolerance_anchor is not None and flag_val in (1, '1'):
+                redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+                hash_field = "autotolerance_history"
+                
+                history = []
+                try:
+                    if self.redishelper:
+                        state_str = self.redishelper.hget(redis_key, hash_field)
+                    if state_str:
+                        history = __import__('json').loads(state_str)
+                except Exception:
+                    pass
+                    
+
+                
+                if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+                    try:
+                        mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                        if mongo_state and "autotolerance_history" in mongo_state:
+                            h_val = mongo_state["autotolerance_history"]
+                            if isinstance(h_val, str):
+                                try:
+                                    h_val = __import__('json').loads(h_val)
+                                except Exception:
+                                    h_val = []
+                            history = h_val
+                    except Exception:
+                        pass
                 
                 if len(history) > 0:
                     last_record = history[-1]
@@ -1352,12 +1425,13 @@ class DetermineRBD:
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
-                    if 0 <= ndoc_val <= 7:
-                        try:
-                            final_T = (float(n_value) / 100.0) * float(strategyFare)
-                            t_prime_val = final_T
-                        except:
-                            pass
+                if 0 <= ndoc_val <= 7:
+                    try:
+                        T_prime = (float(n_value) / 100.0) * float(strategyFare)
+                        final_T = T_prime
+                        t_prime_val = final_T
+                    except:
+                        pass
 
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
@@ -1404,10 +1478,9 @@ class DetermineRBD:
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
 
+            toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return 0
-
-            toleranceValue = f"{tolerance_limit:.2f}"
             return tolerance_limit
         
         def build_fares_list():
@@ -1653,10 +1726,13 @@ class DetermineRBD:
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
+        if toleranceValue == CONST_NA:
+            calculate_tolerance_value(anchorFareBeforeTolerance)
+
         if auto_tolerance_applied and "_Auto_Tolerance_Hit" not in howDetermined:
             howDetermined += "_Auto_Tolerance_Hit"
             
-        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance
+        return anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
         self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")
