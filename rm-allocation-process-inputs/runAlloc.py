@@ -2470,37 +2470,32 @@ class DynAlloc:
 		except Exception as e:
 			self.logger.error(f"Error evaluating PLF surge: {e}")
 
-		profileFare_b2c = profileFare
-		Af_Nb_Allin_b2c = Af_Nb_Allin
-		profileFare_b2b = profileFare
-		Af_Nb_Allin_b2b = Af_Nb_Allin
-
 		if plf_surge:
 			# B2C Evaluation
-			if lastSoldFareb2c_val != CONST_NA and profileFare_b2c != CONST_NA:
+			if lastSoldFareb2c_val != CONST_NA and profileFare != CONST_NA:
 				try:
-					if float(lastSoldFareb2c_val) > float(profileFare_b2c):
-						profileFare_b2c = CONST_NA
+					if float(lastSoldFareb2c_val) > float(profileFare):
+						profileFare = CONST_NA
 				except ValueError:
 					pass
-			if Af_Nb_Allin_b2c != CONST_NA and lastSoldFareb2c_val != CONST_NA:
+			if Af_Nb_Allin != CONST_NA and lastSoldFareb2c_val != CONST_NA:
 				try:
-					if float(Af_Nb_Allin_b2c) < float(lastSoldFareb2c_val):
-						Af_Nb_Allin_b2c = CONST_NA
+					if float(Af_Nb_Allin) < float(lastSoldFareb2c_val):
+						Af_Nb_Allin = CONST_NA
 				except ValueError:
 					pass
 
 			# B2B Evaluation
-			if lastSoldFareb2b_val != CONST_NA and profileFare_b2b != CONST_NA:
+			if lastSoldFareb2b_val != CONST_NA and profileFare != CONST_NA:
 				try:
-					if float(lastSoldFareb2b_val) > float(profileFare_b2b):
-						profileFare_b2b = CONST_NA
+					if float(lastSoldFareb2b_val) > float(profileFare):
+						profileFare = CONST_NA
 				except ValueError:
 					pass
-			if Af_Nb_Allin_b2b != CONST_NA and lastSoldFareb2b_val != CONST_NA:
+			if Af_Nb_Allin != CONST_NA and lastSoldFareb2b_val != CONST_NA:
 				try:
-					if float(Af_Nb_Allin_b2b) < float(lastSoldFareb2b_val):
-						Af_Nb_Allin_b2b = CONST_NA
+					if float(Af_Nb_Allin) < float(lastSoldFareb2b_val):
+						Af_Nb_Allin = CONST_NA
 				except ValueError:
 					pass
 
