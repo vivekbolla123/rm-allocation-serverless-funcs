@@ -154,6 +154,7 @@ class ConstantsUtils:
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
         self.plf_change_per = 2.0
         self.plf_change_n_runs = 4
+        self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
 
         self.logger = logging.getLogger()
@@ -468,6 +469,8 @@ class ConstantsUtils:
                 self.plf_change_per = float(parameter_value)
             elif parameter_key == 'plf_change_n_runs':
                 self.plf_change_n_runs = int(parameter_value)
+            elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
+                self.DILUTION_PLF_THRESHOLD = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
