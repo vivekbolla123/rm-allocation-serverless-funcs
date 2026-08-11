@@ -167,7 +167,7 @@ class LastSoldFare:
         time = time.strftime("%Y-%m-%d %H:%M:%S")
         
         whereCondition = f"'{str(time)}'"
-        if time is None:
+        if lastExecTime is None:
             whereCondition = "DATEADD(HOUR, -960, GETDATE())"  # 40 days
 
         self.cache_client.set("LastSoldFare:executionTime", datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
