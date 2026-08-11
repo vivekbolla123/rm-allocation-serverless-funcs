@@ -71,7 +71,7 @@ class DetermineRBD:
             last7avg, b2b_discount_fare, discount_amount, w0Flag, directFlag,
             obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band,
             strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
-            state,
+            state=state,
         )
         return self.applyAnchorToLadder(
             anchor_result, currParams, offset, strategy_criteria, state
