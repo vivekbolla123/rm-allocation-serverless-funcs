@@ -946,6 +946,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if is_portfolio_flow:
@@ -1539,6 +1540,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
