@@ -7,6 +7,7 @@ from Constants import *
 import random
 import statistics
 from models.anchor_result import AnchorResult
+import traceback
 
 class DetermineRBD:
     
@@ -889,8 +890,13 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_strategy_and_hard_anchor_cap(fare, how_determined, strategyFare):
-            fare = max(fare, float(strategyFare))
+        def apply_strategy_and_hard_anchor_cap(fare, how_determined, strategyFare, plf):
+            try:
+                if float(plf) >= 95:
+                    fare = max(fare, float(strategyFare))
+            except Exception:
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=95): '+str(traceback.format_exc()))
+                pass
 
             if not has_hard_anchor():
                 return fare, how_determined
@@ -1144,7 +1150,7 @@ class DetermineRBD:
 
         anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
         
-        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
         # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
@@ -1177,8 +1183,13 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_strategy_and_hard_anchor_cap(fare, decision_text, strategyFare):
-            fare = max(fare, float(strategyFare))
+        def apply_strategy_and_hard_anchor_cap(fare, decision_text, strategyFare, plf):
+            try:
+                if float(plf) >= 95:
+                    fare = max(fare, float(strategyFare))
+            except Exception:
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=95): '+str(traceback.format_exc()))
+                pass
             
             if not has_hard_anchor():
                 return fare, decision_text
@@ -1544,7 +1555,7 @@ class DetermineRBD:
                         elif dplfBand in [4, 5, 6]:
                             anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList, "last_sold_and_profile")
                         
-                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
                     
                     # lastSoldFare >= profileFare and lastSoldFare >= strategyFare
                     elif last_sold_val >= profile_val and last_sold_val >= float(strategyFare):
@@ -1556,7 +1567,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                         
-                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
                 
                 # Without profileFare
                 else:
@@ -1576,7 +1587,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                     
-                    anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+                    anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
             
             # Case: No lastSoldFare but profileFare exists
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
@@ -1587,7 +1598,7 @@ class DetermineRBD:
                 anchorFare = max(max_fare, tolerance_val)
                 howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
                 
-                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
             
             # Case: Neither lastSoldFare nor profileFare
             else:
@@ -1598,7 +1609,7 @@ class DetermineRBD:
                 anchorFare = max(anchorFare, tolerance_val)
                 howDetermined = 'AllocationY_Startegy_fare_UpsellN' if anchorFare == float(strategyFare) else 'AllocationY_ToleranceHit_UpsellN'
                 
-                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
 
         # Main logic for value 'B'
         elif value == 'B':
