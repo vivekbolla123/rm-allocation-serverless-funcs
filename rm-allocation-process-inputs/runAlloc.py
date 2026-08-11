@@ -954,11 +954,7 @@ class DynAlloc:
 				if fare_manifest_str:
 					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str, state.ndocounter)
 					
-					qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
-					if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
-						self.qpcurrency = str(qpcurrency_df['currency'].iloc[0]).strip()
-					else:
-						self.qpcurrency = 'INR'
+					
 
 					if self.currency != 'INR' and self.currency != '' and self.currency.upper() != 'NAN' and self.currency != 'None':
 						if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):

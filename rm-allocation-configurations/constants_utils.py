@@ -150,10 +150,10 @@ class ConstantsUtils:
         self.MOVEMENT_GAIN = MOVEMENT_GAIN
         self.MOVEMENT_FLOOR_PCT = MOVEMENT_FLOOR_PCT
         self.MOVEMENT_CEIL_PCT = MOVEMENT_CEIL_PCT
-        self.DEFAULT_ML_CONFIG = DEFAULT_ML_CONFIG
+        self.DEFAULT_ML_CONFIG = json.loads(DEFAULT_ML_CONFIG)
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
-        self.plf_change_per = 2.0
-        self.plf_change_n_runs = 4
+        self.plf_change_per = PLF_CHANGE_PER
+        self.plf_change_n_runs = PLF_CHANGE_N_RUNS
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
 
@@ -465,9 +465,9 @@ class ConstantsUtils:
                 self.DEFAULT_ML_CONFIG = json.loads(parameter_value)
             elif parameter_key == DEFAULT_ML_CALC_CONFIG_KEY:
                 self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
-            elif parameter_key == 'plf_change_per':
+            elif parameter_key == PLF_CHANGE_PER_KEY:
                 self.plf_change_per = float(parameter_value)
-            elif parameter_key == 'plf_change_n_runs':
+            elif parameter_key == PLF_CHANGE_N_RUNS_KEY:
                 self.plf_change_n_runs = int(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
