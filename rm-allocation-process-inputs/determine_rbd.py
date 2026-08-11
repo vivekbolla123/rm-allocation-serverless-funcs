@@ -892,10 +892,10 @@ class DetermineRBD:
         
         def apply_strategy_and_hard_anchor_cap(fare, how_determined, strategyFare, plf):
             try:
-                if float(plf) >= 95:
+                if float(plf) >= self.constantsutils.DILUTION_PLF_THRESHOLD:
                     fare = max(fare, float(strategyFare))
             except Exception:
-                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=95): '+str(traceback.format_exc()))
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=DILUTION_PLF_THRESHOLD): '+str(traceback.format_exc()))
                 pass
 
             if not has_hard_anchor():
@@ -1185,10 +1185,10 @@ class DetermineRBD:
         
         def apply_strategy_and_hard_anchor_cap(fare, decision_text, strategyFare, plf):
             try:
-                if float(plf) >= 95:
+                if float(plf) >= self.constantsutils.DILUTION_PLF_THRESHOLD:
                     fare = max(fare, float(strategyFare))
             except Exception:
-                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=95): '+str(traceback.format_exc()))
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=DILUTION_PLF_THRESHOLD): '+str(traceback.format_exc()))
                 pass
             
             if not has_hard_anchor():

@@ -152,6 +152,7 @@ class ConstantsUtils:
         self.MOVEMENT_CEIL_PCT = MOVEMENT_CEIL_PCT
         self.DEFAULT_ML_CONFIG = DEFAULT_ML_CONFIG
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
+        self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
 
         self.logger = logging.getLogger()
@@ -462,6 +463,8 @@ class ConstantsUtils:
                 self.DEFAULT_ML_CONFIG = json.loads(parameter_value)
             elif parameter_key == DEFAULT_ML_CALC_CONFIG_KEY:
                 self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
+            elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
+                self.DILUTION_PLF_THRESHOLD = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""
