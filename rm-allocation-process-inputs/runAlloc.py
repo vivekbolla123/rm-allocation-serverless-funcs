@@ -506,8 +506,8 @@ class DynAlloc:
 		state.base_adjustedCapacity = base_adjustedCapacity
 
 		# Initialize auto backstop values in state
-		state.b2c_backstop_final = CONST_NA
-		state.b2b_backstop_final = CONST_NA
+		state.b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA)
+		state.b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA)
 		state.auto_b2b_backstop_str = CONST_NA
 		state.auto_b2c_backstop_str = CONST_NA
 		
