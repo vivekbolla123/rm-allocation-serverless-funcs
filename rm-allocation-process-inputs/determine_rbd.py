@@ -886,7 +886,7 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        if calculated_t_prime > 100:
+                        if calculated_t_prime < 100:
                             calculated_t_prime = 100.0
                             
                         t_prime_val = calculated_t_prime
@@ -895,7 +895,7 @@ class DetermineRBD:
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
-                        if T_prime > 100:
+                        if T_prime < 100:
                             T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
@@ -946,6 +946,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if is_portfolio_flow:
@@ -1479,7 +1480,7 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        if calculated_t_prime > 100:
+                        if calculated_t_prime < 100:
                             calculated_t_prime = 100.0
                             
                         t_prime_val = calculated_t_prime
@@ -1488,7 +1489,7 @@ class DetermineRBD:
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
-                        if T_prime > 100:
+                        if T_prime < 100:
                             T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
@@ -1539,6 +1540,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
