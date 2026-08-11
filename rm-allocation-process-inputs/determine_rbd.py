@@ -886,7 +886,7 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        if calculated_t_prime > 100:
+                        if calculated_t_prime < 100:
                             calculated_t_prime = 100.0
                             
                         t_prime_val = calculated_t_prime
@@ -895,7 +895,7 @@ class DetermineRBD:
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
-                        if T_prime > 100:
+                        if T_prime < 100:
                             T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
@@ -1479,7 +1479,7 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
-                        if calculated_t_prime > 100:
+                        if calculated_t_prime < 100:
                             calculated_t_prime = 100.0
                             
                         t_prime_val = calculated_t_prime
@@ -1488,7 +1488,7 @@ class DetermineRBD:
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
-                        if T_prime > 100:
+                        if T_prime < 100:
                             T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
