@@ -36,8 +36,9 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_MONGO_PASSWORD')
+            RM_RD_USER = self.get_credentials('/copilot/rm/prod/secrets/QP_RM_MONGO_USERNAME')
             encoded_password = quote_plus(RM_RD_PASSWORD)
-            MONGO_CONN_STRING = f"mongodb://rmuser:{encoded_password}@10.16.6.179:27017/"
+            MONGO_CONN_STRING = f"mongodb://{RM_RD_USER}:{encoded_password}@10.16.6.179:27017/"
             # Or if using MongoDB Atlas or other format:
             # MONGO_CONN_STRING = f"mongodb+srv://rmappuser:{RM_RD_PASSWORD}@your-cluster.mongodb.net/"
 
@@ -73,8 +74,9 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_MONGO_PASSWORD')
+            RM_RD_USER = self.get_credentials('/copilot/rm/uat/secrets/QP_RM_MONGO_USERNAME')
             encoded_password = quote_plus(RM_RD_PASSWORD)
-            MONGO_CONN_STRING = f"mongodb://testuser:{encoded_password}@172.24.72.35:27017/"
+            MONGO_CONN_STRING = f"mongodb://{RM_RD_USER}:{encoded_password}@172.24.72.35:27017/"
             
             try:
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
@@ -167,8 +169,8 @@ class LastSoldFare:
         time = time.strftime("%Y-%m-%d %H:%M:%S")
         
         whereCondition = f"'{str(time)}'"
-        if time is None:
-            whereCondition = "DATEADD(HOUR, -960, GETDATE())"  # 40 days
+        if lastExecTime is None:
+            whereCondition = "DATEADD(HOUR, -120, GETDATE())"  # 40 days
 
         self.cache_client.set("LastSoldFare:executionTime", datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))
         
@@ -182,7 +184,7 @@ class LastSoldFare:
 
             # Sort the DataFrame by BookingUTC
             df = df.sort_values(by='BookingUTC')
-            df = df.loc[df.groupby('BookingID')['BookingUTC'].idxmax()]
+            df = df.loc[df.groupby(['BookingID', 'PassengerID'])['BookingUTC'].idxmax()]
 
             df = df[
                 df['FareBasis'].notna() & (df['FareBasis'] != '')]
@@ -200,6 +202,7 @@ class LastSoldFare:
             # Prepare all fares list
             new_all_fares = group.sort_values('BookingUTC', ascending=False).apply(lambda row: {
                 'BookingID': row['BookingID'],
+                'PassengerID': row['PassengerID'],
                 'ClassOfService': row['ClassOfService'],
                 'FareBasis': row['FareBasis'],
                 'Fare': row['Fare'],
@@ -217,49 +220,54 @@ class LastSoldFare:
                 # Parse existing data
                 existing_dict = json.loads(existing_data.decode('utf-8'))
                 
-                # Merge and deduplicate all fares
-                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7)
+                # Merge and deduplicate all fares (Booking Level)
+                merged_all_fares = self._merge_and_limit_entries(existing_dict.get('allfares', []), filtered_all_fares, 7, False)
+                b2b_fares = self._merge_and_limit_entries(existing_dict.get('b2bfares', []), filtered_b2b_fares, 3, False)
+                b2c_fares = self._merge_and_limit_entries(existing_dict.get('b2cfares', []), filtered_b2c_fares, 3, False)
                 
-                # Separate and merge B2B and B2C fares
-                b2b_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2bfares', []), 
-                    filtered_b2b_fares, 
-                    3
-                )
-                
-                b2c_fares = self._merge_and_limit_entries(
-                    existing_dict.get('b2cfares', []), 
-                    filtered_b2c_fares, 
-                    3
-                )
+                # Merge and deduplicate all fares (Passenger Level)
+                merged_all_fares_pax = self._merge_and_limit_entries(existing_dict.get('allfares_pax', []), filtered_all_fares, 7, True)
+                b2b_fares_pax = self._merge_and_limit_entries(existing_dict.get('b2bfares_pax', []), filtered_b2b_fares, 3, True)
+                b2c_fares_pax = self._merge_and_limit_entries(existing_dict.get('b2cfares_pax', []), filtered_b2c_fares, 3, True)
                 
                 # Prepare final dictionary
                 final_data = {
                     'allfares': merged_all_fares,
                     'b2bfares': b2b_fares,
-                    'b2cfares': b2c_fares
+                    'b2cfares': b2c_fares,
+                    'allfares_pax': merged_all_fares_pax,
+                    'b2bfares_pax': b2b_fares_pax,
+                    'b2cfares_pax': b2c_fares_pax
                 }
             else:
-                # If no existing data, create new lists
+                # If no existing data, create new lists using the new merge function to respect limits and deduplication
                 final_data = {
-                    'allfares': filtered_all_fares[:7],
-                    'b2bfares': filtered_b2b_fares[:3],
-                    'b2cfares': filtered_b2c_fares[:3]
+                    'allfares': self._merge_and_limit_entries([], filtered_all_fares, 7, False),
+                    'b2bfares': self._merge_and_limit_entries([], filtered_b2b_fares, 3, False),
+                    'b2cfares': self._merge_and_limit_entries([], filtered_b2c_fares, 3, False),
+                    'allfares_pax': self._merge_and_limit_entries([], filtered_all_fares, 7, True),
+                    'b2bfares_pax': self._merge_and_limit_entries([], filtered_b2b_fares, 3, True),
+                    'b2cfares_pax': self._merge_and_limit_entries([], filtered_b2c_fares, 3, True)
                 }
 
             # Store in Redis as JSON
             self.cache_client.set(key, json.dumps(final_data))
     
-    def _merge_and_limit_entries(self, existing_list, new_list, limit):
+    def _merge_and_limit_entries(self, existing_list, new_list, limit, dedup_by_pax):
         # Combine lists and remove duplicates
         combined_list = []
         seen_bookings = set()
         
         # Combine new and existing entries
         for item in new_list + existing_list:
-            if item['BookingID'] not in seen_bookings:
+            unique_key = item['BookingID']
+            if dedup_by_pax:
+                pax_id = item.get('PassengerID', '')
+                unique_key = f"{item['BookingID']}_{pax_id}"
+                
+            if unique_key not in seen_bookings:
                 combined_list.append(item)
-                seen_bookings.add(item['BookingID'])
+                seen_bookings.add(unique_key)
         
         # Sort by BookingUTC and keep top entries
         return sorted(combined_list, 
