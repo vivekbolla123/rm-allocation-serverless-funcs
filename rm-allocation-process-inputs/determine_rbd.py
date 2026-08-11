@@ -44,7 +44,7 @@ class DetermineRBD:
             state,
         )
         return self.applyAnchorToLadder(
-            anchor_result, currParams, backstop, offset, strategy_criteria, state
+            anchor_result, currParams, offset, strategy_criteria, state
         )
 
     def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=False, state=None):
@@ -153,7 +153,7 @@ class DetermineRBD:
             try:
                 strategy_val = float(strategyFare)
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
-                if effective_autoBackstopFlag == "1" and int(dplfBand) in (0, 1, 2):
+                if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
@@ -190,7 +190,6 @@ class DetermineRBD:
                 openResult=openResult,
                 early_return=True,
                 early_return_tuple=_build_early_return(openResult, strategyFare),
-                backstop=backstop,
             )
 
         anchorValue = ''
@@ -341,7 +340,7 @@ class DetermineRBD:
             T_prime=T_prime,
         )
 
-    def applyAnchorToLadder(self, anchor_result, currParams, backstop, offset=0, strategy_criteria=None, state=None):
+    def applyAnchorToLadder(self, anchor_result, currParams, offset=0, strategy_criteria=None, state=None):
         """Phase K tail: ``getValueWithOffset`` / ``extremeFaresSkipping`` /
         ``getFaresWithBackstop`` for the resolved anchor fare, then the calculated
         overbooking-fare-and-status block (already applied inside ``computeFinalAnchor``
@@ -361,7 +360,12 @@ class DetermineRBD:
         anchorFare = anchor_result.anchorFare
         howDetermined = anchor_result.anchor_source
         channel = anchor_result.channel
-        
+
+        backstop = CONST_NA
+        if channel == B2C_CHANNEL:
+            backstop = getattr(currParams, 'b2c_backstop', CONST_NA)
+        elif channel == B2B_CHANNEL:
+            backstop = getattr(currParams, 'b2b_backstop', CONST_NA)
         if state is not None:
             if channel == B2C_CHANNEL and hasattr(state, 'b2c_backstop_final') and state.b2c_backstop_final not in [CONST_NA, '', None]:
                 backstop = state.b2c_backstop_final
