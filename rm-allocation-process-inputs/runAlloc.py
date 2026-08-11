@@ -952,7 +952,13 @@ class DynAlloc:
 						pass
 
 				if fare_manifest_str:
-					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str)
+					last_seven_avg_val, lastSoldFareb2b_val, lastSoldFareb2c_val = self.calculate_averages(fare_manifest_str, state.ndocounter)
+					
+					qpcurrency_df = self.rmdatabasehelper.get_qp_currency(self.currParams.origin, self.currParams.destin)
+					if not qpcurrency_df.empty and 'currency' in qpcurrency_df.columns:
+						self.qpcurrency = str(qpcurrency_df['currency'].iloc[0]).strip()
+					else:
+						self.qpcurrency = 'INR'
 
 					if self.currency != 'INR' and self.currency != '' and self.currency.upper() != 'NAN' and self.currency != 'None':
 						if last_seven_avg_val != CONST_NA and not pd.isna(last_seven_avg_val):
@@ -2235,18 +2241,30 @@ class DynAlloc:
 		total_fares = sum(Decimal(str(fare['Fare'])) for fare in recent_fares)
 		return float(total_fares / len(recent_fares))
 
-	def calculate_averages(self,fares_manifest):
+	def calculate_averages(self,fares_manifest, ndo=0):
 		# Parse the JSON string if it's not already a dictionary
 		if isinstance(fares_manifest, str):
 			fares_manifest = json.loads(fares_manifest)
+			
+		if ndo >= 45:
+			all_fares = fares_manifest.get('allfares_pax', [])
+			b2b_fares = fares_manifest.get('b2bfares_pax', [])
+			b2c_fares = fares_manifest.get('b2cfares_pax', [])
+			
+			# Fallback if pax variants don't exist yet
+			if not all_fares and not b2b_fares and not b2c_fares:
+				all_fares = fares_manifest.get('allfares', [])
+				b2b_fares = fares_manifest.get('b2bfares', [])
+				b2c_fares = fares_manifest.get('b2cfares', [])
+		else:
+			all_fares = fares_manifest.get('allfares', [])
+			b2b_fares = fares_manifest.get('b2bfares', [])
+			b2c_fares = fares_manifest.get('b2cfares', [])
 		
 		# Calculate last_seven_avg (always with all available fares)
-		all_fares = fares_manifest.get('allfares', [])
 		last_seven_avg = self.calculate_last_seven_avg(all_fares)
 		
 		# Calculate lastsoldb2b and lastsoldb2c (require at least 3 fares)
-		b2b_fares = fares_manifest.get('b2bfares', [])
-		b2c_fares = fares_manifest.get('b2cfares', [])
 		
 		lastsoldb2b = self.calculate_average(b2b_fares)
 		lastsoldb2c = self.calculate_average(b2c_fares)
@@ -2429,6 +2447,62 @@ class DynAlloc:
 		anchorResult_b2c = None
 		anchorResult_b2b = None
 		hard_anchor_flag = False
+
+		plf_surge = False
+		try:
+			history = self.determinerbd.get_autotolerance_history(self.currParams)
+			if history:
+				plf_change_per = float(getattr(self.constantsUtils, 'plf_change_per', 2.0))
+				plf_change_n_runs = int(getattr(self.constantsUtils, 'plf_change_n_runs', 4))
+				
+				if len(history) >= plf_change_n_runs:
+					nth_run = history[-plf_change_n_runs]
+					if ndocounter > 30:
+                        # Variance logic uses actual_dplf
+						nth_dplf = nth_run.get('actual_dplf', 0)
+						if (float(currBookedLoad) - float(nth_dplf)) >= plf_change_per:
+							plf_surge = True
+					else:
+                        # Forecast logic uses actual_imp_forecast
+						nth_imp_forecast = nth_run.get('actual_imp_forecast', 0)
+						if (float(imp_forecast) - float(nth_imp_forecast)) >= plf_change_per:
+							plf_surge = True
+		except Exception as e:
+			self.logger.error(f"Error evaluating PLF surge: {e}")
+
+		profileFare_b2c = profileFare
+		Af_Nb_Allin_b2c = Af_Nb_Allin
+		profileFare_b2b = profileFare
+		Af_Nb_Allin_b2b = Af_Nb_Allin
+
+		if plf_surge:
+			# B2C Evaluation
+			if lastSoldFareb2c_val != CONST_NA and profileFare_b2c != CONST_NA:
+				try:
+					if float(lastSoldFareb2c_val) > float(profileFare_b2c):
+						profileFare_b2c = CONST_NA
+				except ValueError:
+					pass
+			if Af_Nb_Allin_b2c != CONST_NA and lastSoldFareb2c_val != CONST_NA:
+				try:
+					if float(Af_Nb_Allin_b2c) < float(lastSoldFareb2c_val):
+						Af_Nb_Allin_b2c = CONST_NA
+				except ValueError:
+					pass
+
+			# B2B Evaluation
+			if lastSoldFareb2b_val != CONST_NA and profileFare_b2b != CONST_NA:
+				try:
+					if float(lastSoldFareb2b_val) > float(profileFare_b2b):
+						profileFare_b2b = CONST_NA
+				except ValueError:
+					pass
+			if Af_Nb_Allin_b2b != CONST_NA and lastSoldFareb2b_val != CONST_NA:
+				try:
+					if float(Af_Nb_Allin_b2b) < float(lastSoldFareb2b_val):
+						Af_Nb_Allin_b2b = CONST_NA
+				except ValueError:
+					pass
 
 		if should_process:
 			# B2C — head + ladder.  We need the ladder result here so the
