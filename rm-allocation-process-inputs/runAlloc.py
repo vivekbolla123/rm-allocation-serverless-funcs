@@ -505,11 +505,12 @@ class DynAlloc:
 		state.base_totalCapacity = base_totalCapacity
 		state.base_adjustedCapacity = base_adjustedCapacity
 
-		# Initialize backstop values in state
-		state.b2c_backstop_final = getattr(self.currParams, 'b2c_backstop', CONST_NA)
-		state.b2b_backstop_final = getattr(self.currParams, 'b2b_backstop', CONST_NA)
-		state.auto_b2b_backstop_str = "NA"
-		state.auto_b2c_backstop_str = "NA"
+		# Initialize auto backstop values in state
+		state.b2c_backstop_final = CONST_NA
+		state.b2b_backstop_final = CONST_NA
+		state.auto_b2b_backstop_str = CONST_NA
+		state.auto_b2c_backstop_str = CONST_NA
+		
 
 	def _phaseB_overbooking(self, state):
 		"""Phase B — overbooking calc, post-OB PLF, start-of-day values, distress
@@ -2448,8 +2449,8 @@ class DynAlloc:
 			self._copyOutputSummaryToAnchor(anchorResult_b2c, self.outputSummaryRow_b2c)
 
 			b2c_tuple = self.determinerbd.applyAnchorToLadder(
-				anchorResult_b2c, self.currParams, b2c_backstop_final,
-				self.outputSummaryRow_b2c.fareOffset, self.outputSummaryRow_b2c.criteria,
+				anchorResult_b2c, self.currParams,
+				self.outputSummaryRow_b2c.fareOffset, self.outputSummaryRow_b2c.criteria, state
 			)
 			(openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare,
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
@@ -2584,8 +2585,8 @@ class DynAlloc:
 
 		if anchorResult_b2c is not None and getattr(anchorResult_b2c, 'is_skipped', False) is False:
 			b2c_tuple = self.determinerbd.applyAnchorToLadder(
-				anchorResult_b2c, self.currParams, b2c_backstop_final,
-				self.outputSummaryRow_b2c.fareOffset, self.outputSummaryRow_b2c.criteria,
+				anchorResult_b2c, self.currParams,
+				self.outputSummaryRow_b2c.fareOffset, self.outputSummaryRow_b2c.criteria, state
 			)
 			(state.openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare,
 			 self.outputSummaryRow_b2c.strategyFare, self.outputSummaryRow_b2c.profileFare,
@@ -2603,8 +2604,8 @@ class DynAlloc:
 
 		if anchorResult_b2b is not None and getattr(anchorResult_b2b, 'is_skipped', False) is False:
 			b2b_tuple = self.determinerbd.applyAnchorToLadder(
-				anchorResult_b2b, self.currParams, b2b_backstop_final,
-				self.outputSummaryRow_b2b.fareOffset, self.outputSummaryRow_b2b.criteria,
+				anchorResult_b2b, self.currParams,
+				self.outputSummaryRow_b2b.fareOffset, self.outputSummaryRow_b2b.criteria, state
 			)
 			(state.openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare,
 			 _b2b_strategyFare, self.outputSummaryRow_b2b.profileFare,
