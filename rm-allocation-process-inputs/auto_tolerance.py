@@ -67,6 +67,8 @@ def apply_auto_tolerance(redis_client, auto_config, origin, destin, flight_numbe
                     g_value = match.iloc[0]['g_value']
                     
             t_prime = x * g_value + T
+            if t_prime < 100:
+                t_prime = 100.0
             final_tolerance_limit = t_prime
         else:
             final_tolerance_limit = T
