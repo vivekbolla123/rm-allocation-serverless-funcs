@@ -2487,7 +2487,7 @@ class AdditivePickupModelProcessor:
 
             stats = doc.get('sector_stats', {}) or {}
             n_fail = sum(1 for v in stats.values() if v.get('status') == 'FAILED')
-            self.db.additive_model_run_audit.update_one(
+            result = self.db.additive_model_run_audit.update_one(
                 {'run_id': self.run_id, 'status': 'IN_PROGRESS'},   # guard: first wins
                 {'$set': {
                     'end_time': datetime.now(),
@@ -2495,8 +2495,30 @@ class AdditivePickupModelProcessor:
                     'sectors_failed_count': n_fail,
                 }},
             )
+            # Only the invocation that actually flipped the run triggers the DW load.
+            if result.modified_count == 1:
+                logger.info(f"[run {self.run_id}] finalized "
+                            f"({'SUCCESS' if n_fail == 0 else 'PARTIAL'}) — triggering DW load.")
+                self._trigger_dw_load()
         except Exception as e:
             logger.error(f"audit finalise failed: {e}")
+
+    def _trigger_dw_load(self):
+        """Invoke the S3->DW loader ONCE, after every sector's S3 output for this
+        run is written. Fire-and-forget async invoke; failures don't fail the run."""
+        fn = getattr(configsettings, 'ADDITIVE_DW_LOADER_LAMBDA', None)
+        if not fn:
+            logger.warning("ADDITIVE_DW_LOADER_LAMBDA not configured — DW load not triggered.")
+            return
+        try:
+            payload = {'run_id': self.run_id,
+                       'snapshot_date': self.current_date.strftime('%Y-%m-%d')}
+            boto3.client('lambda').invoke(
+                FunctionName=fn, InvocationType='Event',      # async
+                Payload=json.dumps(payload).encode('utf-8'))
+            logger.info(f"[run {self.run_id}] DW loader invoked ({fn}).")
+        except Exception as e:
+            logger.error(f"Failed to trigger DW loader: {e}")
 
     def _close_connections(self):
         """No-op for injected connections.
@@ -2526,7 +2548,7 @@ class AdditivePickupModelProcessor:
 
         # ---------------- column definitions ----------------
         fare_bucket_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
+            'SnapshotDate', 'run_id', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
@@ -2534,14 +2556,14 @@ class AdditivePickupModelProcessor:
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         flight_level_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
+            'SnapshotDate', 'run_id', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std_square',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
             'Load_Factor']
 
         weighted_fare_bucket_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
+            'SnapshotDate', 'run_id', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
@@ -2549,14 +2571,14 @@ class AdditivePickupModelProcessor:
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         weighted_flight_level_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
+            'SnapshotDate', 'run_id', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std_square',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
             'Load_Factor']
 
         optimization_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
+            'SnapshotDate', 'run_id', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint',
             'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU']
@@ -2587,6 +2609,7 @@ class AdditivePickupModelProcessor:
                 return None
             df = df.rename(columns=rename_map)
             df['SnapshotDate'] = self.current_date
+            df['run_id'] = self.run_id          # constant for the whole run
             return df
 
         def _subset(df, cols):
