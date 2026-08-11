@@ -36,8 +36,9 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/prod/rm-allocation/RM_MONGO_PASSWORD')
+            RM_RD_USER = self.get_credentials('/copilot/rm/prod/secrets/QP_RM_MONGO_USERNAME')
             encoded_password = quote_plus(RM_RD_PASSWORD)
-            MONGO_CONN_STRING = f"mongodb://rmuser:{encoded_password}@10.16.6.179:27017/"
+            MONGO_CONN_STRING = f"mongodb://{RM_RD_USER}:{encoded_password}@10.16.6.179:27017/"
             # Or if using MongoDB Atlas or other format:
             # MONGO_CONN_STRING = f"mongodb+srv://rmappuser:{RM_RD_PASSWORD}@your-cluster.mongodb.net/"
 
@@ -73,8 +74,9 @@ class LastSoldFare:
             
             # MongoDB connection
             RM_RD_PASSWORD = self.get_credentials('/rm/uat/rm-allocation/RM_MONGO_PASSWORD')
+            RM_RD_USER = self.get_credentials('/copilot/rm/uat/secrets/QP_RM_MONGO_USERNAME')
             encoded_password = quote_plus(RM_RD_PASSWORD)
-            MONGO_CONN_STRING = f"mongodb://testuser:{encoded_password}@172.24.72.35:27017/"
+            MONGO_CONN_STRING = f"mongodb://{RM_RD_USER}:{encoded_password}@172.24.72.35:27017/"
             
             try:
                 self.cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
