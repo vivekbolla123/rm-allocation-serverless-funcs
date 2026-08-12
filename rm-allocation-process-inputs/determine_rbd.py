@@ -7,6 +7,7 @@ from Constants import *
 import random
 import statistics
 from models.anchor_result import AnchorResult
+import traceback
 
 class DetermineRBD:
     
@@ -19,6 +20,35 @@ class DetermineRBD:
         self.redishelper = redisHelper
         self.auto_tolerance_config = self.rmdatabasehelper.getAutoToleranceConfig()
 
+    def get_autotolerance_history(self, currParams):
+        redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
+        hash_field = "autotolerance_history"
+        
+        history = []
+        try:
+            if self.redishelper:
+                state_str = self.redishelper.hget(redis_key, hash_field)
+            if state_str:
+                history = __import__('json').loads(state_str)
+        except Exception:
+            pass
+            
+        if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+            try:
+                mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+                if mongo_state and "autotolerance_history" in mongo_state:
+                    h_val = mongo_state["autotolerance_history"]
+                    if isinstance(h_val, str):
+                        try:
+                            h_val = __import__('json').loads(h_val)
+                        except Exception:
+                            h_val = []
+                    history = h_val
+            except Exception:
+                pass
+                
+        return history
+
     def _format_thresh(self, val):
         if not val:
             return ""
@@ -28,7 +58,7 @@ class DetermineRBD:
         except ValueError:
             return f"_{v}"
 
-    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf):
+    def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state=None):
         """Backwards-compatible wrapper. Delegates to ``computeFinalAnchor`` then
         ``applyAnchorToLadder`` so the existing call-sites in ``runAlloc.py`` and
         ``runAlloc_Connections.py`` keep producing byte-identical output.
@@ -41,12 +71,13 @@ class DetermineRBD:
             last7avg, b2b_discount_fare, discount_amount, w0Flag, directFlag,
             obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band,
             strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf,
+            state=state,
         )
         return self.applyAnchorToLadder(
-            anchor_result, currParams, backstop, offset, strategy_criteria,
+            anchor_result, currParams, offset, strategy_criteria, state
         )
 
-    def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=False):
+    def computeFinalAnchor(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, is_portfolio_flow=False, state=None):
         """Phase K head: candidate-selection + ``final_fare_anchor_*`` / ``finalFareAnchor`` calls.
 
         Performs the initial price-ladder lookup that establishes ``strategyFare``, runs
@@ -148,6 +179,36 @@ class DetermineRBD:
             timeString = 'Post10'
         
         strategyFare = openResult['Fare'][0]
+        if strategyFare != CONST_NA:
+            try:
+                strategyFare = float(strategyFare)
+
+                # STRATEGY MARKET FARE UPSELL LOGIC
+                if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
+                    strategyFare = strategyFare+float(currParams.market_discount)
+
+                # AUTOBACKSTOP LOGIC
+                effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
+                if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
+                    if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
+                        b2c_val = float(currParams.b2c_backstop)
+                        if b2c_val > 0:
+                            backstop = min(strategyFare, b2c_val)
+                            # currParams.b2c_backstop = backstop
+                            if state:
+                                state.b2c_backstop_final = backstop
+                                state.auto_b2c_backstop_str = str(backstop)
+                    elif channel == B2B_CHANNEL and hasattr(currParams, 'b2b_backstop') and currParams.b2b_backstop not in [CONST_NA, '', None]:
+                        b2b_val = float(currParams.b2b_backstop)
+                        if b2b_val > 0:
+                            backstop = min(strategyFare, b2b_val)
+                            # currParams.b2b_backstop = backstop
+                            if state:
+                                state.b2b_backstop_final = backstop
+                                state.auto_b2b_backstop_str = str(backstop)
+            except (ValueError, TypeError):
+                pass
+
         if strategyFare == CONST_NA:
             return AnchorResult(
                 anchorFare=anchorFare,
@@ -269,10 +330,6 @@ class DetermineRBD:
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
                 anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
-                if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
-                    anchorFare = anchorFare+int(currParams.market_discount)
-
-                
                     
                 if anchorValue == 'A':
                     howDetermined = f"V_{imp_forecast_band}_{dplfBand}_A_{howDetermined}"
@@ -315,7 +372,7 @@ class DetermineRBD:
             T_prime=T_prime,
         )
 
-    def applyAnchorToLadder(self, anchor_result, currParams, backstop, offset=0, strategy_criteria=None):
+    def applyAnchorToLadder(self, anchor_result, currParams, offset=0, strategy_criteria=None, state=None):
         """Phase K tail: ``getValueWithOffset`` / ``extremeFaresSkipping`` /
         ``getFaresWithBackstop`` for the resolved anchor fare, then the calculated
         overbooking-fare-and-status block (already applied inside ``computeFinalAnchor``
@@ -335,6 +392,18 @@ class DetermineRBD:
         anchorFare = anchor_result.anchorFare
         howDetermined = anchor_result.anchor_source
         channel = anchor_result.channel
+
+        backstop = CONST_NA
+        if channel == B2C_CHANNEL:
+            backstop = getattr(currParams, 'b2c_backstop', CONST_NA)
+        elif channel == B2B_CHANNEL:
+            backstop = getattr(currParams, 'b2b_backstop', CONST_NA)
+        if state is not None:
+            if channel == B2C_CHANNEL and hasattr(state, 'b2c_backstop_final') and state.b2c_backstop_final not in [CONST_NA, '', None]:
+                backstop = state.b2c_backstop_final
+            elif channel == B2B_CHANNEL and hasattr(state, 'b2b_backstop_final') and state.b2b_backstop_final not in [CONST_NA, '', None]:
+                backstop = state.b2b_backstop_final
+                
         openResult = anchor_result.openResult
         origin = currParams.origin
         destin = currParams.destin
@@ -819,12 +888,17 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
+                        if calculated_t_prime < 100:
+                            calculated_t_prime = 100.0
+                            
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
+                        if T_prime < 100:
+                            T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
                     except:
@@ -874,6 +948,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if is_portfolio_flow:
@@ -889,7 +964,14 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_hard_anchor_cap(fare, how_determined):
+        def apply_strategy_and_hard_anchor_cap(fare, how_determined, strategyFare, plf):
+            try:
+                if float(plf) >= self.constantsutils.DILUTION_PLF_THRESHOLD:
+                    fare = max(fare, float(strategyFare))
+            except Exception:
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=DILUTION_PLF_THRESHOLD): '+str(traceback.format_exc()))
+                pass
+
             if not has_hard_anchor():
                 return fare, how_determined
             
@@ -1142,7 +1224,7 @@ class DetermineRBD:
 
         anchorFare, howDetermined = apply_tolerance_logic(anchorFare, tolerance_per, howDetermined)
         
-        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
         # ------        # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
@@ -1175,7 +1257,14 @@ class DetermineRBD:
         def has_hard_anchor():
             return hardAnchorFare != CONST_NA
         
-        def apply_hard_anchor_cap(fare, decision_text):
+        def apply_strategy_and_hard_anchor_cap(fare, decision_text, strategyFare, plf):
+            try:
+                if float(plf) >= self.constantsutils.DILUTION_PLF_THRESHOLD:
+                    fare = max(fare, float(strategyFare))
+            except Exception:
+                self.logger.error('Exception in applying strategyfare cap in anchorfare (PLf>=DILUTION_PLF_THRESHOLD): '+str(traceback.format_exc()))
+                pass
+            
             if not has_hard_anchor():
                 return fare, decision_text
             
@@ -1393,12 +1482,17 @@ class DetermineRBD:
                         if calculated_t_prime > float(strategyFare):
                             calculated_t_prime = prev_t_prime
                             
+                        if calculated_t_prime < 100:
+                            calculated_t_prime = 100.0
+                            
                         t_prime_val = calculated_t_prime
                         final_T = t_prime_val
                         
                 if 0 <= ndoc_val <= 7:
                     try:
                         T_prime = (float(n_value) / 100.0) * float(strategyFare)
+                        if T_prime < 100:
+                            T_prime = 100.0
                         final_T = T_prime
                         t_prime_val = final_T
                     except:
@@ -1448,6 +1542,7 @@ class DetermineRBD:
                 if flag_val in (1, '1'):
                     auto_tolerance_applied = True
                     tolerance_limit = auto_limit
+                    T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
             if tolerance_limit == 0 and not auto_tolerance_applied:
@@ -1540,7 +1635,7 @@ class DetermineRBD:
                         elif dplfBand in [4, 5, 6]:
                             anchorFare, howDetermined = process_dplf_bands_4_5_6(faresList, "last_sold_and_profile")
                         
-                        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
                     
                     # lastSoldFare >= profileFare and lastSoldFare >= strategyFare
                     elif last_sold_val >= profile_val and last_sold_val >= float(strategyFare):
@@ -1552,7 +1647,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                         
-                        anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                        anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
                 
                 # Without profileFare
                 else:
@@ -1572,7 +1667,7 @@ class DetermineRBD:
                             howDetermined = 'AllocationY_last_sold_fare_UpsellN'
                             anchorFare = last_sold_val
                     
-                    anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                    anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
             
             # Case: No lastSoldFare but profileFare exists
             elif profileFare != CONST_NA and int(currParams.profileFares) == 1:
@@ -1583,7 +1678,7 @@ class DetermineRBD:
                 anchorFare = max(max_fare, tolerance_val)
                 howDetermined = 'AllocationY_Maxof_Startegy_Profile_UpsellN' if anchorFare == max_fare else 'AllocationY_ToleranceHit_UpsellN'
                 
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
             
             # Case: Neither lastSoldFare nor profileFare
             else:
@@ -1594,7 +1689,7 @@ class DetermineRBD:
                 anchorFare = max(anchorFare, tolerance_val)
                 howDetermined = 'AllocationY_Startegy_fare_UpsellN' if anchorFare == float(strategyFare) else 'AllocationY_ToleranceHit_UpsellN'
                 
-                anchorFare, howDetermined = apply_hard_anchor_cap(anchorFare, howDetermined)
+                anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
 
         # Main logic for value 'B'
         elif value == 'B':

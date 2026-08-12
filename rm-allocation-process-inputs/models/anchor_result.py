@@ -69,3 +69,4 @@ class AnchorResult:
     early_return: bool = False
     early_return_tuple: Optional[Tuple[Any, ...]] = None
     is_skipped: bool = False
+    backstop: Any = CONST_NA

@@ -196,7 +196,6 @@ class TestDetermineRBDSplit(unittest.TestCase):
         split = f2.instance.applyAnchorToLadder(
             anchor,
             args["currParams"],
-            args["backstop"],
             args["offset"],
             args["strategy_criteria"],
         )
