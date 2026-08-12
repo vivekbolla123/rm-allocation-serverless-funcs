@@ -1581,6 +1581,9 @@ class AdditivePickupModelProcessor:
                                     'FlightNumber': 'FlightNumber_hist'})
         hist['FlightNumber_hist'] = pd.to_numeric(hist['FlightNumber_hist'], errors='coerce')
         pairs['FlightNumber_hist'] = pd.to_numeric(pairs['FlightNumber_hist'], errors='coerce')
+        # align the merge-key dtypes (one side can be object/string dates -> datetime64)
+        hist['DepartureDate_hist'] = pd.to_datetime(hist['DepartureDate_hist'], errors='coerce').dt.normalize()
+        pairs['DepartureDate_hist'] = pd.to_datetime(pairs['DepartureDate_hist'], errors='coerce').dt.normalize()
 
         merged = pairs.merge(hist, on=['Sector', 'DepartureDate_hist', 'FlightNumber_hist'], how='left')
         # closed window: bookings made when the flight was more than NDO_future days out
