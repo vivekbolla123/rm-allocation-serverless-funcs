@@ -113,7 +113,6 @@ def _write_audit_skeleton(run_id, snapshot_date, sectors_expected, planned, mode
     db_rmalloc.additive_model_run_audit.insert_one({
         'run_id': run_id,
         'module': 'additive_pickup_model',
-        'env': ENV,
         'snapshot_date': snapshot_date,
         'status': 'IN_PROGRESS',
         'sectors_expected': sectors_expected,

@@ -4,7 +4,9 @@
 
 The Additive Pickup Model forecasts additional bookings expected on future flights at both **Fare Bucket** and **Flight** level. It uses historical NDO (Number of Days Out) booking patterns from similar flights to predict how many more passengers will book on a given future flight before departure.
 
-The model also computes **Inventory Optimization** (protection limits and authorization levels per fare class) using EMSR-b methodology based on predicted demand and its standard deviation.
+The raw forecast is then passed through two adjustment layers before saving: a **Demand Multiplier** (Step 13) that scales each flight's prediction for expected month-level demand, and a **WTP fare-bucket redistribution** (Step 14) that reshapes the within-flight fare-bucket split for expected price inflation/deflation.
+
+The model also defines **Inventory Optimization** (EMSR-b protection limits / AU) and **Market Fare Integration** (RateGain OAL/QP), but these are **not currently wired into the run** — see *Deferred Steps*.
 
 **Execution model (new).** The pipeline no longer runs as a single monolithic Glue job over all sectors. It is split into two Lambdas plus a fetch-only Glue job, coordinated through a per-run **audit document** in MongoDB:
 
@@ -74,6 +76,39 @@ The shared `lambda_function.py` handler routes a nested `overrides` key wholesal
 
 ---
 
+## Code Structure (Process Lambda)
+
+`rm-additive-process` is split into four files. The processor holds the forecast
+math; all DB, SQL, cache, and audit work lives in helpers behind a shared cache.
+
+| File | Responsibility |
+|------|----------------|
+| `lambda_function.py` | Handler. Builds injected connections (ESB engine, Mongo `qp_dw_rmalloc` + `qp_rm_master`, S3) once at module load, merges an SQS batch of 1-sector messages into one bin, and dispatches via `module_map` → `AdditivePickupModelProcessor(...).run()`. |
+| `additive_model.py` | `AdditivePickupModelProcessor` — orchestration (`run` / `_run_batch`) plus all forecast math (Steps 1–15). No direct DB/cache code; it delegates. |
+| `helpers/db_helpers/additive_esb_helper.py` | `AdditiveEsbHelper` — all ESB SQL (historical incremental, STD lookup, forward scan), writing results into the shared cache. |
+| `helpers/db_helpers/additive_mongo_helper.py` | `AdditiveMongoHelper` — all Mongo I/O: active sectors, tax master, raw fares, demand multiplier, WTP, and audit upsert/finalize. |
+| `helpers/utils/common_utils.py` | Pure helpers (tagging / date / fare-bound parsing), `DatabaseConfig` (table names), and the **`AdditiveCache`** class. |
+
+**`AdditiveCache` is the keystone.** It is constructed once with the run mode
+and the injected S3 client, then shared *by reference* with both helpers. It owns
+two things: the run-scoped in-memory dict `cache.data` (tax master, fares, derived
+frames) and the parquet cache. In **TEST** it reads/writes local parquet; in
+**PROD** it reads/writes S3 sector/month partitions. Because the same object is
+shared, a value the Mongo helper writes (e.g. tax master) is immediately visible
+to the ESB helper and the processor — so **test mode and caching behave
+identically in every file**.
+
+Wiring in `__init__`:
+
+```python
+self.cache = AdditiveCache(self.mode, self.s3_client, logger)
+self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger).bind_context(self.cache)
+self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger).bind_context(self.cache, self.mode)
+self.mongo_helper.set_run(run_id, sectors_expected, analyst, batch_index, snapshot_date)
+```
+
+---
+
 ## Data Sources
 
 | Source | Type | Connection | Purpose |
@@ -87,6 +122,8 @@ The shared `lambda_function.py` handler routes a nested `overrides` key wholesal
 | `RM_DW_DATA.*` | MySQL (DW) | Output tables | Final predictions storage |
 
 | `qp_dw_rmalloc.additive_model_run_audit` | MongoDB | Per-run audit ledger | Per-sector timing (load balancer), run completion tracking |
+| `qp_rm_master.config_sector_demand_multiplier` | MongoDB | Flight-level demand multiplier | Step 13 — scales each flight's prediction (%) |
+| `qp_rm_master.config_quarter_wtp` | MongoDB | Sector × Month-Year WTP factor | Step 14 — price inflation/deflation redistribution (%) |
 
 **Note (updated for the Lambda split).** SQL **reads** go through the injected **ESB engine** (`rdEsbConn`); there are **no DW writes** anymore — forecast output is written to **S3 only**, partitioned `snapshot_date=/sector=`. All connections (ESB engine, DW engine, S3, and the three Mongo DBs) are **injected via `params`** by `lambda_function.py`; the module creates no engines and reads no SSM. The `flight_master.Sector` column uses slash format (`BOM/DEL`), while downstream code uses concatenated format (`BOMDEL`).
 
@@ -645,7 +682,120 @@ Final Prediction Total Bookings = Predicted Total Bookings + remaining_pax_count
 
 ---
 
-### Step 13: Market Fare Integration
+### Step 13: Demand Multiplier (Demand Adjusted Prediction)
+
+**Purpose:** Scale each flight's final prediction up or down by an analyst-supplied, **flight-level** demand signal for the future month.
+
+**Input:** `qp_rm_master.config_sector_demand_multiplier` (PROD) / `Demand_multiplier.csv` (TEST), keyed **(DepartureDate, Sector, FlightNumber)**, value a percentage (e.g. `-30%`). Missing key → **0%** (no change).
+
+**Formula (flight level):**
+
+```
+DAP = Final Prediction × (100 + Demand Multiplier) / 100
+```
+
+Because the multiplier is flight-level, every fare bucket scales by the same factor, so the bucket-level result equals the BRD's proportional redistribution:
+
+```
+bucket DAP = (bucket Final / flight Final) × flight DAP = bucket Final × (100 + DM)/100
+```
+
+**Behaviour:** `DAP` is **added alongside** `Final_pax_count` (the pre-adjustment value is kept for audit). Applied to all four frames (flight / fare-bucket × normal / weighted). New columns: `Demand_Multiplier`, `DAP`, and `DAP_Total_Bookings` (flight frames). Default 0% leaves the prediction unchanged.
+
+---
+
+### Step 14: WTP Fare-Bucket Redistribution (price inflation/deflation)
+
+**Purpose:** Redistribute the **demand-adjusted** predictions (DAP) *within* each flight's fare-bucket ladder to reflect expected price inflation/deflation in the departure month. This changes only the bucket split — the flight total is preserved.
+
+**Input:** `qp_rm_master.config_quarter_wtp` (PROD) / `WTP.csv` (TEST), keyed **(Sector, Month, Year)** — the loader also accepts **(Sector, Quarter, Year)**, expanding a quarter to its three months. Value a percentage: `+X%` inflation, `-X%` deflation, `0%` no-op.
+
+**Rule (2-term):** treat each bucket's DAP as a uniform density `PaxPerUnit = pax / (Upper − Lower)` (the open top bucket uses the previous bucket's width), rescale the bucket bounds by `1 / (1 + WTP%)`, and re-integrate:
+
+- **Inflation** (factor > 1): each bucket pulls demand from the **lower / previous** bucket.
+- **Deflation** (factor < 1): each bucket pulls from the **higher / forward** bucket; the **first** bucket absorbs the bottom leftover and the **top** bucket takes the residual, so the flight total is conserved exactly.
+
+Terms are **signed** (a term goes negative when a bucket is narrower than the shift) — that negative is what conserves the total, so it is never clamped.
+
+**Output columns added (fare-bucket frames only):** `WTP_Factor`, `WTP_pax_count`. Flight-level frames are untouched.
+
+> **Accuracy note.** The 2-term formula is exact when the price shift is smaller than one bucket width. At larger factors (±20 %+) the window crosses more than one bucket and the result approximates — but the flight total is still conserved via the residual.
+
+---
+
+### Worked Example (Steps 13 → 14)
+
+Flight **BOMDEL 1234**, departing **Nov 2026**. After Step 12 its fare-bucket
+predictions (`Final_pax_count`) sum to a flight prediction of **45**.
+
+**Step 13 — Demand Multiplier.** `config_sector_demand_multiplier` has
+`(2026-11-14, BOMDEL, 1234) = +20%` → factor `1.2`, applied flight-level and
+pushed to each bucket by the same factor (`DAP_flight = 45 × 1.2 = 54`):
+
+| Fare bucket | Final_pax_count | DAP (×1.2) |
+|-------------|:---------------:|:----------:|
+| 3000–4000 | 20 | 24 |
+| 4000–5000 | 15 | 18 |
+| 5000–6500 | 8 | 9.6 |
+| 6500+ | 2 | 2.4 |
+| **Flight** | **45** | **54** |
+
+**Step 14 — WTP (+10% inflation).** Redistribute the **DAP** column. Density
+`PPU = DAP / width` (the open 6500+ bucket uses the previous width, 1500); bounds
+rescaled by `1/1.1`. Inflation pulls each bucket's demand from the **lower**
+bucket, so the cheapest bucket loses and the higher buckets gain — total unchanged:
+
+| Fare bucket | DAP | PPU | WTP_pax_count |
+|-------------|:---:|:------:|:-------------:|
+| 3000–4000 | 24 | 0.0240 | 15.27 |
+| 4000–5000 | 18 | 0.0180 | 18.55 |
+| 5000–6500 | 9.6 | 0.0064 | 14.00 |
+| 6500+ | 2.4 | 0.0016 | 6.18 |
+| **Flight** | **54** | | **54.00 ✓** |
+
+Middle-bucket term, worked out (4000–5000):
+`(4000 − 4000/1.1)·0.024 + (5000/1.1 − 4000)·0.018 = 8.73 + 9.82 = 18.55`.
+
+**Deflation reverses direction.** The same flight at **−10%** (factor 0.9) pulls
+from the **higher** bucket — the cheapest bucket gains, the top loses, still summing to 54:
+
+| Fare bucket | DAP | WTP_pax_count (−10%) |
+|-------------|:---:|:--------------------:|
+| 3000–4000 | 24 | 32.00 |
+| 4000–5000 | 18 | 13.56 |
+| 5000–6500 | 9.6 | 7.20 |
+| 6500+ | 2.4 | 1.24 |
+| **Flight** | **54** | **54.00 ✓** |
+
+---
+
+### Step 15: Save Results
+
+**TEST mode outputs (CSV files in `additive_model_output/`):**
+
+| File | Content |
+|------|---------|
+| `flight_level_normal_*.csv` | Flight-level predictions (normal mean) |
+| `flight_level_weighted_*.csv` | Flight-level predictions (weighted mean) |
+| `fare_bucket_normal_*.csv` | Fare-bucket-level predictions (normal) |
+| `fare_bucket_weighted_*.csv` | Fare-bucket-level predictions (weighted) |
+| `inventory_optimization_*.csv` | Protection limits and AU per fare class *(only when EMSR-b is wired; currently not produced)* |
+| `*_full_*.csv` | Full DataFrames with all intermediate columns for debugging |
+| `intermediate_*.csv` | Per-step intermediate outputs |
+
+**PROD mode outputs (S3 only — DW writes removed):**
+- Partitioned Parquet datasets in S3 under `{env}/additive_model/datasets/{dataset}/snapshot_date=YYYY-MM-DD/sector=XXX/data.parquet` for: `flight_level_normal`, `fare_bucket_normal`, `flight_level_weighted`, `fare_bucket_weighted` (and `inventory_optimization` **only** once EMSR-b is wired — `optimized_df` is `None` today).
+- The fare-bucket datasets carry the Step 13/14 columns `Demand_Multiplier`, `DAP`, `WTP_Factor`, `WTP_pax_count`; flight-level datasets carry `Demand_Multiplier`, `DAP`, `DAP_Total_Bookings`. The demand-adjusted, price-redistributed `WTP_pax_count` is the headline fare-bucket number.
+- Each sector writes its own partition independently, so parallel `process` Lambdas never conflict.
+- Per-sector timing + run status written to `qp_dw_rmalloc.additive_model_run_audit` (see **Audit Lifecycle & Load Balancer**).
+
+---
+
+## Deferred Steps (defined, not currently wired)
+
+> **Status:** the model *defines* these two steps, but `run()` currently passes `optimized_df=None`, so **no market-fare or inventory dataset is produced today**. They are documented here because they're part of the model's design and are expected to slot in between Step 14 (WTP) and Step 15 (Save), feeding `optimized_df` into the save.
+
+### Market Fare Integration
 
 **Purpose:** Attach competitor (OAL) and own (QP) minimum/maximum fares from RateGain data for pricing context.
 
@@ -674,7 +824,7 @@ Final Prediction Total Bookings = Predicted Total Bookings + remaining_pax_count
 
 ---
 
-### Step 14: Inventory Optimization (EMSR-b)
+### Inventory Optimization (EMSR-b)
 
 **Purpose:** Calculate protection limits and authorization levels (AU) for each fare class using Expected Marginal Seat Revenue (EMSR-b) methodology.
 
@@ -731,25 +881,6 @@ For fare class `j` (where class 1 is highest fare):
 
 ---
 
-### Step 15: Save Results
-
-**TEST mode outputs (CSV files in `additive_model_output/`):**
-
-| File | Content |
-|------|---------|
-| `flight_level_normal_*.csv` | Flight-level predictions (normal mean) |
-| `flight_level_weighted_*.csv` | Flight-level predictions (weighted mean) |
-| `fare_bucket_normal_*.csv` | Fare-bucket-level predictions (normal) |
-| `fare_bucket_weighted_*.csv` | Fare-bucket-level predictions (weighted) |
-| `inventory_optimization_*.csv` | Protection limits and AU per fare class |
-| `*_full_*.csv` | Full DataFrames with all intermediate columns for debugging |
-| `intermediate_*.csv` | Per-step intermediate outputs |
-
-**PROD mode outputs (S3 only — DW writes removed):**
-- Partitioned Parquet datasets in S3 under `{env}/additive_model/datasets/{dataset}/snapshot_date=YYYY-MM-DD/sector=XXX/data.parquet` for: `flight_level_normal`, `fare_bucket_normal`, `flight_level_weighted`, `fare_bucket_weighted`, and `inventory_optimization`.
-- Each sector writes its own partition independently, so parallel `process` Lambdas never conflict.
-- Per-sector timing + run status written to `qp_dw_rmalloc.additive_model_run_audit` (see **Audit Lifecycle & Load Balancer**).
-
 ---
 
 ## Edge Cases (handled)
@@ -781,7 +912,7 @@ For fare class `j` (where class 1 is highest fare):
 | 5 | Coarse time bands | ~4.5h bands treat 07:31 and 10:59 as identical |
 | 6 | No connecting-pax modelling | Leg-level only; feed traffic not modelled |
 | 7 | Remaining-RBD proportionality | Assumes remaining pax split across buckets like required-RBD pax |
-| 8 | Market fares / EMSR-b disabled | Steps 13–14 are commented out in `run()`; forecast is produced but no inventory decision |
+| 8 | Market fares / EMSR-b not wired | Defined but `run()` passes `optimized_df=None` — forecast is produced but no inventory decision (see *Deferred Steps*). The active post-remaining steps are now Demand Multiplier (13) + WTP (14). |
 | 9 | Normal-distribution assumption | EMSR-b assumes normal demand; small samples make the approximation rough (negative binomial would fit better) |
 
 ---
@@ -820,8 +951,8 @@ sectors▼             ▼                    ▼
                │  Step 10 Matched result                        │
                │  Step 11 Predictions (mean + weighted, α=0.99) │
                │  Step 12 Remaining-RBD distribution            │
-               │  Step 13 Market fares (RateGain) [optional]    │
-               │  Step 14 Inventory opt. EMSR-b     [optional]  │
+               │  Step 13 Demand Multiplier (flight-level %)    │
+               │  Step 14 WTP redistribution (price infl/defl)  │
                │  Step 15 Save                                  │
                └───────┬───────────────────────────┬────────────┘
                        │ results                    │ per-sector timing
