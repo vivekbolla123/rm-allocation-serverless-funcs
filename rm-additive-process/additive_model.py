@@ -115,7 +115,7 @@ class AdditivePickupModelProcessor:
         # =============================================================================
         # 'PROD' -> S3 output + audit writes. 'TEST' -> local CSV/parquet, no audit.
         # Overridable per-invocation via overrides['mode'].
-        RUN_MODE = 'TEST'
+        RUN_MODE = 'PROD'
 
         # Sector list used only in TEST mode (keeps a local run tiny).
         TEST_SECTORS = ['BOMDEL', 'DELBOM']
