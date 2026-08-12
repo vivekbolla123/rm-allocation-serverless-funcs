@@ -241,7 +241,7 @@ class AdditiveMongoHelper:
         if raw is None or raw.empty:
             return {}
         df = raw.rename(columns={c: str(c).strip() for c in raw.columns})
-        dm_col = next((c for c in ('Demand Multiplier', 'DemandMultiplier',
+        dm_col = next((c for c in ('Demand_Multiplier', 'DemandMultiplier',
                                    'demand_multiplier') if c in df.columns), None)
         if dm_col is None or not {'DepartureDate', 'Sector', 'FlightNumber'}.issubset(df.columns):
             return {}
