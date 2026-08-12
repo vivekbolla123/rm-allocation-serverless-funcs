@@ -181,13 +181,19 @@ class DetermineRBD:
         strategyFare = openResult['Fare'][0]
         if strategyFare != CONST_NA:
             try:
-                strategy_val = float(strategyFare)
+                strategyFare = float(strategyFare)
+
+                # STRATEGY MARKET FARE UPSELL LOGIC
+                if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
+                    strategyFare = strategyFare+float(currParams.market_discount)
+
+                # AUTOBACKSTOP LOGIC
                 effective_autoBackstopFlag = str(getattr(currParams, 'autoBackstopFlag', '0'))
                 if effective_autoBackstopFlag == "1" and int(str(dplfBand).strip()) in (0, 1, 2):
                     if channel == B2C_CHANNEL and hasattr(currParams, 'b2c_backstop') and currParams.b2c_backstop not in [CONST_NA, '', None]:
                         b2c_val = float(currParams.b2c_backstop)
                         if b2c_val > 0:
-                            backstop = min(strategy_val, b2c_val)
+                            backstop = min(strategyFare, b2c_val)
                             # currParams.b2c_backstop = backstop
                             if state:
                                 state.b2c_backstop_final = backstop
@@ -195,7 +201,7 @@ class DetermineRBD:
                     elif channel == B2B_CHANNEL and hasattr(currParams, 'b2b_backstop') and currParams.b2b_backstop not in [CONST_NA, '', None]:
                         b2b_val = float(currParams.b2b_backstop)
                         if b2b_val > 0:
-                            backstop = min(strategy_val, b2b_val)
+                            backstop = min(strategyFare, b2b_val)
                             # currParams.b2b_backstop = backstop
                             if state:
                                 state.b2b_backstop_final = backstop
@@ -324,10 +330,6 @@ class DetermineRBD:
                 self.logger.info("Startegy Fare: " + str(strategyFare))
                 
                 anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = self.finalFareAnchor(strategyFare, profileFare, lastSoldFare,hardAnchorFare, anchorValue, dPLF, toleranceFare, currParams,plf,overBookingCount,dplfBand,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare, obfare, ndocounter, imp_forecast)
-                if currParams.market_discount != CONST_NA and currParams.market_discount is not None and not pd.isna(currParams.market_discount):
-                    anchorFare = anchorFare+int(currParams.market_discount)
-
-                
                     
                 if anchorValue == 'A':
                     howDetermined = f"V_{imp_forecast_band}_{dplfBand}_A_{howDetermined}"
