@@ -1397,64 +1397,81 @@ class AdditivePickupModelProcessor:
     # PPU of the open top bucket uses the previous bucket's width as denominator.
 
 
-
-
     @staticmethod
     def _wtp_redistribute_flight(lowers, uppers, pax, pct):
-        """2-term WTP redistribution for ONE flight's ascending bucket ladder.
-
-        lowers/uppers/pax are equal-length lists sorted by lower bound ascending;
-        the last bucket may be open (uppers[-1] is None). pct is the WTP percent
-        (e.g. 10 or -30). Returns the new per-bucket pax list (flight total
-        conserved). Terms are intentionally signed (never clamped)."""
+        """WTP redistribution for ONE flight (per the WTP sample method):
+        density = pax / bucket width (open top bucket uses the previous width);
+        rescale the bounds by 1/D (rounded); integrate the density over each
+        bucket's new window (overlaps clamped >= 0, so never negative); the lowest
+        bucket absorbs the left-most remaining pax (deflation); a running cap keeps
+        the flight total from exceeding the original. Non-negative; total <= original."""
         n = len(pax)
         if n == 0 or pct == 0:
             return list(pax)
-        D = 1.0 + pct / 100.0
-        # An open top bucket's upper is None, but round-tripping through a float
-        # column turns it into NaN — normalise so `is None` checks hold.
+        D = (100.0 + pct) / 100.0
         uppers = [None if (u is None or (isinstance(u, float) and u != u)) else u
                   for u in uppers]
 
-        # Pax-Per-Unit; open top bucket uses the previous bucket's width.
-        ppu = []
+        # widths + effective upper (open top bucket uses the previous bucket's width)
+        diff, eff_up = [], []
         for i in range(n):
             if uppers[i] is None:
-                w = (uppers[i - 1] - lowers[i - 1]) if i > 0 else 1.0
+                w = (uppers[i - 1] - lowers[i - 1]) if i > 0 else 0.0
+                diff.append(w)
+                eff_up.append(lowers[i] + w)
             else:
-                w = uppers[i] - lowers[i]
-            ppu.append(pax[i] / w if w else 0.0)
+                diff.append(uppers[i] - lowers[i])
+                eff_up.append(uppers[i])
+        dens = [pax[i] / diff[i] if diff[i] else 0.0 for i in range(n)]
 
-        out = [None] * n
-        if D > 1:  # inflation — take from previous (lower) buckets
-            for i in range(n):
-                if i == 0:
-                    out[i] = (uppers[0] / D - lowers[0]) * ppu[0]
-                elif uppers[i] is None:  # open top: pull slice + keep own pax
-                    out[i] = (lowers[i] - lowers[i] / D) * ppu[i - 1] + pax[i]
-                else:
-                    out[i] = ((lowers[i] - lowers[i] / D) * ppu[i - 1]
-                              + (uppers[i] / D - lowers[i]) * ppu[i])
-        else:      # deflation — take from forward (higher) buckets; top = residual
-            for i in range(n):
-                if i == n - 1:
-                    out[i] = None  # residual, filled below
-                elif i == 0:
-                    out[i] = ((uppers[0] - lowers[0] / D) * ppu[0]
-                              + (uppers[0] / D - lowers[1]) * ppu[1]
-                              + (lowers[0] / D - lowers[0]) * ppu[0])
-                else:
-                    # next lower bound == uppers[i] (contiguous)
-                    out[i] = ((uppers[i] - lowers[i] / D) * ppu[i]
-                              + (uppers[i] / D - uppers[i]) * ppu[i + 1])
-            out[n - 1] = sum(pax) - sum(o for o in out if o is not None)
+        # new bounds, rounded (per the sample)
+        nl = [round(lowers[i] / D, 0) for i in range(n)]
+        nu = [round(eff_up[i] / D, 0) for i in range(n)]
+        dmin, dmax = min(lowers), max(eff_up)
+
+        def _integrate(a, b):
+            if a is None or b is None:
+                return 0.0
+            a = max(a, dmin)
+            b = min(b, dmax)
+            if b <= a:
+                return 0.0
+            t = 0.0
+            for lo, hi, de in zip(lowers, eff_up, dens):
+                slo, shi = max(a, lo), min(b, hi)
+                if shi > slo:
+                    t += (shi - slo) * de
+            return t
+
+        raw = []
+        for i in range(n):
+            val = _integrate(nl[i], nu[i])
+            # deflation edge: the lowest bucket takes the left-most remaining pax
+            if i == 0 and nl[i] is not None and nl[i] > dmin:
+                val += _integrate(dmin, nl[i])
+            raw.append(val)
+
+        # running cap: sum(new) never exceeds the original total; each >= 0
+        total = sum(pax)
+        running = 0.0
+        out = []
+        for v in raw:
+            rem = total - running
+            if rem <= 0:
+                out.append(0.0)
+            elif v > rem:
+                out.append(rem)
+                running += rem
+            else:
+                out.append(max(v, 0.0))
+                running += max(v, 0.0)
         return out
 
-    def _apply_wtp_redistribution(self, bucket_df, count_col='DAP'):
-        """Redistribute the demand-adjusted fare-bucket predictions (DAP) within
-        each flight to reflect price inflation/deflation for the departure month.
-        Adds WTP_Factor and WTP_pax_count. Falls back to Final_pax_count if the
-        DAP column is absent (demand multiplier disabled)."""
+    def _apply_wtp_redistribution(self, bucket_df, count_col='New Final_pax_count'):
+        """Step 14 — redistribute the DEMAND-ADJUSTED pax ('New Final_pax_count')
+        within each flight's fare buckets for price inflation/deflation. Adds
+        WTP_Factor and WTP_pax_count. Falls back to Final_pax_count only if the
+        demand-adjusted column is absent."""
         if bucket_df is None or bucket_df.empty:
             return bucket_df
         src = count_col if count_col in bucket_df.columns else 'Final_pax_count'
@@ -1465,13 +1482,20 @@ class AdditivePickupModelProcessor:
         wtp = self.mongo_helper.load_wtp()
         df = bucket_df.copy()
         dd = pd.to_datetime(df['DepartureDate_future'])
-        df['WTP_Factor'] = [
-            wtp.get((s, d.year, d.month), 0.0) for s, d in zip(df['Sector'], dd)
-        ]
+        df['WTP_Factor'] = [wtp.get((s, d.year, d.month), 0.0)
+                            for s, d in zip(df['Sector'], dd)]
 
-        bounds = df['FareBasis'].apply(parse_fare_bounds)
-        df['_wlo'] = [b[0] for b in bounds]
-        df['_wup'] = [b[1] for b in bounds]
+        # bucket bounds: prefer the parsed columns, else parse the FareBasis range
+        if 'FareBucket_Lower' in df.columns and 'FareBucket_Upper' in df.columns:
+            df['_wlo'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce')
+            df['_wup'] = pd.to_numeric(df['FareBucket_Upper'], errors='coerce')
+        elif 'FareBasis' in df.columns:
+            bounds = df['FareBasis'].apply(parse_fare_bounds)
+            df['_wlo'] = [b[0] for b in bounds]
+            df['_wup'] = [b[1] for b in bounds]
+        else:
+            logger.warning("[WTP] no bucket bounds (FareBucket_Lower/Upper or FareBasis); skipping.")
+            return bucket_df
 
         df['WTP_pax_count'] = df[src]
         gcols = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
@@ -1481,9 +1505,9 @@ class AdditivePickupModelProcessor:
             pct = float(sub['WTP_Factor'].iloc[0])
             if pct == 0:
                 continue
+            uppers = [None if (u != u) else u for u in sub['_wup'].tolist()]   # NaN -> None
             new = self._wtp_redistribute_flight(
-                sub['_wlo'].tolist(), sub['_wup'].tolist(),
-                sub[src].tolist(), pct)
+                sub['_wlo'].tolist(), uppers, sub[src].tolist(), pct)
             df.loc[sub.index, 'WTP_pax_count'] = new
             n_adj += 1
 
@@ -1493,13 +1517,10 @@ class AdditivePickupModelProcessor:
         return df
 
     def _apply_demand_multiplier(self, flight_df, bucket_df):
-        """Attach the demand-multiplier display columns to each frame.
-
-        New columns: 'Demand Multiplier', 'Demand Multiplier Number',
-        'New predicted_pax_count_final', 'Fare Bucket Ratio',
-        'New Final_pax_count', 'New Final Total Bookings'.
-        """
-        dm = self.mongo_helper.load_demand_multiplier()   # {(Sector, date, flt): pct}
+        """Step 13 — adds: Demand Multiplier, Demand Multiplier Number,
+        New predicted_pax_count_final, Fare Bucket Ratio, New Final_pax_count,
+        New Final Total Bookings. (Before = Final_pax_count / predicted_pax_count_final.)"""
+        dm = self.mongo_helper.load_demand_multiplier()          # or self.mongo_helper.load_demand_multiplier()
 
         def _attach(df):
             if df is None or df.empty:
@@ -1508,27 +1529,21 @@ class AdditivePickupModelProcessor:
             date_col = 'DepartureDate_future' if 'DepartureDate_future' in df.columns else 'DepartureDate'
             flt_col  = 'FlightNumber_future'  if 'FlightNumber_future'  in df.columns else 'FlightNumber'
             cb_col   = 'Current_Bookings'     if 'Current_Bookings'     in df.columns else 'Total Bookings'
-
-            # flight-level sum of bucket predictions (required + remaining)
             if 'predicted_pax_count_final' not in df.columns:
                 df['predicted_pax_count_final'] = (
                     df.groupby(['Sector', date_col, flt_col])['Final_pax_count'].transform('sum'))
-
             dd  = pd.to_datetime(df[date_col]).dt.normalize()
             flt = pd.to_numeric(df[flt_col], errors='coerce').astype('Int64')
-            pct = pd.Series(
-                [dm.get((s, d, int(f)) if pd.notna(f) else None, 0.0)
-                for s, d, f in zip(df['Sector'], dd, flt)],
-                index=df.index)
-
-            df['Demand Multiplier']            = pct.map(lambda v: f"{v:g}%")
-            df['Demand Multiplier Number']     = (100.0 + pct) / 100.0
+            pct = pd.Series([dm.get((s, d, int(f)) if pd.notna(f) else None, 0.0)
+                             for s, d, f in zip(df['Sector'], dd, flt)], index=df.index)
+            df['Demand Multiplier']             = pct.map(lambda v: f"{v:g}%")
+            df['Demand Multiplier Number']      = (100.0 + pct) / 100.0
             df['New predicted_pax_count_final'] = df['predicted_pax_count_final'] * df['Demand Multiplier Number']
-            df['Fare Bucket Ratio']            = np.where(
+            df['Fare Bucket Ratio']             = np.where(
                 df['predicted_pax_count_final'] != 0,
                 df['Final_pax_count'] / df['predicted_pax_count_final'], 0.0)
-            df['New Final_pax_count']          = df['Fare Bucket Ratio'] * df['New predicted_pax_count_final']
-            df['New Final Total Bookings']     = df[cb_col] + df['New predicted_pax_count_final']
+            df['New Final_pax_count']           = df['Fare Bucket Ratio'] * df['New predicted_pax_count_final']
+            df['New Final Total Bookings']      = df[cb_col] + df['New predicted_pax_count_final']
             return df
 
         return _attach(flight_df), _attach(bucket_df)
@@ -1914,18 +1929,16 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(weighted_final_df, '12d_flight_after_remaining_weighted')
 
         # --- Step 13: Demand Multiplier (Demand Adjusted Prediction) ---
-        result_final_df, result_merged_df = self._apply_demand_multiplier(
-            result_final_df, result_merged_df)
-        weighted_final_df, weighted_merged_df = self._apply_demand_multiplier(
-            weighted_final_df, weighted_merged_df)
+        result_final_df, result_merged_df     = self._apply_demand_multiplier(result_final_df, result_merged_df)
+        weighted_final_df, weighted_merged_df = self._apply_demand_multiplier(weighted_final_df, weighted_merged_df)
         self._save_intermediate(result_final_df, '13a_flight_demand_adjusted_normal')
         self._save_intermediate(result_merged_df, '13b_fare_bucket_demand_adjusted_normal')
         self._save_intermediate(weighted_final_df, '13c_flight_demand_adjusted_weighted')
         self._save_intermediate(weighted_merged_df, '13d_fare_bucket_demand_adjusted_weighted')
 
         # --- Step 14: WTP fare-bucket redistribution (price inflation/deflation) ---
-        result_merged_df = self._apply_wtp_redistribution(result_merged_df, count_col='DAP')
-        weighted_merged_df = self._apply_wtp_redistribution(weighted_merged_df, count_col='DAP')
+        result_merged_df   = self._apply_wtp_redistribution(result_merged_df,   count_col='New Final_pax_count')
+        weighted_merged_df = self._apply_wtp_redistribution(weighted_merged_df, count_col='New Final_pax_count')
         self._save_intermediate(result_merged_df, '14a_fare_bucket_wtp_normal')
         self._save_intermediate(weighted_merged_df, '14b_fare_bucket_wtp_weighted')
 
@@ -1981,7 +1994,11 @@ class AdditivePickupModelProcessor:
             'Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
             'Total_Predicted_pax_count', 'Predicted_Total_Bookings',
-            'Demand_Multiplier', 'DAP', 'WTP_Factor', 'WTP_pax_count',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'Fare Bucket Ratio',
+            'New Final_pax_count', 'New Final Total Bookings',
+            'WTP_Factor', 'WTP_pax_count',
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         flight_level_cols = [
@@ -1990,7 +2007,9 @@ class AdditivePickupModelProcessor:
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std_square',
             'Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
-            'Demand_Multiplier', 'DAP', 'DAP_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'New Final Total Bookings',
             'Load_Factor']
 
         weighted_fare_bucket_cols = [
@@ -2000,7 +2019,11 @@ class AdditivePickupModelProcessor:
             'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
             'Total_Predicted_pax_count', 'Predicted_Total_Bookings',
-            'Demand_Multiplier', 'DAP', 'WTP_Factor', 'WTP_pax_count',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'Fare Bucket Ratio',
+            'New Final_pax_count', 'New Final Total Bookings',
+            'WTP_Factor', 'WTP_pax_count',
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         weighted_flight_level_cols = [
@@ -2009,7 +2032,9 @@ class AdditivePickupModelProcessor:
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std_square',
             'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
-            'Demand_Multiplier', 'DAP', 'DAP_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'New Final Total Bookings',
             'Load_Factor']
 
         optimization_cols = [
