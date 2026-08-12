@@ -47,7 +47,10 @@ import concurrent.futures
 from scipy.stats import norm
 
 import configsettings
-from Constants import *   # noqa: F401,F403  (model + infra constants)
+from Constants import *
+from helpers.utils.common_utils import *
+from helpers.db_helpers.additive_esb_helper import AdditiveEsbHelper
+from helpers.db_helpers.additive_mongo_helper import AdditiveMongoHelper
 
 # Module logger — inherits the handler/root logger config in Lambda.
 logger = logging.getLogger()
@@ -62,68 +65,6 @@ class DatabaseConfig:
     FLOWN_DATA_TABLE   = f'{configsettings.ESB_READ_SCHEMA}.QP_DL_FLOWNDATAPAX'
     BOOKED_DATA_TABLE  = f'{configsettings.ESB_READ_SCHEMA}.QP_DL_BOOKEDDATAPAX'
     FLIGHT_MASTER_TABLE = f'{configsettings.ESB_READ_SCHEMA}.QP_DL_InventoryLeg'
-
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
-
-def get_time_cluster(std_time):
-    """Assign a time cluster string based on STD time object."""
-    TIME_BANDS = [
-        (time(2, 30), time(7, 30), '2:30-7:30'),
-        (time(7, 30), time(11, 0), '7:30-11:00'),
-        (time(11, 0), time(14, 30), '11:00-14:30'),
-        (time(14, 30), time(18, 0), '14:30-18:00'),
-        (time(18, 0), time(21, 0), '18:00-21:00'),
-    ]
-    if pd.isna(std_time):
-        return np.nan
-    if isinstance(std_time, str):
-        std_time = datetime.strptime(std_time, '%H:%M:%S').time()
-    elif isinstance(std_time, timedelta):
-        std_time = (datetime.min + std_time).time()
-
-    for start, end, label in TIME_BANDS:
-        if start <= std_time < end:
-            return label
-    return '21:00-2:30'
-
-
-def get_quarter_abbr(date):
-    """Map a date to its quarter abbreviation (JFM, AMJ, JAS, OND)."""
-    month = date.month
-    if month <= 3:
-        return 'JFM'
-    elif month <= 6:
-        return 'AMJ'
-    elif month <= 9:
-        return 'JAS'
-    return 'OND'
-
-
-def numerical_tagging(tag):
-    """Convert tagging string to numerical sort order."""
-    mapping = {'Lean': 0, 'Shoulder': 1, 'Peak': 2, 'Super Peak': 3}
-    return mapping.get(tag, 0)
-
-
-def tag_from_zscore(z):
-    """Assign lean/peak tag based on Z-Score value."""
-    if z < -0.5:
-        return 'Lean'
-    elif z < 1:
-        return 'Shoulder'
-    elif z < 2:
-        return 'Peak'
-    return 'Super Peak'
-
-
-def middle_tagging(tags):
-    if len(tags) == 0:
-        return None
-    return tags.iloc[(len(tags) - 1) // 2]
-
 
 # =============================================================================
 # MAIN PROCESSOR CLASS
@@ -177,7 +118,8 @@ class AdditivePickupModelProcessor:
         RUN_MODE = 'PROD'
 
         # Sector list used only in TEST mode (keeps a local run tiny).
-        TEST_SECTORS = ['AUHBLR']
+        TEST_SECTORS = ['BOMDEL', 'DELBOM']
+        self.test_sectors = TEST_SECTORS
         TEST_OUTPUT_DIR = os.path.join(os.getcwd(), 'additive_model_output')
 
 
@@ -196,11 +138,24 @@ class AdditivePickupModelProcessor:
         # self.db_master = params.get('mongo_master')  # qp_rm_master
         self.db = params['mongo']
         self.master_db = params.get('mongo_master', params['mongo'])
+
+        self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger)
+        self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger)
+
         self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
         self.s3_cache_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache'
         self.s3_output_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}datasets'
         CACHE_DIR = os.path.join(os.getcwd(), 'additive_model_cache')
         self.local_cach_dir = CACHE_DIR if self.mode == 'TEST' else None
+
+        # --- shared cache (mode-aware) + bind helpers ---
+        self.cache = AdditiveCache(self.mode, self.s3_client, logger)
+        self.cache.s3_bucket = self.s3_bucket
+        self.cache.s3_cache_prefix = self.s3_cache_prefix
+        self.cache.s3_output_prefix = self.s3_output_prefix
+        self.cache.local_dir = self.local_cach_dir or os.path.join(os.getcwd(), 'additive_model_cache')
+        self.esb_helper.bind_context(self.cache)
+        self.mongo_helper.bind_context(self.cache, self.mode)
 
         # --- per-invocation overrides for backfill/refresh ---
         # (module-level constants stay the default; overrides win when present)
@@ -218,55 +173,25 @@ class AdditivePickupModelProcessor:
         self.batch_total = overrides.get('batch_total')
         self.sectors_expected = overrides.get('sectors_expected')
 
+        # audit run-context for the mongo helper
+        self.mongo_helper.set_run(self.run_id, self.sectors_expected, self.analyst,
+                                  self.batch_index, self.current_date.strftime('%Y-%m-%d'))
+
+        # Explicit sectors (from overrides) win in ANY mode — incl. TEST.
         bin_sectors = overrides.get('sectors')
-        if self.mode == 'TEST':
-            self.active_sectors = list(TEST_SECTORS)
-        elif bin_sectors:
+        if bin_sectors:
             self.active_sectors = list(bin_sectors)
+        elif self.mode == 'TEST':
+            self.active_sectors = list(self.test_sectors)
         else:
             self.active_sectors = []   # standalone full run -> fetch all active
 
-        self._data_cache = {}
+        self.cache.data = {}
 
 # =============================================================================
 # Resolve the spec into a concrete list of 'YYYY-MM' strings
 # =============================================================================
 
-    def _resolve_refresh_months(self):
-        """
-        Turn REFRESH_MONTHS into a sorted list of 'YYYY-MM', clamped to the
-        retained window (older months are dropped by retention anyway, so
-        refetching them would be immediately pruned).
-        """
-        if not REFRESH_SPEC:
-            return []
-
-        month_start = self.current_date.replace(day=1)
-        floor = min(month_start - pd.DateOffset(years=1),
-                    month_start - pd.Timedelta(days=365))
-        floor_m = floor.strftime('%Y-%m')
-        this_m = month_start.strftime('%Y-%m')
-
-        months = set()
-        if REFRESH_SPEC.isdigit():
-            n = int(REFRESH_SPEC)
-            m = month_start
-            for _ in range(n):
-                m = m - pd.DateOffset(months=1)
-                months.add(m.strftime('%Y-%m'))
-        else:
-            for tok in REFRESH_SPEC.split(','):
-                tok = tok.strip()
-                if tok:
-                    months.add(tok)
-
-        # keep only months inside the retained window and not the current month
-        # (the current month is already handled by the daily incremental)
-        valid = sorted(m for m in months if floor_m <= m < this_m)
-        dropped = sorted(months - set(valid))
-        if dropped:
-            logger.warning(f"[Refresh] Ignoring out-of-window months: {dropped}")
-        return valid
 
 
 # =============================================================================
@@ -299,9 +224,9 @@ class AdditivePickupModelProcessor:
         for m in months:
             first = pd.to_datetime(m + '-01')
             last = (first + pd.DateOffset(months=1)) - pd.Timedelta(days=1)
-            q = self._build_flown_query(
+            q = self.esb_helper.build_flown_query(
                 f"qdb.DepartureDate BETWEEN '{first.date()}' AND '{last.date()}'", conds)
-            df = self._run_sql(engine, q)
+            df = run_sql(engine, q)
             if not df.empty:
                 df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
                 df['DOW'] = df['DepartureDate'].dt.day_name()
@@ -317,7 +242,7 @@ class AdditivePickupModelProcessor:
         # Rewrite exactly the refreshed month partitions. Because the fetch is
         # authoritative for the whole month, we overwrite rather than merge —
         # this is what actually removes the cancelled PNRs from the cache.
-        self._write_sector_cache('hist_flown', fresh, months=set(months))
+        self.cache.write_sector_cache('hist_flown', fresh, months=set(months))
         logger.info(f"[Refresh] Rewrote {len(months)} hist_flown partitions "
                     f"for {fresh['Sector'].nunique()} sectors.")
 
@@ -325,479 +250,18 @@ class AdditivePickupModelProcessor:
     # STEP 0: FETCH ACTIVE SECTORS
     # =========================================================================
 
-    def _fetch_active_sectors(self):
-        """Resolve the sectors this invocation will process.
 
-        Normal path: sectors already set from overrides['sectors'] (the bin) or
-        TEST_SECTORS — nothing to fetch. Only a standalone full run (no bin,
-        PROD) falls through to reading qp_rm_master.active_sectors.
-        """
-        if self.mode == 'TEST':
-            logger.info(f"TEST mode — sectors: {self.active_sectors}")
-            return self.active_sectors
-
-        if self.active_sectors:
-            logger.info(f"Processing assigned bin of {len(self.active_sectors)} sector(s).")
-            return self.active_sectors
-
-        logger.info("No bin supplied — fetching ALL active sectors (standalone run).")
-        try:
-            docs = list(self.master_db.active_sectors.find({}, {"_id": 0, "sector": 1}))
-            if not docs:
-                raise RuntimeError("No active sectors found in qp_rm_master.active_sectors")
-            self.active_sectors = [d['sector'] for d in docs if d.get('sector')]
-            logger.info(f"Loaded {len(self.active_sectors)} active sectors.")
-            return self.active_sectors
-        except Exception as e:
-            logger.error(f"Error fetching active sectors: {e}")
-            logger.error(traceback.format_exc())
-            raise
-
-    def _fetch_tax_master_data(self):
-        """Fetch domestic and international tax master data + pricing constants from MongoDB."""
-        logger.info("Fetching tax master data (domestic + international + pricing constants)...")
-        try:
-
-            # --- Domestic tax master: keyed by origin airport code ---
-            dom_docs = list(self.master_db.tax_mast_dom.find({}, {"_id": 0}))
-            dom_map = {}
-            for doc in dom_docs:
-                code = str(doc.get('Code', '')).strip()
-                if code:
-                    dom_map[code] = {
-                        'GST':    float(doc.get('GST', 0) or 0) / 100,
-                        'RCS':    float(doc.get('RCS', 0) or 0),
-                        'CUTE':   float(doc.get('CUTE', 0) or 0),
-                        'ASF':    float(doc.get('ASF', 0) or 0),
-                        'PSF':    float(doc.get('PSF', 0) or 0),
-                        'UDF_DF': float(doc.get('UDF_DF', 0) or 0),
-                    }
-            self._data_cache['tax_mast_dom'] = dom_map
-            logger.info(f"Fetched {len(dom_map)} domestic tax master records.")
-
-            # --- International tax master: keyed by sector string e.g. "BOMKWI" ---
-            intl_docs = list(self.master_db.tax_mast_intl.find({}, {"_id": 0}))
-            intl_map = {}
-            for doc in intl_docs:
-                sector = str(doc.get('Sectors', '')).strip()
-                if sector:
-                    intl_map[sector] = {
-                        'GST':     float(doc.get('GST', 0) or 0),
-                        'CUTE':    float(doc.get('CUTE', 0) or 0),
-                        'ASF':     float(doc.get('ASF', 0) or 0),
-                        'PSF_ADF': float(doc.get('PSF_ADF', 0) or 0),
-                        'UDF':     float(doc.get('UDF', 0) or 0),
-                        'PSC_PZ':  float(doc.get('PSC_PZ', 0) or 0),
-                        'RCS_CUTE':float(doc.get('RCS_CUTE', 0) or 0),
-                        'RCS':     float(doc.get('RCS', 0) or 0),
-                        'Tax1':    float(doc.get('Tax1', 0) or 0),
-                        'Tax2':    float(doc.get('Tax2', 0) or 0),
-                        'Tax3':    float(doc.get('Tax3', 0) or 0),
-                        'Tax4':    float(doc.get('Tax4', 0) or 0),
-                        'Tax5':    float(doc.get('Tax5', 0) or 0),
-                    }
-            self._data_cache['tax_mast_intl'] = intl_map
-            logger.info(f"Fetched {len(intl_map)} international tax master records.")
-
-            # --- Pricing constants (sector-level exclusion rules) ---
-            # Fetch all three parameters in one query
-            param_keys = ['PRICING_DUF_SECTORS', 'PRICING_GST_SECTORS', 'PRICING_RCS_SECTORS']
-            params_cursor = self.db.rm_parameter_values.find(
-                {"parameterKey": {"$in": param_keys}},
-                {"parameterKey": 1, "parameterValue": 1, "_id": 0}
-            )
-            
-            pricing_constants = {
-                'PRICING_DUF_SECTORS': {},   # dict: destination -> DUF amount
-                'PRICING_GST_SECTORS': [],   # list: airport codes exempt from GST
-                'PRICING_RCS_SECTORS': [],   # list: destination codes where RCS = 0
-            }
-            
-            for doc in params_cursor:
-                key = doc['parameterKey']
-                try:
-                    pricing_constants[key] = json.loads(doc['parameterValue'])
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"Could not parse pricing constant {key}: {e}")
-            
-            self._data_cache['pricing_duf_sectors'] = pricing_constants['PRICING_DUF_SECTORS']
-            self._data_cache['pricing_gst_sectors'] = set(pricing_constants['PRICING_GST_SECTORS'])
-            self._data_cache['pricing_rcs_sectors'] = set(pricing_constants['PRICING_RCS_SECTORS'])
-            
-            logger.info(
-                f"Loaded pricing constants — "
-                f"DUF sectors: {len(self._data_cache['pricing_duf_sectors'])}, "
-                f"GST-exempt: {len(self._data_cache['pricing_gst_sectors'])}, "
-                f"RCS-zero: {len(self._data_cache['pricing_rcs_sectors'])}"
-            )
-
-        except Exception as e:
-            logger.error(f"Error fetching tax master data: {e}")
-            logger.error(traceback.format_exc())
-            self._data_cache['tax_mast_dom'] = {}
-            self._data_cache['tax_mast_intl'] = {}
-            self._data_cache['pricing_duf_sectors'] = {}
-            self._data_cache['pricing_gst_sectors'] = set()
-            self._data_cache['pricing_rcs_sectors'] = set()
        
 
     # =========================================================================
     # CONSOLIDATED DATA FETCHING (incremental with local parquet cache)
     # =========================================================================
-    def _get_s3(self):
-        return self.s3_client
-
-    def _get_esb_engine(self):
-        return self.esb_engine
-
-    def _fetch_all_data(self):
-        """
-        Incremental data fetching strategy:
-
-        HISTORICAL DATA:
-          - First run: full backfill from FLOWNDATAPAX, saved to parquet cache
-          - Subsequent runs: load cache, fetch yesterday only, append, prune
-
-        STD LOOKUP:
-          - Fetched for any new InventoryLegIDs not already in cache
-          - Keyed by leg ID over PAST departures — disjoint from the forward scan
-
-        FORWARD DATA (single InventoryLeg scan, two outputs):
-          - `future_flight_master` : every SCHEDULED flight, booked or not
-          - `forward_raw_df`       : booking-level rows for the NDO model
-          Both come from one query. InventoryLeg is the driving table of the
-          LEFT JOIN, so every scheduled flight is already in the result set;
-          querying it a second time for the same date range would be pure
-          duplication.
-        """
-        # TEST writes the parquet cache locally; PROD caches to S3, and the
-        # Lambda working dir is read-only, so only create the local dir in TEST.
-        if self.mode == 'TEST':
-            os.makedirs(self.local_cach_dir, exist_ok=True)
-        engine = self._get_esb_engine()
-
-        # --- Date boundaries (real DATE/DATETIME columns -> quoted literals) ---
-        today = self.today.date()
-        yesterday = today - timedelta(days=1)
-        month_start = self.current_date.replace(day=1)
-        tag_floor = month_start - pd.DateOffset(years=1)
-        future_tag_floor = month_start - pd.Timedelta(days=365)
-        hist_start = min(tag_floor, future_tag_floor).date()
-
-        forward_end = today + timedelta(days=PREDICTION_HORIZON_DAYS)
-        booking_cutoff = today - timedelta(days=545)
-
-        logger.info(f"Date windows — hist: {hist_start}..{yesterday}, "
-                    f"forward: {today}..{forward_end}")
-
-        fm_station_conditions = " OR ".join([
-            f"(fm.DepartureStation = '{s[:3]}' AND fm.ArrivalStation = '{s[3:]}')"
-            for s in self.active_sectors
-        ])
-
-        # =====================================================================
-        # QUERY 1: HISTORICAL FLOWN DATA (incremental, sector-aware cache)
-        # =====================================================================
-        hist_df = self._fetch_historical_incremental(engine, hist_start, yesterday)
-        self._data_cache['hist_raw_df'] = hist_df
-
-        # =====================================================================
-        # QUERY 2: STD LOOKUP (incremental — only new leg IDs, PAST departures)
-        # =====================================================================
-        self._fetch_std_incremental(engine, hist_df)
-
-        # =====================================================================
-        # QUERY 3: FORWARD DATA (always fresh — future bookings change daily)
-        # =====================================================================
-        logger.info(f"[Query 3] Fetching forward data: {today} to {forward_end}...")
-
-        forward_query = f"""
-        SELECT
-            fm.InventoryLegID,
-            CONCAT(fm.DepartureStation, fm.ArrivalStation) AS Sector,
-            fm.STD AS STD_dt,
-            fm.FlightNumber,
-            fm.AdjustedCapacity as Capacity,
-            fm.DepartureDate AS DepartDate_raw,
-            qdb.DepartureDate,
-            qdb.PNR,
-            qdb.RBD,
-            qdb.FareBasis AS FareBasisRaw,
-            qdb.BookingDate,
-            DATEDIFF(qdb.DepartureDate, qdb.BookingDate) AS NDO,
-            CASE
-                WHEN SUBSTRING(qdb.FareBasis, 5, 1) = 'T'
-                THEN SUM(qdb.FB_Net + qdb.YQ_Pro + qdb.RCS + qdb.CUTE)
-                ELSE SUM(qdb.DiscountedBaseFare_Pro + qdb.YQ_Pro + qdb.RCS + qdb.CUTE)
-            END AS Fare,
-            SUM(CASE
-                WHEN qdb.FareBasis NOT LIKE '%SOL%' THEN 1
-                ELSE 0
-            END) AS `Pax Count`
-        FROM {DatabaseConfig.FLIGHT_MASTER_TABLE} fm
-        LEFT JOIN {DatabaseConfig.BOOKED_DATA_TABLE} qdb
-            ON qdb.InventoryLegID = fm.InventoryLegID
-            AND qdb.BookingDate >= '{booking_cutoff}' AND qdb.BookingDate < '{today}'
-        WHERE fm.DepartureDate BETWEEN '{today}' AND '{forward_end}'
-            AND ({fm_station_conditions})
-            AND fm.FlightNumber < 6000
-            AND fm.CarrierCode = 'QP'
-            AND fm.Status <> 2
-            AND fm.AdjustedCapacity > 0
-        GROUP BY fm.InventoryLegID, fm.DepartureStation, fm.ArrivalStation, fm.STD,
-                 fm.FlightNumber, fm.Capacity, fm.DepartureDate,
-                 qdb.DepartureDate, qdb.PNR, qdb.RBD,
-                 qdb.FareBasis, qdb.BookingDate
-        """
-
-        try:
-            with engine.connect() as conn:
-                chunks = pd.read_sql(text(forward_query), conn, chunksize=50000)
-                forward_df = pd.concat([chunk for chunk in chunks], ignore_index=True)
-            logger.info(f"[Query 3] Done — {len(forward_df)} records.")
-        except Exception as e:
-            logger.error(f"Error fetching forward data: {e}")
-            logger.error(traceback.format_exc())
-            raise
-
-        # ---------------------------------------------------------------------
-        # Post-processing
-        # ---------------------------------------------------------------------
-        # STD is a DATETIME — derive datetime.time directly.
-        forward_df['STD'] = pd.to_datetime(forward_df['STD_dt']).dt.time
-        forward_df.drop(columns=['STD_dt'], inplace=True, errors='ignore')
-
-        # Flights with no bookings have qdb.DepartureDate NULL — fall back to fm's.
-        if 'DepartDate_raw' in forward_df.columns:
-            forward_df['DepartureDate'] = forward_df['DepartureDate'].fillna(
-                forward_df['DepartDate_raw']
-            )
-            forward_df.drop(columns=['DepartDate_raw'], inplace=True, errors='ignore')
-        forward_df['DepartureDate'] = pd.to_datetime(forward_df['DepartureDate'])
-        forward_df['DOW'] = forward_df['DepartureDate'].dt.day_name()
-
-        forward_df['FlightNumber'] = pd.to_numeric(forward_df['FlightNumber'], errors='coerce')
-        forward_df = forward_df.dropna(subset=['FlightNumber'])
-        forward_df['FlightNumber'] = forward_df['FlightNumber'].astype(int)
-        fm_df = forward_df[['Sector', 'DepartureDate', 'STD',
-                            'FlightNumber', 'Capacity']].copy()
-        fm_df = fm_df.drop_duplicates(
-            subset=['Sector', 'DepartureDate', 'STD', 'FlightNumber'], keep='first'
-        )
-        self._data_cache['future_flight_master'] = fm_df
-        logger.info(f"[Query 3] Flight universe: {len(fm_df)} scheduled flights across "
-                    f"{fm_df['Sector'].nunique()} sectors.")
-
-        # --- NDO restriction applies to the BOOKING rows only ---
-        valid_ndo = forward_df['NDO'].isna() | (
-            (forward_df['NDO'] >= 0) & (forward_df['NDO'] <= 180)
-        )
-        forward_df = forward_df[valid_ndo]
-
-        # Diagnostic: sectors with no future flights at all
-        fwd_sectors = set(fm_df['Sector'].unique()) if not fm_df.empty else set()
-        missing_sectors = set(self.active_sectors) - fwd_sectors
-        if missing_sectors:
-            logger.warning(f"[Query 3] {len(missing_sectors)} sectors have NO future flights "
-                           f"in flight_master: {sorted(missing_sectors)}")
-        logger.info(f"[Query 3] Sectors with forward data: {sorted(fwd_sectors)}")
-
-        self._data_cache['forward_raw_df'] = forward_df
-
-    def _build_flown_query(self, date_predicate, sector_conditions):
-        """Single source of truth for the flown-data SELECT (backfill + incremental)."""
-        return f"""
-        SELECT
-            CONCAT(qdb.Origin, qdb.Destination) AS Sector,
-            qdb.DepartureDate,
-            DATEDIFF(qdb.DepartureDate, qdb.BookingDate) AS NDO,
-            qdb.FlightNumber,
-            qdb.InventoryLegID,
-            qdb.PNR,
-            qdb.RBD,
-            qdb.FareBasis AS FareBasisRaw,
-            CASE
-                WHEN SUBSTRING(qdb.FareBasis, 5, 1) = 'T'
-                THEN SUM(qdb.FB_Net + qdb.YQ_Pro + qdb.RCS + qdb.CUTE)
-                ELSE SUM(qdb.DiscountedBaseFare_Pro + qdb.YQ_Pro + qdb.RCS + qdb.CUTE)
-            END AS Fare,
-            SUM(CASE WHEN qdb.FareBasis NOT LIKE '%SOL%' THEN 1 ELSE 0 END) AS `Pax Count`,
-            qdb.AdjustedCapacity AS Capacity,
-            qdb.Distance
-        FROM {DatabaseConfig.FLOWN_DATA_TABLE} qdb
-        WHERE {date_predicate}
-            AND ({sector_conditions})
-            AND qdb.AdjustedCapacity > 0
-            AND FlightNumber < 6000
-            AND qdb.BookingDate >= DATE_SUB(qdb.DepartureDate, INTERVAL 365 DAY)
-            AND qdb.BookingDate <= qdb.DepartureDate
-        GROUP BY qdb.Origin, qdb.Destination, qdb.DepartureDate,
-                 qdb.BookingDate, qdb.FlightNumber, qdb.InventoryLegID,
-                 qdb.PNR, qdb.RBD, qdb.FareBasis,
-                 qdb.AdjustedCapacity, qdb.Distance
-        """
-
-    def _fetch_historical_incremental(self, engine, hist_start, yesterday):
-        cached_df = pd.DataFrame() if FORCE_BACKFILL else \
-            self._read_sector_cache('hist_flown', self.active_sectors)
-
-        cached_sectors = set(cached_df['Sector'].unique()) if not cached_df.empty else set()
-        new_sectors = set(self.active_sectors) - cached_sectors
-        existing_sectors = set(self.active_sectors) & cached_sectors
-        logger.info(f"  Batch: {len(self.active_sectors)} sectors "
-                    f"(cached {len(existing_sectors)}, new {len(new_sectors)})")
-
-        touched_months = set()          # (implicit) — track which months to rewrite
-        new_dfs = []
-
-        # --- backfill new sectors: full window ---
-        if new_sectors:
-            conds = " OR ".join(
-                f"(qdb.Origin = '{s[:3]}' AND qdb.Destination = '{s[3:]}')"
-                for s in sorted(new_sectors))
-            logger.info(f"  Backfilling {len(new_sectors)} new sectors...")
-            q = self._build_flown_query(
-                f"qdb.DepartureDate BETWEEN '{hist_start}' AND '{yesterday}'", conds)
-            df = self._run_sql(engine, q)
-            logger.info(f"[Query END] {len(df)} rows")
-            df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
-            #TODO check for duplication
-            new_dfs.append(df)
-            touched_months = None       # None => write ALL months for these sectors
-
-        # --- incremental: yesterday only, for cached sectors ---
-        if existing_sectors:
-            conds = " OR ".join(
-                f"(qdb.Origin = '{s[:3]}' AND qdb.Destination = '{s[3:]}')"
-                for s in sorted(existing_sectors))
-            logger.info(f"  Incremental (yesterday) for {len(existing_sectors)} sectors...")
-            q = self._build_flown_query(
-                f"qdb.DepartureDate BETWEEN '{yesterday}' AND '{yesterday}'", conds)
-            df = self._run_sql(engine, q)
-            df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
-            new_dfs.append(df)
-            if touched_months is not None:
-                touched_months.add(self._month_key(yesterday))
-            # drop yesterday from the cached copy so the rewrite is clean
-            y_month = self._month_key(yesterday)
-            cached_df = cached_df[
-                ~((cached_df['DepartureDate'] == pd.to_datetime(yesterday)))]
-#TODO: Chck dupication for all_new_df
-        if new_dfs:
-            all_new = pd.concat(new_dfs, ignore_index=True)
-            all_new['DepartureDate'] = pd.to_datetime(all_new['DepartureDate'])
-            all_new['DOW'] = all_new['DepartureDate'].dt.day_name()
-            hist_df = pd.concat([cached_df, all_new], ignore_index=True)
-        else:
-            hist_df = cached_df
-
-        # --- retention: drop whole partitions strictly below the floor month ---
-        month_start = self.current_date.replace(day=1)
-        cutoff = min(month_start - pd.DateOffset(years=1),
-                     month_start - pd.Timedelta(days=365))
-        cutoff_month = cutoff.strftime('%Y-%m')
-
-        before = len(hist_df)
-        hist_df = hist_df[hist_df['DepartureDate'] >= cutoff]
-        if len(hist_df) != before:
-            # physically remove now-empty old partitions
-            for s in self.active_sectors:
-                for m in self._list_cache_months('hist_flown', s):
-                    if m < cutoff_month:
-                        self._delete_cache_partition('hist_flown', s, m)
-            # the floor month itself may have lost some rows -> rewrite it
-            if touched_months is not None:
-                touched_months.add(cutoff_month)
-
-        # --- write only the changed partitions ---
-        # backfill (touched_months is None) rewrites every month present;
-        # incremental rewrites just the month(s) in touched_months.
-        self._write_sector_cache('hist_flown', hist_df, months=touched_months)
-
-        logger.info(f"[Query 1] {len(hist_df)} rows, {hist_df['Sector'].nunique()} sectors "
-                    f"(from {cutoff.date()}).")
-        logger.info(f"[hist_flown] {hist_df['DepartureDate'].min().date()}..{hist_df['DepartureDate'].max().date()}")
-        return hist_df
 
 
-    def _fetch_std_incremental(self, engine, hist_df):
-        """
-        Fetch STD per InventoryLegID for legs not already cached, then merge STD
-        into hist_df and store it on _data_cache['hist_raw_df'].
 
-        STD cache is SECTOR-PARTITIONED to avoid write races when multiple
-        parallel workers (Glue or Lambda) run concurrently:
-            _cache/std_lookup/sector=BOMDEL.parquet
-            _cache/std_lookup/sector=DELBOM.parquet
-        Each worker only reads/writes its own sectors' files.
-        """
-        logger.info("[Query 2] Fetching STD lookup (incremental, sector-partitioned)...")
 
-        # --- Read existing STD cache for this batch's sectors only ---
-        std_frames = []
-        for sector in self.active_sectors:
-            cached = self._store_read(f'std_lookup/sector={sector}.parquet')
-            if cached is not None and not cached.empty:
-                cached['Sector'] = sector
-                std_frames.append(cached)
 
-        std_cache = pd.concat(std_frames, ignore_index=True) if std_frames else \
-            pd.DataFrame(columns=['InventoryLegID', 'STD', 'Sector'])
 
-        all_ids = set(hist_df['InventoryLegID'].unique())
-        cached_ids = (set(std_cache['InventoryLegID'].unique())
-                      if not std_cache.empty else set())
-        missing = list(all_ids - cached_ids)
-
-        if missing:
-            logger.info(f"  Need STD for {len(missing)} new legs "
-                        f"(cache has {len(cached_ids)}).")
-            new_dfs = []
-            for i in range(0, len(missing), 5000):
-                ids_str = ", ".join(str(int(x)) for x in missing[i:i + 5000])
-                q = f"""SELECT InventoryLegID, STD,
-                        CONCAT(DepartureStation, ArrivalStation) AS Sector
-                        FROM {DatabaseConfig.FLIGHT_MASTER_TABLE}
-                        WHERE InventoryLegID IN ({ids_str})"""
-                with engine.connect() as conn:
-                    new_dfs.append(pd.read_sql(text(q), conn))
-
-            if new_dfs:
-                new_std = pd.concat(new_dfs, ignore_index=True)
-                std_cache = pd.concat([std_cache, new_std], ignore_index=True)
-                std_cache.drop_duplicates(subset=['InventoryLegID'],
-                                          keep='last', inplace=True)
-
-                # Write back per-sector (only this batch's sectors)
-                for sector in self.active_sectors:
-                    sector_std = std_cache[std_cache['Sector'] == sector]
-                    if not sector_std.empty:
-                        self._store_write(
-                            sector_std[['InventoryLegID', 'STD']],
-                            f'std_lookup/sector={sector}.parquet')
-                logger.info(f"  STD cache updated: {len(std_cache)} entries "
-                            f"across {std_cache['Sector'].nunique()} sectors.")
-        else:
-            logger.info(f"  All {len(all_ids)} leg IDs found in STD cache.")
-
-        # Merge STD into hist_df (drop Sector from std_cache to avoid collision)
-        merged = hist_df.merge(
-            std_cache[['InventoryLegID', 'STD']].drop_duplicates(subset=['InventoryLegID']),
-            on='InventoryLegID', how='left')
-        merged['STD'] = pd.to_datetime(merged['STD']).dt.time
-        merged.drop(columns=['InventoryLegID'], inplace=True)
-
-        unresolved = int(merged['STD'].isna().sum())
-        if unresolved:
-            logger.warning(f"  {unresolved} rows have no STD after merge.")
-
-        # --- Flight count summary per sector (unique InventoryLegIDs = unique flights) ---
-        sector_flight_counts = std_cache.groupby('Sector')['InventoryLegID'].nunique()
-        for sector in self.active_sectors:
-            count = int(sector_flight_counts.get(sector, 0))
-            logger.info(f"[STD] {sector}: {count} unique flights in full historical range")
-
-        self._data_cache['hist_raw_df'] = merged
 
     def _sector_other_taxes(self, sector):
         """
@@ -810,10 +274,10 @@ class AdditivePickupModelProcessor:
 
         origin, destination = sector[:3], sector[3:6]
 
-        duf_sectors = self._data_cache.get('pricing_duf_sectors', {})
-        gst_sectors = self._data_cache.get('pricing_gst_sectors', set())
-        intl_map = self._data_cache.get('tax_mast_intl', {})
-        dom_map = self._data_cache.get('tax_mast_dom', {})
+        duf_sectors = self.cache.data.get('pricing_duf_sectors', {})
+        gst_sectors = self.cache.data.get('pricing_gst_sectors', set())
+        intl_map = self.cache.data.get('tax_mast_intl', {})
+        dom_map = self.cache.data.get('tax_mast_dom', {})
 
         # A sector present in the international master is international.
         is_domestic = sector not in intl_map
@@ -900,7 +364,7 @@ class AdditivePickupModelProcessor:
         Equivalent output to the old _fetch_flown_data().
         """
         logger.info("Deriving flown data from cached historical fetch...")
-        df = self._data_cache['hist_raw_df'].copy()
+        df = self.cache.data['hist_raw_df'].copy()
         df = df[(df['NDO'] >= 0) & (df['NDO'] <= 180)]
         # Keep columns needed for NDO model
         flown_df = df[['Sector', 'DepartureDate', 'DOW', 'NDO', 'FlightNumber',
@@ -917,7 +381,7 @@ class AdditivePickupModelProcessor:
         Clipping here would narrow the frame for whichever consumer needs the
         wider window.
         """
-        df = self._data_cache['hist_raw_df'].copy()
+        df = self.cache.data['hist_raw_df'].copy()
 
         # SOL exclusion
         df = df[~df['FareBasisRaw'].str.contains('SOL', na=False)]
@@ -941,7 +405,7 @@ class AdditivePickupModelProcessor:
         Equivalent output to old _fetch_booked_data().
         """
         logger.info("Deriving booked data from cached forward fetch...")
-        df = self._data_cache['forward_raw_df'].copy()
+        df = self.cache.data['forward_raw_df'].copy()
 
         # Filter: only rows with actual bookings (PNR not null)
         df = df[df['PNR'].notna() & (df['Pax Count'] > 0)]
@@ -959,8 +423,8 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Deriving future flights (schedule left-merged with bookings)...")
 
-        fm_df = self._data_cache['future_flight_master'].copy()
-        df = self._data_cache['forward_raw_df']
+        fm_df = self.cache.data['future_flight_master'].copy()
+        df = self.cache.data['forward_raw_df']
 
         merge_keys = ['Sector', 'DepartureDate', 'STD', 'FlightNumber']
 
@@ -993,25 +457,7 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Computing fare buckets from qp_dw_rmalloc.fares (GP logic)...")
         try:
-            docs = list(self.db.fares.find(
-                {
-                    "SECTOR": {"$in": self.active_sectors},
-                    "TOTAL": {"$ne": 1},
-                    "RBD": {"$in": REQUIRED_RBDS}
-                },
-                {"_id": 0, "SECTOR": 1, "RBD": 1, "TOTAL": 1}
-            ))
-
-            if not docs:
-                logger.error("No fare data found in qp_dw_rmalloc.fares.")
-                raise RuntimeError("Fare data missing from MongoDB")
-
-            fares_df = pd.DataFrame(docs)
-            fares_df['TOTAL'] = pd.to_numeric(fares_df['TOTAL'], errors='coerce')
-            fares_df = fares_df.dropna(subset=['TOTAL'])
-
-            logger.info(f"Fetched {len(fares_df)} all-in fare records across "
-                        f"{fares_df['SECTOR'].nunique()} sectors.")
+            fares_df = self.mongo_helper.fetch_fares(self.active_sectors, REQUIRED_RBDS)
 
             # --- Convert all-in -> airline component BEFORE bucketing ---
             fares_df = self._fares_to_airline_component(fares_df, fare_col='TOTAL')
@@ -1032,7 +478,7 @@ class AdditivePickupModelProcessor:
             logger.info(f"Computed {len(farebasis_df)} fare bucket entries "
                         f"across {farebasis_df['Sector'].nunique()} sectors "
                         f"(airline-component space).")
-            self._data_cache['farebasis_df'] = farebasis_df
+            self.cache.data['farebasis_df'] = farebasis_df
             return farebasis_df
 
         except Exception as e:
@@ -1135,7 +581,7 @@ class AdditivePickupModelProcessor:
         retention_floor = start                        # == current_date - 365
 
         hist_tags = pd.DataFrame() if FORCE_BACKFILL else \
-            self._read_sector_cache('tagging', self.active_sectors)
+            self.cache.read_sector_cache('tagging', self.active_sectors)
 
         touched_months = set()
 
@@ -1159,10 +605,10 @@ class AdditivePickupModelProcessor:
             yday = pd.to_datetime(self.today.date() - timedelta(days=1))
             y_tags = fresh_tags[fresh_tags['DepartureDate'] == yday]
             hist_tags = pd.concat([hist_tags, y_tags], ignore_index=True)
-            touched_months.add(self._month_key(yday))
+            touched_months.add(self.cache.month_key(yday))
             # rolling floor advances daily: the floor month loses its oldest day,
             # so that partition must be rewritten too.
-            touched_months.add(self._month_key(retention_floor))
+            touched_months.add(self.cache.month_key(retention_floor))
             logger.info(f"[Tagging] Appended {len(y_tags)} rows for {yday.date()}.")
 
         hist_tags = hist_tags.drop_duplicates(
@@ -1172,16 +618,16 @@ class AdditivePickupModelProcessor:
         #     rewrite the floor month if it lost rows ---
         before = len(hist_tags)
         hist_tags = hist_tags[hist_tags['DepartureDate'] >= retention_floor]
-        floor_month = self._month_key(retention_floor)
+        floor_month = self.cache.month_key(retention_floor)
         if len(hist_tags) != before:
             for s in self.active_sectors:
-                for m in self._list_cache_months('tagging', s):
+                for m in self.cache.list_cache_months('tagging', s):
                     if m < floor_month:
-                        self._delete_cache_partition('tagging', s, m)
+                        self.cache.delete_cache_partition('tagging', s, m)
             if touched_months is not None:
                 touched_months.add(floor_month)
 
-        self._write_sector_cache('tagging', hist_tags, months=touched_months)
+        self.cache.write_sector_cache('tagging', hist_tags, months=touched_months)
 
         logger.info(f"Historical tagging ready: {len(hist_tags)} rows cached, "
                     f"retained from {retention_floor.date()}.")
@@ -1373,7 +819,7 @@ class AdditivePickupModelProcessor:
             ~combined_df['RBD'].isin(REQUIRED_RBDS) | (combined_df['FareBasis'] == '')
         ].copy()
 
-        self._data_cache['remaining_df'] = remaining_df
+        self.cache.data['remaining_df'] = remaining_df
 
         # Ensure NDO is integer (may come as float from DB/parquet cache)
         main_df['NDO'] = main_df['NDO'].astype(int)
@@ -1392,7 +838,7 @@ class AdditivePickupModelProcessor:
                 pivot_ndo[i] = np.nan
 
         ndo_cols = sorted([c for c in pivot_ndo.columns if isinstance(c, (int, np.integer))], key=int)
-        self._data_cache['ndo_cols'] = ndo_cols
+        self.cache.data['ndo_cols'] = ndo_cols
 
         # Impute missing fare buckets per flight
         logger.info("Imputing missing fare buckets per flight...")
@@ -1639,7 +1085,7 @@ class AdditivePickupModelProcessor:
         Returns the master result DataFrame.
         """
         logger.info("Building fare bucket level matched result dataset...")
-        ndo_cols = self._data_cache['ndo_cols']
+        ndo_cols = self.cache.data['ndo_cols']
 
         # Index pivot_ndo by Key for fast lookup
         pivot_ndo_indexed = pivot_ndo.set_index('Key') if 'Key' not in pivot_ndo.index.names else pivot_ndo
@@ -1693,7 +1139,7 @@ class AdditivePickupModelProcessor:
             weighted_final_df     flight level, weighted
         """
         logger.info("Calculating additive pickup predictions (normal + weighted)...")
-        ndo_cols = self._data_cache['ndo_cols']
+        ndo_cols = self.cache.data['ndo_cols']
 
         group_cols = ['Sector', 'DepartureDate_future', 'DOW', 'STD_future',
                     'FlightNumber_future', 'Capacity', 'Total Bookings', 'Tagging', 'FareBasis']
@@ -1786,6 +1232,14 @@ class AdditivePickupModelProcessor:
         ).reset_index()
         weighted_final_df = weighted_final_df.merge(weighted_final_std, on=flight_group_cols, how='left')
 
+        # --- Matched current bookings (benchmark vs the flight's own Total Bookings) ---
+        mcb = self._matched_current_bookings(result_df, ndo_cols)
+        _mcb_key = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
+        result_merged_df = result_merged_df.merge(mcb, on=_mcb_key, how='left')
+        result_final_df = result_final_df.merge(mcb, on=_mcb_key, how='left')
+        weighted_merged_df = weighted_merged_df.merge(mcb, on=_mcb_key, how='left')
+        weighted_final_df = weighted_final_df.merge(mcb, on=_mcb_key, how='left')
+
         logger.info(f"Predictions complete (alpha={WEIGHT_ALPHA}) — "
                     f"normal fare bucket: {len(result_merged_df)}, flight: {len(result_final_df)}; "
                     f"weighted fare bucket: {len(weighted_merged_df)}, flight: {len(weighted_final_df)}.")
@@ -1805,8 +1259,8 @@ class AdditivePickupModelProcessor:
         to each bucket's share of `count_col`.
         """
         logger.info(f"Distributing remaining RBD bookings (basis: {count_col})...")
-        ndo_cols = self._data_cache['ndo_cols']
-        remaining_df = self._data_cache['remaining_df']
+        ndo_cols = self.cache.data['ndo_cols']
+        remaining_df = self.cache.data['remaining_df']
 
         remaining_df = remaining_df[~remaining_df['RBD'].isin(REQUIRED_RBDS)]
         remaining_df = remaining_df.groupby(
@@ -1908,7 +1362,246 @@ class AdditivePickupModelProcessor:
 
         logger.info(f"Remaining RBD distribution complete (basis: {count_col}).")
         return result_merged_df, result_final_df
-    
+
+    # =========================================================================
+    # STEP 13: DEMAND MULTIPLIER  (Demand Adjusted Prediction)
+    # =========================================================================
+    # Analyst-supplied, FLIGHT-level signal keyed on (DepartureDate, Sector,
+    # FlightNumber). After Step 12 the Final Prediction is scaled:
+    #
+    #     DAP = Final Prediction * (100 + Demand Multiplier) / 100
+    #
+    # Default multiplier is 0% -> DAP == Final Prediction (no change). Because the
+    # multiplier is flight-level, each fare bucket is scaled by the same factor, so
+    #   bucket DAP = (bucket Final / flight Final) * flight DAP = bucket Final * f
+    # which is exactly the BRD's proportional redistribution.
+
+
+
+    # =========================================================================
+    # STEP 14: WTP FARE-BUCKET REDISTRIBUTION (price inflation / deflation)
+    # =========================================================================
+    # Sector x Month-Year price signal. New bucket bounds = old / (1 + WTP%),
+    # then each bucket's demand-adjusted pax (DAP) is re-integrated over the
+    # rescaled window using the 2-term adjacency formula from the BRD example:
+    #   inflation (factor>1): pull from the previous (lower) bucket
+    #     mid : (L_i - L_i/f)*PPU_{i-1} + (U_i/f - L_i)*PPU_i
+    #     first:                          (U_0/f - L_0)*PPU_0
+    #     top : (L_top - L_top/f)*PPU_{top-1} + pax_top           (retains own pax)
+    #   deflation (factor<1): pull from the forward (higher) bucket
+    #     mid : (U_i - L_i/f)*PPU_i + (U_i/f - U_i)*PPU_{i+1}
+    #     first: mid_0 + (L_0/f - L_0)*PPU_0                      (absorb bottom leftover)
+    #     top : total - sum(all others)                           (absorb residual)
+    # Terms are signed (a term goes negative when a bucket is narrower than the
+    # shift) — this is what conserves the flight total, so we do NOT clamp them.
+    # PPU of the open top bucket uses the previous bucket's width as denominator.
+
+
+    @staticmethod
+    def _wtp_redistribute_flight(lowers, uppers, pax, pct):
+        """WTP redistribution for ONE flight (per the WTP sample method):
+        density = pax / bucket width (open top bucket uses the previous width);
+        rescale the bounds by 1/D (rounded); integrate the density over each
+        bucket's new window (overlaps clamped >= 0, so never negative); the lowest
+        bucket absorbs the left-most remaining pax (deflation); a running cap keeps
+        the flight total from exceeding the original. Non-negative; total <= original."""
+        n = len(pax)
+        if n == 0 or pct == 0:
+            return list(pax)
+        D = (100.0 + pct) / 100.0
+        uppers = [None if (u is None or (isinstance(u, float) and u != u)) else u
+                  for u in uppers]
+
+        # widths + effective upper (open top bucket uses the previous bucket's width)
+        diff, eff_up = [], []
+        for i in range(n):
+            if uppers[i] is None:
+                w = (uppers[i - 1] - lowers[i - 1]) if i > 0 else 0.0
+                diff.append(w)
+                eff_up.append(lowers[i] + w)
+            else:
+                diff.append(uppers[i] - lowers[i])
+                eff_up.append(uppers[i])
+        dens = [pax[i] / diff[i] if diff[i] else 0.0 for i in range(n)]
+
+        # new bounds, rounded (per the sample)
+        nl = [round(lowers[i] / D, 0) for i in range(n)]
+        nu = [round(eff_up[i] / D, 0) for i in range(n)]
+        dmin, dmax = min(lowers), max(eff_up)
+
+        def _integrate(a, b):
+            if a is None or b is None:
+                return 0.0
+            a = max(a, dmin)
+            b = min(b, dmax)
+            if b <= a:
+                return 0.0
+            t = 0.0
+            for lo, hi, de in zip(lowers, eff_up, dens):
+                slo, shi = max(a, lo), min(b, hi)
+                if shi > slo:
+                    t += (shi - slo) * de
+            return t
+
+        raw = []
+        for i in range(n):
+            val = _integrate(nl[i], nu[i])
+            # deflation edge: the lowest bucket takes the left-most remaining pax
+            if i == 0 and nl[i] is not None and nl[i] > dmin:
+                val += _integrate(dmin, nl[i])
+            raw.append(val)
+
+        # running cap: sum(new) never exceeds the original total; each >= 0
+        total = sum(pax)
+        running = 0.0
+        out = []
+        for v in raw:
+            rem = total - running
+            if rem <= 0:
+                out.append(0.0)
+            elif v > rem:
+                out.append(rem)
+                running += rem
+            else:
+                out.append(max(v, 0.0))
+                running += max(v, 0.0)
+        return out
+
+    def _apply_wtp_redistribution(self, bucket_df, count_col='New Final_pax_count'):
+        """Step 14 — redistribute the DEMAND-ADJUSTED pax ('New Final_pax_count')
+        within each flight's fare buckets for price inflation/deflation. Adds
+        WTP_Factor and WTP_pax_count. Falls back to Final_pax_count only if the
+        demand-adjusted column is absent."""
+        if bucket_df is None or bucket_df.empty:
+            return bucket_df
+        src = count_col if count_col in bucket_df.columns else 'Final_pax_count'
+        if src not in bucket_df.columns:
+            logger.warning("[WTP] no source pax column; skipping.")
+            return bucket_df
+
+        wtp = self.mongo_helper.load_wtp()
+        df = bucket_df.copy()
+        dd = pd.to_datetime(df['DepartureDate_future'])
+        df['WTP_Factor'] = [wtp.get((s, d.year, d.month), 0.0)
+                            for s, d in zip(df['Sector'], dd)]
+
+        # bucket bounds: prefer the parsed columns, else parse the FareBasis range
+        if 'FareBucket_Lower' in df.columns and 'FareBucket_Upper' in df.columns:
+            df['_wlo'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce')
+            df['_wup'] = pd.to_numeric(df['FareBucket_Upper'], errors='coerce')
+        elif 'FareBasis' in df.columns:
+            bounds = df['FareBasis'].apply(parse_fare_bounds)
+            df['_wlo'] = [b[0] for b in bounds]
+            df['_wup'] = [b[1] for b in bounds]
+        else:
+            logger.warning("[WTP] no bucket bounds (FareBucket_Lower/Upper or FareBasis); skipping.")
+            return bucket_df
+
+        df['WTP_pax_count'] = df[src]
+        gcols = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
+        n_adj = 0
+        for _, idx in df.groupby(gcols).groups.items():
+            sub = df.loc[idx].sort_values('_wlo')
+            pct = float(sub['WTP_Factor'].iloc[0])
+            if pct == 0:
+                continue
+            uppers = [None if (u != u) else u for u in sub['_wup'].tolist()]   # NaN -> None
+            new = self._wtp_redistribute_flight(
+                sub['_wlo'].tolist(), uppers, sub[src].tolist(), pct)
+            df.loc[sub.index, 'WTP_pax_count'] = new
+            n_adj += 1
+
+        df.drop(columns=['_wlo', '_wup'], inplace=True, errors='ignore')
+        logger.info(f"[WTP] redistributed {n_adj} flight(s) with a non-zero factor "
+                    f"(source={src}).")
+        return df
+
+    def _apply_demand_multiplier(self, flight_df, bucket_df):
+        """Step 13 — adds: Demand Multiplier, Demand Multiplier Number,
+        New predicted_pax_count_final, Fare Bucket Ratio, New Final_pax_count,
+        New Final Total Bookings. (Before = Final_pax_count / predicted_pax_count_final.)"""
+        dm = self.mongo_helper.load_demand_multiplier()          # or self.mongo_helper.load_demand_multiplier()
+
+        def _attach(df):
+            if df is None or df.empty:
+                return df
+            df = df.copy()
+            date_col = 'DepartureDate_future' if 'DepartureDate_future' in df.columns else 'DepartureDate'
+            flt_col  = 'FlightNumber_future'  if 'FlightNumber_future'  in df.columns else 'FlightNumber'
+            cb_col   = 'Current_Bookings'     if 'Current_Bookings'     in df.columns else 'Total Bookings'
+            if 'predicted_pax_count_final' not in df.columns:
+                df['predicted_pax_count_final'] = (
+                    df.groupby(['Sector', date_col, flt_col])['Final_pax_count'].transform('sum'))
+            dd  = pd.to_datetime(df[date_col]).dt.normalize()
+            flt = pd.to_numeric(df[flt_col], errors='coerce').astype('Int64')
+            pct = pd.Series([dm.get((s, d, int(f)) if pd.notna(f) else None, 0.0)
+                             for s, d, f in zip(df['Sector'], dd, flt)], index=df.index)
+            df['Demand Multiplier']             = pct.map(lambda v: f"{v:g}%")
+            df['Demand Multiplier Number']      = (100.0 + pct) / 100.0
+            df['New predicted_pax_count_final'] = df['predicted_pax_count_final'] * df['Demand Multiplier Number']
+            df['Fare Bucket Ratio']             = np.where(
+                df['predicted_pax_count_final'] != 0,
+                df['Final_pax_count'] / df['predicted_pax_count_final'], 0.0)
+            df['New Final_pax_count']           = df['Fare Bucket Ratio'] * df['New predicted_pax_count_final']
+            df['New Final Total Bookings']      = df[cb_col] + df['New predicted_pax_count_final']
+            return df
+
+        return _attach(flight_df), _attach(bucket_df)
+
+    def _matched_current_bookings(self, result_df, ndo_cols):
+        """Per future flight: the average and weighted-average bookings the matched
+        historical flights had ALREADY received by the future flight's current NDO.
+
+        Matches the raw notebook logic: each matched flight's current bookings =
+        SUM of its raw 'Pax Count' where NDO_future < NDO (closed window, n exclusive),
+        taken from the UNCAPPED historical bookings (hist_raw_df, NDO up to 365) and
+        merged on FLIGHT IDENTITY (all fare buckets) — not the 0..180 fare-bucket
+        pivot. Average = mean across matched flights; weighted average uses the same
+        weight w = alpha^x, x = SD - DD_hist as the weighted prediction.
+        """
+        empty = pd.DataFrame(columns=['Sector', 'DepartureDate_future', 'FlightNumber_future',
+                                      'Matched_Current_Bookings',
+                                      'Weighted_Matched_Current_Bookings'])
+        if result_df is None or result_df.empty:
+            return empty
+
+        pair_keys = ['Sector', 'DepartureDate_future', 'FlightNumber_future',
+                     'DepartureDate_hist', 'FlightNumber_hist']
+        pairs = result_df.drop_duplicates(pair_keys)[pair_keys].copy()
+        pairs['NDO_future'] = (pd.to_datetime(pairs['DepartureDate_future'])
+                               - self.current_date).dt.days
+        x = (self.current_date - pd.to_datetime(pairs['DepartureDate_hist'])).dt.days
+        x = x.where(x >= 0, WEIGHT_FUTURE_X)
+        pairs['Weight'] = (WEIGHT_ALPHA ** x).fillna(0.0)
+
+        # raw historical bookings (uncapped NDO), keyed on the matched flight identity
+        hist = self.cache.data['hist_raw_df'][
+            ['Sector', 'DepartureDate', 'FlightNumber', 'NDO', 'Pax Count']].copy()
+        hist = hist.rename(columns={'DepartureDate': 'DepartureDate_hist',
+                                    'FlightNumber': 'FlightNumber_hist'})
+        hist['FlightNumber_hist'] = pd.to_numeric(hist['FlightNumber_hist'], errors='coerce')
+        pairs['FlightNumber_hist'] = pd.to_numeric(pairs['FlightNumber_hist'], errors='coerce')
+        # align the merge-key dtypes (one side can be object/string dates -> datetime64)
+        hist['DepartureDate_hist'] = pd.to_datetime(hist['DepartureDate_hist'], errors='coerce').dt.normalize()
+        pairs['DepartureDate_hist'] = pd.to_datetime(pairs['DepartureDate_hist'], errors='coerce').dt.normalize()
+
+        merged = pairs.merge(hist, on=['Sector', 'DepartureDate_hist', 'FlightNumber_hist'], how='left')
+        # closed window: bookings made when the flight was more than NDO_future days out
+        merged['closed'] = np.where(merged['NDO_future'] < merged['NDO'],
+                                    merged['Pax Count'].fillna(0.0), 0.0)
+
+        per_hist = merged.groupby(pair_keys, as_index=False).agg(
+            booked=('closed', 'sum'), Weight=('Weight', 'first'))
+
+        def _agg(g):
+            ws = g['Weight'].sum()
+            wavg = (g['booked'] * g['Weight']).sum() / ws if ws > 0 else g['booked'].mean()
+            return pd.Series({'Matched_Current_Bookings': g['booked'].mean(),
+                              'Weighted_Matched_Current_Bookings': wavg})
+
+        return (per_hist.groupby(['Sector', 'DepartureDate_future', 'FlightNumber_future'],
+                                 sort=False).apply(_agg).reset_index())
+
     def _sum_open_ndo(self, df, ndo_cols):
         """
         Sum the NDO columns that are still OPEN for each row, i.e. every NDO
@@ -2056,179 +1749,6 @@ class AdditivePickupModelProcessor:
         else:
             self._save_to_csv(df, f"intermediate_{name}.csv")
 
-    @staticmethod
-    def _to_parquet_bytes(df):
-        out = df
-        if any(not isinstance(c, str) for c in df.columns):
-            out = df.copy()
-            out.columns = [str(c) for c in out.columns]
-        buf = io.BytesIO()
-        out.to_parquet(buf, index=False, compression='snappy')
-        buf.seek(0)
-        return buf.getvalue()
-
-    @staticmethod
-    def _restore_ndo_columns(df):
-        df.columns = [int(c) if isinstance(c, str) and c.isdigit() else c
-                      for c in df.columns]
-        return df
-
-    def _store_write(self, df, rel_path):
-        if self.mode == 'TEST':
-            full = os.path.join(self.local_cach_dir, rel_path)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
-            df.to_parquet(full, index=False, compression='snappy')
-            return
-        key = f"{self.s3_cache_prefix}/{rel_path}"
-        self._get_s3().put_object(Bucket=self.s3_bucket, Key=key,
-                                  Body=self._to_parquet_bytes(df))
-
-    def _store_read(self, rel_path):
-        try:
-            if self.mode == 'TEST':
-                full = os.path.join(self.local_cach_dir, rel_path)
-                if not os.path.exists(full):
-                    return None
-                return self._restore_ndo_columns(pd.read_parquet(full))
-            key = f"{self.s3_cache_prefix}/{rel_path}"
-            obj = self._get_s3().get_object(Bucket=self.s3_bucket, Key=key)
-            return self._restore_ndo_columns(pd.read_parquet(io.BytesIO(obj['Body'].read())))
-        except Exception as e:
-            logger.warning(f"  cache miss/unreadable {rel_path} ({e.__class__.__name__}).")
-            return None
-    
-    @staticmethod
-    def _sector_cache_path(kind, sector):
-        return f"{kind}/sector={sector}.parquet"
-
-    def _read_sector_cache(self, kind, sectors):
-        """Concatenate all month partitions for these sectors. Empty frame if none."""
-        frames = []
-        for s in sectors:
-            for m in self._list_cache_months(kind, s):
-                df = self._store_read(self._sm_path(kind, s, m))
-                if df is not None and not df.empty:
-                    frames.append(df)
-        if not frames:
-            return pd.DataFrame()
-        out = pd.concat(frames, ignore_index=True)
-        if 'DepartureDate' in out.columns:
-            out['DepartureDate'] = pd.to_datetime(out['DepartureDate'])
-        return out
-
-    def _write_sector_cache(self, kind, df, months=None):
-        if df is None or df.empty or 'Sector' not in df.columns:
-            return
-        tmp = df.copy()
-        tmp['_month'] = tmp['DepartureDate'].map(self._month_key)
-
-        if months is not None:
-            months = set(months)
-            tmp = tmp[tmp['_month'].isin(months)]
-
-        written = 0
-        for (sector, month), part in tmp.groupby(['Sector', '_month'], sort=False):
-            self._store_write(part.drop(columns='_month'),
-                              self._sm_path(kind, sector, month))
-            written += 1
-        logger.debug(f"  [{kind}] wrote {written} month partitions.")
-
-    @staticmethod
-    def _run_sql(engine, sql, chunksize=50000):
-        with engine.connect() as conn:
-            chunks = pd.read_sql(text(sql), conn, chunksize=chunksize)
-            return pd.concat([c for c in chunks], ignore_index=True)
-        
-    @staticmethod
-    def _partition_value(v):
-        if isinstance(v, (pd.Timestamp, datetime)):
-            v = v.strftime('%Y-%m-%d')
-        return re.sub(r'[^A-Za-z0-9_\-\.]', '_', str(v))
-
-    def _write_partitioned_s3(self, df, dataset, partition_cols=('SnapshotDate', 'Sector')):
-        if df is None or df.empty:
-            logger.warning(f"[S3] {dataset}: nothing to write.")
-            return
-        missing = [c for c in partition_cols if c not in df.columns]
-        if missing:
-            logger.error(f"[S3] {dataset}: missing partition cols {missing} — skipped.")
-            return
-        s3 = self._get_s3()
-        n = 0
-        for keys, part in df.groupby(list(partition_cols), sort=False):
-            keys = keys if isinstance(keys, tuple) else (keys,)
-            path = "/".join(f"{c.lower()}={self._partition_value(v)}"
-                            for c, v in zip(partition_cols, keys))
-            body = part.drop(columns=list(partition_cols))
-            key = f"{self.s3_output_prefix}/{dataset}/{path}/data.parquet"
-            s3.put_object(Bucket=self.s3_bucket, Key=key, Body=self._to_parquet_bytes(body))
-            n += 1
-        logger.info(f"[S3] {dataset}: {n} partitions, {len(df)} rows.")
-
-    def _reset_batch_cache(self):
-        """Clear per-batch state but KEEP run-scoped master data. No return value."""
-        preserved = {k: self._data_cache[k]
-                     for k in RUN_SCOPED_CACHE_KEYS if k in self._data_cache}
-        self._data_cache = preserved
-
-    # =============================================================================
-    # 1. PARTITION HELPERS
-    # =============================================================================
-
-    @staticmethod
-    def _month_key(ts):
-        """DepartureDate -> 'YYYY-MM' partition value."""
-        return pd.to_datetime(ts).strftime('%Y-%m')
-
-    @staticmethod
-    def _sm_path(kind, sector, month):
-        return f"{kind}/sector={sector}/month={month}.parquet"
-
-    def _list_cache_months(self, kind, sector):
-        """
-        Which month partitions exist for a sector. Needed so a read can glob and
-        so retention can drop whole partitions.
-          TEST: list the local directory.
-          PROD: list the S3 prefix.
-        """
-        months = []
-        if self.mode == 'TEST':
-            d = os.path.join(self.local_cach_dir, kind, f"sector={sector}")
-            if os.path.isdir(d):
-                for f in os.listdir(d):
-                    m = re.match(r'month=(\d{4}-\d{2})\.parquet$', f)
-                    if m:
-                        months.append(m.group(1))
-        else:
-            prefix = f"{self.s3_cache_prefix}/{kind}/sector={sector}/"
-            token = None
-            while True:
-                kw = dict(Bucket=self.s3_bucket, Prefix=prefix)
-                if token:
-                    kw['ContinuationToken'] = token
-                resp = self._get_s3().list_objects_v2(**kw)
-                for obj in resp.get('Contents', []):
-                    m = re.search(r'month=(\d{4}-\d{2})\.parquet$', obj['Key'])
-                    if m:
-                        months.append(m.group(1))
-                if not resp.get('IsTruncated'):
-                    break
-                token = resp.get('NextContinuationToken')
-        return sorted(set(months))
-
-    def _delete_cache_partition(self, kind, sector, month):
-        """Drop one month partition (retention). Best-effort."""
-        rel = self._sm_path(kind, sector, month)
-        try:
-            if self.mode == 'TEST':
-                p = os.path.join(self.local_cach_dir, rel)
-                if os.path.exists(p):
-                    os.remove(p)
-            else:
-                self._get_s3().delete_object(Bucket=self.s3_bucket,
-                                             Key=f"{self.s3_cache_prefix}/{rel}")
-        except Exception as e:
-            logger.warning(f"  could not drop {rel} ({e.__class__.__name__}).")
     # =========================================================================
     # MAIN ORCHESTRATOR
     # =========================================================================
@@ -2249,12 +1769,12 @@ class AdditivePickupModelProcessor:
         sector_stats = {}
         try:
             # resolve sectors (bin / TEST / standalone-all)
-            self._fetch_active_sectors()
+            self.active_sectors = self.mongo_helper.fetch_active_sectors(self.mode, self.active_sectors, self.test_sectors)
             sectors = sorted(self.active_sectors)
             logger.info(f"{len(sectors)} sector(s) to process: {sectors}")
 
             # run-scoped master data (fetched once, survives per-sector resets)
-            self._fetch_tax_master_data()
+            self.mongo_helper.fetch_tax_master_data()
 
             for i, sector in enumerate(sectors, 1):
                 logger.info("-" * 80)
@@ -2275,15 +1795,15 @@ class AdditivePickupModelProcessor:
                     logger.error(f"  {sector} FAILED after {dt}s: {e}")
                     logger.error(traceback.format_exc())
                 finally:
-                    self._audit_upsert_sector(sector, sector_stats[sector])
-                    self._reset_batch_cache()
+                    self.mongo_helper.audit_upsert_sector(sector, sector_stats[sector])
+                    self.cache.reset_batch()
 
             logger.info("=" * 80)
             logger.info(f"COMPLETE — {len(succeeded)} OK, {len(failed)} failed, "
                         f"{datetime.now() - start}")
 
             # last bin to finish stamps the run terminal state
-            self._audit_finalize()
+            self.mongo_helper.audit_finalize()
 
             status = ('SUCCESS' if not failed
                       else ('PARTIAL' if succeeded else 'FAILED'))
@@ -2299,7 +1819,7 @@ class AdditivePickupModelProcessor:
         except Exception as e:
             logger.error(f"Fatal error in additive process run_id={self.run_id}: {e}")
             logger.error(traceback.format_exc())
-            self._audit_finalize()
+            self.mongo_helper.audit_finalize()
             return {
                 'status': 'FAILED',
                 'run_id': self.run_id,
@@ -2314,7 +1834,7 @@ class AdditivePickupModelProcessor:
 
     def _run_batch(self, sectors):
         """Run steps 1-15 for one sector batch. Saves every step's output in TEST mode."""
-        self._reset_batch_cache()
+        self.cache.reset_batch()
 
         t_fetch_start = _time.perf_counter()
 
@@ -2323,7 +1843,7 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(farebasis_df, '01_fare_buckets')
 
         # --- Step 2: Fetch (cached) ---
-        self._fetch_all_data()
+        self.esb_helper.fetch_all_data(self.active_sectors, self.today.date(), self.current_date, FORCE_BACKFILL)
 
         t_fetch_end = _time.perf_counter()
         fetch_secs = round(t_fetch_end - t_fetch_start, 2)
@@ -2411,6 +1931,20 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(result_final_df, '12c_flight_after_remaining_normal')
         self._save_intermediate(weighted_final_df, '12d_flight_after_remaining_weighted')
 
+        # --- Step 13: Demand Multiplier (Demand Adjusted Prediction) ---
+        result_final_df, result_merged_df     = self._apply_demand_multiplier(result_final_df, result_merged_df)
+        weighted_final_df, weighted_merged_df = self._apply_demand_multiplier(weighted_final_df, weighted_merged_df)
+        self._save_intermediate(result_final_df, '13a_flight_demand_adjusted_normal')
+        self._save_intermediate(result_merged_df, '13b_fare_bucket_demand_adjusted_normal')
+        self._save_intermediate(weighted_final_df, '13c_flight_demand_adjusted_weighted')
+        self._save_intermediate(weighted_merged_df, '13d_fare_bucket_demand_adjusted_weighted')
+
+        # --- Step 14: WTP fare-bucket redistribution (price inflation/deflation) ---
+        result_merged_df   = self._apply_wtp_redistribution(result_merged_df,   count_col='New Final_pax_count')
+        weighted_merged_df = self._apply_wtp_redistribution(weighted_merged_df, count_col='New Final_pax_count')
+        self._save_intermediate(result_merged_df, '14a_fare_bucket_wtp_normal')
+        self._save_intermediate(weighted_merged_df, '14b_fare_bucket_wtp_weighted')
+
         t_process_end = _time.perf_counter()
         process_secs = round(t_process_end - t_process_start, 2)
         logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-12): {process_secs}s")
@@ -2427,76 +1961,7 @@ class AdditivePickupModelProcessor:
         logger.info(f"[TIMING] {sectors} — TOTAL: fetch={fetch_secs}s, "
                     f"process={process_secs}s, save={save_secs}s, "
                     f"sum={round(fetch_secs + process_secs + save_secs, 2)}s")
-    def _audit_upsert_sector(self, sector, stat):
-        """Write this sector's timing into the single run document.
 
-        One doc per run in qp_dw_rmalloc.additive_model_run_audit. Each process
-        Lambda upserts its own sectors on a disjoint `sector_stats.<sector>`
-        path and atomically bumps `sectors_completed`, so parallel bins never
-        collide. The next prefetch reads `sector_stats` to bin-pack.
-        """
-        if self.mode != 'PROD' or self.db is None:
-            logger.info(f"[audit] Skipped — mode={self.mode}, db={'ok' if self.db else 'None'}")
-            return
-        try:
-            logger.info(f"[audit] Writing sector={sector} to run_id={self.run_id}")
-            result = self.db.additive_model_run_audit.update_one(
-                {'run_id': self.run_id},
-                {
-                    '$set': {
-                        f'sector_stats.{sector}': stat,
-                        'module': 'additive_pickup_model'
-                    },
-                    '$setOnInsert': {
-                        'start_time': datetime.now(),
-                        'status': 'IN_PROGRESS',
-                        'snapshot_date': self.current_date.strftime('%Y-%m-%d'),
-                        'sectors_expected': self.sectors_expected,
-                        'triggered_by': self.analyst,
-                    },
-                    '$inc': {'sectors_completed': 1},
-                    '$addToSet': {'batches_seen': self.batch_index},
-                },
-                upsert=True,
-            )
-            logger.info(f"[audit] {sector}: matched={result.matched_count}, "
-                        f"modified={result.modified_count}, upserted={result.upserted_id}")
-        except Exception as e:
-            logger.error(f"audit upsert failed for {sector}: {e}")
-
-    def _audit_finalize(self):
-        """Last bin to finish closes the run (idempotent, guarded on IN_PROGRESS).
-
-        Only stamps terminal state once all expected sectors have reported. If
-        `sectors_expected` is unknown (standalone run) we can't tell when the
-        fan-out is done, so we skip finalisation and leave the doc open.
-        """
-        if self.mode != 'PROD' or self.db is None:
-            return
-        try:
-            doc = self.db.additive_model_run_audit.find_one(
-                {'run_id': self.run_id},
-                {'sectors_completed': 1, 'sectors_expected': 1, 'sector_stats': 1},
-            )
-            if not doc:
-                return
-            expected = doc.get('sectors_expected')
-            completed = len(doc.get('sector_stats', {}))   # distinct sectors, idempotent
-            if expected is None or completed < expected:
-                return
-
-            stats = doc.get('sector_stats', {}) or {}
-            n_fail = sum(1 for v in stats.values() if v.get('status') == 'FAILED')
-            self.db.additive_model_run_audit.update_one(
-                {'run_id': self.run_id, 'status': 'IN_PROGRESS'},   # guard: first wins
-                {'$set': {
-                    'end_time': datetime.now(),
-                    'status': 'SUCCESS' if n_fail == 0 else 'PARTIAL',
-                    'sectors_failed_count': n_fail,
-                }},
-            )
-        except Exception as e:
-            logger.error(f"audit finalise failed: {e}")
 
     def _close_connections(self):
         """No-op for injected connections.
@@ -2505,7 +1970,7 @@ class AdditivePickupModelProcessor:
         reused across warm invocations — disposing them here would break the
         next request. We only drop our references to per-run data.
         """
-        self._data_cache = {}
+        self.cache.data = {}
 
     def _save_results(self, result_merged_df, result_final_df, optimized_df,
                       weighted_merged_df=None, weighted_final_df=None, sectors=None):
@@ -2529,30 +1994,50 @@ class AdditivePickupModelProcessor:
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std',
+            'Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
             'Total_Predicted_pax_count', 'Predicted_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'Fare Bucket Ratio',
+            'New Final_pax_count', 'New Final Total Bookings',
+            'WTP_Factor', 'WTP_pax_count',
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         flight_level_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std_square',
+            'Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'New Final Total Bookings',
             'Load_Factor']
 
         weighted_fare_bucket_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std',
+            'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
             'Total_Predicted_pax_count', 'Predicted_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'Fare Bucket Ratio',
+            'New Final_pax_count', 'New Final Total Bookings',
+            'WTP_Factor', 'WTP_pax_count',
             'FareBasis_Prediction_ratio', 'FareBucket_Lower', 'FareBucket_Upper']
 
         weighted_flight_level_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std_square',
+            'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
+            'predicted_pax_count_final',
+            'Demand Multiplier', 'Demand Multiplier Number',
+            'New predicted_pax_count_final', 'New Final Total Bookings',
             'Load_Factor']
 
         optimization_cols = [
@@ -2669,9 +2154,9 @@ class AdditivePickupModelProcessor:
                 continue
             # full frame (incl. NDO curve) to S3; the trimmed `cols` are for
             # a lighter query-facing copy if you want one later.
-            self._write_partitioned_s3(frame, s3_dataset)
+            self.cache.write_partitioned_s3(frame, s3_dataset)
 
         if optimized_df is not None and not optimized_df.empty:
-            self._write_partitioned_s3(optimized_df, 'inventory_optimization')
+            self.cache.write_partitioned_s3(optimized_df, 'inventory_optimization')
 
         logger.info("All PROD results saved to S3 successfully.")

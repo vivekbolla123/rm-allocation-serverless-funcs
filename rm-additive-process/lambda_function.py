@@ -107,3 +107,11 @@ def lambda_handler(event, context):
     result = _run_modules(data["modules"], overrides, context)
     return {"statusCode": 200,
             "body": json.dumps(result, default=str) if result else "Executed successfully."}
+
+# Uncomment the following lines to test the lambda_handler function locally with a sample payload.
+
+# event = {
+#     "modules": {"additive_process": 1},
+#     "overrides": {"mode": "TEST", "sectors": ["BOMDEL"], "analyst": "Kenneth Menezes"}
+# }
+# lambda_handler(event, None)
