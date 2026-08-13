@@ -19,8 +19,8 @@ shared by reference.
 import io
 import os
 import re
-from datetime import datetime
 from datetime import datetime, timedelta, time
+import numpy as np
 
 import pandas as pd
 from sqlalchemy import text
@@ -52,55 +52,61 @@ class DatabaseConfig:
 # PURE HELPERS  (tagging / dates / parsing)  — moved verbatim from the model
 # =============================================================================
 
-TIME_BANDS = [
-    (time(2, 30), time(7, 30), '2:30-7:30'),
-    (time(7, 30), time(11, 0), '7:30-11:00'),
-    (time(11, 0), time(14, 30), '11:00-14:30'),
-    (time(14, 30), time(18, 0), '14:30-18:00'),
-    (time(18, 0), time(21, 0), '18:00-21:00'),
-]
-
-
 def get_time_cluster(std_time):
-    """Map a departure time to its time-band label (from Constants.TIME_BANDS)."""
-    if std_time is None or (isinstance(std_time, float) and std_time != std_time):
-        return None
+    """Assign a time cluster string based on STD time object."""
+    TIME_BANDS = [
+        (time(2, 30), time(7, 30), '2:30-7:30'),
+        (time(7, 30), time(11, 0), '7:30-11:00'),
+        (time(11, 0), time(14, 30), '11:00-14:30'),
+        (time(14, 30), time(18, 0), '14:30-18:00'),
+        (time(18, 0), time(21, 0), '18:00-21:00'),
+    ]
+    if pd.isna(std_time):
+        return np.nan
+    if isinstance(std_time, str):
+        std_time = datetime.strptime(std_time, '%H:%M:%S').time()
+    elif isinstance(std_time, timedelta):
+        std_time = (datetime.min + std_time).time()
+
     for start, end, label in TIME_BANDS:
         if start <= std_time < end:
             return label
-    return TIME_BANDS[-1][2] if TIME_BANDS else None
-
+    return '21:00-2:30'
 
 def get_quarter_abbr(date):
-    q = (pd.to_datetime(date).month - 1) // 3 + 1
-    return f"Q{q}"
+    """Map a date to its quarter abbreviation (JFM, AMJ, JAS, OND)."""
+    month = pd.to_datetime(date).month
+    if month <= 3:
+        return 'JFM'
+    elif month <= 6:
+        return 'AMJ'
+    elif month <= 9:
+        return 'JAS'
+    return 'OND'
 
 
 def numerical_tagging(tag):
-    return {'Lean': -1, 'Neutral': 0, 'Peak': 1}.get(tag, 0)
+    """Convert tagging string to numerical sort order."""
+    mapping = {'Lean': 0, 'Shoulder': 1, 'Peak': 2, 'Super Peak': 3}
+    return mapping.get(tag, 0)
 
 
 def tag_from_zscore(z):
-    if z is None or (isinstance(z, float) and z != z):
-        return 'Neutral'
-    if z <= -0.5:
+    """Assign lean/peak tag based on Z-Score value."""
+    if z < -0.5:
         return 'Lean'
-    if z >= 0.5:
+    elif z < 1:
+        return 'Shoulder'
+    elif z < 2:
         return 'Peak'
-    return 'Neutral'
+    return 'Super Peak'
 
 
 def middle_tagging(tags):
-    """Majority/middle tag of a small ordered collection."""
-    vals = [numerical_tagging(t) for t in tags if t is not None]
-    if not vals:
-        return 'Neutral'
-    avg = sum(vals) / len(vals)
-    if avg <= -0.5:
-        return 'Lean'
-    if avg >= 0.5:
-        return 'Peak'
-    return 'Neutral'
+    """Median-position tag of a (Tagging_int-sorted) group Series."""
+    if len(tags) == 0:
+        return None
+    return tags.iloc[(len(tags) - 1) // 2]
 
 
 def resolve_refresh_months(spec=None):
