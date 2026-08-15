@@ -140,7 +140,7 @@ class DetermineRBD:
                 open_result_value,
                 lastSoldFare,
                 current_strategy_fare,
-                CONST_NA,
+                profileFare,
                 upsell,
                 hardAnchorFare,
                 overBookingFare,
@@ -154,7 +154,7 @@ class DetermineRBD:
                 anchorFare=anchorFare,
                 anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
-                profileFare=CONST_NA,
+                profileFare=profileFare,
                 lastSellingFare=lastSoldFare,
                 hardAnchorFare=hardAnchorFare,
                 hard_anchor_flag=hard_anchor_flag,
@@ -214,7 +214,7 @@ class DetermineRBD:
                 anchorFare=anchorFare,
                 anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
-                profileFare=CONST_NA,
+                profileFare=profileFare,
                 lastSellingFare=lastSoldFare,
                 hardAnchorFare=hardAnchorFare,
                 hard_anchor_flag=hard_anchor_flag,
@@ -254,7 +254,7 @@ class DetermineRBD:
                             anchorFare=anchorFare,
                             anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                             strategyFare=strategyFare,
-                            profileFare=CONST_NA,
+                            profileFare=profileFare,
                             lastSellingFare=lastSoldFare,
                             hardAnchorFare=hardAnchorFare,
                             hard_anchor_flag=hard_anchor_flag,
@@ -304,7 +304,7 @@ class DetermineRBD:
                         anchorFare=anchorFare,
                         anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                         strategyFare=strategyFare,
-                        profileFare=CONST_NA,
+                        profileFare=profileFare,
                         lastSellingFare=lastSoldFare,
                         hardAnchorFare=hardAnchorFare,
                         hard_anchor_flag=hard_anchor_flag,
@@ -1847,7 +1847,7 @@ class DetermineRBD:
         if defFareData.shape[0] != 0:
             if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
                 backstopFlag = True
-                backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below backstop {defFareData['TOTAL'][0]}"
+                backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below backstop {backstop}"
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
@@ -1865,7 +1865,7 @@ class DetermineRBD:
                     FareToOpen = rbddata['TOTAL'][0]
                 else:
                     backstopFlag = True
-                    backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below forced highest backstop {defFareData['TOTAL'][0]}"
+                    backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below forced highest backstop {backstop}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
         else:
@@ -1874,7 +1874,7 @@ class DetermineRBD:
                     offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
                     if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
                         backstopFlag = True
-                        backstopReason = f"strategy fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {defFareData['TOTAL'][0]}"
+                        backstopReason = f"intended fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {backstop}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
                 else:

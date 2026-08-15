@@ -1237,7 +1237,7 @@ class DynAlloc:
 				if offset_flag:
 					self.outputSummaryRow_b2b.fareOffset=0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
-				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, _, \
+				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
 				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime = \
 					self.determinerbd.determineRBDToOpen(
 						self.outputSummaryRow_b2b.anchorFare, self.outputSummaryRow_b2b.fareOffset, B2B_CHANNEL,
@@ -1553,10 +1553,15 @@ class DynAlloc:
 			if 'FareResult' in openDataB2B_details and isinstance(openDataB2B_details.get('FareResult'), list) and openDataB2B_details.get('FareResult'):
 				openDataB2B_details['FareResult'][0] = str(openDataB2B_details['FareResult'][0]) + ' -Overbooking'
 
-		# If profileFares param is 0, clear profileFare from summary
-		if pd.notna(param_profileFares) and int(param_profileFares) == 0:
-			self.outputSummaryRow_b2b.profileFare = CONST_NA
-			self.outputSummaryRow_b2c.profileFare = CONST_NA
+		# Ensure profileFare is populated in output summary rows every time if available
+		extracted_profile_fare = getattr(state, 'profileFare', getattr(self, 'profileFare', CONST_NA))
+		if extracted_profile_fare not in (None, '', 'NA', CONST_NA):
+			self.outputSummaryRow_b2c.profileFare = extracted_profile_fare
+			self.outputSummaryRow_b2b.profileFare = extracted_profile_fare
+		elif getattr(self.outputSummaryRow_b2c, 'profileFare', CONST_NA) not in (None, '', 'NA', CONST_NA):
+			self.outputSummaryRow_b2b.profileFare = self.outputSummaryRow_b2c.profileFare
+		elif getattr(self.outputSummaryRow_b2b, 'profileFare', CONST_NA) not in (None, '', 'NA', CONST_NA):
+			self.outputSummaryRow_b2c.profileFare = self.outputSummaryRow_b2b.profileFare
 
 
 		param_analyst_name_full = str(getattr(self.currParams, 'analyst_name', CONST_NA))
@@ -1629,8 +1634,8 @@ class DynAlloc:
 
 		raw_b2b_how_determined = str(safe_get_from_dict(openDataB2B_details, 'FareResult', default='Error determining B2B fare'))
 		
-		# Override B2B HowDetermined with simplified format
-		if b2b_anchor_source and "hardanchorfare" not in b2b_anchor_source.lower():
+		# Override B2B HowDetermined with simplified format if no special condition like Backstop Hit
+		if "Backstop" not in raw_b2b_how_determined and b2b_anchor_source and "hardanchorfare" not in b2b_anchor_source.lower():
 			raw_b2b_how_determined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
 
 		self.outputSummaryRow_b2b.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2b_how_determined)
