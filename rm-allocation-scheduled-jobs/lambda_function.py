@@ -42,6 +42,7 @@ from run_paused_scheduled_runs import Run_Paused_Runs
 from active_sectors import ActiveSectors
 from forecast_date_config import ForecastDateConfig
 from mlForecastScore import MLForecastScore
+from mlForecastScoreInternational import MLForecastScoreInternational
 from mkt_cleanup import MarketListCleanup
 from saleinv_baseload_calc import SaleInvBaseloadCalc
 from saleinv_rbl_calc import SaleInvRBLCalc
@@ -164,6 +165,7 @@ module_map = {
     "active_sectors": ActiveSectors,
     "forecast_date_config": ForecastDateConfig,
     "ml_forecast_score": MLForecastScore,
+    "ml_forecast_score_international": MLForecastScoreInternational,
     "mkt_cleanup": MarketListCleanup,
     "saleinv_baseload": SaleInvBaseloadCalc,
     "saleinv_rbl": SaleInvRBLCalc,
