@@ -912,8 +912,8 @@ For fare class `j` (where class 1 is highest fare):
 | 5 | Coarse time bands | ~4.5h bands treat 07:31 and 10:59 as identical |
 | 6 | No connecting-pax modelling | Leg-level only; feed traffic not modelled |
 | 7 | Remaining-RBD proportionality | Assumes remaining pax split across buckets like required-RBD pax |
-| 8 | Market fares / EMSR-b not wired | Defined but `run()` passes `optimized_df=None` — forecast is produced but no inventory decision (see *Deferred Steps*). The active post-remaining steps are now Demand Multiplier (13) + WTP (14). |
-| 9 | Normal-distribution assumption | EMSR-b assumes normal demand; small samples make the approximation rough (negative binomial would fit better) |
+| 8 | NextGen AU & Competition Response | Fully wired in Step 15: EMSR-b optimization, Anchor Fare, RateGain competitor response, Strategy Fare, Demand Redistribution (P_eq), Operational capping (FirstRBD, Backstop, Hardanchor), and Closed-Form Revenue Forecasting (AF_Forecast). |
+| 9 | Normal-distribution assumption | EMSR-b assumes normal demand; capped dispersion (σ ≤ 0.25μ) prevents extreme tails. |
 
 ---
 

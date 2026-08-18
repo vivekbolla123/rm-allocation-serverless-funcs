@@ -1,3 +1,4 @@
+import os
 import sys
 import pandas as pd
 from datetime import datetime
@@ -9,6 +10,8 @@ class Schema:
         "config_station_master", "active_sectors",
         "market_fares_ag", "market_fares_rg", "tax_mast_dom", "tax_mast_intl",
         "active_flight_connections", "active_flight_legs", "cleanup_config",
+        "config_competitor_fare_recalibration", "config_sector_demand_multiplier",
+        "config_quarter_wtp", "config_competition_response_grid",
     }
 
     def __init__(self, mongo_db, master_db=None):
@@ -21,7 +24,10 @@ class Schema:
         self.load_generic_collection("curves", "Curves.csv")
         self.load_generic_collection("fares", "Fares.csv")
         self.load_generic_collection("market_fares_rg", "MarketFares.csv")
-        self.load_generic_collection("market_fares_ag", "MarketFares.csv")
+        self.load_generic_collection("market_fares_ag", "market_fares_ag.csv")
+        self.load_generic_collection("config_competitor_fare_recalibration", "market_fare_adjustments.csv")
+        self.load_generic_collection("config_sector_demand_multiplier", "Demand_multiplier.csv")
+        self.load_generic_collection("config_quarter_wtp", "WTP.csv")
         self.load_generic_collection("bookload", "Bookload.csv")
         self.load_generic_collection("market_list", "MarketList.csv")
         self.load_generic_collection("market_list_connections", "MarketList_Connections.csv")
@@ -86,9 +92,23 @@ class Schema:
         
         self.transformCollections()
 
-    def load_generic_collection(self, collectionName, dataFile, use_dw=False):
+    def initializeTables(self):
+        return self.initializTables()
+
+    def load_generic_collection(self, collectionName, dataFile, use_dw=False, input_subdir=None):
         """Load a CSV file into a MongoDB Collection"""
-        rawdata = pd.read_csv(f"{sys.path[0]}/testcases/input/" + dataFile)
+        base = os.path.dirname(os.path.abspath(__file__))
+        candidates = []
+        if input_subdir:
+            candidates.append(os.path.join(base, input_subdir, dataFile))
+        candidates.extend([
+            os.path.join(base, "testcasesadditive", "input", dataFile),
+            os.path.join(base, "testcases", "input", dataFile),
+        ])
+        filepath = next((p for p in candidates if os.path.exists(p)), None)
+        if not filepath:
+            return
+        rawdata = pd.read_csv(filepath)
         
         if collectionName in ["market_fares_ag", "market_fares_rg"]:
             # Convert departure_date to full datetime (MongoDB compatible)

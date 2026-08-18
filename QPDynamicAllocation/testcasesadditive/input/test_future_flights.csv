@@ -1,0 +1,5 @@
+Sector,DepartureDate_future,FlightNumber_future,Capacity,Total Bookings,DOW,STD_future,Tagging,predicted_pax_count,weighted_pax_count,Final_Total_Bookings
+BOMDEL,2026-09-01,1101,180,60,Tue,06:00:00,Peak,42.0,42.0,102
+BOMDEL,2026-09-01,1103,189,95,Tue,17:00:00,Peak,42.0,42.0,137
+DELBOM,2026-09-01,1102,180,45,Tue,06:30:00,Peak,42.0,42.0,87
+DELBOM,2026-09-01,1104,189,80,Tue,18:00:00,Peak,42.0,42.0,122

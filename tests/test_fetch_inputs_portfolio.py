@@ -8,8 +8,8 @@ Covers:
 import sys
 import os
 import pytest
+fakeredis = pytest.importorskip("fakeredis")
 import pandas as pd
-import fakeredis
 
 # ---------------------------------------------------------------------------
 # The fetch-inputs Lambda isn't a proper Python package, so we import its

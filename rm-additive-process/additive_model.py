@@ -31,6 +31,7 @@ Modules:
 
 import io
 import json
+import math
 import re
 import time as _time
 import traceback
@@ -51,6 +52,7 @@ from Constants import *
 from helpers.utils.common_utils import *
 from helpers.db_helpers.additive_esb_helper import AdditiveEsbHelper
 from helpers.db_helpers.additive_mongo_helper import AdditiveMongoHelper
+from helpers.optimization_engine import AUOptimizationEngine
 
 # Module logger — inherits the handler/root logger config in Lambda.
 logger = logging.getLogger()
@@ -120,8 +122,9 @@ class AdditivePickupModelProcessor:
         # Sector list used only in TEST mode (keeps a local run tiny).
         TEST_SECTORS = ['BOMDEL', 'DELBOM']
         self.test_sectors = TEST_SECTORS
-        TEST_OUTPUT_DIR = os.path.join(os.getcwd(), 'additive_model_output')
-
+        TEST_OUTPUT_DIR = overrides.get('output_dir') or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'QPDynamicAllocation', 'testcasesadditive', 'output'
+        )
 
         # --- run mode ---
         self.mode = (overrides.get('mode') or RUN_MODE).upper()
@@ -141,6 +144,7 @@ class AdditivePickupModelProcessor:
 
         self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger)
         self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger)
+        self.opt_engine = AUOptimizationEngine(logger=self.logger)
 
         self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
         self.s3_cache_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache'
@@ -357,6 +361,26 @@ class AdditivePickupModelProcessor:
         logger.info(f"Converted {len(df)} fares to airline component "
                     f"across {df['SECTOR'].nunique()} sectors.")
         return df
+
+    def _airline_component_to_all_in(self, airline_comp, sector):
+        """Convert airline component to all-in gross fare using tax master."""
+        if airline_comp is None or pd.isna(airline_comp):
+            return np.nan
+        other_taxes, gst_rate, ok = self._sector_other_taxes(sector)
+        if not ok:
+            return float(airline_comp)
+        return float(airline_comp) * (1.0 + float(gst_rate)) + float(other_taxes)
+
+    def _convert_competitor_fare_to_airline_component(self, competitor_gross_fare, sector):
+        """Convert competitor all-in fare to net airline component using sector taxes."""
+        if competitor_gross_fare is None or pd.isna(competitor_gross_fare):
+            return None
+        other_taxes, gst_rate, ok = self._sector_other_taxes(sector)
+        if not ok:
+            return float(competitor_gross_fare)
+        airline_comp = (float(competitor_gross_fare) - float(other_taxes)) / (1.0 + float(gst_rate))
+        return max(0.0, float(airline_comp))
+
 
     def _derive_flown_data(self):
         """
@@ -1725,8 +1749,274 @@ class AdditivePickupModelProcessor:
         except Exception as e:
             # Never let a debug artifact kill the run — fall back to CSV.
             logger.warning(f"Parquet write failed for {filename} ({e}); falling back to CSV.")
-            self._save_to_csv(df, filename.replace('.parquet', '.csv'))
+    # =========================================================================
+    # STEP 15: INVENTORY OPTIMIZATION & COMPETITION RESPONSE
+    # =========================================================================
 
+    def _run_inventory_optimization(self, bucket_df, future_df, farebasis_df, booked_df,
+                                    count_col='WTP_pax_count', std_col='predicted_pax_std'):
+        """
+        Execute Step 15: AU Optimization (EMSR-b), Market Fare Integration, Strategy Fare Selection,
+        Demand Redistribution, Price Floor/Cap, and Closed-Form Revenue Forecasting per flight.
+
+        Returns:
+            tuple: (optimized_df, flight_metrics_df)
+        """
+        if bucket_df is None or bucket_df.empty or future_df is None or future_df.empty:
+            return pd.DataFrame(), pd.DataFrame()
+
+        logger.info(f"Running Step 15: AU Optimization & Competition Response on {len(future_df)} future flights...")
+
+        # 1. Current booking revenue per flight
+        current_rev_map = {}
+        if booked_df is not None and not booked_df.empty:
+            rev_grp = booked_df.groupby(['Sector', 'DepartureDate', 'FlightNumber'])['Fare'].sum().reset_index()
+            for _, r in rev_grp.iterrows():
+                key = (str(r['Sector']), pd.to_datetime(r['DepartureDate']).normalize(), int(r['FlightNumber']))
+                current_rev_map[key] = float(r['Fare'])
+
+        # 2. Pre-load configuration and market data for batch sectors
+        sectors = bucket_df['Sector'].unique().tolist()
+        mkt_fares_df = self.mongo_helper.load_market_fares_rg(sectors)
+        recal_map = self.mongo_helper.load_competitor_fare_recalibration()
+        grid_rules = self.mongo_helper.load_competition_response_grid()
+        ml_inputs_map = self.mongo_helper.load_ml_inputs(sectors)
+        network_params = self.mongo_helper.load_network_config_params()
+
+        std_factor = network_params.get('STANDARD_DEVIATION_FACTOR', 0.25)
+        first_rbd_seats = network_params.get('FIRST_RBD_SEATS', 20)
+        promo_factor = network_params.get('PROMO_FARE_FACTOR', 0.80)
+        forecast_threshold_promo = network_params.get('FORECAST_THRESHOLD_PROMO_AU', 95.0)
+        coverage_param = network_params.get('COVERAGE_PARAMETER', 3.0)
+        default_buy_up = network_params.get('DEFAULT_BUY_UP_FACTOR', 0.0)
+
+        # Parse bucket lower/upper bounds if not present
+        df_buckets = bucket_df.copy()
+        if 'FareBucket_Lower' not in df_buckets.columns and 'FareBasis' in df_buckets.columns:
+            df_buckets['FareBucket_Lower'] = (
+                df_buckets['FareBasis'].str.replace('+', '', regex=False)
+                .str.split('-').str[0].astype(float)
+            )
+            df_buckets['FareBucket_Upper'] = pd.to_numeric(
+                df_buckets['FareBasis'].str.split('-').str[1], errors='coerce'
+            )
+
+        # Calculate midpoint per bucket
+        df_buckets['FareMidpoint'] = np.where(
+            df_buckets['FareBucket_Upper'].notna(),
+            (df_buckets['FareBucket_Lower'] + df_buckets['FareBucket_Upper']) / 2.0,
+            df_buckets['FareBucket_Lower'] * 1.15
+        )
+
+        all_opt_records = []
+        all_metrics_records = []
+
+        # Process each flight
+        flight_keys = [
+            'Sector', 'DepartureDate_future', 'FlightNumber_future',
+            'Capacity', 'Total Bookings', 'DOW', 'STD_future', 'Tagging'
+        ]
+        unique_flights = df_buckets[[c for c in flight_keys if c in df_buckets.columns]].drop_duplicates()
+
+        for _, flt_row in unique_flights.iterrows():
+            sec = str(flt_row['Sector'])
+            dep_date = pd.to_datetime(flt_row['DepartureDate_future']).normalize()
+            flt_num = int(flt_row['FlightNumber_future'])
+            cap = float(flt_row.get('Capacity', 180))
+            cb = float(flt_row.get('Total Bookings', 0))
+            flt_dow = flt_row.get('DOW', '')
+            flt_std = flt_row.get('STD_future')
+            flt_tag = flt_row.get('Tagging', 'Neutral')
+
+            # Get flight's buckets sorted DESCENDING by fare
+            flt_b_mask = (
+                (df_buckets['Sector'] == sec) &
+                (pd.to_datetime(df_buckets['DepartureDate_future']).dt.normalize() == dep_date) &
+                (df_buckets['FlightNumber_future'] == flt_num)
+            )
+            flt_b_df = df_buckets[flt_b_mask].sort_values(by='FareMidpoint', ascending=False)
+            if flt_b_df.empty:
+                continue
+
+            # Ensure we have the ladder arrays
+            mu_vec = flt_b_df[count_col].fillna(0.0).tolist() if count_col in flt_b_df.columns else [0.0] * len(flt_b_df)
+            sigma_vec = flt_b_df[std_col].fillna(0.0).tolist() if std_col in flt_b_df.columns else [std_factor * m for m in mu_vec]
+            ladder_fares = flt_b_df['FareMidpoint'].tolist()
+            bucket_names = flt_b_df['FareBasis'].tolist() if 'FareBasis' in flt_b_df.columns else [f'B_{i}' for i in range(len(flt_b_df))]
+            lowers = flt_b_df['FareBucket_Lower'].tolist()
+            uppers = flt_b_df['FareBucket_Upper'].tolist()
+
+            curr_rev = current_rev_map.get((sec, dep_date, flt_num), 0.0)
+
+            # ML & analyst input overrides for this sector
+            sec_ml = ml_inputs_map.get(sec, {})
+            backstop = sec_ml.get('b2c_backstop', sec_ml.get('price_floor'))
+            hardanchor = sec_ml.get('hard_anchor', sec_ml.get('price_cap'))
+            buy_up_factor = float(sec_ml.get('buy_up_factor', default_buy_up))
+            time_range = float(sec_ml.get('time_range', network_params.get('TIME_RANGE_HOURS', 2.0)))
+            carrier_excl = sec_ml.get('carrier_exclusion', [])
+            conn_flag = int(sec_ml.get('connection_fare_flag', 0)) == 1
+            add_conn_dur = float(sec_ml.get('additional_connection_duration', network_params.get('ADDITIONAL_CONNECTION_DURATION', 4.0)))
+
+            # Convert backstop/hardanchor to airline components if given as all-in
+            backstop_airline = self._convert_competitor_fare_to_airline_component(backstop, sec) if backstop else None
+            hardanchor_airline = self._convert_competitor_fare_to_airline_component(hardanchor, sec) if hardanchor else None
+
+            # -------------------------------------------------------------
+            # Step 15a: Initial EMSR-b
+            # -------------------------------------------------------------
+            opt1 = self.opt_engine.compute_emsr_b(
+                mu_vec, sigma_vec, ladder_fares, capacity=cap,
+                buy_up_factor=buy_up_factor, promo_factor=promo_factor,
+                standard_dev_factor=std_factor,
+                forecast_threshold_promo=forecast_threshold_promo,
+                current_bookload=cb)
+
+            anchor_fare_air, anchor_idx = self.opt_engine.determine_anchor_fare(opt1['au'], ladder_fares, cb)
+            anchor_fare_allin = self._airline_component_to_all_in(anchor_fare_air, sec)
+
+            # -------------------------------------------------------------
+            # Step 15b: Market Fares & Strategy Fare
+            # -------------------------------------------------------------
+            recal_amt = recal_map.get(sec, 0.0)
+            min_comp_gross, med_comp_gross, sel_mkt_row, _ = self.opt_engine.filter_and_process_market_fares(
+                mkt_fares_df, flight_std=flt_std, departure_date=dep_date,
+                time_range_hours=time_range,
+                carrier_exclusions=carrier_excl,
+                connection_fare_flag=conn_flag,
+                direct_flight_duration_hours=2.0,
+                additional_connection_duration=add_conn_dur,
+                coverage_param=coverage_param,
+                recalibration_amount=recal_amt)
+
+            if min_comp_gross is not None and pd.notna(min_comp_gross):
+                comp_fare_air = self._convert_competitor_fare_to_airline_component(min_comp_gross, sec)
+            else:
+                comp_fare_air = None
+
+            response_fare_air = self.opt_engine.evaluate_competition_response_grid(
+                anchor_fare_air, comp_fare_air, grid_rules=grid_rules)
+
+            strategy_fare_air = self.opt_engine.determine_strategy_fare(response_fare_air, ladder_fares)
+            strategy_fare_allin = self._airline_component_to_all_in(strategy_fare_air, sec)
+            strategy_idx = [j for j, f in enumerate(ladder_fares) if math.isclose(f, strategy_fare_air, rel_tol=1e-4)]
+            strategy_idx = strategy_idx[0] if strategy_idx else 0
+
+            # -------------------------------------------------------------
+            # Step 15c: Demand Redistribution & Revised AU
+            # -------------------------------------------------------------
+            redist = self.opt_engine.redistribute_demand_and_compute_au2(
+                anchor_fare=anchor_fare_air, strategy_fare=strategy_fare_air,
+                ladder_fares=ladder_fares, mu_vec=mu_vec, sigma_vec=sigma_vec,
+                capacity=cap, current_bookload=cb,
+                standard_dev_factor=std_factor, first_rbd_seats=first_rbd_seats,
+                buy_up_factor=buy_up_factor, promo_factor=promo_factor,
+                forecast_threshold_promo=forecast_threshold_promo,
+                initial_promo_au=opt1['promo_au'],
+                backstop=backstop_airline, hardanchor=hardanchor_airline)
+
+            # -------------------------------------------------------------
+            # Step 15d: Revenue Forecast
+            # -------------------------------------------------------------
+            rev_fc = self.opt_engine.calculate_revenue_forecast(
+                mu_2_vec=redist['mu_2'], sigma_2_vec=redist['sigma_2'],
+                ladder_fares=ladder_fares, au_revised_vec=redist['AU_revised'],
+                current_bookload=cb, current_revenue=curr_rev,
+                capacity=cap, predicted_flown_revised=redist['Predicted_Flown_Revised'])
+
+            # -------------------------------------------------------------
+            # Step 15e: Opening Fare & FirstRBD seats
+            # -------------------------------------------------------------
+            opening_fare_air, open_idx = self.opt_engine.determine_anchor_fare(redist['AU_revised'], ladder_fares, cb)
+            opening_fare_allin = self._airline_component_to_all_in(opening_fare_air, sec)
+            first_rbd_alloc = max(0, int(redist['AU_revised'][open_idx]) - int(cb))
+
+            # Flight metrics row
+            all_metrics_records.append({
+                'Sector': sec,
+                'DepartureDate_future': dep_date,
+                'FlightNumber_future': flt_num,
+                'NG_LF Forecast': round(float(redist['Revised_LF_Forecast']), 4),
+                'NG_AF Forecast': round(float(rev_fc['AF_Forecast']), 2),
+                'NG_Historical current booked': int(cb),
+                'NG_Opening fare': round(float(opening_fare_allin), 2),
+                'NG_FirstRBD': int(first_rbd_alloc),
+                'Strategy fare': round(float(strategy_fare_allin), 2),
+                'Anchor fare': round(float(anchor_fare_allin), 2),
+            })
+
+            # -------------------------------------------------------------
+            # Step 15f: 19 Bucket Records + 1 Promo Record
+            # -------------------------------------------------------------
+            for j in range(len(ladder_fares)):
+                all_opt_records.append({
+                    'SnapshotDate': self.current_date,
+                    'Sector': sec,
+                    'DepartureDate': dep_date,
+                    'DOW': flt_dow,
+                    'STD': flt_std,
+                    'FlightNumber': flt_num,
+                    'Capacity': int(cap),
+                    'Current_Bookings': int(cb),
+                    'Tagging': flt_tag,
+                    'FareBucket': bucket_names[j],
+                    'FareBucket_Lower': lowers[j],
+                    'FareBucket_Upper': uppers[j],
+                    'FareMidpoint': round(float(ladder_fares[j]), 2),
+                    'FareMidpoint_AllIn': round(float(self._airline_component_to_all_in(ladder_fares[j], sec)), 2),
+                    'predicted_pax_count': round(float(mu_vec[j]), 4),
+                    'predicted_pax_std': round(float(sigma_vec[j]), 4),
+                    'ProtectionLimit': int(opt1['y'][j]),
+                    'AU': int(opt1['au'][j]),
+                    'AnchorFare_Flag': 1 if j == anchor_idx else 0,
+                    'StrategyFare_Flag': 1 if j == strategy_idx else 0,
+                    'mu_2': round(float(redist['mu_2'][j]), 4),
+                    'sigma_2': round(float(redist['sigma_2'][j]), 4),
+                    'mu_bar_2': round(float(redist['mu_bar_2'][j]), 4),
+                    'AU_2': int(redist['AU_2'][j]),
+                    'AU_revised': int(redist['AU_revised'][j]),
+                    'Available_Inventory': round(float(rev_fc['Available_Inventory'][j]), 2),
+                    'Expected_Bookings': round(float(rev_fc['Expected_Bookings'][j]), 4),
+                    'Expected_Revenue': round(float(rev_fc['Expected_Revenue'][j]), 2),
+                })
+
+            # Promo record (W RBD)
+            promo_fare_air = opt1['promo_fare']
+            all_opt_records.append({
+                'SnapshotDate': self.current_date,
+                'Sector': sec,
+                'DepartureDate': dep_date,
+                'DOW': flt_dow,
+                'STD': flt_std,
+                'FlightNumber': flt_num,
+                'Capacity': int(cap),
+                'Current_Bookings': int(cb),
+                'Tagging': flt_tag,
+                'FareBucket': 'Promo_W',
+                'FareBucket_Lower': round(promo_fare_air, 2),
+                'FareBucket_Upper': round(ladder_fares[-1], 2),
+                'FareMidpoint': round(promo_fare_air, 2),
+                'FareMidpoint_AllIn': round(float(self._airline_component_to_all_in(promo_fare_air, sec)), 2),
+                'predicted_pax_count': 0.0,
+                'predicted_pax_std': 0.0,
+                'ProtectionLimit': int(opt1['promo_y']),
+                'AU': int(opt1['promo_au']),
+                'AnchorFare_Flag': 0,
+                'StrategyFare_Flag': 0,
+                'mu_2': 0.0,
+                'sigma_2': 0.0,
+                'mu_bar_2': 0.0,
+                'AU_2': int(opt1['promo_au']),
+                'AU_revised': int(opt1['promo_au']),
+                'Available_Inventory': 0.0,
+                'Expected_Bookings': 0.0,
+                'Expected_Revenue': 0.0,
+            })
+
+        optimized_df = pd.DataFrame(all_opt_records)
+        flight_metrics_df = pd.DataFrame(all_metrics_records)
+        logger.info(f"Step 15 complete: {len(optimized_df)} optimization records across {len(flight_metrics_df)} flights.")
+        return optimized_df, flight_metrics_df
 
     def _save_intermediate(self, df, name, fmt=None):
         """
@@ -1945,19 +2235,38 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(result_merged_df, '14a_fare_bucket_wtp_normal')
         self._save_intermediate(weighted_merged_df, '14b_fare_bucket_wtp_weighted')
 
+        # --- Step 15: Inventory Optimization (EMSR-b) & Competition Response ---
+        optimized_df, flight_metrics_df = self._run_inventory_optimization(
+            result_merged_df, future_df, farebasis_df, booked_df,
+            count_col='WTP_pax_count' if 'WTP_pax_count' in result_merged_df.columns else 'New Final_pax_count',
+            std_col='predicted_pax_std')
+
+        if flight_metrics_df is not None and not flight_metrics_df.empty:
+            # Merge NextGen metrics into flight_level frames
+            merge_keys = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
+            avail_keys = [k for k in merge_keys if k in result_final_df.columns and k in flight_metrics_df.columns]
+            if avail_keys:
+                result_final_df = result_final_df.merge(flight_metrics_df, on=avail_keys, how='left')
+            avail_keys_w = [k for k in merge_keys if k in weighted_final_df.columns and k in flight_metrics_df.columns]
+            if avail_keys_w:
+                weighted_final_df = weighted_final_df.merge(flight_metrics_df, on=avail_keys_w, how='left')
+
+        if optimized_df is not None and not optimized_df.empty:
+            self._save_intermediate(optimized_df, '15_inventory_optimization')
+
         t_process_end = _time.perf_counter()
         process_secs = round(t_process_end - t_process_start, 2)
-        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-12): {process_secs}s")
+        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-15): {process_secs}s")
 
         t_save_start = _time.perf_counter()
 
-        # --- Step 15: Save final results ---
-        self._save_results(result_merged_df, result_final_df, None,
+        # --- Step 16: Save final results ---
+        self._save_results(result_merged_df, result_final_df, optimized_df,
                            weighted_merged_df, weighted_final_df, sectors=sectors)
 
         t_save_end = _time.perf_counter()
         save_secs = round(t_save_end - t_save_start, 2)
-        logger.info(f"[TIMING] {sectors} — SAVE (Step 15): {save_secs}s")
+        logger.info(f"[TIMING] {sectors} — SAVE (Step 16): {save_secs}s")
         logger.info(f"[TIMING] {sectors} — TOTAL: fetch={fetch_secs}s, "
                     f"process={process_secs}s, save={save_secs}s, "
                     f"sum={round(fetch_secs + process_secs + save_secs, 2)}s")
@@ -2013,7 +2322,9 @@ class AdditivePickupModelProcessor:
             'predicted_pax_count_final',
             'Demand Multiplier', 'Demand Multiplier Number',
             'New predicted_pax_count_final', 'New Final Total Bookings',
-            'Load_Factor']
+            'Load_Factor',
+            'NG_LF Forecast', 'NG_AF Forecast', 'NG_Historical current booked',
+            'NG_Opening fare', 'NG_FirstRBD', 'Strategy fare', 'Anchor fare']
 
         weighted_fare_bucket_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
@@ -2038,13 +2349,18 @@ class AdditivePickupModelProcessor:
             'predicted_pax_count_final',
             'Demand Multiplier', 'Demand Multiplier Number',
             'New predicted_pax_count_final', 'New Final Total Bookings',
-            'Load_Factor']
+            'Load_Factor',
+            'NG_LF Forecast', 'NG_AF Forecast', 'NG_Historical current booked',
+            'NG_Opening fare', 'NG_FirstRBD', 'Strategy fare', 'Anchor fare']
 
         optimization_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
-            'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint',
-            'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU']
+            'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint', 'FareMidpoint_AllIn',
+            'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU',
+            'AnchorFare_Flag', 'StrategyFare_Flag',
+            'mu_2', 'sigma_2', 'mu_bar_2', 'AU_2', 'AU_revised',
+            'Available_Inventory', 'Expected_Bookings', 'Expected_Revenue']
 
         # ---------------- helpers (parse bounds BEFORE the FareBasis rename) ----------------
         FLIGHT_RENAME = {
@@ -2125,17 +2441,17 @@ class AdditivePickupModelProcessor:
             for frame, cols, name, _dw in DATASETS:
                 if frame is None or frame.empty:
                     continue
-                self._save_to_csv(_subset(frame, cols), f'{name}_{timestamp}.csv')
+                self._save_to_csv(_subset(frame, cols), f'{name}.csv')
 
             if optimized_df is not None and not optimized_df.empty:
                 self._save_to_csv(_subset(optimized_df, optimization_cols),
-                                  f'inventory_optimization_{timestamp}.csv')
+                                  'inventory_optimization.csv')
 
             # Full frames (all columns incl. NDO 0-180) -> parquet, not CSV.
             for frame, _cols, name, _dw in DATASETS:
                 if frame is None or frame.empty:
                     continue
-                self._save_to_parquet(frame, f'{name}_full_{timestamp}.parquet')
+                self._save_to_parquet(frame, f'{name}_full.parquet')
 
             logger.info("All TEST results saved successfully.")
             return

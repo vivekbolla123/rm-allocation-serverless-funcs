@@ -212,6 +212,22 @@ class AdditiveMongoHelper:
                          f"{fares_df['SECTOR'].nunique()} sectors.")
         return fares_df
 
+    def _get_test_input_path(self, filename):
+        """Resolve test input file path dynamically across platforms."""
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        repo_root = os.path.dirname(base_dir)
+        candidates = [
+            os.path.join(repo_root, 'QPDynamicAllocation', 'testcasesadditive', 'input', filename),
+            os.path.join(repo_root, 'QPDynamicAllocation', 'testcases', 'input', filename),
+            os.path.join(base_dir, 'testcasesadditive', 'input', filename),
+            os.path.join(base_dir, 'testcases', 'inputs', filename),
+            os.path.join(base_dir, 'testcases', 'input', filename),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                return c
+        return candidates[0]
+
     # =========================================================================
     # DEMAND MULTIPLIER  (flight-level: DepartureDate, Sector, FlightNumber)
     # =========================================================================
@@ -222,7 +238,7 @@ class AdditiveMongoHelper:
         dm = {}
         try:
             if self.mode == 'TEST':
-                path = r'C:\Users\kenneth.menezes\Work\RM\rm-allocation-serverless-funcs\rm-additive-process\testcases\inputs\Demand_multiplier.csv'
+                path = self._get_test_input_path('Demand_multiplier.csv')
                 raw = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
             else:
                 coll = getattr(configsettings, 'ADDITIVE_DEMAND_MULTIPLIER_COLL',
@@ -275,7 +291,7 @@ class AdditiveMongoHelper:
         wtp = {}
         try:
             if self.mode == 'TEST':
-                path = r'C:\Users\kenneth.menezes\Work\RM\rm-allocation-serverless-funcs\rm-additive-process\testcases\inputs\WTP.csv'
+                path = self._get_test_input_path('WTP.csv')
                 raw = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
             else:
                 coll = getattr(configsettings, 'ADDITIVE_WTP_COLL', 'config_quarter_wtp')
@@ -345,6 +361,182 @@ class AdditiveMongoHelper:
                     if s:
                         out[(s, int(y), int(m))] = float(pct)
         return out
+
+    # =========================================================================
+    # MARKET FARES (Union of RateGain: market_fares_rg and AirGain: market_fares_ag)
+    # =========================================================================
+    def load_market_fares_rg(self, sectors, start_date=None, end_date=None):
+        """Fetch competitor market fares for the given sectors by taking the UNION of
+        qp_rm_master.market_fares_rg and qp_rm_master.market_fares_ag."""
+        return self.load_market_fares(sectors, start_date, end_date)
+
+    def load_market_fares(self, sectors, start_date=None, end_date=None):
+        """Fetch and combine market fares from both market_fares_rg and market_fares_ag."""
+        if self.master_db is None and self.mode == 'PROD':
+            return pd.DataFrame()
+        try:
+            frames = []
+            if self.mode == 'TEST':
+                test_path = self._get_test_input_path('MarketFares.csv')
+                if os.path.exists(test_path):
+                    frames.append(pd.read_csv(test_path))
+                test_ag_path = self._get_test_input_path('market_fares_ag.csv')
+                if os.path.exists(test_ag_path):
+                    frames.append(pd.read_csv(test_ag_path))
+                # Also check dynamic allocation test inputs
+                alt_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                    '..', 'QPDynamicAllocation', 'testcases', 'input', 'MarketFares.csv'
+                )
+                if os.path.exists(alt_path) and not frames:
+                    frames.append(pd.read_csv(alt_path))
+
+                if frames:
+                    combined = pd.concat(frames, ignore_index=True)
+                    self.logger.info(f"[MarketFares] Loaded {len(combined)} records (TEST union).")
+                    return combined
+
+            # PROD mode — query both market_fares_rg and market_fares_ag
+            query = {"sector": {"$in": list(sectors)}}
+            if start_date and end_date:
+                query["departure_date"] = {
+                    "$gte": pd.to_datetime(start_date).strftime('%Y-%m-%d'),
+                    "$lte": pd.to_datetime(end_date).strftime('%Y-%m-%d')
+                }
+
+            coll_names = set(self.master_db.list_collection_names())
+            all_docs = []
+
+            # 1. Fetch RateGain (market_fares_rg)
+            if 'market_fares_rg' in coll_names:
+                rg_docs = list(self.master_db.market_fares_rg.find(query, {"_id": 0}))
+                if rg_docs:
+                    for d in rg_docs:
+                        d.setdefault('data_source', 'RG')
+                    all_docs.extend(rg_docs)
+                    self.logger.info(f"[MarketFares] Loaded {len(rg_docs)} records from market_fares_rg.")
+
+            # 2. Fetch AirGain (market_fares_ag)
+            if 'market_fares_ag' in coll_names:
+                ag_docs = list(self.master_db.market_fares_ag.find(query, {"_id": 0}))
+                if ag_docs:
+                    for d in ag_docs:
+                        d.setdefault('data_source', 'AG')
+                    all_docs.extend(ag_docs)
+                    self.logger.info(f"[MarketFares] Loaded {len(ag_docs)} records from market_fares_ag.")
+
+            if not all_docs:
+                self.logger.info(f"[MarketFares] No market fare records found for sectors {sectors}.")
+                return pd.DataFrame()
+
+            combined_df = pd.DataFrame(all_docs)
+            self.logger.info(f"[MarketFares] Total combined market fares: {len(combined_df)} records across RG and AG.")
+            return combined_df
+        except Exception as e:
+            self.logger.warning(f"[MarketFares] fetch failed: {e}; proceeding without market fares.")
+            return pd.DataFrame()
+
+
+    # =========================================================================
+    # COMPETITOR FARE RECALIBRATION
+    # =========================================================================
+    def load_competitor_fare_recalibration(self):
+        """{(Sector, AirlineCode): adjustment_amount_or_pct}."""
+        recal_map = {}
+        try:
+            if self.mode == 'TEST':
+                test_path = self._get_test_input_path('market_fare_adjustments.csv')
+                alt_path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                    '..', 'QPDynamicAllocation', 'testcases', 'input', 'market_fare_adjustments.csv'
+                )
+                raw = pd.DataFrame()
+                if os.path.exists(test_path):
+                    raw = pd.read_csv(test_path)
+                elif os.path.exists(alt_path):
+                    raw = pd.read_csv(alt_path)
+            else:
+                coll = getattr(configsettings, 'COMPETITOR_RECALIBRATION_COLL', 'config_competitor_fare_recalibration')
+                raw = pd.DataFrame(list(self._config_db()[coll].find({}, {'_id': 0})))
+            if not raw.empty:
+                for _, row in raw.iterrows():
+                    s = str(row.get('Sector', row.get('sector', ''))).strip()
+                    adj = float(row.get('adjustment', row.get('Adjustment', 0)) or 0)
+                    if s:
+                        recal_map[s] = adj
+            self.logger.info(f"[Recalibration] loaded {len(recal_map)} sector entries ({self.mode}).")
+        except Exception as e:
+            self.logger.warning(f"[Recalibration] load failed ({e}); defaulting to 0.")
+        return recal_map
+
+    # =========================================================================
+    # COMPETITION RESPONSE GRID
+    # =========================================================================
+    def load_competition_response_grid(self, grid_name='DEFAULT'):
+        """Load rules for competition response grid."""
+        rules = []
+        try:
+            if self.mode != 'TEST' and self.master_db is not None:
+                coll = getattr(configsettings, 'COMPETITION_GRID_COLL', 'config_competition_response_grid')
+                docs = list(self._config_db()[coll].find({'grid_name': grid_name}, {'_id': 0}))
+                if docs:
+                    rules = docs
+        except Exception as e:
+            self.logger.warning(f"[Grid] load failed ({e}); using default grid rules.")
+        return rules
+
+    # =========================================================================
+    # ML & ANALYST INPUTS
+    # =========================================================================
+    def load_ml_inputs(self, sectors):
+        """Load analyst/ML input controls per sector/flight."""
+        ml_inputs = {}
+        try:
+            if self.mode != 'TEST' and self.db is not None:
+                coll = getattr(configsettings, 'ML_INPUTS_COLL', 'config_ml_inputs')
+                if coll in self.db.list_collection_names():
+                    docs = list(self.db[coll].find({'sector': {'$in': list(sectors)}}, {'_id': 0}))
+                    for doc in docs:
+                        sec = doc.get('sector')
+                        if sec:
+                            ml_inputs[sec] = doc
+        except Exception as e:
+            self.logger.warning(f"[MLInputs] load failed: {e}")
+        return ml_inputs
+
+    # =========================================================================
+    # NETWORK CONFIGURABLE PARAMETERS
+    # =========================================================================
+    def load_network_config_params(self):
+        """Load global configurable parameters from rm_parameter_values."""
+        defaults = {
+            'STANDARD_DEVIATION_FACTOR': 0.25,
+            'FIRST_RBD_SEATS': 20,
+            'DEFAULT_BUY_UP_FACTOR': 0.0,
+            'PROMO_FARE_FACTOR': 0.80,
+            'FORECAST_THRESHOLD_PROMO_AU': 95.0,
+            'COVERAGE_PARAMETER': 3.0,
+            'TIME_RANGE_HOURS': 2.0,
+            'ADDITIONAL_CONNECTION_DURATION': 4.0,
+        }
+        if self.db is None:
+            return defaults
+        try:
+            keys = list(defaults.keys())
+            docs = list(self.db.rm_parameter_values.find(
+                {"parameterKey": {"$in": keys}},
+                {"parameterKey": 1, "parameterValue": 1, "_id": 0}
+            ))
+            for doc in docs:
+                k = doc.get('parameterKey')
+                v = doc.get('parameterValue')
+                try:
+                    defaults[k] = float(v)
+                except (ValueError, TypeError):
+                    pass
+        except Exception as e:
+            self.logger.warning(f"[NetworkParams] load failed: {e}; using defaults.")
+        return defaults
 
     # =========================================================================
     # AUDIT  (qp_dw_rmalloc.additive_model_run_audit — one doc per run)

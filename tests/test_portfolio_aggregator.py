@@ -95,12 +95,12 @@ def test_multi_flight_portfolio_uses_population_std_ddof0():
 
     agg = compute_portfolio_aggregates(entries)
 
-    assert agg["PDS"] == pytest.approx(np.mean(plfs))
-    assert agg["sd_PDS"] == pytest.approx(np.std(plfs, ddof=0))
-    assert agg["PDQ"] == pytest.approx(np.mean(afs))
-    assert agg["sd_PDQ"] == pytest.approx(np.std(afs, ddof=0))
-    assert agg["PFA"] == pytest.approx(np.mean(fares))
-    assert agg["sd_PFA"] == pytest.approx(np.std(fares, ddof=0))
+    assert agg["PDS"] == pytest.approx(round(float(np.mean(plfs)), 2))
+    assert agg["sd_PDS"] == pytest.approx(round(float(np.std(plfs, ddof=0)), 2))
+    assert agg["PDQ"] == pytest.approx(round(float(np.mean(afs)), 2))
+    assert agg["sd_PDQ"] == pytest.approx(round(float(np.std(afs, ddof=0)), 2))
+    assert agg["PFA"] == pytest.approx(round(float(np.mean(fares)), 2))
+    assert agg["sd_PFA"] == pytest.approx(round(float(np.std(fares, ddof=0)), 2))
 
     # All three flights have PLF < 88 → 88 subset matches the full set
     assert agg["PDS88"] == pytest.approx(agg["PDS"])
@@ -275,7 +275,7 @@ def test_plf_exactly_88_is_excluded_from_subset():
     ]
     agg = compute_portfolio_aggregates(entries)
 
-    assert agg["PDS88"] == pytest.approx(87.999)
+    assert agg["PDS88"] == pytest.approx(round(87.999, 2))
     assert agg["sd_PDS88"] == pytest.approx(0.0)
 
 

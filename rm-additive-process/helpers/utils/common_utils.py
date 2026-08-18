@@ -30,10 +30,14 @@ from Constants import (
     RUN_SCOPED_CACHE_KEYS, REFRESH_SPEC
 )
 
+import numpy as np
+import scipy.stats as stats
+
 __all__ = [
     'get_time_cluster', 'get_quarter_abbr', 'numerical_tagging', 'tag_from_zscore',
     'middle_tagging', 'resolve_refresh_months', 'parse_fare_bounds',
     'run_sql', 'DatabaseConfig', 'AdditiveCache',
+    'norm_cdf', 'norm_pdf', 'norm_ppf', 'filter_outliers_mad',
 ]
 
 
@@ -137,6 +141,49 @@ def run_sql(engine, sql, chunksize=50000):
     with engine.connect() as conn:
         chunks = pd.read_sql(text(sql), conn, chunksize=chunksize)
         return pd.concat([c for c in chunks], ignore_index=True)
+
+
+def norm_cdf(z):
+    """Standard normal cumulative distribution function Φ(z)."""
+    return float(stats.norm.cdf(z))
+
+
+def norm_pdf(z):
+    """Standard normal probability density function ϕ(z)."""
+    return float(stats.norm.pdf(z))
+
+
+def norm_ppf(p, clamp_eps=1e-6):
+    """Standard normal quantile function Φ^-1(p) with numerical clamping."""
+    p_clamped = min(max(float(p), clamp_eps), 1.0 - clamp_eps)
+    return float(stats.norm.ppf(p_clamped))
+
+
+def filter_outliers_mad(values, coverage_param=3.0):
+    """Filter numerical values using Modified Z-Score based on Median Absolute Deviation (MAD).
+
+    Coverage parameter defaults to 3.0 (per ConstantsUtils / BRD).
+    If MAD == 0, fallback to 0.15 * MED.
+    Returns the filtered subset list of values.
+    """
+    if not values:
+        return []
+    clean_vals = [float(v) for v in values if pd.notna(v)]
+    if len(clean_vals) <= 1:
+        return clean_vals
+
+    arr = np.array(clean_vals)
+    med = np.median(arr)
+    mad = np.median(np.abs(arr - med))
+    if mad == 0:
+        mad = 0.15 * med
+    if mad == 0:
+        return clean_vals
+
+    mzs = np.abs(arr - med) / mad
+    filtered = arr[mzs < coverage_param]
+    return filtered.tolist()
+
 
 
 # =============================================================================

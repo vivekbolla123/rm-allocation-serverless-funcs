@@ -13,8 +13,8 @@ import json
 import os
 import sys
 
-import fakeredis
 import pytest
+fakeredis = pytest.importorskip("fakeredis")
 
 # Both the shared config (Constants.py) and the Lambda package live
 # outside a Python package — the Lambdas import them as top-level
