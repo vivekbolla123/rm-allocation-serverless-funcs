@@ -105,7 +105,23 @@ class AdditivePickupModelProcessor:
         overrides = overrides or {}
 
         # --- time anchors ---
-        self.today = datetime.now()
+        # ADHOC SIMULATION: overrides['simulate_snapshot'] = a past model-run date
+        # (accepts 'YYYY-MM-DD' or 'DD-MM-YYYY'). When set, every downstream anchor
+        # (current_date, prediction_limit, one_year_back) is derived from that date
+        # instead of wall-clock now, so the model reproduces the picture "as of" that
+        # snapshot. self.actual_today keeps the real wall-clock — needed to decide
+        # which source table holds each forward flight (flown vs still-open bookings).
+        self.actual_today = datetime.now()
+        _sim = (overrides or {}).get('simulate_snapshot')
+        if _sim:
+            self.simulate = True
+            self.today = pd.to_datetime(str(_sim), dayfirst=('-' in str(_sim)
+                                        and len(str(_sim).split('-')[0]) <= 2)).to_pydatetime()
+            self.logger.info(f"[SIMULATE] snapshot={self.today.date()} "
+                             f"(actual today={self.actual_today.date()})")
+        else:
+            self.simulate = False
+            self.today = self.actual_today
         self.current_date = pd.to_datetime(self.today.date())
         self.prediction_limit = self.current_date + pd.Timedelta(days=PREDICTION_HORIZON_DAYS)
         self.one_year_back = self.current_date - pd.Timedelta(days=365)
@@ -115,7 +131,7 @@ class AdditivePickupModelProcessor:
         # =============================================================================
         # 'PROD' -> S3 output + audit writes. 'TEST' -> local CSV/parquet, no audit.
         # Overridable per-invocation via overrides['mode'].
-        RUN_MODE = 'PROD'
+        RUN_MODE = 'TEST'
 
         # Sector list used only in TEST mode (keeps a local run tiny).
         TEST_SECTORS = ['BOMDEL', 'DELBOM']
@@ -125,6 +141,11 @@ class AdditivePickupModelProcessor:
 
         # --- run mode ---
         self.mode = (overrides.get('mode') or RUN_MODE).upper()
+        # Simulation needs the PROD write path (TEST returns before S3). We keep the
+        # PROD S3 writer but redirect it to additive_model_test/ below, and suppress
+        # audit + DW-loader side effects in run().
+        # if self.simulate:
+        #     self.mode = 'PROD'
         self.output_dir = TEST_OUTPUT_DIR
         if self.mode == 'TEST':
             os.makedirs(self.output_dir, exist_ok=True)
@@ -143,9 +164,15 @@ class AdditivePickupModelProcessor:
         self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger)
 
         self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
-        self.s3_cache_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache'
-        self.s3_output_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}datasets'
-        CACHE_DIR = os.path.join(os.getcwd(), 'additive_model_cache')
+        # Adhoc simulation writes to a completely separate S3 root so it never
+        # touches the live cache or datasets.
+        _base = 'additive_model_test/' if self.simulate \
+            else configsettings.ADDITIVE_MODEL_FILE_PATH
+        self.s3_cache_prefix = f'{_base}_cache'
+        self.s3_output_prefix = f'{_base}datasets'
+        CACHE_DIR = os.path.join(os.getcwd(),
+                                 'additive_model_test_cache' if self.simulate
+                                 else 'additive_model_cache')
         self.local_cach_dir = CACHE_DIR if self.mode == 'TEST' else None
 
         # --- shared cache (mode-aware) + bind helpers ---
@@ -164,6 +191,12 @@ class AdditivePickupModelProcessor:
             FORCE_BACKFILL = 'true' if overrides['force_backfill'] else ''
         if 'refresh_spec' in overrides:
             REFRESH_SPEC = overrides['refresh_spec'] or ''
+        # NOTE: simulation does NOT force backfill. Snapshots are run in sequence,
+        # so run 1 cold-starts (empty additive_model_test/ cache) and each later
+        # run gap-fills only the days since the last cached snapshot — both the
+        # hist_flown fetch and the tagging cache are gap-aware (see
+        # AdditiveEsbHelper.fetch_historical_incremental and
+        # _compute_lean_peak_tagging). Month-start runs still full-re-tag (S3).
 
         # --- sector bin + run metadata (from prefetch) ---
         self._overrides = overrides
@@ -601,15 +634,21 @@ class AdditivePickupModelProcessor:
             logger.info(f"[Tagging] Month start — re-tagged & replaced {len(refreshed)} dates.")
 
         else:
-            # S2 — NORMAL DAY: append yesterday only.
-            yday = pd.to_datetime(self.today.date() - timedelta(days=1))
-            y_tags = fresh_tags[fresh_tags['DepartureDate'] == yday]
-            hist_tags = pd.concat([hist_tags, y_tags], ignore_index=True)
-            touched_months.add(self.cache.month_key(yday))
-            # rolling floor advances daily: the floor month loses its oldest day,
-            # so that partition must be rewritten too.
+            # S2 — NORMAL DAY / SEQUENCED GAP: append every freshly-tagged date
+            # that isn't already cached. fresh_tags already spans the full rolling
+            # window; on a daily run that's one new day, on a sequenced snapshot
+            # run (e.g. 01-06 -> 15-06) it's the whole 02-06..14-06 gap. We add
+            # only what the cache is missing rather than re-tagging the year.
+            cached_dates = set(pd.to_datetime(hist_tags['DepartureDate']).dt.normalize().unique())
+            fresh_norm = fresh_tags['DepartureDate'].dt.normalize()
+            gap_tags = fresh_tags[~fresh_norm.isin(cached_dates)]
+            hist_tags = pd.concat([hist_tags, gap_tags], ignore_index=True)
+            if not gap_tags.empty:
+                for period in gap_tags['DepartureDate'].dt.to_period('M').unique():
+                    touched_months.add(self.cache.month_key(period.to_timestamp()))
             touched_months.add(self.cache.month_key(retention_floor))
-            logger.info(f"[Tagging] Appended {len(y_tags)} rows for {yday.date()}.")
+            n_days = gap_tags['DepartureDate'].nunique()
+            logger.info(f"[Tagging] Gap-fill appended {len(gap_tags)} rows across {n_days} date(s).")
 
         hist_tags = hist_tags.drop_duplicates(
             subset=['Sector', 'DepartureDate', 'FlightNumber', 'Time Cluster'], keep='last')
@@ -1795,7 +1834,8 @@ class AdditivePickupModelProcessor:
                     logger.error(f"  {sector} FAILED after {dt}s: {e}")
                     logger.error(traceback.format_exc())
                 finally:
-                    self.mongo_helper.audit_upsert_sector(sector, sector_stats[sector])
+                    if not self.simulate:
+                        self.mongo_helper.audit_upsert_sector(sector, sector_stats[sector])
                     self.cache.reset_batch()
 
             logger.info("=" * 80)
@@ -1803,7 +1843,9 @@ class AdditivePickupModelProcessor:
                         f"{datetime.now() - start}")
 
             # last bin to finish stamps the run terminal state
-            self.mongo_helper.audit_finalize()
+            # (skipped in simulation — no audit doc, no DW-loader auto-trigger)
+            if not self.simulate:
+                self.mongo_helper.audit_finalize()
 
             status = ('SUCCESS' if not failed
                       else ('PARTIAL' if succeeded else 'FAILED'))
@@ -1819,7 +1861,8 @@ class AdditivePickupModelProcessor:
         except Exception as e:
             logger.error(f"Fatal error in additive process run_id={self.run_id}: {e}")
             logger.error(traceback.format_exc())
-            self.mongo_helper.audit_finalize()
+            if not self.simulate:
+                self.mongo_helper.audit_finalize()
             return {
                 'status': 'FAILED',
                 'run_id': self.run_id,
@@ -1843,7 +1886,8 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(farebasis_df, '01_fare_buckets')
 
         # --- Step 2: Fetch (cached) ---
-        self.esb_helper.fetch_all_data(self.active_sectors, self.today.date(), self.current_date, FORCE_BACKFILL)
+        self.esb_helper.fetch_all_data(self.active_sectors, self.today.date(), self.current_date, FORCE_BACKFILL,
+                                       simulate=self.simulate, actual_today=self.actual_today.date())
 
         t_fetch_end = _time.perf_counter()
         fetch_secs = round(t_fetch_end - t_fetch_start, 2)

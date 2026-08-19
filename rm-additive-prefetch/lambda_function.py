@@ -68,44 +68,51 @@ GLUE_BATCH_SIZE   = 10   # sectors per Glue fetch run
 # HELPERS
 # =============================================================================
 
-def _sector_has_cache(sector):
+def _sector_has_cache(sector, cache_prefix):
     """True if at least one hist_flown partition exists for this sector in S3."""
     resp = s3.list_objects_v2(
-        Bucket=S3_BUCKET, Prefix=f"{CACHE_PREFIX}/sector={sector}/", MaxKeys=1)
+        Bucket=S3_BUCKET, Prefix=f"{cache_prefix}/sector={sector}/", MaxKeys=1)
     return resp.get('KeyCount', 0) > 0
 
 
-def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expected, mode):
+def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expected, mode,
+                          simulate_snapshot=None):
     """Send one SQS message for a single sector to the process queue."""
+    overrides = {
+        'sectors': [sector],
+        'run_id': run_id,
+        'batch_index': batch_index,
+        'batch_total': batch_total,
+        'sectors_expected': sectors_expected,
+        'mode': mode,
+    }
+    if simulate_snapshot:
+        overrides['simulate_snapshot'] = simulate_snapshot
     message = {
         'modules': {'additive_process': 1},
-        'overrides': {
-            'sectors': [sector],
-            'run_id': run_id,
-            'batch_index': batch_index,
-            'batch_total': batch_total,
-            'sectors_expected': sectors_expected,
-            'mode': mode,
-        }
+        'overrides': overrides,
     }
     sqs.send_message(QueueUrl=PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
 
 
 def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
-                      sectors_expected=0, mode='PROD'):
+                      sectors_expected=0, mode='PROD', simulate_snapshot=None):
     """Start a Glue fetch-only job. Glue emits 1 SQS msg/sector after caching."""
-    glue.start_job_run(
-        JobName=GLUE_FETCH_JOB,
-        Arguments={
-            '--SECTORS': ','.join(sectors),
-            '--RUN_ID': run_id,
-            '--FORCE_BACKFILL': 'true' if force_backfill else 'false',
-            '--REFRESH_SPEC': str(refresh_spec) if refresh_spec else 'none',
-            '--SECTORS_EXPECTED': str(sectors_expected),
-            '--MODE': mode,
-            '--PROCESS_QUEUE_URL': PROCESS_QUEUE_URL,
-            '--ENV': ENV,
-        })
+    arguments = {
+        '--SECTORS': ','.join(sectors),
+        '--RUN_ID': run_id,
+        '--FORCE_BACKFILL': 'true' if force_backfill else 'false',
+        '--REFRESH_SPEC': str(refresh_spec) if refresh_spec else 'none',
+        '--SECTORS_EXPECTED': str(sectors_expected),
+        '--MODE': mode,
+        '--PROCESS_QUEUE_URL': PROCESS_QUEUE_URL,
+        '--ENV': ENV,
+    }
+    # Only pass when simulating — the Glue job treats SIMULATE_SNAPSHOT as an
+    # optional arg (present only if supplied on the command line).
+    if simulate_snapshot:
+        arguments['--SIMULATE_SNAPSHOT'] = simulate_snapshot
+    glue.start_job_run(JobName=GLUE_FETCH_JOB, Arguments=arguments)
 
 
 def _write_audit_skeleton(run_id, snapshot_date, sectors_expected, planned, mode, analyst):
@@ -150,6 +157,18 @@ def lambda_handler(event, context):
     analyst        = overrides.get('analyst', 'system')
     target_sectors = overrides.get('sectors')   # optional explicit subset
 
+    # --- ADHOC SIMULATION ---
+    # simulate_snapshot = a past model-run date ('DD-MM-YYYY' or 'YYYY-MM-DD').
+    # When set: the whole pipeline runs "as of" that date against a separate S3
+    # root (additive_model_test/). The cache-lane check reads that test root, so
+    # the FIRST snapshot (empty test cache) routes to Glue to seed, and every
+    # later snapshot (now cached) routes straight to the process Lambda, which
+    # gap-fills. No audit skeleton is written (the process Lambda skips audit in
+    # simulation, so a skeleton would hang IN_PROGRESS forever).
+    simulate_snapshot = overrides.get('simulate_snapshot')
+    simulate = bool(simulate_snapshot)
+    cache_prefix = 'additive_model_test/_cache/hist_flown' if simulate else CACHE_PREFIX
+
     # --- load active sectors ---
     if target_sectors:
         active = list(target_sectors)
@@ -159,7 +178,8 @@ def lambda_handler(event, context):
 
     active = sorted(set(active))
     logger.info(f"[prefetch] {len(active)} active sectors | run_id={run_id} | "
-                f"mode={mode} | force={force_backfill} | refresh={refresh_spec}")
+                f"mode={mode} | force={force_backfill} | refresh={refresh_spec}"
+                + (f" | SIMULATE={simulate_snapshot}" if simulate else ""))
 
     if not active:
         logger.error("[prefetch] No active sectors found — aborting.")
@@ -169,7 +189,7 @@ def lambda_handler(event, context):
     if force_backfill or refresh_spec:
         cached_sectors, uncached_sectors = [], active
     else:
-        cached_sectors = [s for s in active if _sector_has_cache(s)]
+        cached_sectors = [s for s in active if _sector_has_cache(s, cache_prefix)]
         uncached_set = set(cached_sectors)
         uncached_sectors = [s for s in active if s not in uncached_set]
 
@@ -190,7 +210,7 @@ def lambda_handler(event, context):
                for i, s in enumerate(cached_sectors)]
     planned += [{'sectors': b, 'lane': 'glue_then_lambda'} for b in glue_batches]
 
-    if sectors_expected > 0:
+    if sectors_expected > 0 and not simulate:
         _write_audit_skeleton(run_id, snapshot_date, sectors_expected,
                               planned, mode, analyst)
 
@@ -198,14 +218,16 @@ def lambda_handler(event, context):
     glue_units = 0
     for batch in glue_batches:
         _start_glue_fetch(batch, run_id, force_backfill, refresh_spec,
-                          sectors_expected=sectors_expected, mode=mode)
+                          sectors_expected=sectors_expected, mode=mode,
+                          simulate_snapshot=simulate_snapshot)
         glue_units += 1
 
     # --- dispatch one SQS message per cached sector ---
     lambda_units = 0
     for idx, sector in enumerate(cached_sectors):
         _send_process_message(sector, run_id, idx, batch_total_cached,
-                              sectors_expected, mode)
+                              sectors_expected, mode,
+                              simulate_snapshot=simulate_snapshot)
         lambda_units += 1
 
     logger.info(f"[prefetch] DONE — {lambda_units} SQS messages (1/sector), "

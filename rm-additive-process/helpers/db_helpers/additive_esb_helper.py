@@ -67,39 +67,15 @@ class AdditiveEsbHelper:
         """
 
     # =========================================================================
-    # ORCHESTRATOR — historical + STD + forward -> cache.data
+    # FORWARD QUERY BUILDER (parameterized on booking source + windows)
     # =========================================================================
-    def fetch_all_data(self, active_sectors, today, current_date, force_backfill):
-        engine = self.engine
-
-        yesterday = today - timedelta(days=1)
-        month_start = current_date.replace(day=1)
-        tag_floor = month_start - pd.DateOffset(years=1)
-        future_tag_floor = month_start - pd.Timedelta(days=365)
-        hist_start = min(tag_floor, future_tag_floor).date()
-
-        forward_end = today + timedelta(days=PREDICTION_HORIZON_DAYS)
-        booking_cutoff = today - timedelta(days=545)
-
-        self.logger.info(f"Date windows — hist: {hist_start}..{yesterday}, "
-                         f"forward: {today}..{forward_end}")
-
-        fm_station_conditions = " OR ".join([
-            f"(fm.DepartureStation = '{s[:3]}' AND fm.ArrivalStation = '{s[3:]}')"
-            for s in active_sectors
-        ])
-
-        # --- Query 1: historical flown (incremental, sector-aware cache) ---
-        hist_df = self.fetch_historical_incremental(
-            active_sectors, hist_start, yesterday, current_date, force_backfill)
-        self.cache.data['hist_raw_df'] = hist_df
-
-        # --- Query 2: STD lookup (incremental, sector-partitioned) ---
-        self.fetch_std_incremental(active_sectors, hist_df)
-
-        # --- Query 3: forward data (always fresh) ---
-        self.logger.info(f"[Query 3] Fetching forward data: {today} to {forward_end}...")
-        forward_query = f"""
+    def build_forward_query(self, booking_table, dep_start, dep_end,
+                            booking_lower, booking_upper, fm_station_conditions):
+        """Forward flight scan: InventoryLeg (schedule) LEFT JOIN a booking source
+        (QP_DL_BOOKEDDATAPAX for still-open flights, or QP_DL_FLOWNDATAPAX to
+        recover flights that have since flown). `booking_upper` is exclusive, so
+        passing the snapshot date reconstructs the 'as of snapshot' booking state."""
+        return f"""
         SELECT
             fm.InventoryLegID,
             CONCAT(fm.DepartureStation, fm.ArrivalStation) AS Sector,
@@ -123,10 +99,10 @@ class AdditiveEsbHelper:
                 ELSE 0
             END) AS `Pax Count`
         FROM {DatabaseConfig.FLIGHT_MASTER_TABLE} fm
-        LEFT JOIN {DatabaseConfig.BOOKED_DATA_TABLE} qdb
+        LEFT JOIN {booking_table} qdb
             ON qdb.InventoryLegID = fm.InventoryLegID
-            AND qdb.BookingDate >= '{booking_cutoff}' AND qdb.BookingDate < '{today}'
-        WHERE fm.DepartureDate BETWEEN '{today}' AND '{forward_end}'
+            AND qdb.BookingDate >= '{booking_lower}' AND qdb.BookingDate < '{booking_upper}'
+        WHERE fm.DepartureDate BETWEEN '{dep_start}' AND '{dep_end}'
             AND ({fm_station_conditions})
             AND fm.FlightNumber < 6000
             AND fm.CarrierCode = 'QP'
@@ -137,11 +113,84 @@ class AdditiveEsbHelper:
                  qdb.DepartureDate, qdb.PNR, qdb.RBD,
                  qdb.FareBasis, qdb.BookingDate
         """
+
+    def _run_forward(self, query):
+        with self.engine.connect() as conn:
+            chunks = pd.read_sql(__import__('sqlalchemy').text(query), conn, chunksize=50000)
+            return pd.concat([c for c in chunks], ignore_index=True)
+
+    # =========================================================================
+    # ORCHESTRATOR — historical + STD + forward -> cache.data
+    # =========================================================================
+    def fetch_all_data(self, active_sectors, today, current_date, force_backfill,
+                       simulate=False, actual_today=None):
+        engine = self.engine
+
+        yesterday = today - timedelta(days=1)
+        month_start = current_date.replace(day=1)
+        tag_floor = month_start - pd.DateOffset(years=1)
+        future_tag_floor = month_start - pd.Timedelta(days=365)
+        hist_start = min(tag_floor, future_tag_floor).date()
+
+        forward_end = today + timedelta(days=PREDICTION_HORIZON_DAYS)
+        booking_cutoff = today - timedelta(days=730)
+
+        self.logger.info(f"Date windows — hist: {hist_start}..{yesterday}, "
+                         f"forward: {today}..{forward_end}")
+
+        fm_station_conditions = " OR ".join([
+            f"(fm.DepartureStation = '{s[:3]}' AND fm.ArrivalStation = '{s[3:]}')"
+            for s in active_sectors
+        ])
+
+        # --- Query 1: historical flown (incremental, sector-aware cache) ---
+        hist_df = self.fetch_historical_incremental(
+            active_sectors, hist_start, yesterday, current_date, force_backfill)
+        self.cache.data['hist_raw_df'] = hist_df
+
+        # --- Query 2: STD lookup (incremental, sector-partitioned) ---
+        self.fetch_std_incremental(active_sectors, hist_df)
+
+        # --- Query 3: forward data ---
+        # NORMAL: one scan of BOOKEDDATAPAX over [today, today+180], bookings made
+        #         before `today` (== now). BOOKEDDATAPAX holds only open (not-yet-
+        #         flown) bookings, which is exactly the forward universe live.
+        #
+        # SIMULATE: `today` is a past snapshot. The forward window [snapshot,
+        #         snapshot+180] straddles the wall clock: flights departing
+        #         [snapshot, actual_today) have ALREADY FLOWN and have been purged
+        #         from BOOKEDDATAPAX, so we recover their as-of-snapshot bookings
+        #         from FLOWNDATAPAX instead; flights [actual_today, snapshot+180]
+        #         are still open in BOOKEDDATAPAX. Both scans filter BookingDate <
+        #         snapshot, so each reconstructs the booking state as of the
+        #         snapshot. (Caveat: FLOWNDATAPAX is net of no-shows/cancellations,
+        #         so pre-snapshot bookings later cancelled are missed — accepted for
+        #         this backtest.)
+        scans = []
+        if simulate and actual_today is not None and actual_today > today:
+            self.logger.info(f"[Query 3][SIMULATE] snapshot={today}, actual_today={actual_today}; "
+                             f"forward window {today}..{forward_end} split FLOWN+BOOKED.")
+            flown_dep_end = actual_today - timedelta(days=1)   # since-flown portion
+            scans.append(('FLOWN(since-flown)', self.build_forward_query(
+                DatabaseConfig.FLOWN_DATA_TABLE, today, flown_dep_end,
+                booking_cutoff, today, fm_station_conditions)))
+            scans.append(('BOOKED(still-open)', self.build_forward_query(
+                DatabaseConfig.BOOKED_DATA_TABLE, actual_today, forward_end,
+                booking_cutoff, today, fm_station_conditions)))
+        else:
+            self.logger.info(f"[Query 3] Fetching forward data: {today} to {forward_end}...")
+            scans.append(('BOOKED', self.build_forward_query(
+                DatabaseConfig.BOOKED_DATA_TABLE, today, forward_end,
+                booking_cutoff, today, fm_station_conditions)))
+
         try:
-            with engine.connect() as conn:
-                chunks = pd.read_sql(__import__('sqlalchemy').text(forward_query), conn, chunksize=50000)
-                forward_df = pd.concat([chunk for chunk in chunks], ignore_index=True)
-            self.logger.info(f"[Query 3] Done — {len(forward_df)} records.")
+            parts = []
+            for label, q in scans:
+                part = self._run_forward(q)
+                self.logger.info(f"[Query 3] {label}: {len(part)} records.")
+                parts.append(part)
+            forward_df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+            self.logger.info(f"[Query 3] Done — {len(forward_df)} records total.")
         except Exception as e:
             self.logger.error(f"Error fetching forward data: {e}")
             self.logger.error(traceback.format_exc())
@@ -210,15 +259,38 @@ class AdditiveEsbHelper:
             conds = " OR ".join(
                 f"(qdb.Origin = '{s[:3]}' AND qdb.Destination = '{s[3:]}')"
                 for s in sorted(existing_sectors))
-            self.logger.info(f"  Incremental (yesterday) for {len(existing_sectors)} sectors...")
-            q = self.build_flown_query(
-                f"qdb.DepartureDate BETWEEN '{yesterday}' AND '{yesterday}'", conds)
-            df = run_sql(self.engine, q)
-            df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
-            new_dfs.append(df)
-            if touched_months is not None:
-                touched_months.add(cache.month_key(yesterday))
-            cached_df = cached_df[~(cached_df['DepartureDate'] == pd.to_datetime(yesterday))]
+            # Gap-aware incremental: fetch from the day AFTER the last cached
+            # departure date up to yesterday. A daily run fetches one day; a
+            # sequenced run with a multi-day gap (e.g. 01-06 -> 15-06) fills every
+            # missing day, instead of only yesterday.
+            ex_cached = cached_df[cached_df['Sector'].isin(existing_sectors)]
+            last_cached = ex_cached['DepartureDate'].max() if not ex_cached.empty else None
+            if last_cached is None or pd.isna(last_cached):
+                gap_start = pd.to_datetime(yesterday)
+            else:
+                gap_start = pd.to_datetime(last_cached) + pd.Timedelta(days=1)
+            gap_end = pd.to_datetime(yesterday)
+
+            if gap_start <= gap_end:
+                self.logger.info(f"  Incremental gap-fill {gap_start.date()}..{gap_end.date()} "
+                                 f"for {len(existing_sectors)} sectors...")
+                q = self.build_flown_query(
+                    f"qdb.DepartureDate BETWEEN '{gap_start.date()}' AND '{gap_end.date()}'", conds)
+                df = run_sql(self.engine, q)
+                df['DepartureDate'] = pd.to_datetime(df['DepartureDate'])
+                new_dfs.append(df)
+                # drop any cached rows inside the refetch range (avoid dups)
+                cached_df = cached_df[~((cached_df['Sector'].isin(existing_sectors)) &
+                                        (cached_df['DepartureDate'] >= gap_start) &
+                                        (cached_df['DepartureDate'] <= gap_end))]
+                if touched_months is not None:
+                    m = gap_start.replace(day=1)
+                    while m <= gap_end:
+                        touched_months.add(cache.month_key(m))
+                        m = m + pd.DateOffset(months=1)
+            else:
+                self.logger.info(f"  Cache already current through {last_cached.date()}; "
+                                 f"nothing to gap-fill.")
 
         if new_dfs:
             all_new = pd.concat(new_dfs, ignore_index=True)
