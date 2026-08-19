@@ -429,15 +429,17 @@ class AdditivePickupModelProcessor:
         merge_keys = ['Sector', 'DepartureDate', 'STD', 'FlightNumber']
 
         if df.empty:
-            bookings = pd.DataFrame(columns=merge_keys + ['Pax Count'])
+            bookings = pd.DataFrame(columns=merge_keys + ['Pax Count', 'Fare'])
         else:
-            bookings = df.groupby(merge_keys, dropna=False).agg(
-                {'Pax Count': 'sum'}
+            rev_df = df[df['Pax Count'] > 0]
+            bookings = rev_df.groupby(merge_keys, dropna=False).agg(
+                {'Pax Count': 'sum', 'Fare': 'sum'}
             ).reset_index()
 
         future_df = fm_df.merge(bookings, on=merge_keys, how='left')
-        future_df.rename(columns={'Pax Count': 'Total Bookings'}, inplace=True)
+        future_df.rename(columns={'Pax Count': 'Total Bookings', 'Fare': 'Current_Revenue'}, inplace=True)
         future_df['Total Bookings'] = future_df['Total Bookings'].fillna(0).astype(int)
+        future_df['Current_Revenue'] = future_df['Current_Revenue'].fillna(0).round(2)
 
         zero_booking = int((future_df['Total Bookings'] == 0).sum())
         logger.info(f"Future flights derived: {len(future_df)} flights "
@@ -457,7 +459,7 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Computing fare buckets from qp_dw_rmalloc.fares (GP logic)...")
         try:
-            fares_df = self.mongo_helper.fetch_fares(self.active_sectors, REQUIRED_RBDS)
+            fares_df = self.mongo_helper.fetch_fares(self.active_sectors, FARE_BUCKET_RBDS)
 
             # --- Convert all-in -> airline component BEFORE bucketing ---
             fares_df = self._fares_to_airline_component(fares_df, fare_col='TOTAL')
@@ -1142,9 +1144,9 @@ class AdditivePickupModelProcessor:
         ndo_cols = self.cache.data['ndo_cols']
 
         group_cols = ['Sector', 'DepartureDate_future', 'DOW', 'STD_future',
-                    'FlightNumber_future', 'Capacity', 'Total Bookings', 'Tagging', 'FareBasis']
+                    'FlightNumber_future', 'Capacity', 'Total Bookings', 'Current_Revenue', 'Tagging', 'FareBasis']
         flight_group_cols = ['Sector', 'DepartureDate_future', 'DOW', 'STD_future',
-                            'FlightNumber_future', 'Capacity', 'Total Bookings', 'Tagging']
+                            'FlightNumber_future', 'Capacity', 'Total Bookings', 'Current_Revenue', 'Tagging']
 
         def _future_ndo(frame):
             return (pd.to_datetime(frame['DepartureDate_future']) - self.current_date).dt.days
@@ -1992,7 +1994,7 @@ class AdditivePickupModelProcessor:
         # ---------------- column definitions ----------------
         fare_bucket_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
-            'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
+            'FlightNumber', 'Capacity', 'Current_Bookings', 'Current_Revenue', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std',
             'Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
@@ -2006,7 +2008,7 @@ class AdditivePickupModelProcessor:
 
         flight_level_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
-            'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
+            'FlightNumber', 'Capacity', 'Current_Bookings', 'Current_Revenue', 'Tagging',
             'future_flight_NDO', 'predicted_pax_count', 'predicted_pax_std_square',
             'Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
@@ -2017,7 +2019,7 @@ class AdditivePickupModelProcessor:
 
         weighted_fare_bucket_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
-            'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
+            'FlightNumber', 'Capacity', 'Current_Bookings', 'Current_Revenue', 'Tagging', 'FareBucket',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std',
             'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Remaining_pax_distribution', 'Final_pax_count',
@@ -2031,7 +2033,7 @@ class AdditivePickupModelProcessor:
 
         weighted_flight_level_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
-            'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging',
+            'FlightNumber', 'Capacity', 'Current_Bookings', 'Current_Revenue', 'Tagging',
             'future_flight_NDO', 'weighted_pax_count', 'weighted_pax_std_square',
             'Weighted_Matched_Current_Bookings',
             'Remaining_pax_count', 'Final_pax_count', 'Final_Total_Bookings',
@@ -2093,8 +2095,9 @@ class AdditivePickupModelProcessor:
         for _df in (result_merged_df, weighted_merged_df):
             if _df is not None and {'Current_Bookings',
                                     'Total_Predicted_pax_count'}.issubset(_df.columns):
+                remaining = _df['Remaining_pax_count'].fillna(0) if 'Remaining_pax_count' in _df.columns else 0
                 _df['Predicted_Total_Bookings'] = (
-                    _df['Current_Bookings'] + _df['Total_Predicted_pax_count'])
+                    _df['Current_Bookings'] + _df['Total_Predicted_pax_count'] + remaining)
 
         # Load_Factor — FLIGHT-LEVEL frames (ratio, not sum)
         for _df in (result_final_df, weighted_final_df):
