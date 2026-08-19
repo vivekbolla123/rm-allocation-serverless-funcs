@@ -47,10 +47,23 @@ class MarketFareService:
         lowmktFile = "Market Fare not found"
         himktFile = "Market Fare not found"
 
-        # If feature flag is enabled and no market fare sector rerouting is present and imputed forecast is available
+        # If feature flag is enabled and no market fare sector rerouting is present
         try:
-            if int(currParams.market_station_mapping) == 1 and routedSector.empty and imp_forecast != CONST_NA:
+            if int(currParams.market_station_mapping) == 1 and routedSector.empty:
                 MARKET_FARE_FORECAST_THRESHOLD = self.constantsutils.MARKET_FARE_FORECAST_THRESHOLD
+
+                ndo = 999
+                try:
+                    ndo = self.timeutils.calculate_ndo(currFltDate)
+                except Exception:
+                    pass
+
+                is_high_forecast = False
+                if ndo <= 30 and imp_forecast != CONST_NA and not pd.isna(imp_forecast):
+                    try:
+                        is_high_forecast = float(imp_forecast) >= MARKET_FARE_FORECAST_THRESHOLD
+                    except (ValueError, TypeError):
+                        is_high_forecast = False
 
                 mapped_origin = self.rmdatabasehelper.getMappedStation(currParams.origin)
                 mapped_destin = self.rmdatabasehelper.getMappedStation(currParams.destin)
@@ -101,7 +114,7 @@ class MarketFareService:
                         all_min_fares = pd.concat(min_fare_rows, ignore_index=True).sort_values(by='gross_fare', ascending=True)
                         all_max_fares = pd.concat(max_fare_rows, ignore_index=True).sort_values(by='gross_fare', ascending=True)
 
-                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        if is_high_forecast:
                             picked_min = all_min_fares.iloc[[-1]]  # max of min fares
                             picked_max = all_max_fares.iloc[[-1]]  # max of max fares
                         else:
@@ -114,7 +127,7 @@ class MarketFareService:
                         all_min_fares_mo = pd.concat(min_fare_rows_minomaxo, ignore_index=True).sort_values(by='gross_fare', ascending=True)
                         all_max_fares_mo = pd.concat(max_fare_rows_minomaxo, ignore_index=True).sort_values(by='gross_fare', ascending=True)
 
-                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        if is_high_forecast:
                             picked_min_mo = all_min_fares_mo.iloc[[-1]]  # max of min fares
                             picked_max_mo = all_max_fares_mo.iloc[[-1]]  # max of max fares
                         else:
@@ -144,7 +157,7 @@ class MarketFareService:
                     else:
                         allFares = pd.concat([mktFareRange.iloc[[0, -1]], mapped_mktFareRange.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
 
-                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        if is_high_forecast:
                             allFares = allFares.iloc[1:]
                         else:
                             allFares = allFares.iloc[:-1]
@@ -157,7 +170,7 @@ class MarketFareService:
                     else:
                         allFaresMinoMaxo = pd.concat([mktfareRange_minomaxo.iloc[[0, -1]], mapped_mktFareRange_minomaxo.iloc[[0, -1]]], ignore_index=True).sort_values(by='gross_fare', ascending=True)
 
-                        if imp_forecast >= MARKET_FARE_FORECAST_THRESHOLD:
+                        if is_high_forecast:
                             allFaresMinoMaxo = allFaresMinoMaxo.iloc[1:]
                         else:
                             allFaresMinoMaxo = allFaresMinoMaxo.iloc[:-1]
