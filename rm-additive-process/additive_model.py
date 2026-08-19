@@ -431,7 +431,8 @@ class AdditivePickupModelProcessor:
         if df.empty:
             bookings = pd.DataFrame(columns=merge_keys + ['Pax Count', 'Fare'])
         else:
-            bookings = df.groupby(merge_keys, dropna=False).agg(
+            rev_df = df[df['Pax Count'] > 0]
+            bookings = rev_df.groupby(merge_keys, dropna=False).agg(
                 {'Pax Count': 'sum', 'Fare': 'sum'}
             ).reset_index()
 
