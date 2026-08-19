@@ -620,6 +620,7 @@ class RMDatabaseHelper:
                         # bookload 1
                         "BookedPax1": {"$arrayElemAt": ["$bookload1.bookedPax", 0]},
                         "Lid1": {"$arrayElemAt": ["$bookload1.Lid", 0]},
+                        "AdjustedCapacity1": {"$arrayElemAt": ["$bookload1.adjustedCapacity", 0]},
                         
                         # Forecast 1
                         "forecastPLF1": {"$arrayElemAt": ["$forecast1.ForecastPLF", 0]},
@@ -628,6 +629,7 @@ class RMDatabaseHelper:
                         # bookload 2
                         "BookedPax2": {"$arrayElemAt": ["$bookload2.bookedPax", 0]},
                         "Lid2": {"$arrayElemAt": ["$bookload2.Lid", 0]},
+                        "AdjustedCapacity2": {"$arrayElemAt": ["$bookload2.adjustedCapacity", 0]},
                         
                         # Forecast 2
                         "forecastPLF2": {"$arrayElemAt": ["$forecast2.ForecastPLF", 0]},
@@ -646,6 +648,7 @@ class RMDatabaseHelper:
                         "DirectFlightNumber": "$connections_details.DirectFlightNumber",
                         "DirectFlightBookedPax": "$connections_details.DirectFlightBookedPax",
                         "DirectFlightLid": "$connections_details.DirectFlightLid",
+                        "DirectFlightAdjustedCapacity": "$connections_details.DirectFlightAdjustedCapacity",
                         "DirectFlightForecast": "$connections_details.DirectFlightForecast",
                         "DirectFlightPLF": "$connections_details.DirectFlightPLF",
                         "DirectFlightDepTime": "$connections_details.DirectFlightDepTime",

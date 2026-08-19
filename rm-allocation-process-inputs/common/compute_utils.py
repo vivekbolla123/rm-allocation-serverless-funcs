@@ -249,6 +249,8 @@ def calculate_profilefare_quartile(final_totalCapacity, currBookedLoad, mathutil
   return bookloadPercentile_full
 
 def calculateVariance(currBookedLoad, totalCapacity, ndocounter, tgtAtCurrentHour, startOfDayBookLoad,startOfDayTgtBookedLoad):
+  if totalCapacity <= 0:
+    return 0.0
   variance = ((currBookedLoad / totalCapacity) - (tgtAtCurrentHour / totalCapacity)) * 100
   if ndocounter >= 22:
     variance = ((currBookedLoad - (startOfDayTgtBookedLoad)) / totalCapacity) * 100
@@ -279,8 +281,9 @@ def calculate_group_adjusted_load(simulated_booked_load, total_capacity, adjuste
   if use_forecast:
     adjustment = (imp_forecast - constantsutils.GROUP_IMP_FORECAST_REDUCTION) * constantsutils.GROUP_SCALING_FACTOR
   else:
+    eff_capacity = adjusted_capacity if (adjusted_capacity is not None and adjusted_capacity > 0) else total_capacity
     current_variance = calculate_variance_for_load(
-      simulated_booked_load, total_capacity, ndocounter, tgt_at_current_hour, sod_tgt_booked_load
+      simulated_booked_load, eff_capacity, ndocounter, tgt_at_current_hour, sod_tgt_booked_load
     )
     adjustment = current_variance * constantsutils.GROUP_SCALING_FACTOR
   return simulated_plf + adjustment

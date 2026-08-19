@@ -330,8 +330,8 @@ class DynAllocConnections:
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
         adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
         adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
-        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
-        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else safe_float(getattr(self.currParams, 'Lid1', 0), 0.0)
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else safe_float(getattr(self.currParams, 'Lid2', 0), 0.0)
 
         # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
@@ -538,10 +538,10 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-self.tgtAtCurrentHour1)*100/eff_capacity1
-                self.outputSummaryRow_b2c.variance2=(bookload2-self.tgtAtCurrentHour2)*100/eff_capacity2
-                self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/eff_capacity1
-                self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/eff_capacity2
+                self.outputSummaryRow_b2c.variance1 = ((bookload1 - self.tgtAtCurrentHour1) * 100 / eff_capacity1) if eff_capacity1 > 0 else 0.0
+                self.outputSummaryRow_b2c.variance2 = ((bookload2 - self.tgtAtCurrentHour2) * 100 / eff_capacity2) if eff_capacity2 > 0 else 0.0
+                self.outputSummaryRow_b2b.variance1 = ((bookload1 - self.tgtAtCurrentHour1) * 100 / eff_capacity1) if eff_capacity1 > 0 else 0.0
+                self.outputSummaryRow_b2b.variance2 = ((bookload2 - self.tgtAtCurrentHour2) * 100 / eff_capacity2) if eff_capacity2 > 0 else 0.0
                 
                 imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
@@ -1260,8 +1260,8 @@ class DynAllocConnections:
         
         adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
         adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
-        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else self.currParams.Lid1
-        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else self.currParams.Lid2
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else safe_float(getattr(self.currParams, 'Lid1', 0), 0.0)
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else safe_float(getattr(self.currParams, 'Lid2', 0), 0.0)
         
         plf1 = (bookload1 / eff_capacity1 * 100) if eff_capacity1 > 0 else 0
         plf2 = (bookload2 / eff_capacity2 * 100) if eff_capacity2 > 0 else 0
@@ -1389,15 +1389,19 @@ class DynAllocConnections:
                 # Compute direct flight variance for DPLF band lookup
                 direct_booked_pax = self.currParams.DirectFlightBookedPax
                 direct_lid = self.currParams.DirectFlightLid
+                direct_adj_cap = getattr(self.currParams, 'DirectFlightAdjustedCapacity', None)
                 try:
                     direct_booked_pax = float(direct_booked_pax) if direct_booked_pax and not pd.isna(direct_booked_pax) else 0
                     direct_lid = float(direct_lid) if direct_lid and not pd.isna(direct_lid) else 0
+                    direct_adj_cap = float(direct_adj_cap) if direct_adj_cap and not pd.isna(direct_adj_cap) else 0
                 except (ValueError, TypeError):
                     direct_booked_pax = 0
                     direct_lid = 0
+                    direct_adj_cap = 0
                 
-                if direct_lid > 0:
-                    direct_variance = (direct_booked_pax / direct_lid * 100) - (direct_forecast)
+                direct_capacity = direct_adj_cap if direct_adj_cap > 0 else direct_lid
+                if direct_capacity > 0:
+                    direct_variance = (direct_booked_pax / direct_capacity * 100) - (direct_forecast)
                     direct_dplf_band = self.rmdatabasehelper.getdpflBand(direct_variance)
                     try:
                         direct_dplf_band_val = int(direct_dplf_band) if direct_dplf_band is not None else 0
