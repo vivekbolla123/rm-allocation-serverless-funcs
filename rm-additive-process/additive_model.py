@@ -423,18 +423,37 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Deriving future flights (schedule left-merged with bookings)...")
 
-        fm_df = self.cache.data['future_flight_master'].copy()
-        df = self.cache.data['forward_raw_df']
+        fm_df = self.cache.data.get('future_flight_master', pd.DataFrame()).copy()
+        df = self.cache.data.get('forward_raw_df', pd.DataFrame())
 
-        merge_keys = ['Sector', 'DepartureDate', 'STD', 'FlightNumber']
+        if fm_df.empty:
+            logger.warning("No future flights in schedule.")
+            return pd.DataFrame(columns=['Sector', 'DepartureDate', 'STD', 'FlightNumber', 'Capacity', 'Total Bookings', 'Current_Revenue'])
 
         if df.empty:
-            bookings = pd.DataFrame(columns=merge_keys + ['Pax Count', 'Fare'])
-        else:
-            rev_df = df[df['Pax Count'] > 0]
-            bookings = rev_df.groupby(merge_keys, dropna=False).agg(
-                {'Pax Count': 'sum', 'Fare': 'sum'}
-            ).reset_index()
+            future_df = fm_df.copy()
+            future_df['Total Bookings'] = 0
+            future_df['Current_Revenue'] = 0.0
+            logger.info(f"Future flights derived: {len(future_df)} flights (all 0 bookings).")
+            return future_df
+
+        merge_keys = ['Sector', 'DepartureDate', 'STD', 'FlightNumber']
+        rev_df = df[df['Pax Count'] > 0]
+        if rev_df.empty:
+            future_df = fm_df.copy()
+            future_df['Total Bookings'] = 0
+            future_df['Current_Revenue'] = 0.0
+            return future_df
+
+        bookings = rev_df.groupby(merge_keys, dropna=False).agg(
+            {'Pax Count': 'sum', 'Fare': 'sum'}
+        ).reset_index()
+
+        for frame in (fm_df, bookings):
+            if 'DepartureDate' in frame.columns:
+                frame['DepartureDate'] = pd.to_datetime(frame['DepartureDate'])
+            if 'FlightNumber' in frame.columns:
+                frame['FlightNumber'] = pd.to_numeric(frame['FlightNumber'], errors='coerce').fillna(0).astype(int)
 
         future_df = fm_df.merge(bookings, on=merge_keys, how='left')
         future_df.rename(columns={'Pax Count': 'Total Bookings', 'Fare': 'Current_Revenue'}, inplace=True)
@@ -1518,6 +1537,26 @@ class AdditivePickupModelProcessor:
                     f"(source={src}).")
         return df
 
+    def _compute_inventory_optimization(self, bucket_df):
+        """Step 15 — Inventory Optimization using EMSR-b.
+        Calculates protection limits and authorization levels (AU) for each fare bucket,
+        adds 80% promo fare (W RBD), and determines opening fare without considering promo inventory.
+        """
+        if bucket_df is None or bucket_df.empty:
+            return None
+        logger.info("Computing inventory optimization (EMSR-b protection limits & AU)...")
+        opt_df = compute_inventory_optimization_df(
+            bucket_df,
+            pax_col='predicted_pax_count',
+            std_col='predicted_pax_std',
+            sigma_factor=EMSR_SIGMA_FACTOR,
+            promo_ratio=PROMO_FARE_RATIO,
+            promo_rbd=PROMO_RBD,
+            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+        )
+        logger.info(f"Inventory optimization complete — {len(opt_df)} rows produced.")
+        return opt_df
+
     def _apply_demand_multiplier(self, flight_df, bucket_df):
         """Step 13 — adds: Demand Multiplier, Demand Multiplier Number,
         New predicted_pax_count_final, Fare Bucket Ratio, New Final_pax_count,
@@ -1861,6 +1900,9 @@ class AdditivePickupModelProcessor:
             return
         booked_df = self._derive_booked_data()
         future_flight_df = self._derive_future_flights()
+        if future_flight_df.empty:
+            logger.warning(f"No future flights scheduled for {sectors} — skipping batch.")
+            return
         self._save_intermediate(flown_df, '03a_flown_data')
         self._save_intermediate(lean_peak_source, '03b_lean_peak_source')
         self._save_intermediate(booked_df, '03c_booked_data')
@@ -1947,19 +1989,23 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(result_merged_df, '14a_fare_bucket_wtp_normal')
         self._save_intermediate(weighted_merged_df, '14b_fare_bucket_wtp_weighted')
 
+        # --- Step 15: Inventory Optimization (EMSR-b) ---
+        optimized_df = self._compute_inventory_optimization(result_merged_df)
+        self._save_intermediate(optimized_df, '15_inventory_optimization')
+
         t_process_end = _time.perf_counter()
         process_secs = round(t_process_end - t_process_start, 2)
-        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-12): {process_secs}s")
+        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-15): {process_secs}s")
 
         t_save_start = _time.perf_counter()
 
-        # --- Step 15: Save final results ---
-        self._save_results(result_merged_df, result_final_df, None,
+        # --- Step 16: Save final results ---
+        self._save_results(result_merged_df, result_final_df, optimized_df,
                            weighted_merged_df, weighted_final_df, sectors=sectors)
 
         t_save_end = _time.perf_counter()
         save_secs = round(t_save_end - t_save_start, 2)
-        logger.info(f"[TIMING] {sectors} — SAVE (Step 15): {save_secs}s")
+        logger.info(f"[TIMING] {sectors} — SAVE (Step 16): {save_secs}s")
         logger.info(f"[TIMING] {sectors} — TOTAL: fetch={fetch_secs}s, "
                     f"process={process_secs}s, save={save_secs}s, "
                     f"sum={round(fetch_secs + process_secs + save_secs, 2)}s")
@@ -2015,7 +2061,7 @@ class AdditivePickupModelProcessor:
             'predicted_pax_count_final',
             'Demand Multiplier', 'Demand Multiplier Number',
             'New predicted_pax_count_final', 'New Final Total Bookings',
-            'Load_Factor']
+            'Load_Factor', 'OpeningFareBucket', 'OpeningFareMidpoint']
 
         weighted_fare_bucket_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
@@ -2040,13 +2086,14 @@ class AdditivePickupModelProcessor:
             'predicted_pax_count_final',
             'Demand Multiplier', 'Demand Multiplier Number',
             'New predicted_pax_count_final', 'New Final Total Bookings',
-            'Load_Factor']
+            'Load_Factor', 'OpeningFareBucket', 'OpeningFareMidpoint']
 
         optimization_cols = [
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint',
-            'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU']
+            'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU',
+            'OpeningFareBucket', 'OpeningFareMidpoint', 'IsOpeningFare', 'RBD']
 
         # ---------------- helpers (parse bounds BEFORE the FareBasis rename) ----------------
         FLIGHT_RENAME = {
@@ -2056,6 +2103,20 @@ class AdditivePickupModelProcessor:
             'Total Bookings': 'Current_Bookings',
             'remaining_pax_count': 'Remaining_pax_count'}
         BUCKET_RENAME = dict(FLIGHT_RENAME, **{'FareBasis': 'FareBucket'})
+
+        # ---------------- attach opening fare to flight level frames if available ----------------
+        if optimized_df is not None and not optimized_df.empty:
+            flt_cols = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
+            flt_keys = [c for c in flt_cols if c in optimized_df.columns]
+            if not flt_keys:
+                flt_cols = ['Sector', 'DepartureDate', 'FlightNumber']
+                flt_keys = [c for c in flt_cols if c in optimized_df.columns]
+            if flt_keys and {'OpeningFareBucket', 'OpeningFareMidpoint'}.issubset(optimized_df.columns):
+                opening_map = optimized_df[flt_keys + ['OpeningFareBucket', 'OpeningFareMidpoint']].drop_duplicates(subset=flt_keys)
+                if result_final_df is not None and all(k in result_final_df.columns for k in flt_keys):
+                    result_final_df = result_final_df.merge(opening_map, on=flt_keys, how='left')
+                if weighted_final_df is not None and all(k in weighted_final_df.columns for k in flt_keys):
+                    weighted_final_df = weighted_final_df.merge(opening_map, on=flt_keys, how='left')
 
         def _parse_bucket_bounds(df):
             if df is None or 'FareBasis' not in df.columns:

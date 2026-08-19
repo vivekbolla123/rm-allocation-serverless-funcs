@@ -17,23 +17,27 @@ shared by reference.
 """
 
 import io
+import math
 import os
 import re
 from datetime import datetime, timedelta, time
 import numpy as np
 
 import pandas as pd
+from scipy.stats import norm
 from sqlalchemy import text
 
 import configsettings
 from Constants import (
-    RUN_SCOPED_CACHE_KEYS, REFRESH_SPEC
+    RUN_SCOPED_CACHE_KEYS, REFRESH_SPEC,
+    EMSR_SIGMA_FACTOR, PROMO_FARE_RATIO, PROMO_RBD, OPEN_BUCKET_MIDPOINT_FACTOR
 )
 
 __all__ = [
     'get_time_cluster', 'get_quarter_abbr', 'numerical_tagging', 'tag_from_zscore',
     'middle_tagging', 'resolve_refresh_months', 'parse_fare_bounds',
     'run_sql', 'DatabaseConfig', 'AdditiveCache',
+    'compute_flight_inventory_optimization', 'compute_inventory_optimization_df',
 ]
 
 
@@ -320,3 +324,210 @@ class AdditiveCache:
                                Body=self.to_parquet_bytes(body))
             n += 1
         self.logger.info(f"[S3] {dataset}: {n} partitions, {len(df)} rows.")
+
+
+# =============================================================================
+# INVENTORY OPTIMIZATION (EMSR-b)
+# =============================================================================
+
+def compute_flight_inventory_optimization(
+    flight_df,
+    pax_col='predicted_pax_count',
+    std_col='predicted_pax_std',
+    sigma_factor=EMSR_SIGMA_FACTOR,
+    promo_ratio=PROMO_FARE_RATIO,
+    promo_rbd=PROMO_RBD,
+    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+):
+    """
+    Computes EMSR-b Protection Limits and AU (Authorization Levels) for a single flight.
+    
+    Steps:
+      1. Sorts fare classes descending (highest fare -> lowest filed fare).
+      2. Aggregates mean demand: Mu_Bar = sum(Mu_1..Mu_j)
+      3. Aggregates std dev: Sigma_Bar = min(sqrt(sum(Sigma_i^2)), Factor * Mu_Bar)
+      4. Aggregated weighted fare: F_j = sum(Mu_i * f_i) / Mu_Bar
+      5. Next lower fare f_{j+1} (for lowest filed class, f_{n+1} is 80% promo fare).
+      6. Probability Prob_j = 1 - (f_{j+1} / F_j)
+      7. Z-score z = Phi^{-1}(Prob_j)
+      8. Protection Limit y_j = max(0, ceil(Mu_Bar + z * Sigma_Bar)) bounded by Capacity.
+      9. AU_j = Capacity - Protection_{j-1} (highest class AU = Capacity).
+      10. Promo fare (W RBD) allocated at promo_ratio of lowest filed fare.
+      11. Determines Opening Fare without considering Promo inventory.
+    """
+    if flight_df is None or flight_df.empty:
+        return pd.DataFrame()
+
+    df = flight_df.copy()
+
+    # Ensure both FareBucket and FareBasis exist and match
+    if 'FareBucket' not in df.columns and 'FareBasis' in df.columns:
+        df['FareBucket'] = df['FareBasis']
+    elif 'FareBasis' not in df.columns and 'FareBucket' in df.columns:
+        df['FareBasis'] = df['FareBucket']
+
+    # Parse lower and upper bucket bounds if missing or not numeric
+    if 'FareBucket_Lower' not in df.columns or 'FareBucket_Upper' not in df.columns:
+        source_col = 'FareBasis' if 'FareBasis' in df.columns else 'FareBucket'
+        bounds = df[source_col].apply(parse_fare_bounds)
+        df['FareBucket_Lower'] = [b[0] for b in bounds]
+        df['FareBucket_Upper'] = [b[1] for b in bounds]
+
+    df['FareBucket_Lower'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce')
+    df['FareBucket_Upper'] = pd.to_numeric(df['FareBucket_Upper'], errors='coerce')
+
+    # Compute FareMidpoint: (lower + upper)/2 for closed, lower * markup for open-ended
+    if 'FareMidpoint' not in df.columns:
+        df['FareMidpoint'] = np.where(
+            df['FareBucket_Upper'].notna() & (df['FareBucket_Upper'] > 0),
+            (df['FareBucket_Lower'] + df['FareBucket_Upper']) / 2.0,
+            df['FareBucket_Lower'] * open_bucket_markup
+        )
+    df['FareMidpoint'] = df['FareMidpoint'].round(2)
+
+    # Sort descending by FareMidpoint (highest fare class 1 -> lowest filed class n)
+    df = df.sort_values('FareMidpoint', ascending=False).reset_index(drop=True)
+
+    # Extract flight-level capacity and current bookings
+    cap_val = df['Capacity'].iloc[0] if 'Capacity' in df.columns and pd.notna(df['Capacity'].iloc[0]) else 189
+    capacity = int(cap_val) if cap_val > 0 else 0
+
+    cb_col = 'Current_Bookings' if 'Current_Bookings' in df.columns else ('Total Bookings' if 'Total Bookings' in df.columns else None)
+    current_bookings = float(df[cb_col].iloc[0]) if cb_col and pd.notna(df[cb_col].iloc[0]) else 0.0
+
+    # Ensure pax and std columns exist
+    if pax_col not in df.columns:
+        pax_col = 'Final_pax_count' if 'Final_pax_count' in df.columns else ('predicted_pax_count' if 'predicted_pax_count' in df.columns else df.columns[0])
+    if std_col not in df.columns:
+        df[std_col] = 0.0
+
+    mu = pd.to_numeric(df[pax_col], errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
+    sigma = pd.to_numeric(df[std_col], errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
+    fares = df['FareMidpoint'].tolist()
+    n = len(df)
+
+    # Lowest filed fare midpoint for Promo calculation
+    f_lowest = fares[-1] if n > 0 else 0.0
+    f_promo = round(promo_ratio * f_lowest, 2)
+    lowest_lower = df['FareBucket_Lower'].iloc[-1] if n > 0 else f_lowest
+    lowest_upper = df['FareBucket_Upper'].iloc[-1] if n > 0 else f_lowest
+    promo_lower = round(promo_ratio * lowest_lower, 2) if pd.notna(lowest_lower) else f_promo
+    promo_upper = round(promo_ratio * lowest_upper, 2) if pd.notna(lowest_upper) else f_promo
+
+    # Calculate protection limits y_1 ... y_n for filed classes
+    y = []
+    for j in range(n):
+        mu_bar = sum(mu[:j+1])
+        sig_bar_raw = math.sqrt(sum(s**2 for s in sigma[:j+1]))
+        sig_bar = min(sig_bar_raw, sigma_factor * mu_bar)
+        F_j = (sum(mu[i] * fares[i] for i in range(j+1)) / mu_bar) if mu_bar > 0 else fares[j]
+        f_next = fares[j+1] if j < n - 1 else f_promo
+
+        if F_j > 0:
+            prob = 1.0 - (f_next / F_j)
+        else:
+            prob = 0.5
+        prob_clipped = float(np.clip(prob, 1e-6, 1.0 - 1e-6))
+        z = float(norm.ppf(prob_clipped))
+
+        y_j = max(0, math.ceil(mu_bar + z * sig_bar))
+        if y:
+            y_j = max(y_j, y[-1])  # monotonic nesting
+        y_j = min(y_j, capacity)   # capacity ceiling
+        y.append(y_j)
+
+    # Calculate AU (Authorization Level) for all classes
+    # Class 1: AU = capacity
+    # Class j (2..n): AU = capacity - y[j-2]
+    # Promo (n+1): AU = capacity - y[n-1]
+    au = [capacity]
+    for j in range(1, n):
+        au.append(max(0, capacity - y[j-1]))
+    au_promo = max(0, capacity - y[n-1]) if n > 0 else capacity
+
+    df['ProtectionLimit'] = y
+    df['AU'] = au
+    if 'RBD' not in df.columns:
+        df['RBD'] = None
+
+    # Construct Promo row
+    promo_row = df.iloc[-1].to_dict()
+    if 'FareBucket' in promo_row:
+        promo_row['FareBucket'] = 'Promo'
+    if 'FareBasis' in promo_row:
+        promo_row['FareBasis'] = 'Promo'
+    promo_row['FareBucket_Lower'] = promo_lower
+    promo_row['FareBucket_Upper'] = promo_upper
+    promo_row['FareMidpoint'] = f_promo
+    promo_row[pax_col] = 0.0
+    promo_row[std_col] = 0.0
+    promo_row['ProtectionLimit'] = 0
+    promo_row['AU'] = au_promo
+    promo_row['RBD'] = promo_rbd
+
+    # Determine Opening Fare WITHOUT consideration of Promo inventory
+    # Evaluate filed classes (indices 0 to n-1) with AU > current_bookings
+    open_filed = df[df['AU'] > current_bookings]
+    if not open_filed.empty:
+        # Lowest filed fare is the last row in descending sorted list that is open
+        opening_row = open_filed.iloc[-1]
+    else:
+        # If all filed classes are closed, default to highest fare class
+        opening_row = df.iloc[0]
+
+    opening_bucket_name = opening_row.get('FareBucket', opening_row.get('FareBasis', ''))
+    opening_midpoint = opening_row['FareMidpoint']
+
+    df['OpeningFareBucket'] = opening_bucket_name
+    df['OpeningFareMidpoint'] = opening_midpoint
+    df['IsOpeningFare'] = (df.index == opening_row.name)
+
+    promo_row['OpeningFareBucket'] = opening_bucket_name
+    promo_row['OpeningFareMidpoint'] = opening_midpoint
+    promo_row['IsOpeningFare'] = False
+
+    promo_df = pd.DataFrame([promo_row])
+    result_df = pd.concat([df, promo_df], ignore_index=True)
+    return result_df
+
+
+def compute_inventory_optimization_df(
+    bucket_df,
+    pax_col='predicted_pax_count',
+    std_col='predicted_pax_std',
+    sigma_factor=EMSR_SIGMA_FACTOR,
+    promo_ratio=PROMO_FARE_RATIO,
+    promo_rbd=PROMO_RBD,
+    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+):
+    """
+    Applies inventory optimization (EMSR-b protection limits and AU) across all flights
+    in the fare-bucket DataFrame.
+    """
+    if bucket_df is None or bucket_df.empty:
+        return bucket_df
+
+    date_col = 'DepartureDate_future' if 'DepartureDate_future' in bucket_df.columns else ('DepartureDate' if 'DepartureDate' in bucket_df.columns else None)
+    flt_col = 'FlightNumber_future' if 'FlightNumber_future' in bucket_df.columns else ('FlightNumber' if 'FlightNumber' in bucket_df.columns else None)
+    sec_col = 'Sector' if 'Sector' in bucket_df.columns else None
+
+    if not (date_col and flt_col and sec_col):
+        return compute_flight_inventory_optimization(
+            bucket_df, pax_col=pax_col, std_col=std_col,
+            sigma_factor=sigma_factor, promo_ratio=promo_ratio,
+            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup
+        )
+
+    flight_group_cols = [sec_col, date_col, flt_col]
+    flight_dfs = []
+    for _, group in bucket_df.groupby(flight_group_cols, sort=False):
+        opt_group = compute_flight_inventory_optimization(
+            group, pax_col=pax_col, std_col=std_col,
+            sigma_factor=sigma_factor, promo_ratio=promo_ratio,
+            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup
+        )
+        flight_dfs.append(opt_group)
+
+    if not flight_dfs:
+        return pd.DataFrame()
+    return pd.concat(flight_dfs, ignore_index=True)

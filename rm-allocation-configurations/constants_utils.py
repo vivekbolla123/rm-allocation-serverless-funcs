@@ -156,6 +156,12 @@ class ConstantsUtils:
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
+        # Inventory Optimization (EMSR-b) Constants
+        self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
+        self.PROMO_FARE_RATIO = float(PROMO_FARE_RATIO)
+        self.PROMO_RBD = str(PROMO_RBD)
+        self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
+
 
         self.logger = logging.getLogger()
         self.logger.setLevel(logging.INFO)
@@ -471,6 +477,14 @@ class ConstantsUtils:
                 self.plf_change_n_runs = int(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
+                self.EMSR_SIGMA_FACTOR = float(parameter_value)
+            elif parameter_key == PROMO_FARE_RATIO_KEY:
+                self.PROMO_FARE_RATIO = float(parameter_value)
+            elif parameter_key == PROMO_RBD_KEY:
+                self.PROMO_RBD = str(parameter_value)
+            elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
+                self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

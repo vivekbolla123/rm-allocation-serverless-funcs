@@ -296,6 +296,10 @@ W_ANCHOR_KEY = 'W_ANCHOR'
 MOVEMENT_GAIN_KEY = 'MOVEMENT_GAIN'
 MOVEMENT_FLOOR_PCT_KEY = 'MOVEMENT_FLOOR_PCT'
 MOVEMENT_CEIL_PCT_KEY = 'MOVEMENT_CEIL_PCT'
+EMSR_SIGMA_FACTOR_KEY = 'EMSR_SIGMA_FACTOR'
+PROMO_FARE_RATIO_KEY = 'PROMO_FARE_RATIO'
+PROMO_RBD_KEY = 'PROMO_RBD'
+OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
 LATEST_VERSION = '4.0.0'
 
 TABLE_MARKET_FARES = "market_fares"
@@ -595,6 +599,12 @@ MIN_FLIGHT_MATCHES = 13
 WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
+
+# Inventory Optimization (EMSR-b) parameters
+EMSR_SIGMA_FACTOR = 0.25               # Cap Sigma_Bar at Factor * Mu_Bar (default 0.25)
+PROMO_FARE_RATIO = 0.80                # Promo fare is 80% of lowest filed fare
+PROMO_RBD = 'W'                        # RBD for promo fare
+OPEN_BUCKET_MIDPOINT_FACTOR = 1.10     # Midpoint factor for upper open-ended fare bucket (e.g. 25088+)
 
 REQUIRED_RBDS = [
     'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',
