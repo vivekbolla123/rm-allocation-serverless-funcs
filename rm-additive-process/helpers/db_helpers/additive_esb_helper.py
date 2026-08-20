@@ -79,7 +79,7 @@ class AdditiveEsbHelper:
         hist_start = min(tag_floor, future_tag_floor).date()
 
         forward_end = today + timedelta(days=PREDICTION_HORIZON_DAYS)
-        booking_cutoff = today - timedelta(days=545)
+        booking_cutoff = today - timedelta(days=730)
 
         self.logger.info(f"Date windows — hist: {hist_start}..{yesterday}, "
                          f"forward: {today}..{forward_end}")
@@ -165,7 +165,7 @@ class AdditiveEsbHelper:
         self.logger.info(f"[Query 3] Flight universe: {len(fm_df)} scheduled flights across "
                          f"{fm_df['Sector'].nunique()} sectors.")
 
-        valid_ndo = forward_df['NDO'].isna() | ((forward_df['NDO'] >= 0) & (forward_df['NDO'] <= 180))
+        valid_ndo = forward_df['NDO'].isna() | ((forward_df['NDO'] >= 0) & (forward_df['NDO'] <= 365))
         forward_df = forward_df[valid_ndo]
 
         fwd_sectors = set(fm_df['Sector'].unique()) if not fm_df.empty else set()

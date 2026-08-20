@@ -1104,14 +1104,14 @@ class AdditivePickupModelProcessor:
                     continue
 
                 future_sub = future_df_expanded[future_df_expanded['Key'] == key]
-                hist_sub = pivot_ndo[pivot_ndo['Key'].isin(matched_hist_keys)]
+                hist_sub = pivot_ndo[pivot_ndo['Key'].isin(matched_hist_keys)].drop(columns=['DOW'], errors='ignore')
 
                 if future_sub.empty or hist_sub.empty:
                     continue
 
                 merged = future_sub.merge(
                     hist_sub,
-                    on=['Sector', 'DOW', 'Tagging', 'FareBasis'],
+                    on=['Sector', 'Tagging', 'FareBasis'],
                     how='left',
                     suffixes=('_future', '_hist')
                 )
