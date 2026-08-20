@@ -198,7 +198,7 @@ class AdditiveMongoHelper:
         """Raw QP all-in fares for these sectors from qp_dw_rmalloc.fares."""
         self.logger.info("Fetching fares from qp_dw_rmalloc.fares ...")
         docs = list(self.db.fares.find(
-            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$ne": 1}, "TOTAL": {"$ne": 99999},
+            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$ne": 1}, "TOTAL": {"$ne": 99999}, "route":{"$eq": "L"},
              "RBD": {"$in": list(required_rbds)}},
             {"_id": 0, "SECTOR": 1, "RBD": 1, "TOTAL": 1}
         ))
