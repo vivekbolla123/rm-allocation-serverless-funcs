@@ -63,6 +63,11 @@ PROCESS_QUEUE_URL = configsettings.ADDITIVE_SQS_URL   # SQS queue -> process Lam
 GLUE_FETCH_JOB    = configsettings.ADDITIVE_GLUE_NAME
 GLUE_BATCH_SIZE   = 10   # sectors per Glue fetch run
 
+# --- Adhoc configuration (simulation) ---
+ADHOC_PROCESS_QUEUE_URL = configsettings.ADDITIVE_ADHOC_SQS_URL
+ADHOC_GLUE_FETCH_JOB    = configsettings.ADDITIVE_ADHOC_GLUE_NAME
+ADHOC_CACHE_PREFIX       = 'additive_model_test/_cache/hist_flown'
+
 
 # =============================================================================
 # HELPERS
@@ -76,7 +81,7 @@ def _sector_has_cache(sector, cache_prefix):
 
 
 def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expected, mode,
-                          simulate_snapshot=None):
+                          simulate_snapshot=None, queue_url=None):
     """Send one SQS message for a single sector to the process queue."""
     overrides = {
         'sectors': [sector],
@@ -92,11 +97,12 @@ def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expe
         'modules': {'additive_process': 1},
         'overrides': overrides,
     }
-    sqs.send_message(QueueUrl=PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
+    sqs.send_message(QueueUrl=queue_url or PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
 
 
 def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
-                      sectors_expected=0, mode='PROD', simulate_snapshot=None):
+                      sectors_expected=0, mode='PROD', simulate_snapshot=None,
+                      glue_job=None, queue_url=None):
     """Start a Glue fetch-only job. Glue emits 1 SQS msg/sector after caching."""
     arguments = {
         '--SECTORS': ','.join(sectors),
@@ -105,14 +111,14 @@ def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
         '--REFRESH_SPEC': str(refresh_spec) if refresh_spec else 'none',
         '--SECTORS_EXPECTED': str(sectors_expected),
         '--MODE': mode,
-        '--PROCESS_QUEUE_URL': PROCESS_QUEUE_URL,
+        '--PROCESS_QUEUE_URL': queue_url or PROCESS_QUEUE_URL,
         '--ENV': ENV,
     }
     # Only pass when simulating — the Glue job treats SIMULATE_SNAPSHOT as an
     # optional arg (present only if supplied on the command line).
     if simulate_snapshot:
         arguments['--SIMULATE_SNAPSHOT'] = simulate_snapshot
-    glue.start_job_run(JobName=GLUE_FETCH_JOB, Arguments=arguments)
+    glue.start_job_run(JobName=glue_job or GLUE_FETCH_JOB, Arguments=arguments)
 
 
 def _write_audit_skeleton(run_id, snapshot_date, sectors_expected, planned, mode, analyst):
@@ -167,7 +173,11 @@ def lambda_handler(event, context):
     # simulation, so a skeleton would hang IN_PROGRESS forever).
     simulate_snapshot = overrides.get('simulate_snapshot')
     simulate = bool(simulate_snapshot)
-    cache_prefix = 'additive_model_test/_cache/hist_flown' if simulate else CACHE_PREFIX
+    cache_prefix = ADHOC_CACHE_PREFIX if simulate else CACHE_PREFIX
+
+    # Select the correct SQS queue and Glue job based on simulation mode
+    active_queue_url = ADHOC_PROCESS_QUEUE_URL if simulate else PROCESS_QUEUE_URL
+    active_glue_job  = ADHOC_GLUE_FETCH_JOB if simulate else GLUE_FETCH_JOB
 
     # --- load active sectors ---
     if target_sectors:
@@ -219,7 +229,8 @@ def lambda_handler(event, context):
     for batch in glue_batches:
         _start_glue_fetch(batch, run_id, force_backfill, refresh_spec,
                           sectors_expected=sectors_expected, mode=mode,
-                          simulate_snapshot=simulate_snapshot)
+                          simulate_snapshot=simulate_snapshot,
+                          glue_job=active_glue_job, queue_url=active_queue_url)
         glue_units += 1
 
     # --- dispatch one SQS message per cached sector ---
@@ -227,7 +238,8 @@ def lambda_handler(event, context):
     for idx, sector in enumerate(cached_sectors):
         _send_process_message(sector, run_id, idx, batch_total_cached,
                               sectors_expected, mode,
-                              simulate_snapshot=simulate_snapshot)
+                              simulate_snapshot=simulate_snapshot,
+                              queue_url=active_queue_url)
         lambda_units += 1
 
     logger.info(f"[prefetch] DONE — {lambda_units} SQS messages (1/sector), "

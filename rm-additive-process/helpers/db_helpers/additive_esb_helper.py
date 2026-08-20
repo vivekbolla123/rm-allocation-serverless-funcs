@@ -214,7 +214,7 @@ class AdditiveEsbHelper:
         self.logger.info(f"[Query 3] Flight universe: {len(fm_df)} scheduled flights across "
                          f"{fm_df['Sector'].nunique()} sectors.")
 
-        valid_ndo = forward_df['NDO'].isna() | ((forward_df['NDO'] >= 0) & (forward_df['NDO'] <= 180))
+        valid_ndo = forward_df['NDO'].isna() | ((forward_df['NDO'] >= 0) & (forward_df['NDO'] <= 365))
         forward_df = forward_df[valid_ndo]
 
         fwd_sectors = set(fm_df['Sector'].unique()) if not fm_df.empty else set()

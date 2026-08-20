@@ -1150,7 +1150,7 @@ class AdditivePickupModelProcessor:
 
                 merged = future_sub.merge(
                     hist_sub,
-                    on=['Sector', 'DOW', 'Tagging', 'FareBasis'],
+                    on=['Sector', 'Tagging', 'FareBasis'],
                     how='left',
                     suffixes=('_future', '_hist')
                 )
