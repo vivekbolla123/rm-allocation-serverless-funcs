@@ -29,9 +29,6 @@ import os
 import pandas as pd
 
 from additive_model import AdditivePickupModelProcessor
-from Constants import (EMSR_SIGMA_FACTOR, OPEN_BUCKET_MIDPOINT_FACTOR, PROMO_FARE_RATIO,
-                       PROMO_RBD)
-from helpers.utils.common_utils import compute_inventory_optimization_df
 
 from localtest.local_helpers import LocalAdditiveCache, LocalCsvEsbHelper
 from localtest.schema import OVERRIDE_FARE_BUCKETS_CSV, OVERRIDE_TAGGING_CSV
@@ -143,20 +140,17 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
     # =====================================================================
     # Step 15 — AU ladder from the WEIGHTED branch
     # =====================================================================
-    def _compute_inventory_optimization(self, bucket_df):
-        """EMSR-b protection limits and AUs, computed from the weighted branch.
+    def _compute_inventory_optimization(self, bucket_df, base_col=None, base_std_col=None):
+        """EMSR-b protection limits and AUs, built from the WEIGHTED branch.
 
-        Production builds this from the NORMAL fare-bucket frame with
-        pax_col='predicted_pax_count' (additive_model.py: `optimized_df =
-        self._compute_inventory_optimization(result_merged_df)`). This flow
-        persists only the weighted branch, so the ladder is rebuilt from
-        weighted_pax_count / weighted_pax_std to stay consistent with the rest of
-        the output. **The AUs here therefore differ from production by design.**
+        Production hands step 15 the NORMAL fare-bucket frame (additive_model.py:
+        `self._compute_inventory_optimization(result_merged_df)`). This flow
+        persists only the weighted branch, so it substitutes the weighted frame and
+        the weighted base columns. Demand selection, sigma scaling and the buy-up
+        factor are all inherited unchanged from production.
 
-        Passing the weighted frame to the production call would not work: it
-        would silently fall back to Final_pax_count for the demand and set every
-        sigma to 0, because 'predicted_pax_count' and 'predicted_pax_std' are
-        absent from that frame.
+        **The AUs here therefore differ from production by design** — production
+        would use `predicted_pax_count` / `predicted_pax_std` as the sigma base.
         """
         source = self._weighted_bucket_df
         if source is None or source.empty or 'weighted_pax_count' not in source.columns:
@@ -164,18 +158,9 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
                                 'falling back to the production (normal-branch) ladder.')
             return super()._compute_inventory_optimization(bucket_df)
 
-        self.logger.info('Computing inventory optimization (EMSR-b protection limits & AU) '
-                         'from the WEIGHTED branch...')
-        opt_df = compute_inventory_optimization_df(
-            source,
-            pax_col='weighted_pax_count',
-            std_col='weighted_pax_std',
-            sigma_factor=EMSR_SIGMA_FACTOR,
-            promo_ratio=PROMO_FARE_RATIO,
-            promo_rbd=PROMO_RBD,
-            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR)
-        self.logger.info(f'Inventory optimization complete — {len(opt_df)} rows produced.')
-        return opt_df
+        self.logger.info('[local] step 15 from the WEIGHTED branch')
+        return super()._compute_inventory_optimization(
+            source, base_col='weighted_pax_count', base_std_col='weighted_pax_std')
 
     # =====================================================================
     def _dump(self, df, filename):

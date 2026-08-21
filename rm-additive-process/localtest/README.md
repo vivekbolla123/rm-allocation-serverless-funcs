@@ -372,18 +372,31 @@ Same identity and current-state columns, plus:
 | step 13 | `predicted_pax_count_final`, `Demand Multiplier`, `Demand Multiplier Number`, `New predicted_pax_count_final`, `Fare Bucket Ratio`, `New Final_pax_count`, `New Final Total Bookings` |
 | step 14 | `WTP_Factor`, `WTP_pax_count` |
 
-### Columns — `inventory_optimization` (40)
+### Columns — `inventory_optimization` (42)
 
-Every column from the weighted fare-bucket frame, plus the EMSR-b results:
+Every column from the weighted fare-bucket frame, plus the EMSR-b inputs and
+results:
 
 | Column | Meaning |
 |---|---|
+| `OptimizationDemand` | the per-bucket mean demand the ladder was built from: the pipeline's **final** demand, i.e. `WTP_pax_count` |
+| `OptimizationDemandStd` | the sigma used, scaled from `weighted_pax_std` by the same per-bucket ratio so the coefficient of variation is held constant |
 | `FareMidpoint` | midpoint of the bucket; open-ended top bucket uses `lower x 1.10` |
-| `ProtectionLimit` | seats protected for this bucket and everything above it, monotonically nested and capped at `Capacity` |
+| `ProtectionLimit` | `ceil(Mu_Bar + z * Sigma_Bar)`, floored at 0 and monotonically nested. **Not** capped at `Capacity` — it is the demand the class wants held back, and `AU` is floored at 0 regardless |
 | `AU` | authorization level = `Capacity - ProtectionLimit` of the next-higher bucket; the top bucket gets full `Capacity` |
 | `RBD` | only set on the promo row (`W`); `None` on filed buckets, because the model has no RBD mapping at this stage |
-| `IsOpeningFare` | the lowest filed bucket whose `AU` still exceeds current bookings |
+| `IsOpeningFare` | the anchor fare: the lowest filed bucket whose `AU` still exceeds current bookings |
 | `OpeningFareBucket`, `OpeningFareMidpoint` | that bucket, repeated on every row of the flight |
+
+`OptimizationDemand` and `OptimizationDemandStd` exist so the ladder is auditable:
+you can recompute every protection limit from those two columns plus
+`FareMidpoint`, `Capacity` and `Constants.EMSR_SIGMA_FACTOR` / `BUY_UP_FACTOR`.
+
+One quirk to be aware of on the **promo** row: `OptimizationDemand` and
+`OptimizationDemandStd` are correctly zeroed, but the other demand columns carried
+over from the fare-bucket frame (`WTP_pax_count`, `Final_pax_count`, …) still hold
+the lowest filed bucket's values, because the promo row is built as a copy of it.
+Read the promo row's demand from `OptimizationDemand` only.
 
 There is one extra row per flight beyond the 19 buckets: the **promo** row, at
 `PROMO_FARE_RATIO = 0.80` of the lowest filed fare, RBD `W`. Hence 20 rows per
@@ -413,11 +426,14 @@ x Demand Multiplier Number    step 13  (100 + analyst %) / 100
 At flight level, `Final_Total_Bookings = Current_Bookings + Final_pax_count` and
 `Load_Factor = Final_Total_Bookings / Capacity`.
 
-The AU ladder does **not** sit at the end of that chain. It is built from
-`weighted_pax_count` — the raw step-11 prediction — so the remaining-RBD
-distribution, the demand multiplier and the WTP redistribution do not feed the
-protection limits. That is how production behaves too (with the normal branch);
-see [section 10](#step-15-is-driven-by-the-weighted-branch-locally).
+The AU ladder sits at the **end** of that chain: step 15 optimises on
+`WTP_pax_count`, surfaced as `OptimizationDemand`. So the remaining-RBD
+distribution, the analyst demand multiplier and the WTP redistribution all feed
+the protection limits.
+
+That was not always true — until recently step 15 was fed the raw step-11
+prediction, which meant steps 12-14 had no effect on inventory at all. See
+[step 15 and the BRD](#step-15-and-the-brd).
 
 ```powershell
 python -m localtest.inspect_outputs --sector BOMDEL --flight 1101 --ndo 18
@@ -623,37 +639,91 @@ optional CSV stand-ins for steps 1 and 4.
 
 ### Step 15 is driven by the weighted branch locally
 
-Production builds the EMSR-b ladder from the **normal** fare-bucket frame:
+Production hands step 15 the **normal** fare-bucket frame
+(`additive_model.py`: `self._compute_inventory_optimization(result_merged_df)`).
+This flow persists only the weighted branch, so `LocalAdditiveProcessor`
+substitutes the weighted frame and the weighted base columns:
 
 ```python
-# additive_model.py:1993
-optimized_df = self._compute_inventory_optimization(result_merged_df)
-
-# additive_model.py:1548
-opt_df = compute_inventory_optimization_df(bucket_df,
-                                           pax_col='predicted_pax_count',
-                                           std_col='predicted_pax_std', ...)
+super()._compute_inventory_optimization(source,
+                                        base_col='weighted_pax_count',
+                                        base_std_col='weighted_pax_std')
 ```
 
-This flow persists only the weighted branch, so `LocalAdditiveProcessor`
-recomputes step 15 from the weighted frame with `pax_col='weighted_pax_count'`
-and `std_col='weighted_pax_std'`. **The AUs here therefore differ from production
-by design** — if you are validating AU behaviour against a production run, that is
-the difference to account for.
+Demand selection, sigma scaling and the buy-up factor are all inherited unchanged
+from production. **The AUs here therefore differ from production by design** —
+production uses `predicted_pax_count` / `predicted_pax_std` as the sigma base. If
+you are validating AU behaviour against a production run, that is the difference
+to account for.
 
 Mechanically: `_apply_wtp_redistribution` is called twice per sector with
 identical arguments, once per branch, so the override identifies the weighted
-frame by the presence of `weighted_pax_count` and stashes it for step 15 to use.
-The stash is cleared at step 1, which is where each sector's batch begins.
-
-Note what does *not* work: handing the weighted frame to the production call
-unchanged. `compute_flight_inventory_optimization` falls back to
-`Final_pax_count` when `pax_col` is missing and sets the std column to `0.0`, so
-you would get a ladder built on the wrong demand with every sigma at zero — no
-error, just wrong protection limits.
+frame by the presence of `weighted_pax_count` and stashes it for step 15. The
+stash is cleared at step 1, which is where each sector's batch begins.
 
 To go back to production behaviour, delete the `_compute_inventory_optimization`
 and `_apply_wtp_redistribution` overrides in `local_processor.py`.
+
+### Step 15 and the BRD
+
+The EMSR-b implementation was checked line by line against the BRD by
+transcribing the spec into a reference implementation and diffing across all 244
+flights: `Mu_Bar`, `Sigma_Bar` capped at `0.25 * Mu_Bar`,
+`F_j = SUM(Mu_i * f_i) / Mu_Bar`, `Prob_j`, `z = Phi^-1(Prob_j)`,
+`y = ceil(...)` floored at 0, `AU_j = Capacity - y_(j-1)`, `AU_1 = Capacity`,
+promo at 0.80 of the lowest filed fare on RBD `W`, and the anchor-fare rule all
+match exactly.
+
+Three gaps were found and fixed in production code:
+
+**1. The buy-up factor did not exist.** The BRD requires the `Prob_j` right-hand
+side multiplied by `1 / (1 - alpha)`, alpha initialised to 0. There was no such
+parameter. Now `Constants.BUY_UP_FACTOR` (default `0.0`) is threaded through
+`compute_inventory_optimization_df` and `compute_flight_inventory_optimization`
+as `buy_up_factor`. At 0 the ladder is unchanged; raising it lifts every
+probability, hence z, hence the protection limits, so more seats are held for
+higher fares:
+
+| alpha | max protection | lowest AU | buckets at AU 0 | anchor fare |
+|---|---|---|---|---|
+| 0.00 | 257 | 0 | 10 | 10418-12146 |
+| 0.10 | 273 | 0 | 10 | 10418-12146 |
+| 0.25 | 367 | 0 | 10 | 10418-12146 |
+| 0.50 | 482 | 0 | 11 | 12146-13447 |
+
+(one flight, demand scaled to 220 pax on 40 seats; every row cross-checked
+against the reference implementation)
+
+Nothing computes alpha from the final PLF forecast yet — the BRD describes it as
+"based on final PLF forecast". That derivation is still to be built; the
+parameter is in place for it.
+
+**2. Step 15 was fed the wrong demand.** It used `predicted_pax_count`, the raw
+step-11 prediction, so the remaining-RBD distribution, the demand multiplier and
+the WTP redistribution had no effect on protection limits or AUs — the analyst's
+demand multiplier moved the forecast but not the inventory. It now uses the most
+processed demand available (`WTP_pax_count`, falling back through
+`New Final_pax_count` and `Final_pax_count`), surfaced as `OptimizationDemand`.
+
+On the local fixture that is a 13% demand increase and moves 27% of AUs; mean AU
+36.88 -> 36.58, mean protection 3.56 -> 3.91. The effect is larger on real data
+with realistic load factors and non-zero demand multipliers.
+
+Sigma needed a decision, because only the step-11 prediction has a standard
+deviation — steps 12-14 are deterministic transforms of the mean and carry no
+variance of their own. Sigma is scaled by the same per-bucket ratio, holding the
+coefficient of variation constant, and reported as `OptimizationDemandStd`. This
+is second-order: `Sigma_Bar` is clipped to `EMSR_SIGMA_FACTOR * Mu_Bar` on about
+82% of buckets, so the cap usually decides the uncertainty term anyway.
+
+**3. `ProtectionLimit` was capped at `Capacity`.** The BRD has no such ceiling.
+The cap never changed an `AU` — `AU = max(0, Capacity - y)` floors at 0 either
+way — but it made the reported column understate protection on busy flights, and
+it bound on 59 of 60 flights once demand was realistic. Removed.
+
+One rule the code adds that the BRD does not mention is retained: monotonic
+nesting, `y_j = max(y_j, y_(j-1))`. Tested across load factors from 7 to 320 pax
+it never bound once, so the natural ladder is already monotonic.
 
 ### Persisting more output datasets
 

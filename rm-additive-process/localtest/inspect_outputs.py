@@ -82,7 +82,7 @@ def main(argv=None):
                 print(''.join([
                     _fmt(row.get('FareBucket')),
                     _fmt(row.get('FareMidpoint'), places=2),
-                    _fmt(row.get('weighted_pax_count'), places=3),
+                    _fmt(row.get('OptimizationDemand'), places=3),
                     _fmt(row.get('ProtectionLimit')),
                     _fmt(row.get('AU')),
                     _fmt(row.get('RBD')),

@@ -161,6 +161,7 @@ class ConstantsUtils:
         self.PROMO_FARE_RATIO = float(PROMO_FARE_RATIO)
         self.PROMO_RBD = str(PROMO_RBD)
         self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
+        self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
 
 
         self.logger = logging.getLogger()
@@ -485,6 +486,8 @@ class ConstantsUtils:
                 self.PROMO_RBD = str(parameter_value)
             elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
                 self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
+            elif parameter_key == BUY_UP_FACTOR_KEY:
+                self.BUY_UP_FACTOR = float(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

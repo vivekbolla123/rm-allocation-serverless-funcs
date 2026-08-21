@@ -4,6 +4,9 @@ Tests:
   - Calculation of aggregated mean demand (Mu_Bar) and capped std dev (Sigma_Bar).
   - Weighted average fare (F_j) and next lower fare (f_{j+1}).
   - Normal inverse probability and ceiling protection limits (y_j).
+  - Buy-up factor alpha scaling Prob_j by 1/(1-alpha).
+  - Protection limits NOT capped at capacity; AU still floored at 0 and ceiled
+    at capacity.
   - Nested authorization levels (AU) with capacity ceiling.
   - Promo fare at 80% with W RBD and correct AU.
   - Opening fare determination ignoring Promo inventory.
@@ -37,6 +40,7 @@ from Constants import (
     PROMO_FARE_RATIO,
     PROMO_RBD,
     OPEN_BUCKET_MIDPOINT_FACTOR,
+    BUY_UP_FACTOR,
 )
 
 
@@ -198,3 +202,87 @@ def test_zero_demand():
     assert res.iloc[1]['AU'] == 180
     assert res.iloc[2]['AU'] == 180
     assert res.iloc[1]['IsOpeningFare'] == True  # lowest filed bucket open
+
+def test_buy_up_factor_default_is_neutral(sample_flight_data):
+    """alpha = 0 must leave the ladder identical to the un-factored formula."""
+    base = compute_flight_inventory_optimization(sample_flight_data)
+    explicit = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=0.0)
+
+    assert list(base['ProtectionLimit']) == list(explicit['ProtectionLimit'])
+    assert list(base['AU']) == list(explicit['AU'])
+    assert BUY_UP_FACTOR == 0.0, 'the shipped default must stay neutral'
+
+
+def test_buy_up_factor_raises_protection(sample_flight_data):
+    """BRD: Prob_j is multiplied by 1/(1-alpha), so a higher alpha protects more
+    seats for higher fares and can only tighten the lower AUs."""
+    low = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=0.0)
+    high = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=0.5)
+
+    low_filed = low[low['FareBucket'] != 'Promo']
+    high_filed = high[high['FareBucket'] != 'Promo']
+
+    assert (high_filed['ProtectionLimit'].to_numpy()
+            >= low_filed['ProtectionLimit'].to_numpy()).all()
+    assert high_filed['ProtectionLimit'].sum() > low_filed['ProtectionLimit'].sum()
+    assert (high_filed['AU'].to_numpy() <= low_filed['AU'].to_numpy()).all()
+
+
+def test_buy_up_factor_matches_brd_formula(sample_flight_data):
+    """Recompute one protection limit straight from the BRD, with alpha applied."""
+    alpha = 0.25
+    res = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=alpha)
+    filed = res[res['FareBucket'] != 'Promo'].reset_index(drop=True)
+
+    mu = filed['predicted_pax_count'].tolist()
+    sigma = filed['predicted_pax_std'].tolist()
+    fares = filed['FareMidpoint'].tolist()
+
+    j = 2  # third-highest fare class
+    mu_bar = sum(mu[:j + 1])
+    sigma_bar = min(math.sqrt(sum(s ** 2 for s in sigma[:j + 1])),
+                    EMSR_SIGMA_FACTOR * mu_bar)
+    f_j = sum(mu[i] * fares[i] for i in range(j + 1)) / mu_bar
+    prob = (1.0 - (fares[j + 1] / f_j)) * (1.0 / (1.0 - alpha))
+    expected = max(0, math.ceil(mu_bar + norm.ppf(prob) * sigma_bar))
+
+    assert filed['ProtectionLimit'].iloc[j] == expected
+
+
+def test_buy_up_factor_clamped_below_one():
+    """alpha >= 1 would make the multiplier explode; it is clamped, not fatal."""
+    df = pd.DataFrame([
+        {'Sector': 'BOMDEL', 'DepartureDate_future': '2026-09-01', 'FlightNumber_future': 777,
+         'Capacity': 100, 'Current_Bookings': 10, 'FareBasis': '5000-6000',
+         'predicted_pax_count': 10.0, 'predicted_pax_std': 2.0},
+        {'Sector': 'BOMDEL', 'DepartureDate_future': '2026-09-01', 'FlightNumber_future': 777,
+         'Capacity': 100, 'Current_Bookings': 10, 'FareBasis': '3000-4000',
+         'predicted_pax_count': 12.0, 'predicted_pax_std': 2.5},
+    ])
+    res = compute_flight_inventory_optimization(df, buy_up_factor=5.0)
+    assert len(res) == 3
+    assert (res['ProtectionLimit'] >= 0).all()
+    assert (res['AU'] >= 0).all()
+
+
+def test_protection_limit_not_capped_at_capacity():
+    """BRD has no capacity ceiling on the protection limit: it is the demand the
+    class wants held back. AU stays floored at 0 regardless."""
+    capacity = 20
+    df = pd.DataFrame([
+        {'Sector': 'BOMDEL', 'DepartureDate_future': '2026-09-01', 'FlightNumber_future': 555,
+         'Capacity': capacity, 'Current_Bookings': 5, 'FareBasis': '9000-10000',
+         'predicted_pax_count': 60.0, 'predicted_pax_std': 5.0},
+        {'Sector': 'BOMDEL', 'DepartureDate_future': '2026-09-01', 'FlightNumber_future': 555,
+         'Capacity': capacity, 'Current_Bookings': 5, 'FareBasis': '3000-4000',
+         'predicted_pax_count': 60.0, 'predicted_pax_std': 5.0},
+    ])
+    res = compute_flight_inventory_optimization(df)
+    filed = res[res['FareBucket'] != 'Promo']
+
+    assert filed['ProtectionLimit'].max() > capacity, \
+        'protection limit must report true demand, not a capped value'
+    assert (res['AU'] >= 0).all()
+    assert (res['AU'] <= capacity).all()
+    assert filed['AU'].iloc[0] == capacity      # highest class always gets capacity
+    assert filed['AU'].iloc[-1] == 0           # demand above swamps the aircraft

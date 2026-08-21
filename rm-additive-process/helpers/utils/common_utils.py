@@ -30,7 +30,8 @@ from sqlalchemy import text
 import configsettings
 from Constants import (
     RUN_SCOPED_CACHE_KEYS, REFRESH_SPEC,
-    EMSR_SIGMA_FACTOR, PROMO_FARE_RATIO, PROMO_RBD, OPEN_BUCKET_MIDPOINT_FACTOR
+    EMSR_SIGMA_FACTOR, PROMO_FARE_RATIO, PROMO_RBD, OPEN_BUCKET_MIDPOINT_FACTOR,
+    BUY_UP_FACTOR
 )
 
 __all__ = [
@@ -337,7 +338,8 @@ def compute_flight_inventory_optimization(
     sigma_factor=EMSR_SIGMA_FACTOR,
     promo_ratio=PROMO_FARE_RATIO,
     promo_rbd=PROMO_RBD,
-    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR,
+    buy_up_factor=BUY_UP_FACTOR
 ):
     """
     Computes EMSR-b Protection Limits and AU (Authorization Levels) for a single flight.
@@ -348,12 +350,20 @@ def compute_flight_inventory_optimization(
       3. Aggregates std dev: Sigma_Bar = min(sqrt(sum(Sigma_i^2)), Factor * Mu_Bar)
       4. Aggregated weighted fare: F_j = sum(Mu_i * f_i) / Mu_Bar
       5. Next lower fare f_{j+1} (for lowest filed class, f_{n+1} is 80% promo fare).
-      6. Probability Prob_j = 1 - (f_{j+1} / F_j)
+      6. Probability Prob_j = (1 - (f_{j+1} / F_j)) * 1 / (1 - alpha), where alpha is
+         the buy-up factor (`buy_up_factor`, 0 by default = no buy-up).
       7. Z-score z = Phi^{-1}(Prob_j)
-      8. Protection Limit y_j = max(0, ceil(Mu_Bar + z * Sigma_Bar)) bounded by Capacity.
+      8. Protection Limit y_j = max(0, ceil(Mu_Bar + z * Sigma_Bar)), monotonically
+         nested. Not capped at Capacity -- it is the demand the class wants held
+         back, and the AU below is floored at 0 regardless.
       9. AU_j = Capacity - Protection_{j-1} (highest class AU = Capacity).
       10. Promo fare (W RBD) allocated at promo_ratio of lowest filed fare.
       11. Determines Opening Fare without considering Promo inventory.
+
+    `pax_col` must hold the mean demand per fare bucket and `std_col` its standard
+    deviation. Callers are responsible for passing the demand they intend to
+    optimise on -- see AdditivePickupModelProcessor._compute_inventory_optimization,
+    which passes the pipeline's final per-bucket demand.
     """
     if flight_df is None or flight_df.empty:
         return pd.DataFrame()
@@ -414,6 +424,12 @@ def compute_flight_inventory_optimization(
     promo_lower = round(promo_ratio * lowest_lower, 2) if pd.notna(lowest_lower) else f_promo
     promo_upper = round(promo_ratio * lowest_upper, 2) if pd.notna(lowest_upper) else f_promo
 
+    # Buy-up factor: Prob_j is scaled by 1 / (1 - alpha). alpha must stay below 1,
+    # and a negative alpha would suppress the probability rather than lift it.
+    alpha = float(buy_up_factor or 0.0)
+    alpha = float(np.clip(alpha, 0.0, 0.99))
+    buy_up_multiplier = 1.0 / (1.0 - alpha)
+
     # Calculate protection limits y_1 ... y_n for filed classes
     y = []
     for j in range(n):
@@ -424,16 +440,18 @@ def compute_flight_inventory_optimization(
         f_next = fares[j+1] if j < n - 1 else f_promo
 
         if F_j > 0:
-            prob = 1.0 - (f_next / F_j)
+            prob = (1.0 - (f_next / F_j)) * buy_up_multiplier
         else:
             prob = 0.5
         prob_clipped = float(np.clip(prob, 1e-6, 1.0 - 1e-6))
         z = float(norm.ppf(prob_clipped))
 
+        # Protection limit is NOT capped at capacity: the reported value is the
+        # demand the class would like protected, and AU below is floored at 0
+        # anyway, so capping here would only understate protection on busy flights.
         y_j = max(0, math.ceil(mu_bar + z * sig_bar))
         if y:
             y_j = max(y_j, y[-1])  # monotonic nesting
-        y_j = min(y_j, capacity)   # capacity ceiling
         y.append(y_j)
 
     # Calculate AU (Authorization Level) for all classes
@@ -498,7 +516,8 @@ def compute_inventory_optimization_df(
     sigma_factor=EMSR_SIGMA_FACTOR,
     promo_ratio=PROMO_FARE_RATIO,
     promo_rbd=PROMO_RBD,
-    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+    open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR,
+    buy_up_factor=BUY_UP_FACTOR
 ):
     """
     Applies inventory optimization (EMSR-b protection limits and AU) across all flights
@@ -515,7 +534,8 @@ def compute_inventory_optimization_df(
         return compute_flight_inventory_optimization(
             bucket_df, pax_col=pax_col, std_col=std_col,
             sigma_factor=sigma_factor, promo_ratio=promo_ratio,
-            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup
+            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup,
+            buy_up_factor=buy_up_factor
         )
 
     flight_group_cols = [sec_col, date_col, flt_col]
@@ -524,7 +544,8 @@ def compute_inventory_optimization_df(
         opt_group = compute_flight_inventory_optimization(
             group, pax_col=pax_col, std_col=std_col,
             sigma_factor=sigma_factor, promo_ratio=promo_ratio,
-            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup
+            promo_rbd=promo_rbd, open_bucket_markup=open_bucket_markup,
+            buy_up_factor=buy_up_factor
         )
         flight_dfs.append(opt_group)
 

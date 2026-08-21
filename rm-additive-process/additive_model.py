@@ -1537,22 +1537,86 @@ class AdditivePickupModelProcessor:
                     f"(source={src}).")
         return df
 
-    def _compute_inventory_optimization(self, bucket_df):
+    # Per-bucket demand candidates for step 15, most-processed first. The BRD asks
+    # for "the mean demand predicted for each fare bucket", which is the pipeline's
+    # FINAL demand — after remaining-RBD distribution (12), the demand multiplier
+    # (13) and the WTP redistribution (14) — not the raw step-11 prediction.
+    OPTIMIZATION_DEMAND_PREFERENCE = (
+        'WTP_pax_count',            # step 14
+        'New Final_pax_count',      # step 13
+        'Final_pax_count',          # step 12
+    )
+
+    def _compute_inventory_optimization(self, bucket_df,
+                                        base_col='predicted_pax_count',
+                                        base_std_col='predicted_pax_std'):
         """Step 15 — Inventory Optimization using EMSR-b.
-        Calculates protection limits and authorization levels (AU) for each fare bucket,
-        adds 80% promo fare (W RBD), and determines opening fare without considering promo inventory.
+
+        Calculates protection limits and authorization levels (AU) for each fare
+        bucket, adds the 80% promo fare (W RBD), and determines the opening fare
+        without considering promo inventory.
+
+        Demand: the most-processed per-bucket demand available (see
+        OPTIMIZATION_DEMAND_PREFERENCE), falling back to `base_col`. Using the raw
+        step-11 prediction here would mean the remaining-RBD distribution, the
+        analyst demand multiplier and the WTP redistribution had no effect on
+        inventory at all.
+
+        Sigma: only the step-11 prediction has a standard deviation
+        (`base_std_col`). Steps 12-14 are deterministic transforms of the mean and
+        carry no variance of their own, so sigma is scaled by the same per-bucket
+        ratio, which holds the coefficient of variation constant. In practice this
+        is a second-order effect because Sigma_Bar is clipped to
+        EMSR_SIGMA_FACTOR * Mu_Bar for most buckets.
+
+        Both the demand and the sigma actually used are written to the output as
+        `OptimizationDemand` / `OptimizationDemandStd` so the ladder is auditable.
         """
         if bucket_df is None or bucket_df.empty:
             return None
-        logger.info("Computing inventory optimization (EMSR-b protection limits & AU)...")
+
+        df = bucket_df.copy()
+
+        demand_col = next((c for c in self.OPTIMIZATION_DEMAND_PREFERENCE
+                           if c in df.columns), None)
+        if demand_col is None:
+            demand_col = base_col
+            logger.warning(f"[Step 15] No post-processing demand column found; "
+                           f"falling back to {base_col}.")
+        if demand_col not in df.columns:
+            logger.error(f"[Step 15] Demand column {demand_col} missing — skipped.")
+            return None
+
+        demand = pd.to_numeric(df[demand_col], errors='coerce').fillna(0.0).clip(lower=0.0)
+        base = pd.to_numeric(df.get(base_col), errors='coerce') \
+            if base_col in df.columns else pd.Series(np.nan, index=df.index)
+        base_std = pd.to_numeric(df.get(base_std_col), errors='coerce').fillna(0.0) \
+            if base_std_col in df.columns else pd.Series(0.0, index=df.index)
+
+        # Hold the coefficient of variation constant across the step 12-14 uplift.
+        # np.divide with `where` so zero-demand buckets never evaluate the division
+        # (a plain np.where would still compute it and emit divide-by-zero).
+        base_arr = base.to_numpy(dtype=float)
+        positive = base_arr > 0
+        ratio = np.ones_like(base_arr)
+        np.divide(demand.to_numpy(dtype=float), base_arr,
+                  out=ratio, where=positive)
+        df['OptimizationDemand'] = demand
+        df['OptimizationDemandStd'] = np.clip(base_std.to_numpy(dtype=float) * ratio,
+                                              0.0, None)
+
+        logger.info(f"Computing inventory optimization (EMSR-b protection limits & AU) "
+                    f"— demand={demand_col}, sigma from {base_std_col} scaled by the "
+                    f"same ratio, buy-up factor={BUY_UP_FACTOR}...")
         opt_df = compute_inventory_optimization_df(
-            bucket_df,
-            pax_col='predicted_pax_count',
-            std_col='predicted_pax_std',
+            df,
+            pax_col='OptimizationDemand',
+            std_col='OptimizationDemandStd',
             sigma_factor=EMSR_SIGMA_FACTOR,
             promo_ratio=PROMO_FARE_RATIO,
             promo_rbd=PROMO_RBD,
-            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
+            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR,
+            buy_up_factor=BUY_UP_FACTOR
         )
         logger.info(f"Inventory optimization complete — {len(opt_df)} rows produced.")
         return opt_df
@@ -2092,7 +2156,9 @@ class AdditivePickupModelProcessor:
             'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
             'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
             'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint',
-            'predicted_pax_count', 'predicted_pax_std', 'ProtectionLimit', 'AU',
+            'predicted_pax_count', 'predicted_pax_std',
+            'OptimizationDemand', 'OptimizationDemandStd',
+            'ProtectionLimit', 'AU',
             'OpeningFareBucket', 'OpeningFareMidpoint', 'IsOpeningFare', 'RBD']
 
         # ---------------- helpers (parse bounds BEFORE the FareBasis rename) ----------------
