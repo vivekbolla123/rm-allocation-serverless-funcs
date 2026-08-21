@@ -29,11 +29,14 @@ Optional CSV overrides (absent by default — the model computes them):
     tagging.csv          replaces step 4  (historical Z-score lean/peak tagging)
 
 Model outputs, written to Mongo AND to CSV by LocalAdditiveCache. Only the
-weighted branch is kept locally; the normal branch and the EMSR-b optimization
-frame are still computed by the model, they are just not persisted.
+weighted branch is kept locally; the normal branch is still computed by the
+model, it is just not persisted.
 
     add_model_flight_level_weighted           flight level, weighted
     add_model_fare_bucket_level_weighted      fare bucket level, weighted
+    add_model_inventory_optimization          EMSR-b protection limits + AU,
+                                              rebuilt from the weighted branch
+                                              (see LocalAdditiveProcessor)
 """
 
 # =============================================================================
@@ -154,6 +157,7 @@ OVERRIDE_TAGGING_CSV = 'tagging.csv'             # cols: Sector, DepartureDate,
 OUTPUT_COLLECTIONS = {
     'flight_level_weighted': 'add_model_flight_level_weighted',
     'fare_bucket_weighted': 'add_model_fare_bucket_level_weighted',
+    'inventory_optimization': 'add_model_inventory_optimization',
 }
 
 # Prefix used by every output collection. clear_outputs() drops the whole family

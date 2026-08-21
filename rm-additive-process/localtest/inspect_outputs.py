@@ -1,8 +1,8 @@
 """
 localtest/inspect_outputs.py
 =============================================================================
-Reads one flight's weighted results back out of local MongoDB so a run can be
-sanity checked without opening a spreadsheet.
+Reads one flight's weighted results and its AU ladder back out of local MongoDB
+so a run can be sanity checked without opening a spreadsheet.
 
     python -m localtest.inspect_outputs
     python -m localtest.inspect_outputs --sector DELBOM --flight 1104 --ndo 25
@@ -67,6 +67,26 @@ def main(argv=None):
                       'New predicted_pax_count_final', 'New Final Total Bookings',
                       'OpeningFareBucket', 'OpeningFareMidpoint']:
             print(f'  {field:<36}{_fmt(flight.get(field), 18)}')
+
+        # ---- EMSR-b ladder: protection limits and AUs ---------------------
+        print('\n--- inventory optimization (EMSR-b, weighted branch) ---')
+        ladder = list(db.add_model_inventory_optimization.find(key, {'_id': 0})
+                      .sort('FareMidpoint', -1))
+        if not ladder:
+            print('  no rows for that key')
+        else:
+            head = ('FareBucket', 'FareMidpoint', 'pax', 'Protection', 'AU', 'RBD',
+                    'Opening')
+            print(''.join(f'{h:>14}' for h in head))
+            for row in ladder:
+                print(''.join([
+                    _fmt(row.get('FareBucket')),
+                    _fmt(row.get('FareMidpoint'), places=2),
+                    _fmt(row.get('weighted_pax_count'), places=3),
+                    _fmt(row.get('ProtectionLimit')),
+                    _fmt(row.get('AU')),
+                    _fmt(row.get('RBD')),
+                    _fmt(row.get('IsOpeningFare'))]))
     finally:
         client.close()
 

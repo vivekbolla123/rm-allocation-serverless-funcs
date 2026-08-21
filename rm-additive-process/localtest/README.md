@@ -83,8 +83,10 @@ sectors succeeded : ['BOMDEL', 'DELBOM']
 sectors failed    : []
 output fare_bucket_weighted           1672 docs
 output flight_level_weighted            88 docs
+output inventory_optimization         1760 docs
 mongo  local_qp_dw_rmalloc.add_model_fare_bucket_level_weighted       3344 docs
 mongo  local_qp_dw_rmalloc.add_model_flight_level_weighted             176 docs
+mongo  local_qp_dw_rmalloc.add_model_inventory_optimization           3520 docs
 csv    ...\localtest\outputs
 ```
 
@@ -104,10 +106,13 @@ python -m localtest.inspect_outputs --sector BOMDEL --flight 1101 --ndo 18
   every downstream number is meaningless.
 * `Flight matching complete: N future flights matched, 0 skipped` — a large
   `skipped` count means not enough history cleared `MIN_FLIGHT_MATCHES`.
-* Non-zero doc counts for both output datasets.
+* Non-zero doc counts for all three output datasets.
 * Pick a flight with `future_flight_NDO` above 10 and confirm
   `weighted_pax_count` is non-zero. Flights departing today are legitimately zero
   — no pickup window is left.
+* On the AU ladder for that flight, `ProtectionLimit` should be non-decreasing as
+  fares fall and `AU` non-increasing, with exactly one row flagged
+  `IsOpeningFare`. `inspect_outputs` prints it.
 
 ---
 
@@ -155,6 +160,8 @@ often as you like.
         │    <SECTOR>.csv          │   │    level_weighted            │
         │  flight_level_weighted_  │   │  add_model_flight_level_     │
         │    <SECTOR>.csv          │   │    weighted                  │
+        │  inventory_optimization_ │   │  add_model_inventory_        │
+        │    <SECTOR>.csv          │   │    optimization              │
         │                          │   │  additive_model_run_audit    │
         └──────────────────────────┘   └──────────────────────────────┘
 ```
@@ -286,9 +293,12 @@ down where a wrong number came from.
 
 The model computes both a **normal** (mean) and a **weighted** (recency-decayed,
 `alpha = 0.99`) branch through steps 11-14. Only the weighted branch is persisted
-in step 16; the normal branch and the step-15 EMSR-b frame are computed and then
-discarded. Step 15 does contribute two columns to the flight-level output —
-`OpeningFareBucket` and `OpeningFareMidpoint`.
+in step 16; the normal branch is computed and then discarded.
+
+Step 15 is the one place this flow diverges from production logic: it rebuilds the
+AU ladder from the weighted branch instead of the normal one, so that all three
+persisted datasets are consistent. See
+[section 10](#step-15-is-driven-by-the-weighted-branch-locally).
 
 The run log names every step as it goes, with row counts, which is usually enough
 to locate a problem without extra artefacts:
@@ -309,13 +319,14 @@ Predictions complete (alpha=0.99) — weighted fare bucket: 1672, flight: 88
 
 ## 6. Outputs
 
-**Only the weighted branch is persisted.** Four CSVs for two sectors, and two
+**Only the weighted branch is persisted.** Six CSVs for two sectors, and three
 Mongo collections. Nothing else is written to disk.
 
 | Dataset | Mongo collection | CSV |
 |---|---|---|
 | flight level, weighted | `add_model_flight_level_weighted` | `flight_level_weighted_<SECTOR>.csv` |
 | fare bucket level, weighted | `add_model_fare_bucket_level_weighted` | `fare_bucket_weighted_<SECTOR>.csv` |
+| inventory optimization (AUs) | `add_model_inventory_optimization` | `inventory_optimization_<SECTOR>.csv` |
 
 Plus the run audit in `local_qp_dw_rmalloc.additive_model_run_audit` — the same
 collection production uses.
@@ -362,6 +373,27 @@ Same identity and current-state columns, plus:
 | step 13 | `predicted_pax_count_final`, `Demand Multiplier`, `Demand Multiplier Number`, `New predicted_pax_count_final`, `Fare Bucket Ratio`, `New Final_pax_count`, `New Final Total Bookings` |
 | step 14 | `WTP_Factor`, `WTP_pax_count` |
 
+### Columns — `inventory_optimization` (40)
+
+Every column from the weighted fare-bucket frame, plus the EMSR-b results:
+
+| Column | Meaning |
+|---|---|
+| `FareMidpoint` | midpoint of the bucket; open-ended top bucket uses `lower x 1.10` |
+| `ProtectionLimit` | seats protected for this bucket and everything above it, monotonically nested and capped at `Capacity` |
+| `AU` | authorization level = `Capacity - ProtectionLimit` of the next-higher bucket; the top bucket gets full `Capacity` |
+| `RBD` | only set on the promo row (`W`); `None` on filed buckets, because the model has no RBD mapping at this stage |
+| `IsOpeningFare` | the lowest filed bucket whose `AU` still exceeds current bookings |
+| `OpeningFareBucket`, `OpeningFareMidpoint` | that bucket, repeated on every row of the flight |
+
+There is one extra row per flight beyond the 19 buckets: the **promo** row, at
+`PROMO_FARE_RATIO = 0.80` of the lowest filed fare, RBD `W`. Hence 20 rows per
+flight (1760 = 88 flights x 20).
+
+The opening fare is determined **ignoring** promo inventory, which is why a
+flight can show `IsOpeningFare` on a filed bucket while the promo row still
+carries a non-zero `AU`.
+
 ### Reading the numbers
 
 Follow one flight's pax count through the pipeline:
@@ -377,6 +409,19 @@ x Demand Multiplier Number    step 13  (100 + analyst %) / 100
 
 At flight level, `Final_Total_Bookings = Current_Bookings + Final_pax_count` and
 `Load_Factor = Final_Total_Bookings / Capacity`.
+
+The AU ladder does **not** sit at the end of that chain. It is built from
+`weighted_pax_count` — the raw step-11 prediction — so the remaining-RBD
+distribution, the demand multiplier and the WTP redistribution do not feed the
+protection limits. That is how production behaves too (with the normal branch);
+see [section 10](#step-15-is-driven-by-the-weighted-branch-locally).
+
+```powershell
+python -m localtest.inspect_outputs --sector BOMDEL --flight 1101 --ndo 18
+```
+
+prints the fare-bucket table, the flight-level row and the full AU ladder for one
+flight, which is the quickest way to check all three outputs agree.
 
 ---
 
@@ -569,14 +614,48 @@ WTP reads, the audit write, the same column sets, the same partitioning.
 Intermediate artefacts are suppressed because PROD suppresses them — the local
 flow inherits that rather than overriding it.
 
-`LocalAdditiveProcessor` adds only the two optional CSV stand-ins for steps 1
-and 4.
+`LocalAdditiveProcessor` adds the step-15 change described next, plus the two
+optional CSV stand-ins for steps 1 and 4.
+
+### Step 15 is driven by the weighted branch locally
+
+Production builds the EMSR-b ladder from the **normal** fare-bucket frame:
+
+```python
+# additive_model.py:1993
+optimized_df = self._compute_inventory_optimization(result_merged_df)
+
+# additive_model.py:1548
+opt_df = compute_inventory_optimization_df(bucket_df,
+                                           pax_col='predicted_pax_count',
+                                           std_col='predicted_pax_std', ...)
+```
+
+This flow persists only the weighted branch, so `LocalAdditiveProcessor`
+recomputes step 15 from the weighted frame with `pax_col='weighted_pax_count'`
+and `std_col='weighted_pax_std'`. **The AUs here therefore differ from production
+by design** — if you are validating AU behaviour against a production run, that is
+the difference to account for.
+
+Mechanically: `_apply_wtp_redistribution` is called twice per sector with
+identical arguments, once per branch, so the override identifies the weighted
+frame by the presence of `weighted_pax_count` and stashes it for step 15 to use.
+The stash is cleared at step 1, which is where each sector's batch begins.
+
+Note what does *not* work: handing the weighted frame to the production call
+unchanged. `compute_flight_inventory_optimization` falls back to
+`Final_pax_count` when `pax_col` is missing and sets the std column to `0.0`, so
+you would get a ladder built on the wrong demand with every sigma at zero — no
+error, just wrong protection limits.
+
+To go back to production behaviour, delete the `_compute_inventory_optimization`
+and `_apply_wtp_redistribution` overrides in `local_processor.py`.
 
 ### Persisting more output datasets
 
-Add the dataset name to `OUTPUT_COLLECTIONS` in `schema.py`. The keys are the
-names the model emits: `flight_level_normal`, `fare_bucket_normal`,
-`flight_level_weighted`, `fare_bucket_weighted`, `inventory_optimization`.
+Add the dataset name to `OUTPUT_COLLECTIONS` in `schema.py`. Three of the five
+names the model emits are already there; the two not persisted are
+`flight_level_normal` and `fare_bucket_normal`.
 
 ### The `csv` ESB backend
 

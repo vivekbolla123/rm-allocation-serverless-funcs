@@ -10,13 +10,15 @@ writes the run audit, and saves results through `cache.write_partitioned_s3`.
 LocalAdditiveCache redirects that one call to local MongoDB + CSV, so the local
 flow follows the production code path with local data underneath.
 
-Two deliberate deviations from PROD, both opt-in:
+Deviations from PROD:
 
+  * step 15 (EMSR-b protection limits and AUs) is driven by the WEIGHTED branch
+    instead of the normal one — see _compute_inventory_optimization below;
   * `fare_buckets.csv` in inputs/ can stand in for step 1 (GP bucket build);
-  * `tagging.csv` in inputs/ can stand in for step 4 (Z-score lean/peak tagging).
+  * `tagging.csv` in inputs/ can stand in for step 4 (Z-score tagging).
 
-Each needs the file to exist AND the corresponding flag, so the real logic runs
-by default.
+The two CSV stand-ins each need the file to exist AND the corresponding flag, so
+the real logic runs by default.
 
 No intermediate artefacts and no parquet cache are written: the only files this
 flow produces are the input CSVs and the output CSVs.
@@ -27,6 +29,9 @@ import os
 import pandas as pd
 
 from additive_model import AdditivePickupModelProcessor
+from Constants import (EMSR_SIGMA_FACTOR, OPEN_BUCKET_MIDPOINT_FACTOR, PROMO_FARE_RATIO,
+                       PROMO_RBD)
+from helpers.utils.common_utils import compute_inventory_optimization_df
 
 from localtest.local_helpers import LocalAdditiveCache, LocalCsvEsbHelper
 from localtest.schema import OVERRIDE_FARE_BUCKETS_CSV, OVERRIDE_TAGGING_CSV
@@ -49,6 +54,8 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
         self.dump_derived = dump_derived
         self._dumped = set()
         self.output_dir = cfg.outputs_dir
+        # Captured at step 14 so step 15 can build the AU ladder from it.
+        self._weighted_bucket_df = None
 
         # --- swap S3 cache -> local cache, then re-bind both helpers ---
         local_cache = LocalAdditiveCache(cfg, self.db, logger,
@@ -74,6 +81,10 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
     # Step 1 — fare buckets (optional CSV stand-in)
     # =====================================================================
     def _fetch_fare_buckets(self):
+        # Step 1 is the first thing _run_batch does, so this is where a batch
+        # starts: drop any frame captured for the previous sector.
+        self._weighted_bucket_df = None
+
         path = os.path.join(self.cfg.inputs_dir, OVERRIDE_FARE_BUCKETS_CSV)
         if self.use_csv_fare_buckets and os.path.exists(path):
             df = pd.read_csv(path)
@@ -117,6 +128,54 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
         if self.dump_derived:
             self._dump(df, OVERRIDE_TAGGING_CSV)
         return df
+
+    # =====================================================================
+    # Step 14 — capture the weighted frame on its way past
+    # =====================================================================
+    def _apply_wtp_redistribution(self, bucket_df, count_col='New Final_pax_count'):
+        out = super()._apply_wtp_redistribution(bucket_df, count_col=count_col)
+        # _run_batch calls this twice per sector with identical arguments, once
+        # per branch. The weighted frame is the one carrying weighted_pax_count.
+        if out is not None and 'weighted_pax_count' in getattr(out, 'columns', []):
+            self._weighted_bucket_df = out
+        return out
+
+    # =====================================================================
+    # Step 15 — AU ladder from the WEIGHTED branch
+    # =====================================================================
+    def _compute_inventory_optimization(self, bucket_df):
+        """EMSR-b protection limits and AUs, computed from the weighted branch.
+
+        Production builds this from the NORMAL fare-bucket frame with
+        pax_col='predicted_pax_count' (additive_model.py: `optimized_df =
+        self._compute_inventory_optimization(result_merged_df)`). This flow
+        persists only the weighted branch, so the ladder is rebuilt from
+        weighted_pax_count / weighted_pax_std to stay consistent with the rest of
+        the output. **The AUs here therefore differ from production by design.**
+
+        Passing the weighted frame to the production call would not work: it
+        would silently fall back to Final_pax_count for the demand and set every
+        sigma to 0, because 'predicted_pax_count' and 'predicted_pax_std' are
+        absent from that frame.
+        """
+        source = self._weighted_bucket_df
+        if source is None or source.empty or 'weighted_pax_count' not in source.columns:
+            self.logger.warning('[local] step 15: no weighted frame captured — '
+                                'falling back to the production (normal-branch) ladder.')
+            return super()._compute_inventory_optimization(bucket_df)
+
+        self.logger.info('Computing inventory optimization (EMSR-b protection limits & AU) '
+                         'from the WEIGHTED branch...')
+        opt_df = compute_inventory_optimization_df(
+            source,
+            pax_col='weighted_pax_count',
+            std_col='weighted_pax_std',
+            sigma_factor=EMSR_SIGMA_FACTOR,
+            promo_ratio=PROMO_FARE_RATIO,
+            promo_rbd=PROMO_RBD,
+            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR)
+        self.logger.info(f'Inventory optimization complete — {len(opt_df)} rows produced.')
+        return opt_df
 
     # =====================================================================
     def _dump(self, df, filename):
