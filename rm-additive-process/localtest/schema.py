@@ -23,10 +23,10 @@ MongoDB side:
     demand_multiplier.csv   -> <master_db>.config_sector_demand_multiplier
     wtp.csv                 -> <master_db>.config_quarter_wtp
 
-Optional CSV overrides (absent by default — the model computes them):
-
-    fare_buckets.csv     replaces step 1  (GP fare bucket computation)
-    tagging.csv          replaces step 4  (historical Z-score lean/peak tagging)
+Nothing else is an input. In particular fare buckets and lean/peak tagging are
+NOT inputs: fare buckets are computed in step 1 from the `fares` collection via
+the GP ladder, and tagging is computed in step 4 from the historical flown data
+via Z-scored RASK.
 
 Model outputs — exactly two, each one file covering every sector. Only the
 weighted branch is kept; the normal branch is still computed, just not persisted.
@@ -134,15 +134,6 @@ MONGO_DATASETS = {
     'demand_multiplier.csv': ('master', 'config_sector_demand_multiplier', []),
     'wtp.csv': ('master', 'config_quarter_wtp', []),
 }
-
-
-# =============================================================================
-# Optional CSV overrides for computed steps
-# =============================================================================
-
-OVERRIDE_FARE_BUCKETS_CSV = 'fare_buckets.csv'   # cols: Sector, FareBasis
-OVERRIDE_TAGGING_CSV = 'tagging.csv'             # cols: Sector, DepartureDate,
-                                                 #       FlightNumber, Time Cluster, Tagging
 
 
 # =============================================================================

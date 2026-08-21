@@ -237,28 +237,18 @@ dump of the real `qp_dw_rmalloc` / `qp_rm_master`. Override with
 `ADDITIVE_LOCAL_MONGO_DB` / `ADDITIVE_LOCAL_MONGO_MASTER_DB` if you want the
 production names.
 
-### Optional CSV stand-ins for computed steps
+### What is NOT an input
 
-Two steps can be fed from a CSV instead of being computed. Both need the file to
-exist **and** the flag to be passed, so the real logic runs by default.
+Two things that look like they should be, but are computed:
 
-| CSV | Replaces | Flag |
-|---|---|---|
-| `fare_buckets.csv` | step 1 — GP fare bucket build | `--use-csv-fare-buckets` |
-| `tagging.csv` | step 4 — Z-score lean/peak tagging | `--use-csv-tagging` |
-
-`--dump-derived` writes the computed versions of both back into `inputs/`, so you
-have a correctly-shaped starting point to edit:
-
-```powershell
-python -m localtest.run_local --run --dump-derived
-# edit inputs/tagging.csv
-python -m localtest.run_local --run --use-csv-tagging
-```
-
-Columns: `fare_buckets.csv` is `Sector,FareBasis` (e.g. `BOMDEL,7643-8929` or
-`BOMDEL,28617+`); `tagging.csv` is
-`Sector,DepartureDate,FlightNumber,Time Cluster,Tagging`.
+* **Fare buckets.** Step 1 builds them from `fares.csv`: convert each distinct
+  all-in fare to airline component via the tax master, lay a 19-point geometric
+  ladder between the min and max, snap each point to the nearest real fare, and
+  take consecutive pairs as bucket bounds. To change the ladder, change
+  `fares.csv`.
+* **Lean/peak tagging.** Step 4 computes it from the historical flown data by
+  Z-scoring each flight's RASK against its (Sector, Time Cluster) group. To change
+  the tags, change the revenue or capacity in `hist_flown_data.csv`.
 
 ---
 
@@ -481,12 +471,12 @@ git diff localtest/outputs/flight_level_weighted_BOMDEL.csv
 If the diff is empty, your change was behaviour-preserving. If it is not, the
 diff is the review.
 
-**Test a specific tagging or fare ladder** — dump, edit, replay:
+**Change the fare ladder** — edit `fares.csv` and re-seed; step 1 rebuilds the
+buckets from it:
 
 ```powershell
-python -m localtest.run_local --run --dump-derived
-# edit inputs/fare_buckets.csv
-python -m localtest.run_local --run --use-csv-fare-buckets
+# edit inputs/fares.csv
+python -m localtest.run_local --seed --run
 ```
 
 **Reproduce a data-shaped bug** — hand-write the CSV, re-seed, run:
@@ -544,9 +534,6 @@ python -m localtest.run_local [stages] [options]
 | `--reset-outputs` | drop every `add_model_*` collection before running |
 | `--full-csv` | also write `*_full.csv` with the 0..180 curve |
 | `--mongo-include-ndo` | keep the 0..180 curve in the Mongo documents |
-| `--use-csv-fare-buckets` | read step 1 from `inputs/fare_buckets.csv` |
-| `--use-csv-tagging` | read step 4 from `inputs/tagging.csv` |
-| `--dump-derived` | write computed fare buckets + tagging back into `inputs/` |
 | `--verbose` | debug logging |
 
 ### `inspect_outputs`
@@ -645,8 +632,8 @@ WTP reads, the audit write, the same column sets, the same partitioning.
 Intermediate artefacts are suppressed because PROD suppresses them — the local
 flow inherits that rather than overriding it.
 
-`LocalAdditiveProcessor` adds the step-15 change described next, plus the two
-optional CSV stand-ins for steps 1 and 4.
+`LocalAdditiveProcessor`'s only behavioural change is the step-15 substitution
+described next. Every other step runs exactly as it ships.
 
 ### Step 15 is driven by the weighted branch locally
 

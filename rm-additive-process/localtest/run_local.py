@@ -103,9 +103,6 @@ def run_model(cfg, logger, sectors, esb_backend, args):
         processor = LocalAdditiveProcessor(
             logger, params, overrides, None, cfg,
             esb_backend=esb_backend,
-            use_csv_fare_buckets=args.use_csv_fare_buckets,
-            use_csv_tagging=args.use_csv_tagging,
-            dump_derived=args.dump_derived,
             include_ndo_in_mongo=args.mongo_include_ndo,
             write_full_csv=args.full_csv)
 
@@ -196,16 +193,8 @@ def build_parser():
     run.add_argument('--mongo-include-ndo', action='store_true',
                      help='keep the 0..180 pickup-curve columns in the Mongo documents')
     run.add_argument('--full-csv', action='store_true',
-                     help='also write <dataset>_<sector>_full.csv with the 0..180 '
+                     help='also write <dataset>_full.csv with the 0..180 '
                           'pickup-curve columns')
-    run.add_argument('--use-csv-fare-buckets', action='store_true',
-                     help=f'read step 1 from inputs/fare_buckets.csv instead of '
-                          f'computing it')
-    run.add_argument('--use-csv-tagging', action='store_true',
-                     help='read step 4 from inputs/tagging.csv instead of computing it')
-    run.add_argument('--dump-derived', action='store_true',
-                     help='write the computed fare buckets and tagging back into '
-                          'inputs/ so they can be edited and replayed')
 
     ap.add_argument('--verbose', action='store_true')
     return ap
