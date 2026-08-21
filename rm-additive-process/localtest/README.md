@@ -80,12 +80,10 @@ Roughly 45 seconds for both sectors. When it finishes you should see:
 status            : SUCCESS
 sectors succeeded : ['BOMDEL', 'DELBOM']
 sectors failed    : []
-output fare_bucket_weighted           4636 docs
+output fare_bucket_weighted           4880 docs
 output flight_level_weighted           244 docs
-output inventory_optimization         4880 docs
-mongo  local_qp_dw_rmalloc.add_model_fare_bucket_level_weighted       9272 docs
+mongo  local_qp_dw_rmalloc.add_model_fare_bucket_level_weighted       9760 docs
 mongo  local_qp_dw_rmalloc.add_model_flight_level_weighted             488 docs
-mongo  local_qp_dw_rmalloc.add_model_inventory_optimization           9760 docs
 csv    ...\localtest\outputs
 ```
 
@@ -154,14 +152,12 @@ often as you like.
                     └──────┬─────────────────────────┬─────────┘
                            v                         v
         ┌──────────────────────────┐   ┌──────────────────────────────┐
-        │ outputs/                 │   │ local MongoDB                │
-        │  fare_bucket_weighted_   │   │  add_model_fare_bucket_      │
-        │    <SECTOR>.csv          │   │    level_weighted            │
-        │  flight_level_weighted_  │   │  add_model_flight_level_     │
-        │    <SECTOR>.csv          │   │    weighted                  │
-        │  inventory_optimization_ │   │  add_model_inventory_        │
-        │    <SECTOR>.csv          │   │    optimization              │
-        │                          │   │  additive_model_run_audit    │
+        │ outputs/  (2 files,      │   │ local MongoDB                │
+        │            all sectors)  │   │  add_model_fare_bucket_      │
+        │  fare_bucket_weighted    │   │    level_weighted            │
+        │    .csv                  │   │  add_model_flight_level_     │
+        │  flight_level_weighted   │   │    weighted                  │
+        │    .csv                  │   │  additive_model_run_audit    │
         └──────────────────────────┘   └──────────────────────────────┘
 ```
 
@@ -288,15 +284,15 @@ down where a wrong number came from.
 | 13 | Demand multiplier → demand-adjusted prediction | `config_sector_demand_multiplier` |
 | 14 | WTP fare-bucket redistribution | `config_quarter_wtp` |
 | 15 | Inventory optimization (EMSR-b protection limits, AU) | step 14 |
-| 16 | Save | → Mongo + `outputs/*.csv` |
+| 16 | Save | → 2 Mongo collections + 2 CSVs |
 
 The model computes both a **normal** (mean) and a **weighted** (recency-decayed,
 `alpha = 0.99`) branch through steps 11-14. Only the weighted branch is persisted
 in step 16; the normal branch is computed and then discarded.
 
 Step 15 is the one place this flow diverges from production logic: it rebuilds the
-AU ladder from the weighted branch instead of the normal one, so that all three
-persisted datasets are consistent. See
+AU ladder from the weighted branch instead of the normal one, so both persisted
+datasets are consistent. See
 [section 10](#step-15-is-driven-by-the-weighted-branch-locally).
 
 The run log names every step as it goes, with row counts, which is usually enough
@@ -318,17 +314,32 @@ Predictions complete (alpha=0.99) — weighted fare bucket: 1672, flight: 88
 
 ## 6. Outputs
 
-**Only the weighted branch is persisted.** Six CSVs for two sectors, and three
-Mongo collections. Nothing else is written to disk.
+**Two files, both covering every sector.** Only the weighted branch is
+persisted; the normal branch is computed and discarded. Nothing else is written
+to disk.
 
 | Dataset | Mongo collection | CSV |
 |---|---|---|
-| flight level, weighted | `add_model_flight_level_weighted` | `flight_level_weighted_<SECTOR>.csv` |
-| fare bucket level, weighted | `add_model_fare_bucket_level_weighted` | `fare_bucket_weighted_<SECTOR>.csv` |
-| inventory optimization (AUs) | `add_model_inventory_optimization` | `inventory_optimization_<SECTOR>.csv` |
+| flight level, weighted | `add_model_flight_level_weighted` | `flight_level_weighted.csv` |
+| fare bucket level, weighted, **including the EMSR-b AU ladder** | `add_model_fare_bucket_level_weighted` | `fare_bucket_weighted.csv` |
 
 Plus the run audit in `local_qp_dw_rmalloc.additive_model_run_audit` — the same
 collection production uses.
+
+The EMSR-b results are **not** a third dataset. The optimization frame is the
+weighted fare-bucket frame plus the optimization columns and one promo row per
+flight — same grain, superset of columns — so it *is* the fare-bucket output and
+the pre-optimization copy is dropped. You will see this in the log:
+
+```
+[local-out] fare_bucket_weighted: superseded by the optimized frame, skipped
+[local-out] inventory_optimization: persisted as fare_bucket_weighted
+```
+
+The mapping lives in `schema.py` (`DATASET_ALIASES`, `SUPERSEDED_DATASETS`).
+
+Sectors are processed one at a time, so the first sector truncates each CSV and
+later sectors append. That is why there is no sector in the filename.
 
 The CSVs are committed, so `git diff` after a run tells you exactly what your
 change did to the numbers.
@@ -372,10 +383,10 @@ Same identity and current-state columns, plus:
 | step 13 | `predicted_pax_count_final`, `Demand Multiplier`, `Demand Multiplier Number`, `New predicted_pax_count_final`, `Fare Bucket Ratio`, `New Final_pax_count`, `New Final Total Bookings` |
 | step 14 | `WTP_Factor`, `WTP_pax_count` |
 
-### Columns — `inventory_optimization` (42)
+### Columns — `fare_bucket_weighted`, the EMSR-b part (9 of the 42)
 
-Every column from the weighted fare-bucket frame, plus the EMSR-b inputs and
-results:
+The fare-bucket file carries the columns listed above plus the EMSR-b inputs and
+results, and **20 rows per flight**: 19 filed buckets and one promo row.
 
 | Column | Meaning |
 |---|---|
@@ -398,9 +409,9 @@ over from the fare-bucket frame (`WTP_pax_count`, `Final_pax_count`, …) still 
 the lowest filed bucket's values, because the promo row is built as a copy of it.
 Read the promo row's demand from `OptimizationDemand` only.
 
-There is one extra row per flight beyond the 19 buckets: the **promo** row, at
-`PROMO_FARE_RATIO = 0.80` of the lowest filed fare, RBD `W`. Hence 20 rows per
-flight (4880 = 244 flights x 20).
+The **promo** row sits at `PROMO_FARE_RATIO = 0.80` of the lowest filed fare on
+RBD `W`, which is why there are 20 rows per flight rather than 19
+(4880 = 244 flights x 20 per sector).
 
 `AU` near `Capacity` on most rows is not a bug — it means there is little
 predicted pickup to protect against. See
@@ -517,8 +528,8 @@ python -m localtest.run_local [stages] [options]
 |---|---|---|
 | `--hist-days` | `400` | keep at 400+; the tagging windows are 365 days |
 | `--future-days` | `60` | forward schedule; drives how much pickup is left to protect |
-| `--mean-bookings` | `26` | average bookings per flight |
-| `--capacity` | `40` | seats per flight; with `--mean-bookings`, sets the load factor |
+| `--load-factor` | `0.45` | bookings per flight relative to that flight's seats |
+| `--capacity` | *(mixed)* | force one seat count on every flight; default is the 189 / 174 fleet |
 | `--seed-value` | `20260821` | RNG seed |
 | `--anchor` | today | `YYYY-MM-DD`; pins the snapshot date |
 
@@ -541,12 +552,12 @@ python -m localtest.run_local [stages] [options]
 ### `inspect_outputs`
 
 ```powershell
-python -m localtest.inspect_outputs [--sector BOMDEL] [--flight 1101] [--ndo 18]
+python -m localtest.inspect_outputs [--sector BOMDEL] [--flight 1101] [--ndo 56]
 ```
 
-Prints one flight's weighted fare-bucket ladder and its flight-level row, read
-straight from Mongo. `--ndo` is `future_flight_NDO`, i.e. days from the snapshot
-date to departure.
+For one flight, read straight from Mongo: the demand chain through steps 11-14,
+the EMSR-b AU ladder, and the flight-level row. `--ndo` is `future_flight_NDO`,
+i.e. days from the snapshot date to departure.
 
 ### `generate_inputs`
 
@@ -598,8 +609,8 @@ localtest/
   local_processor.py   LocalAdditiveProcessor
   run_local.py         CLI entry point
   inspect_outputs.py   read one flight's weighted results back out of Mongo
-  inputs/              mock input CSVs   (committed — the fixture)
-  outputs/             result CSVs       (committed — the reference)
+  inputs/              mock input CSVs      (committed — the fixture)
+  outputs/             2 result CSVs        (committed — the reference)
 ```
 
 ### `configsettings` has to be faked before anything imports the model
@@ -727,9 +738,12 @@ it never bound once, so the natural ladder is already monotonic.
 
 ### Persisting more output datasets
 
-Add the dataset name to `OUTPUT_COLLECTIONS` in `schema.py`. Three of the five
-names the model emits are already there; the two not persisted are
-`flight_level_normal` and `fare_bucket_normal`.
+Add the dataset name to `OUTPUT_COLLECTIONS` in `schema.py`. The two the model
+emits that are not persisted are `flight_level_normal` and `fare_bucket_normal`.
+
+To split the EMSR-b ladder back out into its own dataset, remove
+`inventory_optimization` from `DATASET_ALIASES` and `fare_bucket_weighted` from
+`SUPERSEDED_DATASETS`, then give both an entry in `OUTPUT_COLLECTIONS`.
 
 ### The `csv` ESB backend
 
@@ -768,7 +782,9 @@ arbitrary — it is the minimum that satisfies the model's real preconditions:
 * enough spread in flight-level RASK for the Z-score tagging to separate flights
   into Lean / Shoulder / Peak / Super Peak;
 * at least `MIN_FLIGHT_MATCHES = 13` same-DOW, same-tagging historical flights
-  for every future flight.
+  for every future flight;
+* a mixed fleet — 189 and 174 seats alternating by flight — so nothing silently
+  assumes a single capacity.
 
 Shrink it and the run will still succeed while quietly producing nothing.
 
@@ -816,17 +832,23 @@ of bookings.
 
 ```powershell
 python -m localtest.run_local --generate `
-    --hist-days 400 --future-days 60 --mean-bookings 26 --capacity 40 `
+    --hist-days 400 --future-days 60 --load-factor 0.45 `
     --seed-value 20260821 --anchor 2026-08-21
 ```
 
 * `--hist-days` — 400 or more. Shorter starves both tagging windows.
 * `--future-days` — days of forward schedule. Also decides how much pickup is
   left to protect, so it drives whether the AU ladder means anything: see
-  [the AU ladder needs demand](#the-au-ladder-needs-demand). 60 costs about 45
-  seconds for both sectors; raise toward 180 for the production horizon.
-* `--mean-bookings` and `--capacity` — together these set the load factor. The
-  defaults are 26 on 40 seats, about 65%.
+  [the AU ladder needs demand](#the-au-ladder-needs-demand). 60 costs about a
+  minute for both sectors; raise toward 180 for the production horizon.
+* `--load-factor` — bookings per flight as a fraction of that flight's seats.
+  **This is the setting that decides the size and runtime of the whole fixture**,
+  because the input is one row per booked pax: at 0.45 on the 189/174 fleet
+  `hist_flown_data.csv` is about 28 MB and 257k rows. Halve it and the input
+  roughly halves.
+* `--capacity` — force a single seat count on every flight. The default is the
+  mixed fleet defined in `SECTORS`: 189 and 174 seats, alternating by flight, so
+  the fixture exercises non-uniform capacity.
 * `--anchor` — pins the snapshot date, so runs on different days are comparable.
 * `--seed-value` — same seed and anchor gives byte-identical CSVs.
 
@@ -838,27 +860,35 @@ control it, and getting either wrong produces a ladder where every `AU` equals
 `Capacity` — which looks broken but is correct behaviour for a flight with no
 demand to protect against.
 
-**Capacity.** `weighted_pax_count` is the pickup for one fare bucket over the
-remaining window, so it is a small number by construction. Against 189 seats the
-whole flight's pickup is around 1% of capacity, protection rounds to 0-4 seats,
-and every `AU` pins to capacity. The default 40 seats keeps the same row count
-while making the ratio meaningful.
+**Load factor.** `weighted_pax_count` is the pickup for one fare bucket over the
+remaining window, so it is a small number by construction. At a 14% load factor
+on 189 seats the whole flight's pickup is around 1% of capacity, protection rounds
+to 0-4 seats, and every `AU` pins to capacity. At the default 0.45 the same flight
+descends properly.
 
 **Forward horizon.** Predicted pickup only covers `NDO <= future_flight_NDO`, so
-a flight departing tomorrow has almost nothing left to protect and a flight 120
-days out has nearly its whole load. With the generator's booking curve, roughly
-65% of bookings are already in by 21 days out but only 17% by 120 days out. So
-the AU ladder gets steeper the further out you look:
+a flight departing tomorrow has almost nothing left to protect while one 120 days
+out has nearly its whole load. With the generator's booking curve about 65% of
+bookings are already in by 21 days out but only 17% by 120 days out, so the AU
+ladder gets steeper the further out you look.
 
-| flight at | AU range on 40 seats |
-|---|---|
-| NDO 18 | 40 → 36 |
-| NDO 56 | 40 → 27 |
-| NDO 112 | 40 → 16 |
+At the defaults, a 189-seat flight 56 days out gives:
+
+```
+   FareBucket   FareMidpoint   Demand   Protection    AU
+       28617+       31478.70   0.0000            0   189
+  18217-21187       19702.00   1.9569            2   189
+  13447-15656       14551.50   3.7311            8   184
+  10418-12146       11282.00   4.0643           15   179
+    7643-8929        8286.00   3.4671           23   170
+    5014-5578        5296.00   2.2265           34   158
+    3241-3621        3431.00   2.8127           47   146
+    2046-2302        2174.00   1.0201           58   133   <- anchor fare
+        Promo        1739.20   0.0000            0   131
+```
 
 `AU` reaching 0 requires predicted remaining demand to exceed capacity, i.e. a
-far-out, heavily-booked flight. It is not something you should expect near
-departure.
+far-out, heavily-booked flight. It is not something to expect near departure.
 
 This is worth internalising because it is a property of the model, not of the
 mock: **AU is least restrictive near departure and most restrictive far out**,
@@ -905,8 +935,8 @@ is tiny or absent, because the bookings never got a `FareBasis`.
 left. Check a flight further out.
 
 **Every `AU` equals `Capacity`** — not a bug. There is not enough predicted
-pickup relative to capacity for EMSR-b to protect anything. Lower `--capacity` or
-raise `--future-days`; see
+pickup relative to capacity for EMSR-b to protect anything. Raise
+`--load-factor` or `--future-days`; see
 [the AU ladder needs demand](#the-au-ladder-needs-demand).
 
 **`RBD` is empty on the AU ladder** — production behaviour. Only the promo row

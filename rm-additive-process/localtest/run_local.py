@@ -173,10 +173,12 @@ def build_parser():
     data = ap.add_argument_group('mock data shape (used with --generate)')
     data.add_argument('--hist-days', type=int, default=400)
     data.add_argument('--future-days', type=int, default=60)
-    data.add_argument('--mean-bookings', type=int, default=26)
+    data.add_argument('--load-factor', type=float, default=None,
+                      help='target load factor (default 0.45); drives how much '
+                           'pickup is left for the AU ladder to protect')
     data.add_argument('--capacity', type=int, default=None,
-                      help='seats per flight (default 40); decides whether the '
-                           'EMSR-b AU ladder is meaningful or flat')
+                      help='force one seat count on every flight (default: the '
+                           'mixed 189 / 174 fleet)')
     data.add_argument('--seed-value', type=int, default=20260821,
                       help='RNG seed for the generator')
     data.add_argument('--anchor', default=None, help='YYYY-MM-DD; defaults to today')
@@ -231,11 +233,12 @@ def main(argv=None):
 
     # --- stage 1: generate -------------------------------------------------
     if args.generate:
-        from localtest.generate_inputs import DEFAULT_CAPACITY, generate
+        from localtest.generate_inputs import DEFAULT_LOAD_FACTOR, generate
         anchor = date.fromisoformat(args.anchor) if args.anchor else None
         generate(cfg.inputs_dir, hist_days=args.hist_days,
-                 future_days=args.future_days, mean_bookings=args.mean_bookings,
-                 capacity=args.capacity or DEFAULT_CAPACITY,
+                 future_days=args.future_days,
+                 load_factor=args.load_factor or DEFAULT_LOAD_FACTOR,
+                 capacity=args.capacity,
                  seed=args.seed_value, anchor=anchor, logger=logger)
 
     # --- stage 2: seed -----------------------------------------------------

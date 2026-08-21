@@ -14,7 +14,7 @@ like production traffic:
     window and future tagging re-derives tags on the trailing 365 days ending
     on the last day of the previous month.
   * a load factor and a forward horizon that leave enough predicted pickup for
-    step 15 to build a non-degenerate AU ladder — see DEFAULT_CAPACITY below.
+    step 15 to build a non-degenerate AU ladder — see DEFAULT_LOAD_FACTOR below.
   * 4 flights per day per sector, each parked in a different STD time cluster,
     so the Z-score tagging has a populated (Sector, Time Cluster) group with
     real day-to-day variance.
@@ -46,32 +46,30 @@ import pandas as pd
 # Fixed characteristics of the mocked network
 # =============================================================================
 
-# Seats per flight. This is the knob that decides whether the EMSR-b ladder in
-# step 15 is interesting or degenerate, because protection limits are driven by
-# predicted pickup *relative to capacity*.
+# Seats per flight, mixed fleet: 189 (737-800 / A321) and 174 (A320).
+# Set per flight so the fixture exercises a non-uniform capacity, which matters
+# because protection limits and AUs are driven by demand *relative to capacity*.
+# `--capacity` overrides every flight with one value.
 #
-# Predicted pickup is only the remaining window (NDO <= future_flight_NDO), which
-# at the default --future-days is a fraction of a flight's total load. Against 189
-# seats that leaves ~1% of capacity to protect, so every AU pins to capacity and
-# the ladder tells you nothing. A smaller aircraft exercises the same code paths
-# with the same number of rows.
-#
-# Overridable with --capacity; raise it to 189 for a trunk-route-shaped fixture
-# and accept a flat AU ladder, or raise --mean-bookings with it and accept a much
-# larger input CSV.
-DEFAULT_CAPACITY = 40
+# Load is expressed as a load factor rather than an absolute booking count, so it
+# stays meaningful across the two capacities. It is also the knob that decides
+# whether the EMSR-b ladder in step 15 is interesting or degenerate: predicted
+# pickup is only the remaining window (NDO <= future_flight_NDO), so a thin load
+# leaves almost nothing to protect and every AU pins to capacity.
+DEFAULT_LOAD_FACTOR = 0.45
 
 SECTORS = {
     'BOMDEL': {
         'origin': 'BOM', 'destination': 'DEL', 'distance': 1148,
-        'flights': [(1101, time(6, 30)), (1103, time(9, 15)),
-                    (1105, time(13, 20)), (1107, time(19, 45))],
+        # (flight number, STD, seats)
+        'flights': [(1101, time(6, 30), 189), (1103, time(9, 15), 174),
+                    (1105, time(13, 20), 189), (1107, time(19, 45), 174)],
         'demand_index': 1.00,
     },
     'DELBOM': {
         'origin': 'DEL', 'destination': 'BOM', 'distance': 1148,
-        'flights': [(1102, time(7, 5)), (1104, time(10, 30)),
-                    (1106, time(14, 0)), (1108, time(20, 15))],
+        'flights': [(1102, time(7, 5), 189), (1104, time(10, 30), 174),
+                    (1106, time(14, 0), 189), (1108, time(20, 15), 174)],
         'demand_index': 0.94,
     },
 }
@@ -147,8 +145,9 @@ def _sample_fares(rng, n, demand_index):
     return np.clip(np.round(fares, 2), BOOKING_FARE_MIN, BOOKING_FARE_MAX)
 
 
-def _flight_load(rng, dep_date, demand_index, mean_bookings, capacity):
-    """Bookings a flight ends up with — DOW + seasonal + noise.
+def _flight_load(rng, dep_date, demand_index, load_factor, capacity):
+    """Bookings a flight ends up with — DOW + seasonal + noise around the target
+    load factor.
 
     The spread is what gives the Z-score tagging something to separate; a flat
     load would put every flight in one band.
@@ -156,7 +155,8 @@ def _flight_load(rng, dep_date, demand_index, mean_bookings, capacity):
     dow_factor = {0: 1.02, 1: 0.92, 2: 0.90, 3: 0.97, 4: 1.16, 5: 1.05, 6: 1.14}
     seasonal = 1.0 + 0.18 * np.sin(2 * np.pi * (dep_date.timetuple().tm_yday / 365.0))
     noise = rng.normal(1.0, 0.17)
-    load = mean_bookings * dow_factor[dep_date.weekday()] * seasonal * demand_index * noise
+    load = (capacity * load_factor
+            * dow_factor[dep_date.weekday()] * seasonal * demand_index * noise)
     return int(np.clip(round(load), 4, capacity))
 
 
@@ -170,15 +170,20 @@ def _fare_basis(rbd, is_sol):
 # Generators
 # =============================================================================
 
-def build_inventory_legs(hist_start, future_end, capacity):
-    """One row per (sector, date, flight) across the whole span."""
+def build_inventory_legs(hist_start, future_end, capacity_override=None):
+    """One row per (sector, date, flight) across the whole span.
+
+    Capacity comes from the per-flight seat count in SECTORS unless
+    `capacity_override` forces a single value on every flight.
+    """
     rows = []
     leg_id = 900_000_000
     n_days = (future_end - hist_start).days + 1
     for sector, meta in SECTORS.items():
         for offset in range(n_days):
             dep = hist_start + timedelta(days=offset)
-            for flight_number, std in meta['flights']:
+            for flight_number, std, seats in meta['flights']:
+                seats = capacity_override or seats
                 leg_id += 1
                 rows.append({
                     'InventoryLegID': leg_id,
@@ -186,8 +191,8 @@ def build_inventory_legs(hist_start, future_end, capacity):
                     'ArrivalStation': meta['destination'],
                     'STD': datetime.combine(dep, std).strftime('%Y-%m-%d %H:%M:%S'),
                     'FlightNumber': flight_number,
-                    'AdjustedCapacity': capacity,
-                    'Capacity': capacity,
+                    'AdjustedCapacity': seats,
+                    'Capacity': seats,
                     'DepartureDate': dep.isoformat(),
                     'CarrierCode': 'QP',
                     'Status': 1,
@@ -195,7 +200,7 @@ def build_inventory_legs(hist_start, future_end, capacity):
     return pd.DataFrame(rows)
 
 
-def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds, capacity):
+def build_bookings(legs_df, today, rng, load_factor, bucket_rbds):
     """Split every leg's bookings into flown (past) and forward (future) rows.
 
     Flown rows carry their own capacity/distance because the production flown
@@ -216,7 +221,8 @@ def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds, capacity):
         dep_date = date.fromisoformat(row.DepartureDate)
         is_future = dep_date >= today
 
-        total_load = _flight_load(rng, dep_date, meta['demand_index'], mean_bookings,
+        capacity = int(row.AdjustedCapacity)
+        total_load = _flight_load(rng, dep_date, meta['demand_index'], load_factor,
                                   capacity)
 
         if is_future:
@@ -300,7 +306,7 @@ def build_demand_multiplier(today, future_end, rng):
     for sector, meta in SECTORS.items():
         for offset in range(0, n_days, 3):
             dep = today + timedelta(days=offset)
-            for flight_number, _ in meta['flights'][:2]:
+            for flight_number, _std, _seats in meta['flights'][:2]:
                 rows.append({
                     'DepartureDate': dep.strftime('%d/%m/%Y'),
                     'Sector': sector,
@@ -343,8 +349,9 @@ def build_rm_parameter_values():
 # Entry point
 # =============================================================================
 
-def generate(inputs_dir, hist_days=400, future_days=60, mean_bookings=26,
-             capacity=DEFAULT_CAPACITY, seed=20260821, anchor=None, logger=None):
+def generate(inputs_dir, hist_days=400, future_days=60,
+             load_factor=DEFAULT_LOAD_FACTOR, capacity=None,
+             seed=20260821, anchor=None, logger=None):
     """Write every input CSV and return {filename: row count}."""
     # Imported here so bootstrap() has already installed the local configsettings.
     from Constants import FARE_BUCKET_RBDS
@@ -358,13 +365,15 @@ def generate(inputs_dir, hist_days=400, future_days=60, mean_bookings=26,
     rng = np.random.default_rng(seed)
     bucket_rbds = list(FARE_BUCKET_RBDS)
 
+    seats = sorted({capacity} if capacity else
+                   {s for m in SECTORS.values() for _, _, s in m['flights']})
     log(f"[generate] anchor={today} history={hist_start}..{today - timedelta(days=1)} "
         f"forward={today}..{future_end}")
-    log(f"[generate] capacity={capacity} mean_bookings={mean_bookings} "
-        f"(~{100 * mean_bookings / capacity:.0f}% load factor)")
+    log(f"[generate] capacities={seats} load_factor={load_factor:.0%} "
+        f"(~{', '.join(str(round(s * load_factor)) for s in seats)} pax per flight)")
 
     legs = build_inventory_legs(hist_start, future_end, capacity)
-    flown, booked = build_bookings(legs, today, rng, mean_bookings, bucket_rbds, capacity)
+    flown, booked = build_bookings(legs, today, rng, load_factor, bucket_rbds)
 
     frames = {
         'inventory_leg.csv': legs,
@@ -402,18 +411,20 @@ def main():
     ap.add_argument('--future-days', type=int, default=60,
                     help='days of forward schedule (raise toward 180 for a full '
                          'horizon; runtime grows with it)')
-    ap.add_argument('--mean-bookings', type=int, default=26,
-                    help='average bookings per flight')
-    ap.add_argument('--capacity', type=int, default=DEFAULT_CAPACITY,
-                    help='seats per flight; decides whether the EMSR-b AU ladder '
-                         'is meaningful or flat')
+    ap.add_argument('--load-factor', type=float, default=DEFAULT_LOAD_FACTOR,
+                    help='target load factor; sets bookings per flight relative to '
+                         'that flight\'s seats, and drives how much pickup is left '
+                         'for the AU ladder to protect')
+    ap.add_argument('--capacity', type=int, default=None,
+                    help='force one seat count on every flight (default: the mixed '
+                         '189 / 174 fleet in SECTORS)')
     ap.add_argument('--seed', type=int, default=20260821)
     ap.add_argument('--anchor', default=None, help='YYYY-MM-DD; defaults to today')
     args = ap.parse_args()
 
     anchor = date.fromisoformat(args.anchor) if args.anchor else None
     generate(cfg.inputs_dir, hist_days=args.hist_days, future_days=args.future_days,
-             mean_bookings=args.mean_bookings, capacity=args.capacity,
+             load_factor=args.load_factor, capacity=args.capacity,
              seed=args.seed, anchor=anchor)
 
 

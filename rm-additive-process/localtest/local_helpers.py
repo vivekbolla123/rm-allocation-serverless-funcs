@@ -31,7 +31,8 @@ from Constants import PREDICTION_HORIZON_DAYS
 from helpers.db_helpers.additive_esb_helper import AdditiveEsbHelper
 from helpers.utils.common_utils import AdditiveCache
 
-from localtest.schema import (OUTPUT_COLLECTION_PREFIX, OUTPUT_COLLECTIONS, TBL_BOOKED,
+from localtest.schema import (DATASET_ALIASES, OUTPUT_COLLECTION_PREFIX,
+                              OUTPUT_COLLECTIONS, SUPERSEDED_DATASETS, TBL_BOOKED,
                               TBL_FLOWN, TBL_INVENTORY_LEG)
 
 
@@ -129,6 +130,9 @@ class LocalAdditiveCache(AdditiveCache):
         self.write_csv = write_csv
         self.write_full_csv = write_full_csv
         self.written = {}
+        # Files this run has already opened; the first write truncates, the rest
+        # append, so all sectors land in one file.
+        self._csv_started = set()
         os.makedirs(self.output_dir, exist_ok=True)
 
     # -- parquet cache disabled ---------------------------------------------
@@ -155,11 +159,22 @@ class LocalAdditiveCache(AdditiveCache):
 
     # -- the one hook the PROD save path uses for every output dataset -------
     def write_partitioned_s3(self, df, dataset, partition_cols=('SnapshotDate', 'Sector')):
+        if dataset in SUPERSEDED_DATASETS:
+            # The optimized frame carries every column of this one plus the AU
+            # ladder, so it is written under this dataset's name instead.
+            self.logger.info(f"[local-out] {dataset}: superseded by the optimized "
+                             f"frame, skipped")
+            return
+
+        emitted_as = dataset
+        dataset = DATASET_ALIASES.get(dataset, dataset)
+        if dataset != emitted_as:
+            self.logger.info(f"[local-out] {emitted_as}: persisted as {dataset}")
+
         collection_name = OUTPUT_COLLECTIONS.get(dataset)
         if collection_name is None:
-            # The model computes the normal branch and the EMSR-b frame too; the
-            # local flow only persists the weighted datasets.
-            self.logger.info(f"[local-out] {dataset}: skipped (not persisted locally)")
+            # The model computes the normal branch too; only weighted is persisted.
+            self.logger.info(f"[local-out] {emitted_as}: skipped (not persisted locally)")
             return
 
         if df is None or df.empty:
@@ -189,35 +204,34 @@ class LocalAdditiveCache(AdditiveCache):
             self._write_csv(df, dataset, keys)
 
     def _write_csv(self, df, dataset, keys):
-        """One CSV per dataset per sector: `<dataset>_<sector>.csv`.
+        """One CSV per dataset, all sectors in it: `<dataset>.csv`.
 
-        No date in the name — a re-run for the same sector overwrites the file,
-        which is what you want when iterating. The snapshot date is still a
-        column (`SnapshotDate`) on every row.
+        Sectors are processed one at a time, so the first write of a run truncates
+        the file and later sectors append to it. No date in the name — a re-run
+        overwrites. The snapshot date is still a column (`SnapshotDate`).
 
         The 0..180 pickup-curve columns are dropped so the file opens in a
-        spreadsheet (33 columns instead of 214); `write_full_csv` adds a
-        `*_full.csv` alongside it that keeps them.
+        spreadsheet; `write_full_csv` adds a `*_full.csv` that keeps them.
         """
-        sectors = sorted(df['Sector'].dropna().unique()) if 'Sector' in df.columns else [None]
         curve_cols = _ndo_columns(df)
+        trimmed = df.drop(columns=curve_cols) if curve_cols else df
 
-        for sector in sectors:
-            part = df if sector is None else df[df['Sector'] == sector]
-            stem = '_'.join(x for x in (dataset, sector) if x)
+        self._to_csv(trimmed, f'{dataset}.csv')
+        if self.write_full_csv and curve_cols:
+            self._to_csv(df, f'{dataset}_full.csv')
 
-            trimmed = part.drop(columns=curve_cols) if curve_cols else part
-            self._to_csv(trimmed, f'{stem}.csv', len(part))
-            if self.write_full_csv and curve_cols:
-                self._to_csv(part, f'{stem}_full.csv', len(part))
-
-    def _to_csv(self, df, filename, row_count):
+    def _to_csv(self, df, filename):
         path = os.path.join(self.output_dir, filename)
         out = df.copy()
         out.columns = [str(c) for c in out.columns]
-        out.to_csv(path, index=False)
+
+        first = filename not in self._csv_started
+        out.to_csv(path, index=False, mode='w' if first else 'a', header=first)
+        self._csv_started.add(filename)
+
+        verb = 'wrote' if first else 'appended'
         self.logger.info(f"[local-out] csv   {path} "
-                         f"({row_count} rows x {len(out.columns)} cols)")
+                         f"({verb} {len(out)} rows x {len(out.columns)} cols)")
 
     def ensure_output_indexes(self):
         for collection_name in set(OUTPUT_COLLECTIONS.values()):

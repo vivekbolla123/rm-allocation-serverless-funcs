@@ -1,8 +1,11 @@
 """
 localtest/inspect_outputs.py
 =============================================================================
-Reads one flight's weighted results and its AU ladder back out of local MongoDB
-so a run can be sanity checked without opening a spreadsheet.
+Reads one flight's results back out of local MongoDB so a run can be sanity
+checked without opening a spreadsheet.
+
+There are only two output datasets, and the EMSR-b AU ladder rides along on the
+fare-bucket one, so everything below comes from two documents' worth of query.
 
     python -m localtest.inspect_outputs
     python -m localtest.inspect_outputs --sector DELBOM --flight 1104 --ndo 25
@@ -17,6 +20,13 @@ def _fmt(value, width=14, places=4):
     return f'{str(value):>{width}}'
 
 
+def _table(rows, columns, widths=None):
+    widths = widths or [14] * len(columns)
+    print(''.join(f'{c[:w - 1]:>{w}}' for c, w in zip(columns, widths)))
+    for row in rows:
+        print(''.join(_fmt(row.get(c), w) for c, w in zip(columns, widths)))
+
+
 def main(argv=None):
     from localtest.bootstrap import bootstrap, ensure_localtest_importable
     ensure_localtest_importable()
@@ -25,7 +35,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--sector', default='BOMDEL')
     ap.add_argument('--flight', type=int, default=1101)
-    ap.add_argument('--ndo', type=int, default=18,
+    ap.add_argument('--ndo', type=int, default=56,
                     help='future_flight_NDO of the flight to inspect')
     args = ap.parse_args(argv)
 
@@ -36,27 +46,35 @@ def main(argv=None):
                'future_flight_NDO': args.ndo}
         print(f'{cfg.mongo_db}  {args.sector} QP{args.flight} at NDO {args.ndo}')
 
-        # ---- fare bucket level, weighted --------------------------------
-        cols = ['FareBucket', 'weighted_pax_count', 'Remaining_pax_distribution',
-                'Final_pax_count', 'Demand Multiplier', 'New Final_pax_count',
-                'WTP_Factor', 'WTP_pax_count']
-        rows = list(db.add_model_fare_bucket_level_weighted.find(key, {'_id': 0})
-                    .sort('FareBucket_Lower', 1))
-        print('\n--- fare bucket level (weighted) ---')
-        if not rows:
-            print('  no rows for that key')
-        else:
-            print(''.join(f'{c[:12]:>14}' for c in cols))
-            for row in rows:
-                print(''.join(_fmt(row.get(c)) for c in cols))
-            print('  totals  Final=%.3f  DemandAdjusted=%.3f  WTP=%.3f' % (
-                sum(r.get('Final_pax_count') or 0 for r in rows),
-                sum(r.get('New Final_pax_count') or 0 for r in rows),
-                sum(r.get('WTP_pax_count') or 0 for r in rows)))
-
-        # ---- flight level, weighted --------------------------------------
-        print('\n--- flight level (weighted) ---')
+        buckets = list(db.add_model_fare_bucket_level_weighted.find(key, {'_id': 0})
+                       .sort('FareMidpoint', -1))
         flight = db.add_model_flight_level_weighted.find_one(key, {'_id': 0}) or {}
+
+        if not buckets:
+            print('\n  no fare-bucket rows for that key')
+        else:
+            # ---- demand chain, steps 11 -> 14 ----------------------------
+            print('\n--- demand through the pipeline (fare bucket level, weighted) ---')
+            _table(sorted(buckets, key=lambda r: r.get('FareBucket_Lower') or 0),
+                   ['FareBucket', 'weighted_pax_count', 'Remaining_pax_distribution',
+                    'Final_pax_count', 'Demand Multiplier', 'New Final_pax_count',
+                    'WTP_Factor', 'WTP_pax_count'])
+            filed = [r for r in buckets if r.get('FareBucket') != 'Promo']
+            print('  totals  Final=%.3f  DemandAdjusted=%.3f  WTP=%.3f' % (
+                sum(r.get('Final_pax_count') or 0 for r in filed),
+                sum(r.get('New Final_pax_count') or 0 for r in filed),
+                sum(r.get('WTP_pax_count') or 0 for r in filed)))
+
+            # ---- EMSR-b ladder -------------------------------------------
+            print('\n--- EMSR-b AU ladder (highest fare first) ---')
+            _table(buckets,
+                   ['FareBucket', 'FareMidpoint', 'OptimizationDemand',
+                    'OptimizationDemandStd', 'ProtectionLimit', 'AU', 'RBD',
+                    'IsOpeningFare'],
+                   [14, 14, 20, 22, 16, 8, 8, 14])
+
+        # ---- flight level -----------------------------------------------
+        print('\n--- flight level (weighted) ---')
         if not flight:
             print('  no row for that key')
         for field in ['SnapshotDate', 'DepartureDate', 'DOW', 'STD', 'Capacity',
@@ -67,26 +85,6 @@ def main(argv=None):
                       'New predicted_pax_count_final', 'New Final Total Bookings',
                       'OpeningFareBucket', 'OpeningFareMidpoint']:
             print(f'  {field:<36}{_fmt(flight.get(field), 18)}')
-
-        # ---- EMSR-b ladder: protection limits and AUs ---------------------
-        print('\n--- inventory optimization (EMSR-b, weighted branch) ---')
-        ladder = list(db.add_model_inventory_optimization.find(key, {'_id': 0})
-                      .sort('FareMidpoint', -1))
-        if not ladder:
-            print('  no rows for that key')
-        else:
-            head = ('FareBucket', 'FareMidpoint', 'pax', 'Protection', 'AU', 'RBD',
-                    'Opening')
-            print(''.join(f'{h:>14}' for h in head))
-            for row in ladder:
-                print(''.join([
-                    _fmt(row.get('FareBucket')),
-                    _fmt(row.get('FareMidpoint'), places=2),
-                    _fmt(row.get('OptimizationDemand'), places=3),
-                    _fmt(row.get('ProtectionLimit')),
-                    _fmt(row.get('AU')),
-                    _fmt(row.get('RBD')),
-                    _fmt(row.get('IsOpeningFare'))]))
     finally:
         client.close()
 

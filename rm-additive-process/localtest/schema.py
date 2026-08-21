@@ -28,15 +28,14 @@ Optional CSV overrides (absent by default — the model computes them):
     fare_buckets.csv     replaces step 1  (GP fare bucket computation)
     tagging.csv          replaces step 4  (historical Z-score lean/peak tagging)
 
-Model outputs, written to Mongo AND to CSV by LocalAdditiveCache. Only the
-weighted branch is kept locally; the normal branch is still computed by the
-model, it is just not persisted.
+Model outputs — exactly two, each one file covering every sector. Only the
+weighted branch is kept; the normal branch is still computed, just not persisted.
+The EMSR-b results (protection limits, AU, promo row) ride along on the
+fare-bucket file rather than being a third output.
 
     add_model_flight_level_weighted           flight level, weighted
-    add_model_fare_bucket_level_weighted      fare bucket level, weighted
-    add_model_inventory_optimization          EMSR-b protection limits + AU,
-                                              rebuilt from the weighted branch
-                                              (see LocalAdditiveProcessor)
+    add_model_fare_bucket_level_weighted      fare bucket level, weighted,
+                                              including the EMSR-b AU ladder
 """
 
 # =============================================================================
@@ -147,17 +146,37 @@ OVERRIDE_TAGGING_CSV = 'tagging.csv'             # cols: Sector, DepartureDate,
 
 
 # =============================================================================
-# Output datasets: the S3 dataset name the model emits -> local Mongo collection.
+# Output datasets
+#
+# The local flow emits exactly two: the weighted flight level and the weighted
+# fare bucket level, each a single file covering every sector.
+#
+# The EMSR-b frame is NOT a separate output. It is the weighted fare-bucket frame
+# plus the optimization results (OptimizationDemand, ProtectionLimit, AU, RBD,
+# OpeningFare*) and one promo row per flight — same grain, superset of columns. So
+# the optimized frame IS the fare-bucket output, and the pre-optimization copy is
+# dropped.
+#
 # Keys match the `s3_dataset` values in
-# AdditivePickupModelProcessor._save_results. Any dataset the model emits that is
-# absent from this map is skipped, which is how the local flow keeps only the
-# weighted branch.
+# AdditivePickupModelProcessor._save_results. Anything absent from these maps is
+# skipped, which is how the normal (unweighted) branch stays unpersisted.
 # =============================================================================
 
 OUTPUT_COLLECTIONS = {
     'flight_level_weighted': 'add_model_flight_level_weighted',
     'fare_bucket_weighted': 'add_model_fare_bucket_level_weighted',
-    'inventory_optimization': 'add_model_inventory_optimization',
+}
+
+# Emitted under one name, persisted under another.
+DATASET_ALIASES = {
+    'inventory_optimization': 'fare_bucket_weighted',
+}
+
+# Emitted but discarded, because an aliased dataset supersedes it. Checked before
+# the aliases so the un-optimized fare-bucket frame is dropped while the optimized
+# one takes its place.
+SUPERSEDED_DATASETS = {
+    'fare_bucket_weighted',
 }
 
 # Prefix used by every output collection. clear_outputs() drops the whole family
