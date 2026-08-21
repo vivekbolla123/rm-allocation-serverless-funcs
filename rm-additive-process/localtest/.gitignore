@@ -1,0 +1,3 @@
+# inputs/ and outputs/ are committed on purpose: the mock inputs are the fixture
+# and the outputs are the reference to diff against.
+__pycache__/

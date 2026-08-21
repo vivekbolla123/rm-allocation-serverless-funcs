@@ -1,0 +1,5 @@
+Sector,Year,Month,WTP Factor
+BOMDEL,2026,Aug,3%
+BOMDEL,2026,Sep,0%
+DELBOM,2026,Aug,3%
+DELBOM,2026,Sep,0%
