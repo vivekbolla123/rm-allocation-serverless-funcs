@@ -172,8 +172,11 @@ def build_parser():
 
     data = ap.add_argument_group('mock data shape (used with --generate)')
     data.add_argument('--hist-days', type=int, default=400)
-    data.add_argument('--future-days', type=int, default=21)
+    data.add_argument('--future-days', type=int, default=60)
     data.add_argument('--mean-bookings', type=int, default=26)
+    data.add_argument('--capacity', type=int, default=None,
+                      help='seats per flight (default 40); decides whether the '
+                           'EMSR-b AU ladder is meaningful or flat')
     data.add_argument('--seed-value', type=int, default=20260821,
                       help='RNG seed for the generator')
     data.add_argument('--anchor', default=None, help='YYYY-MM-DD; defaults to today')
@@ -228,10 +231,11 @@ def main(argv=None):
 
     # --- stage 1: generate -------------------------------------------------
     if args.generate:
-        from localtest.generate_inputs import generate
+        from localtest.generate_inputs import DEFAULT_CAPACITY, generate
         anchor = date.fromisoformat(args.anchor) if args.anchor else None
         generate(cfg.inputs_dir, hist_days=args.hist_days,
                  future_days=args.future_days, mean_bookings=args.mean_bookings,
+                 capacity=args.capacity or DEFAULT_CAPACITY,
                  seed=args.seed_value, anchor=anchor, logger=logger)
 
     # --- stage 2: seed -----------------------------------------------------

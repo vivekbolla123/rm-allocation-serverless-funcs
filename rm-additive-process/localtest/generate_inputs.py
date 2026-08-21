@@ -13,6 +13,8 @@ like production traffic:
   * ~400 days of history, because historical tagging uses a rolling 365-day
     window and future tagging re-derives tags on the trailing 365 days ending
     on the last day of the previous month.
+  * a load factor and a forward horizon that leave enough predicted pickup for
+    step 15 to build a non-degenerate AU ladder — see DEFAULT_CAPACITY below.
   * 4 flights per day per sector, each parked in a different STD time cluster,
     so the Z-score tagging has a populated (Sector, Time Cluster) group with
     real day-to-day variance.
@@ -44,7 +46,20 @@ import pandas as pd
 # Fixed characteristics of the mocked network
 # =============================================================================
 
-CAPACITY = 189
+# Seats per flight. This is the knob that decides whether the EMSR-b ladder in
+# step 15 is interesting or degenerate, because protection limits are driven by
+# predicted pickup *relative to capacity*.
+#
+# Predicted pickup is only the remaining window (NDO <= future_flight_NDO), which
+# at the default --future-days is a fraction of a flight's total load. Against 189
+# seats that leaves ~1% of capacity to protect, so every AU pins to capacity and
+# the ladder tells you nothing. A smaller aircraft exercises the same code paths
+# with the same number of rows.
+#
+# Overridable with --capacity; raise it to 189 for a trunk-route-shaped fixture
+# and accept a flat AU ladder, or raise --mean-bookings with it and accept a much
+# larger input CSV.
+DEFAULT_CAPACITY = 40
 
 SECTORS = {
     'BOMDEL': {
@@ -132,7 +147,7 @@ def _sample_fares(rng, n, demand_index):
     return np.clip(np.round(fares, 2), BOOKING_FARE_MIN, BOOKING_FARE_MAX)
 
 
-def _flight_load(rng, dep_date, demand_index, mean_bookings):
+def _flight_load(rng, dep_date, demand_index, mean_bookings, capacity):
     """Bookings a flight ends up with — DOW + seasonal + noise.
 
     The spread is what gives the Z-score tagging something to separate; a flat
@@ -142,7 +157,7 @@ def _flight_load(rng, dep_date, demand_index, mean_bookings):
     seasonal = 1.0 + 0.18 * np.sin(2 * np.pi * (dep_date.timetuple().tm_yday / 365.0))
     noise = rng.normal(1.0, 0.17)
     load = mean_bookings * dow_factor[dep_date.weekday()] * seasonal * demand_index * noise
-    return int(np.clip(round(load), 4, CAPACITY))
+    return int(np.clip(round(load), 4, capacity))
 
 
 def _fare_basis(rbd, is_sol):
@@ -155,7 +170,7 @@ def _fare_basis(rbd, is_sol):
 # Generators
 # =============================================================================
 
-def build_inventory_legs(hist_start, future_end):
+def build_inventory_legs(hist_start, future_end, capacity):
     """One row per (sector, date, flight) across the whole span."""
     rows = []
     leg_id = 900_000_000
@@ -171,8 +186,8 @@ def build_inventory_legs(hist_start, future_end):
                     'ArrivalStation': meta['destination'],
                     'STD': datetime.combine(dep, std).strftime('%Y-%m-%d %H:%M:%S'),
                     'FlightNumber': flight_number,
-                    'AdjustedCapacity': CAPACITY,
-                    'Capacity': CAPACITY,
+                    'AdjustedCapacity': capacity,
+                    'Capacity': capacity,
                     'DepartureDate': dep.isoformat(),
                     'CarrierCode': 'QP',
                     'Status': 1,
@@ -180,7 +195,7 @@ def build_inventory_legs(hist_start, future_end):
     return pd.DataFrame(rows)
 
 
-def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds):
+def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds, capacity):
     """Split every leg's bookings into flown (past) and forward (future) rows.
 
     Flown rows carry their own capacity/distance because the production flown
@@ -201,7 +216,8 @@ def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds):
         dep_date = date.fromisoformat(row.DepartureDate)
         is_future = dep_date >= today
 
-        total_load = _flight_load(rng, dep_date, meta['demand_index'], mean_bookings)
+        total_load = _flight_load(rng, dep_date, meta['demand_index'], mean_bookings,
+                                  capacity)
 
         if is_future:
             # Only the bookings already made (BookingDate < today) exist yet.
@@ -248,7 +264,7 @@ def build_bookings(legs_df, today, rng, mean_bookings, bucket_rbds):
                                   Origin=meta['origin'],
                                   Destination=meta['destination'],
                                   FlightNumber=row.FlightNumber,
-                                  AdjustedCapacity=CAPACITY,
+                                  AdjustedCapacity=capacity,
                                   Distance=meta['distance']))
 
     flown_cols = ['Origin', 'Destination', 'DepartureDate', 'BookingDate', 'FlightNumber',
@@ -327,8 +343,8 @@ def build_rm_parameter_values():
 # Entry point
 # =============================================================================
 
-def generate(inputs_dir, hist_days=400, future_days=21, mean_bookings=26,
-             seed=20260821, anchor=None, logger=None):
+def generate(inputs_dir, hist_days=400, future_days=60, mean_bookings=26,
+             capacity=DEFAULT_CAPACITY, seed=20260821, anchor=None, logger=None):
     """Write every input CSV and return {filename: row count}."""
     # Imported here so bootstrap() has already installed the local configsettings.
     from Constants import FARE_BUCKET_RBDS
@@ -344,9 +360,11 @@ def generate(inputs_dir, hist_days=400, future_days=21, mean_bookings=26,
 
     log(f"[generate] anchor={today} history={hist_start}..{today - timedelta(days=1)} "
         f"forward={today}..{future_end}")
+    log(f"[generate] capacity={capacity} mean_bookings={mean_bookings} "
+        f"(~{100 * mean_bookings / capacity:.0f}% load factor)")
 
-    legs = build_inventory_legs(hist_start, future_end)
-    flown, booked = build_bookings(legs, today, rng, mean_bookings, bucket_rbds)
+    legs = build_inventory_legs(hist_start, future_end, capacity)
+    flown, booked = build_bookings(legs, today, rng, mean_bookings, bucket_rbds, capacity)
 
     frames = {
         'inventory_leg.csv': legs,
@@ -381,18 +399,22 @@ def main():
     ap.add_argument('--hist-days', type=int, default=400,
                     help='days of history to generate (>=400 keeps the 365-day '
                          'tagging windows fully populated)')
-    ap.add_argument('--future-days', type=int, default=21,
+    ap.add_argument('--future-days', type=int, default=60,
                     help='days of forward schedule (raise toward 180 for a full '
                          'horizon; runtime grows with it)')
     ap.add_argument('--mean-bookings', type=int, default=26,
                     help='average bookings per flight')
+    ap.add_argument('--capacity', type=int, default=DEFAULT_CAPACITY,
+                    help='seats per flight; decides whether the EMSR-b AU ladder '
+                         'is meaningful or flat')
     ap.add_argument('--seed', type=int, default=20260821)
     ap.add_argument('--anchor', default=None, help='YYYY-MM-DD; defaults to today')
     args = ap.parse_args()
 
     anchor = date.fromisoformat(args.anchor) if args.anchor else None
     generate(cfg.inputs_dir, hist_days=args.hist_days, future_days=args.future_days,
-             mean_bookings=args.mean_bookings, seed=args.seed, anchor=anchor)
+             mean_bookings=args.mean_bookings, capacity=args.capacity,
+             seed=args.seed, anchor=anchor)
 
 
 if __name__ == '__main__':

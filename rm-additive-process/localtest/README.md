@@ -74,19 +74,18 @@ No MySQL running? This works immediately:
 python -m localtest.run_local --generate --seed --run --esb csv
 ```
 
-Roughly ten seconds per sector, two sectors by default. When it finishes you
-should see:
+Roughly 45 seconds for both sectors. When it finishes you should see:
 
 ```
 status            : SUCCESS
 sectors succeeded : ['BOMDEL', 'DELBOM']
 sectors failed    : []
-output fare_bucket_weighted           1672 docs
-output flight_level_weighted            88 docs
-output inventory_optimization         1760 docs
-mongo  local_qp_dw_rmalloc.add_model_fare_bucket_level_weighted       3344 docs
-mongo  local_qp_dw_rmalloc.add_model_flight_level_weighted             176 docs
-mongo  local_qp_dw_rmalloc.add_model_inventory_optimization           3520 docs
+output fare_bucket_weighted           4636 docs
+output flight_level_weighted           244 docs
+output inventory_optimization         4880 docs
+mongo  local_qp_dw_rmalloc.add_model_fare_bucket_level_weighted       9272 docs
+mongo  local_qp_dw_rmalloc.add_model_flight_level_weighted             488 docs
+mongo  local_qp_dw_rmalloc.add_model_inventory_optimization           9760 docs
 csv    ...\localtest\outputs
 ```
 
@@ -388,7 +387,11 @@ Every column from the weighted fare-bucket frame, plus the EMSR-b results:
 
 There is one extra row per flight beyond the 19 buckets: the **promo** row, at
 `PROMO_FARE_RATIO = 0.80` of the lowest filed fare, RBD `W`. Hence 20 rows per
-flight (1760 = 88 flights x 20).
+flight (4880 = 244 flights x 20).
+
+`AU` near `Capacity` on most rows is not a bug — it means there is little
+predicted pickup to protect against. See
+[the AU ladder needs demand](#the-au-ladder-needs-demand).
 
 The opening fare is determined **ignoring** promo inventory, which is why a
 flight can show `IsOpeningFare` on a filed bucket while the promo row still
@@ -497,8 +500,9 @@ python -m localtest.run_local [stages] [options]
 | Flag | Default | Notes |
 |---|---|---|
 | `--hist-days` | `400` | keep at 400+; the tagging windows are 365 days |
-| `--future-days` | `21` | forward schedule; raise toward 180 for the full horizon |
+| `--future-days` | `60` | forward schedule; drives how much pickup is left to protect |
 | `--mean-bookings` | `26` | average bookings per flight |
+| `--capacity` | `40` | seats per flight; with `--mean-bookings`, sets the load factor |
 | `--seed-value` | `20260821` | RNG seed |
 | `--anchor` | today | `YYYY-MM-DD`; pins the snapshot date |
 
@@ -742,19 +746,53 @@ of bookings.
 
 ```powershell
 python -m localtest.run_local --generate `
-    --hist-days 400 --future-days 21 --mean-bookings 26 `
+    --hist-days 400 --future-days 60 --mean-bookings 26 --capacity 40 `
     --seed-value 20260821 --anchor 2026-08-21
 ```
 
 * `--hist-days` — 400 or more. Shorter starves both tagging windows.
-* `--future-days` — days of forward schedule. 21 keeps a run near ten seconds per
-  sector; raise toward 180 for the production horizon, at proportional cost.
-* `--mean-bookings` — the default 26 against a 189-seat capacity is a
-  deliberately thin load that keeps runs fast; the load factors it produces are
-  **not** realistic. Use around 90 when you want output that looks like a real
-  flight.
+* `--future-days` — days of forward schedule. Also decides how much pickup is
+  left to protect, so it drives whether the AU ladder means anything: see
+  [the AU ladder needs demand](#the-au-ladder-needs-demand). 60 costs about 45
+  seconds for both sectors; raise toward 180 for the production horizon.
+* `--mean-bookings` and `--capacity` — together these set the load factor. The
+  defaults are 26 on 40 seats, about 65%.
 * `--anchor` — pins the snapshot date, so runs on different days are comparable.
 * `--seed-value` — same seed and anchor gives byte-identical CSVs.
+
+### The AU ladder needs demand
+
+Step 15 protects seats against **predicted pickup relative to capacity**, so the
+AU ladder is only interesting when that ratio is non-trivial. Two settings
+control it, and getting either wrong produces a ladder where every `AU` equals
+`Capacity` — which looks broken but is correct behaviour for a flight with no
+demand to protect against.
+
+**Capacity.** `weighted_pax_count` is the pickup for one fare bucket over the
+remaining window, so it is a small number by construction. Against 189 seats the
+whole flight's pickup is around 1% of capacity, protection rounds to 0-4 seats,
+and every `AU` pins to capacity. The default 40 seats keeps the same row count
+while making the ratio meaningful.
+
+**Forward horizon.** Predicted pickup only covers `NDO <= future_flight_NDO`, so
+a flight departing tomorrow has almost nothing left to protect and a flight 120
+days out has nearly its whole load. With the generator's booking curve, roughly
+65% of bookings are already in by 21 days out but only 17% by 120 days out. So
+the AU ladder gets steeper the further out you look:
+
+| flight at | AU range on 40 seats |
+|---|---|
+| NDO 18 | 40 → 36 |
+| NDO 56 | 40 → 27 |
+| NDO 112 | 40 → 16 |
+
+`AU` reaching 0 requires predicted remaining demand to exceed capacity, i.e. a
+far-out, heavily-booked flight. It is not something you should expect near
+departure.
+
+This is worth internalising because it is a property of the model, not of the
+mock: **AU is least restrictive near departure and most restrictive far out**,
+since protection is computed against future demand only.
 
 ---
 
@@ -795,6 +833,15 @@ is tiny or absent, because the bookings never got a `FareBasis`.
 **Predictions are all zero for a flight** — expected when
 `future_flight_NDO = 0`; the flight departs today and there is no pickup window
 left. Check a flight further out.
+
+**Every `AU` equals `Capacity`** — not a bug. There is not enough predicted
+pickup relative to capacity for EMSR-b to protect anything. Lower `--capacity` or
+raise `--future-days`; see
+[the AU ladder needs demand](#the-au-ladder-needs-demand).
+
+**`RBD` is empty on the AU ladder** — production behaviour. Only the promo row
+carries an RBD (`W`); the model has no bucket-to-RBD mapping at step 15, so if you
+need RBDs against AUs that mapping has to come from elsewhere.
 
 **`WTP_pax_count` equals `New Final_pax_count`** — the WTP factor for that
 sector-month is 0%, or `wtp.csv` has no row covering it.
