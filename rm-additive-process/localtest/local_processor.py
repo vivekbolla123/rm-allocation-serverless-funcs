@@ -28,10 +28,23 @@ class LocalAdditiveProcessor(AdditivePickupModelProcessor):
 
     def __init__(self, logger, params, overrides, context, cfg,
                  esb_backend='mysql', include_ndo_in_mongo=False,
-                 write_full_csv=False):
+                 write_full_csv=False, anchor=None):
         overrides = dict(overrides or {})
         overrides['mode'] = 'PROD'
         super().__init__(logger, params, overrides, context)
+
+        # --- anchor date override ---
+        anchor_date = anchor or overrides.get('anchor')
+        if anchor_date:
+            from datetime import date, datetime
+            import pandas as pd
+            from Constants import PREDICTION_HORIZON_DAYS
+            if isinstance(anchor_date, str):
+                anchor_date = date.fromisoformat(anchor_date)
+            self.today = datetime.combine(anchor_date, datetime.min.time())
+            self.current_date = pd.to_datetime(anchor_date)
+            self.prediction_limit = self.current_date + pd.Timedelta(days=PREDICTION_HORIZON_DAYS)
+            self.one_year_back = self.current_date - pd.Timedelta(days=365)
 
         self.cfg = cfg
         self.output_dir = cfg.outputs_dir

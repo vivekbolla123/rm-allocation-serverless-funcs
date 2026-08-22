@@ -98,13 +98,15 @@ def run_model(cfg, logger, sectors, esb_backend, args):
             'sectors_expected': len(sectors) if sectors else None,
             # There is no local parquet cache, so every run is a full refetch.
             'force_backfill': True,
+            'anchor': args.anchor,
         }
 
         processor = LocalAdditiveProcessor(
             logger, params, overrides, None, cfg,
             esb_backend=esb_backend,
             include_ndo_in_mongo=args.mongo_include_ndo,
-            write_full_csv=args.full_csv)
+            write_full_csv=args.full_csv,
+            anchor=args.anchor)
 
         if args.reset_outputs:
             processor.cache.clear_outputs()
