@@ -133,3 +133,15 @@ class MarketListRow:
         # Profile fare upsell percentage — applied when incrementedProfileFareFlag is 1
         # (replaces the standard station upsell with a market-list-level override)
         self.profileFareUpsell = currParams.get("ProfileFareUpsell", CONST_NA)
+
+        # --- NextGen AU Optimization & Competition Response Inputs (BRD-AU_Opt_Competition_Response) ---
+        self.price_floor = currParams.get("price_floor", currParams.get("priceFloor", self.b2c_backstop))
+        self.price_cap = currParams.get("price_cap", currParams.get("priceCap", self.hardanchor))
+        self.buy_up_factor = parse_numeric(currParams.get("buy_up_factor", currParams.get("buyUpFactor", currParams.get("BuyUpFactor", 0.0))))
+        self.connection_fare_flag = parse_int_flag(currParams.get("connection_fare_flag", currParams.get("connectionFareFlag", currParams.get("ConnectionFareFlag", 0))), 0)
+        self.additional_connection_duration = parse_numeric(currParams.get("additional_connection_duration", currParams.get("additionalConnectionDuration", currParams.get("AdditionalConnectionDuration", 4.0))))
+        self.time_range = parse_numeric(currParams.get("time_range", currParams.get("timeRange", currParams.get("TimeRange", 2.0))))
+        self.carrier_exclusion = currParams.get("carrier_exclusion", currParams.get("carrierExclusion", currParams.get("CarrierExclusion", currParams.get("CarrExlusionB2C", []))))
+        self.grid_name = str(currParams.get("grid_name", currParams.get("gridName", currParams.get("GridName", "DEFAULT")))).strip() or "DEFAULT"
+        self.nextgen_flag = parse_int_flag(currParams.get("nextgen_flag", currParams.get("nextGenFlag", currParams.get("NextGenFlag", 0))), 0)
+        self.competition_response_flag = parse_int_flag(currParams.get("competition_response_flag", currParams.get("competitionResponseFlag", currParams.get("CompetitionResponseFlag", 1))), 1)

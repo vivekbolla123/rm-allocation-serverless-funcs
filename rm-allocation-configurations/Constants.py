@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 
 DYNAMIC_D3_D4 = -99
@@ -375,20 +376,38 @@ CONST_NDO_BAND = "ndo_bands"
 CONST_DPLF_BAND = "dplf_bands"
 CONST_DYNAMIC_D1_D2 = "d1_d2_strategies"
 CONST_LAST_SELLING_FARE = "lastSellingFare"
+CONST_COMP_RESPONSE_GRID = "comp_response_grid"
+CONST_COMP_RESPONSE_PLF_BANDS = "comp_response_plf_bands"
+CONST_COMP_FARE_RECALIBRATION = "comp_fare_recalibration"
 
 CONST_RUN_SUMMARY = "run_summary"
 CONST_RUN_AUDIT = "allocation_run_audit"
 CONST_SUMMARY_FILE = "Summary"
+CONST_SUMMARY_NEXTGEN_FILE = "Summary_NextGen"
 CONST_AU_GRID = "AUGrid"
 
-CONST_MARKET_LIST_FILE_PATH = f"{sys.path[0]}/params/MarketList.csv"
-CONST_MARKET_LIST_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/params/MarketList_Connections.csv"
-CONST_AU_GRID_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/AUGrid.csv"
-CONST_SUMMARY_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary.csv"
-CONST_AU_GRID_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/AUGrid_sales.csv"
-CONST_SUMMARY_SALES_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_sales.csv"
-CONST_AU_GRID_CONNECTIONS_FILE_PATH=f"{sys.path[0]}/testcases/output/generated_output/AUGrid_Connections.csv"
-CONST_SUMMARY_CONNECTIONS_FILE_PATH = f"{sys.path[0]}/testcases/output/generated_output/summary_Connections.csv"
+_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TESTCASES_DIR = os.path.join(_ROOT_DIR, "QPDynamicAllocation", "testcases")
+
+CONST_MARKET_LIST_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList.csv")
+CONST_MARKET_LIST_CONNECTIONS_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList_Connections.csv")
+CONST_AU_GRID_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid.csv")
+CONST_SUMMARY_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary.csv")
+CONST_SUMMARY_NEXTGEN_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_nextgen.csv")
+CONST_INVENTORY_OPTIMIZATION_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "inventory_optimization.csv")
+CONST_AU_GRID_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_sales.csv")
+CONST_SUMMARY_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_sales.csv")
+CONST_AU_GRID_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_Connections.csv")
+CONST_SUMMARY_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_Connections.csv")
+
+# NextGen AU Optimization & Competition Response Parameters
+DEFAULT_FIRST_RBD_SEATS = 20
+DEFAULT_STANDARD_DEVIATION_FACTOR = 0.25
+DEFAULT_PROMO_FARE_FACTOR = 0.80
+DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
+DEFAULT_COVERAGE_PARAMETER = 3.0
+DEFAULT_ADDITIONAL_CONNECTION_DURATION = 4.0
+DEFAULT_TIME_RANGE = 2.0
 
 CONST_OUTPUT_SUMMARY_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
@@ -405,6 +424,30 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
     'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor'
+]
+
+CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
+    'Origin', 'Destin', 'FltNum', 'DepDate', 'SnapshotDate', 'Capacity',
+    'NG_Historical current booked', 'NG_LF Forecast', 'NG_AF Forecast',
+    'NG_Opening fare', 'NG_FirstRBD', 'Strategy fare', 'Anchor fare',
+    'Current_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
+    'Predicted_Pickup_Revised', 'Predicted_Flown_Revised',
+    'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
+    'buy_up_factor', 'RunId'
+]
+
+CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
+    'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
+    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
+    'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
+    'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
+    'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
+    'Capped_Predicted_Flown_Revised', 'A_cap', 'Current_Revenue', 'Expected_Revenue',
+    'Total_Expected_Revenue', 'Predicted_Revenue', 'SnapshotDate', 'Tagging',
+    'FareBucket', 'FareBucket_Upper', 'sigma', 'STD_future', 'STD_dt', 'oal_b2c_max',
+    'qp_b2c_min', 'qp_b2c_max', 'mu_bar', 'sigma_bar', 'F_j', 'protection_limit_yj',
+    'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3', 'A', 'Denominator'
 ]
 
 

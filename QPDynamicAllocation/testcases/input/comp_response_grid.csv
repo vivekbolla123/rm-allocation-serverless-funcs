@@ -1,0 +1,49 @@
+grid_name,ndo_band,plf_band,time_range,criteria,response_rule
+DEFAULT,0,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,0,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,0,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,0,3,TR,Min,"Min (1.75A, C)"
+DEFAULT,0,4,TR,Min,C
+DEFAULT,0,5,TR,Med,C
+DEFAULT,1,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,1,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,1,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,1,3,TR,Min,"Min (1.75A, C)"
+DEFAULT,1,4,TR,Min,C
+DEFAULT,1,5,TR,Med,C
+DEFAULT,2,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,2,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,2,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,2,3,TR,Min,"Min (1.75A, C)"
+DEFAULT,2,4,TR,Min,C
+DEFAULT,2,5,TR,Med,C
+DEFAULT,3,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,3,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,3,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,3,3,TR,Min,"Min (1.75A, C)"
+DEFAULT,3,4,TR,Min,C
+DEFAULT,3,5,TR,Med,C
+DEFAULT,4,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,4,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,4,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,4,3,TR,Min,"Min (1.75A, C)"
+DEFAULT,4,4,TR,Min,C
+DEFAULT,4,5,TR,Med,C
+DEFAULT,5,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,5,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,5,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,5,3,TR,Min,"Min (2A, C)"
+DEFAULT,5,4,TR,Min,C
+DEFAULT,5,5,TR,Med,C
+DEFAULT,6,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,6,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,6,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,6,3,TR,Min,"Min (2A, C)"
+DEFAULT,6,4,TR,Min,C
+DEFAULT,6,5,TR,Med,C
+DEFAULT,7,0,TR,Min,"Min (1.2A, 0.8C)"
+DEFAULT,7,1,TR,Min,"Min (1.3A, 0.9C)"
+DEFAULT,7,2,TR,Min,"Min (1.5A, C)"
+DEFAULT,7,3,TR,Min,"Min (2A, C)"
+DEFAULT,7,4,TR,Min,C
+DEFAULT,7,5,TR,Med,C

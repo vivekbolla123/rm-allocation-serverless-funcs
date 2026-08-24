@@ -906,6 +906,137 @@ class RMDatabaseHelper:
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_latest: {e}")
 
+    def insertSummaryRowNextGen(self, nextgen_results):
+        """Inserts NextGen output summary row into DB if logs are configured."""
+        if not nextgen_results:
+            return
+        should_log = True
+        if self.inputSource and hasattr(self.inputSource, 'logs') and isinstance(self.inputSource.logs, dict):
+            should_log = (self.inputSource.logs.get(CONST_RUN_SUMMARY) == DB)
+        if should_log and hasattr(self, 'db') and hasattr(self.db, 'run_summary_nextgen'):
+            latest_row = nextgen_results[-1]
+            doc = vars(latest_row) if not isinstance(latest_row, dict) else latest_row.copy()
+            doc.pop('_id', None)
+            clean_doc = {k: (None if pd.isna(v) else v) for k, v in doc.items()}
+            try:
+                self.db.run_summary_nextgen.insert_one(clean_doc)
+            except Exception as e:
+                self.logger.error(f"Error inserting run_summary_nextgen: {e}")
+
+    def insertInventoryOptimization(self, opt_rows):
+        """Persists detailed per-bucket inventory optimization rows to DB if configured."""
+        if not opt_rows:
+            return
+        should_log = True
+        if self.inputSource and hasattr(self.inputSource, 'logs') and isinstance(self.inputSource.logs, dict):
+            should_log = (self.inputSource.logs.get(CONST_RUN_SUMMARY) == DB)
+        if should_log and hasattr(self, 'db') and hasattr(self.db, 'inventory_optimization'):
+            try:
+                docs = []
+                for r in opt_rows:
+                    d = vars(r) if not isinstance(r, dict) else r.copy()
+                    d.pop('_id', None)
+                    clean_d = {k: (None if pd.isna(v) else v) for k, v in d.items()}
+                    docs.append(clean_d)
+                if docs:
+                    self.db.inventory_optimization.insert_many(docs)
+            except Exception as e:
+                self.logger.error(f"Error inserting inventory_optimization: {e}")
+
+    def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+        """Queries normalized competition response grid or returns None."""
+        try:
+            if hasattr(self.db, 'comp_response_grid'):
+                result = self.db.comp_response_grid.find_one({
+                    "grid_name": grid_name,
+                    "ndo_band": int(ndo_band),
+                    "plf_band": int(plf_band)
+                })
+                if result:
+                    return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_grid: {e}")
+            return None
+
+    def getCompResponsePlfBand(self, plf):
+        """Finds PLF band for a given PLF value from comp_response_plf_bands collection."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                result = self.db.comp_response_plf_bands.find_one({
+                    "start": {"$lte": float(plf)},
+                    "end": {"$gt": float(plf)}
+                })
+                if result:
+                    return result.get("plf_band")
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands: {e}")
+            return None
+
+    def getCompFareRecalibration(self, sector):
+        """Fetches competitor fare recalibration adjustments for the sector from MongoDB collection."""
+        try:
+            if hasattr(self, 'db') and hasattr(self.db, 'comp_fare_recalibration'):
+                sec_clean = str(sector).replace('/', '') if sector else ''
+                sec_slash = f"{sector[:3]}/{sector[3:]}" if sector and len(sector) == 6 else sector
+                result = self.db.comp_fare_recalibration.find_one({
+                    "$or": [{"Sector": sector}, {"Sector": sec_clean}, {"Sector": sec_slash}]
+                })
+                if result:
+                    return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_fare_recalibration: {e}")
+            return None
+
+    def get_additive_fare_bucket_forecast(self, sector, snapshot_date=None, departure_date=None, flight_number=None):
+        """
+        Reads the weighted fare bucket forecast directly from the MySQL Data Warehouse table:
+        `RM_DW_DATA.add_model_fare_bucket_level_weighted` via self.dwconn, or from the
+        local test collection `add_model_fare_bucket_level_weighted` during local testing.
+        """
+        import re
+
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+        sec_clean = str(sector).replace('/', '') if sector else ''
+
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                if dep_str:
+                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                if flt_digits:
+                    query += f" AND FlightNumber = {flt_digits}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_fare_bucket_level_weighted: {e}")
+
+        # Local test fixture fallback (loaded from add_model_fare_bucket_level_weighted.csv)
+        if hasattr(self, 'db') and hasattr(self.db, 'add_model_fare_bucket_level_weighted'):
+            try:
+                q = {}
+                if sector:
+                    q["$or"] = [{"Sector": sector}, {"Sector": sec_clean}, {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}]
+                docs = list(self.db.add_model_fare_bucket_level_weighted.find(q))
+                if docs:
+                    df = pd.DataFrame(docs)
+                    if dep_str and 'DepartureDate' in df.columns:
+                        df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
+                    if flt_int and 'FlightNumber' in df.columns:
+                        df = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
+                    if not df.empty:
+                        return df
+            except Exception:
+                pass
+
+        return None
+
     def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
         if ndocounter < 0:
             ndocounter = 0
