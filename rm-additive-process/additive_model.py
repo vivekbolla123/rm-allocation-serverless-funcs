@@ -55,6 +55,10 @@ from helpers.db_helpers.additive_mongo_helper import AdditiveMongoHelper
 # Module logger — inherits the handler/root logger config in Lambda.
 logger = logging.getLogger()
 
+# ADHOC: per-process cache of monthly QP fares CSVs, keyed by file path, so the
+# same file isn't re-read for every (sector, snapshot) run in a local sweep.
+_FARES_CSV_CACHE = {}
+
 # =============================================================================
 # DATABASE CONFIGURATION  (table names only — engines are injected)
 # =============================================================================
@@ -218,6 +222,14 @@ class AdditivePickupModelProcessor:
             self.active_sectors = list(self.test_sectors)
         else:
             self.active_sectors = []   # standalone full run -> fetch all active
+
+        # --- ADHOC: local monthly QP fares (bypass Mongo fetch_fares) ---
+        # overrides['fares_dir'] = local dir holding files named YYYYMM01_qpfares.csv
+        # (one per snapshot month). When set, fare buckets are built from the file
+        # for THIS snapshot's month instead of qp_dw_rmalloc.fares. Optional
+        # overrides['fares_col_map'] remaps CSV headers (see _load_local_fares).
+        self.fares_dir = r'C:\Users\kenneth.menezes\Work\RM\rm-allocation-serverless-funcs\rm-additive-process\testcases\inputs'
+        self.fares_col_map = overrides.get('fares_col_map') or {}
 
         self.cache.data = {}
 
@@ -483,6 +495,86 @@ class AdditivePickupModelProcessor:
     # STEP 1: COMPUTE FARE BUCKETS (from qp_dw_rmalloc.fares via GP logic)
     # =========================================================================
 
+    def _load_local_fares(self):
+        """
+        ADHOC: load QP fares for THIS snapshot's month from a local CSV instead of
+        Mongo. File name: <fares_dir>/<YYYYMM01>_qpfares.csv (e.g. 20260601_qpfares.csv
+        for any June-2026 snapshot). Returns a DataFrame shaped like
+        mongo_helper.fetch_fares: at least columns SECTOR and TOTAL (all-in fare),
+        filtered to active_sectors and FARE_BUCKET_RBDS.
+
+        Column names are auto-detected but can be forced via overrides['fares_col_map'],
+        e.g. {'sector':'Sector','rbd':'RBD','total':'AllInFare',
+              'origin':'Origin','destination':'Destination'}.
+        Confirm these against your actual CSV header.
+        """
+        month_key = self.current_date.replace(day=1).strftime('%Y%m%d')  # YYYYMM01
+        path = os.path.join(self.fares_dir, f"{month_key}_qpfares.csv")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Local fares file not found for snapshot month: {path}")
+
+        # per-process cache: the same monthly file is reused across every sector run
+        raw = _FARES_CSV_CACHE.get(path)
+        if raw is None:
+            raw = pd.read_csv(path)
+            _FARES_CSV_CACHE[path] = raw
+            logger.info(f"[fares] loaded {path} ({len(raw)} rows, cols={list(raw.columns)})")
+        df = raw.copy()
+
+        cm = self.fares_col_map
+        cols = {c.lower(): c for c in df.columns}
+
+        def pick(*cands):
+            for c in cands:
+                if c and c in df.columns:
+                    return c
+                if c and c.lower() in cols:
+                    return cols[c.lower()]
+            return None
+
+        # --- SECTOR ---
+        sec_col = pick(cm.get('sector'), 'SECTOR', 'Sector')
+        if sec_col:
+            df['SECTOR'] = df[sec_col].astype(str).str.strip().str.upper()
+        else:
+            o = pick(cm.get('origin'), 'Origin', 'ORIGIN', 'DepartureStation', 'Org')
+            d = pick(cm.get('destination'), 'Destination', 'DEST', 'ArrivalStation', 'Dest')
+            if not (o and d):
+                raise RuntimeError(f"Fares CSV {path}: no SECTOR column and no Origin/Destination "
+                                   f"to build one. Set overrides['fares_col_map']. Cols={list(df.columns)}")
+            df['SECTOR'] = (df[o].astype(str).str.strip().str.upper()
+                            + df[d].astype(str).str.strip().str.upper())
+
+        # --- TOTAL (all-in fare) ---
+        tot_col = pick(cm.get('total'), 'TOTAL', 'Total', 'AllIn', 'ALLIN',
+                       'AllInFare', 'TotalFare', 'Fare')
+        if not tot_col:
+            raise RuntimeError(f"Fares CSV {path}: no all-in fare column found. "
+                               f"Set overrides['fares_col_map']['total']. Cols={list(df.columns)}")
+        df['TOTAL'] = pd.to_numeric(df[tot_col], errors='coerce')
+
+        # --- RBD filter (match fetch_fares(sectors, FARE_BUCKET_RBDS)) ---
+        rbd_col = pick(cm.get('rbd'), 'RBD', 'Rbd', 'BookingClass', 'Class')
+        if rbd_col:
+            df = df[df[rbd_col].astype(str).str.strip().str.upper().isin(set(FARE_BUCKET_RBDS))]
+        else:
+            logger.warning(f"[fares] {path}: no RBD column — assuming file is pre-filtered "
+                           f"to fare-bucket RBDs.")
+
+        # --- restrict to this run's sectors, drop bad rows ---
+        # (TOTAL is always INR; any 'currency' column in the file is reference-only.)
+        df = df[df['SECTOR'].isin(set(self.active_sectors))]
+        df['TOTAL'] = pd.to_numeric(df['TOTAL'], errors='coerce')
+        df = df[df['TOTAL'].notna() & (df['TOTAL'] > 0)]
+
+        out = df[['SECTOR', 'TOTAL']].reset_index(drop=True)
+        logger.info(f"[fares] snapshot {self.current_date.date()} month-file {month_key}: "
+                    f"{len(out)} fare rows across {out['SECTOR'].nunique()} sectors.")
+        if out.empty:
+            raise RuntimeError(f"No local fares for {self.active_sectors} in {path} "
+                               f"after RBD/sector filtering.")
+        return out
+
     def _fetch_fare_buckets(self):
         """
         Fetch QP fare data from MongoDB (qp_dw_rmalloc.fares), convert the all-in
@@ -490,9 +582,12 @@ class AdditivePickupModelProcessor:
 
         Returns DataFrame: Sector, FareBasis (range string e.g. '3000-4000' / '25088+')
         """
-        logger.info("Computing fare buckets from qp_dw_rmalloc.fares (GP logic)...")
+        logger.info("Computing fare buckets (GP logic)...")
         try:
-            fares_df = self.mongo_helper.fetch_fares(self.active_sectors, FARE_BUCKET_RBDS)
+            if self.fares_dir:
+                fares_df = self._load_local_fares()
+            else:
+                fares_df = self.mongo_helper.fetch_fares(self.active_sectors, FARE_BUCKET_RBDS)
 
             # --- Convert all-in -> airline component BEFORE bucketing ---
             fares_df = self._fares_to_airline_component(fares_df, fare_col='TOTAL')

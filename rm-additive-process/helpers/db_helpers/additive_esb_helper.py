@@ -145,7 +145,8 @@ class AdditiveEsbHelper:
 
         # --- Query 1: historical flown (incremental, sector-aware cache) ---
         hist_df = self.fetch_historical_incremental(
-            active_sectors, hist_start, yesterday, current_date, force_backfill)
+            active_sectors, hist_start, yesterday, current_date, force_backfill,
+            simulate=simulate)
         self.cache.data['hist_raw_df'] = hist_df
 
         # --- Query 2: STD lookup (incremental, sector-partitioned) ---
@@ -228,10 +229,19 @@ class AdditiveEsbHelper:
     # HISTORICAL FLOWN (incremental)
     # =========================================================================
     def fetch_historical_incremental(self, active_sectors, hist_start, yesterday,
-                                     current_date, force_backfill):
+                                     current_date, force_backfill, simulate=False):
         cache = self.cache
         cached_df = pd.DataFrame() if force_backfill else \
             cache.read_sector_cache('hist_flown', active_sectors)
+
+        # SIMULATE: the cache may hold a window that extends PAST this snapshot
+        # (a pre-seeded union, or leftovers from a later date already run). Those
+        # departures are in this snapshot's future and must never enter the
+        # historical inputs. Clip to strictly-before the snapshot; this also
+        # leaves the per-sector frontier at snapshot-1, so the gap-fill below has
+        # nothing to fetch (no ESB hit) when the base already covers the day.
+        if simulate and not cached_df.empty and 'DepartureDate' in cached_df.columns:
+            cached_df = cached_df[pd.to_datetime(cached_df['DepartureDate']) < pd.to_datetime(current_date)]
 
         cached_sectors = set(cached_df['Sector'].unique()) if not cached_df.empty else set()
         new_sectors = set(active_sectors) - cached_sectors
@@ -307,7 +317,9 @@ class AdditiveEsbHelper:
 
         before = len(hist_df)
         hist_df = hist_df[hist_df['DepartureDate'] >= cutoff]
-        if len(hist_df) != before:
+        if len(hist_df) != before and not simulate:
+            # (skipped when simulating: the base is pre-seeded and shared across the
+            #  whole date sequence — deleting would remove months an earlier day needs)
             for s in active_sectors:
                 for m in cache.list_cache_months('hist_flown', s):
                     if m < cutoff_month:
