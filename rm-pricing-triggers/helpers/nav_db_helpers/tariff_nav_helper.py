@@ -26,7 +26,7 @@ class TariffNavHelper:
         """Query InventoryLeg for distinct direct sectors.
 
         Retrieves distinct DepartureStation, ArrivalStation pairs where
-        CarrierCode='QP', FlightNumber < 7000, and DepartureDate >= today.
+        CarrierCode='QP', FlightNumber < 6000, and DepartureDate >= today.
 
         Returns:
             pd.DataFrame: DataFrame with columns DepartureStation, ArrivalStation.
@@ -37,8 +37,9 @@ class TariffNavHelper:
             SELECT DISTINCT DepartureStation, ArrivalStation
             FROM {self.nav_db_name}rez.InventoryLeg
             WHERE CarrierCode = 'QP'
-            AND FlightNumber < 7000
+            AND FlightNumber < 6000
             AND DepartureDate >= '{today}'
+            AND Status <> 2
             """
             df = pd.read_sql(query, self.nav_conn)
             self.logger.info(f"Retrieved {len(df)} direct sectors from Navitaire InventoryLeg")

@@ -36,9 +36,11 @@ class TariffPAHelper:
             raise
 
     def save_active_sectors(self, sectors_df):
-        """Upsert sectors into the active_sectors_tariff collection.
+        """Upsert sectors into the active_sectors_tariff collection and remove stale ones.
 
         Uses the 'sector' field as the key for upsert operations.
+        Removes any sectors from the collection that are no longer in the incoming list
+        (i.e., sectors whose flights have been cancelled or discontinued).
 
         Args:
             sectors_df: DataFrame containing sector records to upsert.
@@ -60,6 +62,18 @@ class TariffPAHelper:
                     upsert=True
                 )
                 upsert_count += 1
+
+            # Remove sectors that are no longer active (e.g., all flights cancelled)
+            active_sector_codes = sectors_df['sector'].tolist()
+            delete_result = collection.delete_many(
+                {'sector': {'$nin': active_sector_codes}}
+            )
+            removed_count = delete_result.deleted_count
+
+            if removed_count > 0:
+                self.logger.info(
+                    f"Removed {removed_count} stale sector(s) from active_sectors_tariff"
+                )
 
             self.logger.info(f"Upserted {upsert_count} sectors into active_sectors_tariff")
         except Exception as e:
