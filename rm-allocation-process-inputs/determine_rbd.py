@@ -1275,8 +1275,6 @@ class DetermineRBD:
             return capped_fare, decision_text
         
         def calculate_tolerance_value(pre_tolerance_anchor=None):
-            if is_portfolio_flow:
-                return 0
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
@@ -1545,6 +1543,8 @@ class DetermineRBD:
                     T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
+            if is_portfolio_flow:
+                return 0
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return 0
             return tolerance_limit
