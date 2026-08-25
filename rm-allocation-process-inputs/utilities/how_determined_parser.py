@@ -111,7 +111,8 @@ class HowDeterminedParser:
         if "Backstop" in raw_str:
             m = re.search(r'Backstop Hit \((.*?)\)', raw_str)
             if m:
-                cond.append(f"Backstop hit - {m.group(1)}")
+                reason = m.group(1).replace("strategy fare", "intended fare")
+                cond.append(f"Backstop hit - {reason}")
             else:
                 cond.append("Intended opening fare is below backstop")
         if "LowerBound" in raw_str:

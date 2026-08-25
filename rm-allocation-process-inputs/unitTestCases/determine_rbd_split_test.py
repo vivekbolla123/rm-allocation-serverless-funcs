@@ -113,10 +113,10 @@ class _DetermineRBDFactory:
         them out removes a large class of irrelevant variability from the test.
         """
         self.instance.finalFareAnchor = MagicMock(
-            return_value=(anchor_fare, how_determined, CONST_NA, 0, CONST_NA)
+            return_value=(anchor_fare, how_determined, CONST_NA, 0, CONST_NA, anchor_fare, CONST_NA)
         )
         self.instance.final_fare_anchor_forecast = MagicMock(
-            return_value=(anchor_fare, how_determined, CONST_NA, 0, CONST_NA)
+            return_value=(anchor_fare, how_determined, CONST_NA, 0, CONST_NA, anchor_fare, CONST_NA)
         )
 
 
