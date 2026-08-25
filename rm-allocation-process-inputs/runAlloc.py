@@ -1282,6 +1282,7 @@ class DynAlloc:
 		state.openDataB2C_details = openDataB2C_details
 		state.openDataB2B_details = openDataB2B_details
 		state.profileFare = profileFare
+		state.profileFare_for_calc = profileFare_for_calc
 		state.profileFaresData = profileFaresData
 		state.b2b_anchor_source = b2b_anchor_source
 		state.determined_overBookingFare = determined_overBookingFare
@@ -1545,6 +1546,7 @@ class DynAlloc:
 		conversion_rate = state.conversion_rate
 		currency = state.currency
 		param_profileFares = getattr(self.currParams, 'profileFares', 1)
+		profileFare_for_calc = getattr(state, 'profileFare_for_calc', CONST_NA)
 
 		# --- Populate Final OutputSummaryRows (Full Mode) ---
 		if overBookingCount > 0: # Add Overbooking note to FareResult
@@ -1601,6 +1603,9 @@ class DynAlloc:
 		# Parse and format the raw FareResult string
 		raw_b2c_how_determined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
 		self.outputSummaryRow_b2c.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2c_how_determined)
+		# Append _Ignoring_PF when profileFare was not used in determining the final anchor fare
+		if 'rofile' not in raw_b2c_how_determined and 'rofile' not in self.outputSummaryRow_b2c.HowDetermined:
+			self.outputSummaryRow_b2c.HowDetermined += '_Ignoring_PF'
 		
 		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD', default='Z'))
 		self.outputSummaryRow_b2c.Backstop = param_b2c_backstop_full; self.outputSummaryRow_b2c.autoBackstop = auto_b2c_backstop_str
@@ -1639,6 +1644,8 @@ class DynAlloc:
 			raw_b2b_how_determined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
 
 		self.outputSummaryRow_b2b.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2b_how_determined)
+		if 'rofile' not in raw_b2b_how_determined and 'rofile' not in self.outputSummaryRow_b2b.HowDetermined:
+			self.outputSummaryRow_b2b.HowDetermined += '_Ignoring_PF'
 		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD', default='Z'))
 		
 		self.outputSummaryRow_b2b.Backstop = param_b2b_backstop_full; self.outputSummaryRow_b2b.autoBackstop = auto_b2b_backstop_str
