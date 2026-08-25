@@ -48,3 +48,4 @@ AF_PROFILE_FARE_PLF_THRESHOLD,97
 AF_PROFILE_FARE_MULTIPLIER,1.2
 D3_MIN_RULES,"{""L"": {""forecast_start"": -9999, ""forecast_end"": 69, ""min_value"": 5}, ""M"": {""forecast_start"": 70, ""forecast_end"": 94, ""min_value"": 4}, ""H"": {""forecast_start"": 95, ""forecast_end"": 9999, ""min_value"": 3}}"
 D3_MAX_RULES,"{""L"": {""forecast_start"": -9999, ""forecast_end"": 84, ""max_value"": 15}, ""M"": {""forecast_start"": 85, ""forecast_end"": 95, ""max_value"": 10}, ""H1"": {""forecast_start"": 96, ""forecast_end"": 9999, ""ndo_start"": 0, ""ndo_end"": 3, ""max_value"": 7}, ""H2"": {""forecast_start"": 96, ""forecast_end"": 9999, ""ndo_start"": 4, ""ndo_end"": 9999, ""max_value"": 7}}"
+plf_change_n_runs,3
