@@ -30,6 +30,8 @@ class RBDAllocations:
         
         b2cAllocationsUnits = []
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, '', 'L')
+        if B2CRBDs is None or B2CRBDs.empty or 'RBD' not in B2CRBDs.columns:
+            return b2cAllocationsUnits, 1, 0, 0, 0
         
         farecap = getattr(currParams, 'farecap', None)
         cappedRBDIndex = -1
@@ -49,7 +51,7 @@ class RBDAllocations:
         B2CRBDs['id'] = B2CRBDs.reset_index().index + 1
         maxRBDIndex = B2CRBDs['id'].iloc[-1]
         maxRBDPrice = B2CRBDs['TOTAL'].iloc[-1]
-        openingRBD = openDataB2C['RBD'][0]
+        openingRBD = openDataB2C['RBD'][0] if isinstance(openDataB2C.get('RBD'), list) and len(openDataB2C['RBD']) > 0 else CONST_NA
         openbuketFlag = False
         openingRBDPrice = 0
         openRBDIndex = 0
@@ -693,6 +695,8 @@ class RBDAllocations:
     def b2BAllocation(self, currBookedLoad, openDataB2B, currRec, totalCapacity, dPLF, b2cAllocationsUnits, b2bSkipFlag, b2boverbookingflag, brd_counter, openDataB2C, currParams,overBookingCount,B2B_thresholdflag, close_b2b):
         isUpsellFlag = False
         B2BRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2B_CHANNEL, '', 'L')
+        if B2BRBDs is None or B2BRBDs.empty or 'RBD' not in B2BRBDs.columns:
+            return brd_counter, currRec
 
         farecap = getattr(currParams, 'farecap', None)
         cappedRBDIndex = -1
@@ -705,14 +709,14 @@ class RBDAllocations:
             except ValueError:
                 pass
 
-        openingB2CRBD = openDataB2C['RBD'][0]
+        openingB2CRBD = openDataB2C['RBD'][0] if isinstance(openDataB2C.get('RBD'), list) and len(openDataB2C['RBD']) > 0 else CONST_NA
 
         B2CRBDs = self.rmdatabasehelper.fareExtract(currParams.origin, currParams.destin, B2C_CHANNEL, openingB2CRBD, 'L')
 
-        openingB2CPrice = self.constantsutils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['TOTAL'][0]
+        openingB2CPrice = self.constantsutils.B2B_FARE_PRICE_COMPARISON * B2CRBDs['TOTAL'][0] if B2CRBDs is not None and not B2CRBDs.empty and 'TOTAL' in B2CRBDs.columns else 0
 
         openbuketFlag = False
-        openingRBD = openDataB2B['RBD'][0]
+        openingRBD = openDataB2B['RBD'][0] if isinstance(openDataB2B.get('RBD'), list) and len(openDataB2B['RBD']) > 0 else CONST_NA
 
         PLF = currBookedLoad / totalCapacity
         counter = 0
@@ -1367,11 +1371,15 @@ class RBDAllocations:
         origin = currParams.sector1[:3]
         destin = currParams.sector2[-3:]
         B2CRBDs = self.rmdatabasehelper.fareExtract(origin, destin, B2C_CHANNEL, '', 'R')
+        if B2CRBDs is None or B2CRBDs.empty or 'RBD' not in B2CRBDs.columns:
+            return b2cAllocationsUnits, 1
         rbd_list = self.constantsutils.TBF_RBD.split(',')+self.constantsutils.CUG_RBD.split(',')
         rbd_list.extend(list(json.loads(GROUP_QUOTATION).values()))
         B2CRBDs = B2CRBDs[~B2CRBDs['RBD'].isin(rbd_list)].reset_index(drop=True)
+        if B2CRBDs.empty or 'RBD' not in B2CRBDs.columns:
+            return b2cAllocationsUnits, 1
 
-        openingRBD = openDataB2C['RBD'][0]
+        openingRBD = openDataB2C['RBD'][0] if isinstance(openDataB2C.get('RBD'), list) and len(openDataB2C['RBD']) > 0 else CONST_NA
         openbuketFlag = False
         openRBDIndex = 0
         incremental = -1
@@ -1430,14 +1438,16 @@ class RBDAllocations:
         origin = currParams.sector1[:3]
         destin = currParams.sector2[-3:]
         B2BRBDs = self.rmdatabasehelper.fareExtract(origin, destin, B2B_CHANNEL, '', 'R')
+        if B2BRBDs is None or B2BRBDs.empty or 'RBD' not in B2BRBDs.columns:
+            return brd_counter, currRec
         openbuketFlag = False
-        openingRBD = openDataB2B['RBD'][0]
+        openingRBD = openDataB2B['RBD'][0] if isinstance(openDataB2B.get('RBD'), list) and len(openDataB2B['RBD']) > 0 else CONST_NA
         counter = 0
         # Loop on each rbd
 
         for b2bctr in range(B2BRBDs.shape[0]):
             RBDLabel = B2BRBDs['RBD'][b2bctr]
-            b2bStatus = openDataB2B['statusInd'][0]
+            b2bStatus = openDataB2B['statusInd'][0] if isinstance(openDataB2B.get('statusInd'), list) and len(openDataB2B['statusInd']) > 0 else 1
             currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
             if RBDLabel == openingRBD:
                 openbuketFlag = True

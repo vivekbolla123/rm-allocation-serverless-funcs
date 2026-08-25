@@ -1730,9 +1730,11 @@ class RMDatabaseHelper:
             else:
                 results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
             rbddata = pd.DataFrame(results)
+            if rbddata.empty:
+                rbddata = pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
         except Exception as e:
             self.logger.error(e)
-            rbddata = pd.DataFrame()
+            rbddata = pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
 
         return openResult, rbddata
 
@@ -1761,10 +1763,13 @@ class RMDatabaseHelper:
 
         try:
             results = list(self.db.fares.find(query).sort("TOTAL", sortorder))
-            return pd.DataFrame(results)
+            df = pd.DataFrame(results)
+            if df.empty:
+                df = pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
+            return df
         except Exception as e:
             self.logger.error(e)
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
 
     def getHourlyOwnFareData(self, ndo, hour):
         try:
@@ -2048,10 +2053,12 @@ class RMDatabaseHelper:
             df = pd.DataFrame(results)
             if not df.empty:
                 df['id'] = range(1, len(df) + 1)
+            else:
+                df = pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
             return df
         except Exception as e:
             self.logger.error(e)
-            return pd.DataFrame()
+            return pd.DataFrame(columns=['RBD', 'TOTAL', 'Org', 'Dst', 'route'])
 
     def insert_run_fltDate_audit(self, run_id, flightNumber,sector, flightDate, result, b2cstatus, b2bstatus):
         try:

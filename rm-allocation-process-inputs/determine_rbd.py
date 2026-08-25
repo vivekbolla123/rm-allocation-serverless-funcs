@@ -1827,7 +1827,7 @@ class DetermineRBD:
                     openResult = {'RBD': [defFareData['RBD'][0]], 'Fare': [defFareData['TOTAL'][0]], 'FareResult': ['Unable to Match Mkt - B2B allocation at extreme value'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [1]}
                     return openResult
         else:
-            openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Unable to fetch extreme published Fares'], 'anchorFare': [anchorFare], 'statusInd': [2], 'allocationStatus': [0]}
+            openResult = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['Unable to fetch extreme published Fares'], 'anchorFare': [anchorFare], 'statusInd': [1], 'allocationStatus': [0]}
             
             return openResult
         

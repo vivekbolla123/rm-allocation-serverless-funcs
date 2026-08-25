@@ -12,7 +12,7 @@ import pandas as pd
 import time as time_sleep
 
 from Constants import *
-from common.compute_utils import safe_float
+from common.compute_utils import safe_float, safe_get_from_dict
 
 from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
@@ -737,7 +737,11 @@ class DynAllocConnections:
                             b2bTotal, origin, destin, "B2B", B2BBackstop,0,should_allocate_to_y, how_determined_msg=how_determined_b2b)
                         self.outputSummaryRow_b2b.Discount = b2bdiscount
 
-            if (openDataB2C['statusInd'][0] != 1):
+            b2c_status = safe_get_from_dict(openDataB2C, 'statusInd', default=1)
+            b2c_alloc_status = safe_get_from_dict(openDataB2C, 'allocationStatus', default=0)
+            b2c_opening_rbd = safe_get_from_dict(openDataB2C, 'RBD', default=CONST_NA)
+
+            if (b2c_status != 1 and str(b2c_alloc_status) != '0' and b2c_opening_rbd not in (CONST_NA, 'NA', '')):
                 # Legit Allocation - Write to AU File
                 currRec = AuGridRow(self.AU_COLUMN_LENGTH_CONNECTIONS)
                 currRec.type = "R"  # Type
@@ -783,38 +787,36 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.DepDate2 = str(current_date2)
             self.outputSummaryRow_b2c.BookedLoad = str(bookload)
             self.outputSummaryRow_b2c.anchorFare = 'NA' if pd.isna(b2cTotal) or b2cTotal == 'NA' else int(b2cTotal)
-            self.outputSummaryRow_b2c.OpenRBD=openDataB2C['RBD'][0]
-            self.outputSummaryRow_b2c.SellingFare=str(openDataB2C['Fare'][0])
-            self.outputSummaryRow_b2c.Channel="B2C"
-            self.outputSummaryRow_b2c.HowDetermined=openDataB2C['FareResult'][0]
-            self.outputSummaryRow_b2c.allocationStatus=str(openDataB2C['allocationStatus'][0])
-            self.outputSummaryRow_b2c.Backstop=str(B2CBackstop)
-            self.outputSummaryRow_b2c.CreatedAt=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.outputSummaryRow_b2c.analystName=self.currParams.analyst_name
-            self.outputSummaryRow_b2c.Variance1=str(self.currParams.forecast_variance1)
-            self.outputSummaryRow_b2c.Variance2=str(self.currParams.forecast_variance2)
-            self.outputSummaryRow_b2c.criteria=self.currParams.fareAnchor
-            self.outputSummaryRow_b2c.fareOffset=str(self.currParams.offset)
-            self.outputSummaryRow_b2c.outBoundStop=str(self.currParams.outboundstop)
-            self.outputSummaryRow_b2c.outboundDuration=str(self.currParams.outbound_duration)
-            self.outputSummaryRow_b2c.Currency=str(self.qpcurrency)
-            self.outputSummaryRow_b2c.conversionRate=str(self.conversion_rate)
-            self.outputSummaryRow_b2c.firstrbd=str(self.currParams.first_rbd_alloc)
-            self.outputSummaryRow_b2c.otherrbd=str(self.currParams.other_rbd_alloc)
-            self.outputSummaryRow_b2c.Backstop_INR=str(B2CBackstop_INR)
+            self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C, 'RBD', default=CONST_NA))
+            self.outputSummaryRow_b2c.SellingFare = str(safe_get_from_dict(openDataB2C, 'Fare', default=CONST_NA))
+            self.outputSummaryRow_b2c.Channel = "B2C"
+            self.outputSummaryRow_b2c.HowDetermined = str(safe_get_from_dict(openDataB2C, 'FareResult', default=CONST_NA))
+            self.outputSummaryRow_b2c.allocationStatus = str(safe_get_from_dict(openDataB2C, 'allocationStatus', default='0'))
+            self.outputSummaryRow_b2c.Backstop = str(B2CBackstop)
+            self.outputSummaryRow_b2c.CreatedAt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.outputSummaryRow_b2c.analystName = self.currParams.analyst_name
+            self.outputSummaryRow_b2c.Variance1 = str(self.currParams.forecast_variance1)
+            self.outputSummaryRow_b2c.Variance2 = str(self.currParams.forecast_variance2)
+            self.outputSummaryRow_b2c.criteria = self.currParams.fareAnchor
+            self.outputSummaryRow_b2c.fareOffset = str(self.currParams.offset)
+            self.outputSummaryRow_b2c.outBoundStop = str(self.currParams.outboundstop)
+            self.outputSummaryRow_b2c.outboundDuration = str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2c.Currency = str(self.qpcurrency)
+            self.outputSummaryRow_b2c.conversionRate = str(self.conversion_rate)
+            self.outputSummaryRow_b2c.firstrbd = str(self.currParams.first_rbd_alloc)
+            self.outputSummaryRow_b2c.otherrbd = str(self.currParams.other_rbd_alloc)
+            self.outputSummaryRow_b2c.Backstop_INR = str(B2CBackstop_INR)
 
             self.allocResults.append(self.outputSummaryRow_b2c)
             self.rmdatabasehelper.insertSummaryRow_connections(
                 self.allocResults)
             
             self.outputSummaryRow_b2b.anchorFare = 'NA' if pd.isna(b2bTotal) or b2bTotal == 'NA' else int(b2bTotal)
-            self.outputSummaryRow_b2b.allocationStatus = str(
-                openDataB2B["allocationStatus"][0])
-            self.outputSummaryRow_b2b.OpenRBD = str(openDataB2B['RBD'][0])
-            self.outputSummaryRow_b2b.SellingFare = str(openDataB2B["Fare"][0])
+            self.outputSummaryRow_b2b.allocationStatus = str(safe_get_from_dict(openDataB2B, "allocationStatus", default='0'))
+            self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B, 'RBD', default=CONST_NA))
+            self.outputSummaryRow_b2b.SellingFare = str(safe_get_from_dict(openDataB2B, "Fare", default=CONST_NA))
             self.outputSummaryRow_b2b.Channel = 'B2B'
-            self.outputSummaryRow_b2b.HowDetermined = str(
-                openDataB2B['FareResult'][0])
+            self.outputSummaryRow_b2b.HowDetermined = str(safe_get_from_dict(openDataB2B, 'FareResult', default=CONST_NA))
             self.outputSummaryRow_b2b.Backstop = B2BBackstop
             self.outputSummaryRow_b2b.Backstop_INR = B2BBackstop_inr
             self.outputSummaryRow_b2b.analystName = self.currParams.analyst_name
@@ -891,7 +893,7 @@ class DynAllocConnections:
             openResult = self.determinerbd.getFares(
                 origin, destin, anchorFare, offset, channel, openResult, rbddata, howDetermined, 'R')
             
-        strategyFare = openResult['Fare'][0]
+        strategyFare = safe_get_from_dict(openResult, 'Fare', default='NA')
         print(f"strategy fare is {strategyFare}")
         return strategyFare
     
@@ -907,14 +909,16 @@ class DynAllocConnections:
             openResult = self.determinerbd.extremeFaresSkipping(
                 origin, destin, anchorFare, offset, channel, backstop, openResult, 'R')
             if should_allocate_to_y:
-                openResult['FareResult'][0] = 'Matched and allocating at y level'
+                if isinstance(openResult, dict) and 'FareResult' in openResult:
+                    openResult['FareResult'][0] = 'Matched and allocating at y level'
         else:
             howDetermined = 'Matched and allocated'+self.fareStatus
             openResult = self.determinerbd.getFaresWithBackstop(
                 origin, destin, anchorFare, offset, channel, backstop,  openResult, rbddata, howDetermined, 'R')
         
         if how_determined_msg:
-            openResult['FareResult'][0] = how_determined_msg
+            if isinstance(openResult, dict) and 'FareResult' in openResult:
+                openResult['FareResult'][0] = how_determined_msg
 
         return openResult
 

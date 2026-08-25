@@ -1867,23 +1867,32 @@ class DynAlloc:
 			if self.canOverbook(ndocounter, totalCapacity, adjustedCapacity, plf, overBookingCount, bookload):
 				totalCapacity = totalCapacity+overBookingCount
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
-					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
-					if not totalCapacity == lid:
-						self.navapihelper.update_leg(leg_key, lid=totalCapacity)
-					if not totalCapacity == nest_lid:
-						self.navapihelper.update_leg_nest(leg_key, nest_key, totalCapacity)
+					try:
+						leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
+						if leg_key is not None:
+							if not totalCapacity == lid:
+								self.navapihelper.update_leg(leg_key, lid=totalCapacity)
+							if nest_key is not None and not totalCapacity == nest_lid:
+								self.navapihelper.update_leg_nest(leg_key, nest_key, totalCapacity)
+					except Exception as e:
+						self.logger.error(f"Error updating Navitaire overbooking: {e}")
 				self.b2boverbookingflag = True
 		else:
 			self.logger.info("Entered manual overbooking loop runalloc")
 			if self.canOverbookManual( ndocounter, totalCapacity, adjustedCapacity, plf, float(self.currParams.obSeats), bookload):
 				if self.inputSource.input_source[CONST_OVERBOOKING] == DB:
-					leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
-					self.logger.info("Lid from nav is: "+ str(lid))
-					lid = totalCapacity + int(self.currParams.obSeats)
-					self.logger.info("Lid + OBSeats is: "+ str(lid))
-					self.navapihelper.update_leg(leg_key, lid)
-					self.navapihelper.update_leg_nest(leg_key, nest_key, lid)
-					totalCapacity = lid
+					try:
+						leg_key, nest_key, lid, nest_lid = self.navapihelper.get_leg_nest_details(currFltDate, AKASA_AIRLINE_CODE, self.currParams.flight_number, self.currParams.origin, self.currParams.destin)
+						self.logger.info("Lid from nav is: "+ str(lid))
+						lid = totalCapacity + int(self.currParams.obSeats)
+						self.logger.info("Lid + OBSeats is: "+ str(lid))
+						if leg_key is not None:
+							self.navapihelper.update_leg(leg_key, lid)
+							if nest_key is not None:
+								self.navapihelper.update_leg_nest(leg_key, nest_key, lid)
+						totalCapacity = lid
+					except Exception as e:
+						self.logger.error(f"Error updating Navitaire manual overbooking: {e}")
 				else:
 					start_date = datetime.strptime(self.currParams.per_start, "%m/%d/%Y").strftime('%Y-%m-%d')
 					end_date = datetime.strptime(self.currParams.per_end, "%m/%d/%Y").strftime('%Y-%m-%d')
@@ -2459,51 +2468,55 @@ class DynAlloc:
 		try:
 			history = self.determinerbd.get_autotolerance_history(self.currParams)
 			if history:
-				plf_change_per = float(getattr(self.constantsUtils, 'plf_change_per', 2.0))
-				plf_change_n_runs = int(getattr(self.constantsUtils, 'plf_change_n_runs', 4))
+				plf_change_per = safe_float(getattr(self.constantsUtils, 'plf_change_per', 2.0), default=2.0)
+				plf_change_n_runs = parse_int_flag(getattr(self.constantsUtils, 'plf_change_n_runs', 4), default=4)
 				
 				if len(history) >= plf_change_n_runs:
 					nth_run = history[-plf_change_n_runs]
 					if ndocounter > 30:
-                        # Variance logic uses actual_dplf
-						nth_dplf = nth_run.get('actual_dplf', 0)
-						if (float(currBookedLoad) - float(nth_dplf)) >= plf_change_per:
-							plf_surge = True
+						# Variance logic uses actual_dplf
+						nth_dplf = safe_float(nth_run.get('actual_dplf', 0), default=None)
+						curr_val = safe_float(currBookedLoad, default=None)
+						if curr_val is not None and nth_dplf is not None:
+							if (curr_val - nth_dplf) >= plf_change_per:
+								plf_surge = True
 					else:
-                        # Forecast logic uses actual_imp_forecast
-						nth_imp_forecast = nth_run.get('actual_imp_forecast', 0)
-						if (float(imp_forecast) - float(nth_imp_forecast)) >= plf_change_per:
-							plf_surge = True
+						# Forecast logic uses actual_imp_forecast
+						nth_imp_forecast = safe_float(nth_run.get('actual_imp_forecast', 0), default=None)
+						curr_val = safe_float(imp_forecast, default=None)
+						if curr_val is not None and nth_imp_forecast is not None:
+							if (curr_val - nth_imp_forecast) >= plf_change_per:
+								plf_surge = True
 		except Exception as e:
 			self.logger.error(f"Error evaluating PLF surge: {e}")
 
 		if plf_surge:
 			# B2C Evaluation
-			if lastSoldFareb2c_val != CONST_NA and profileFare != CONST_NA:
+			if lastSoldFareb2c_val not in (CONST_NA, None, "", "NA") and profileFare not in (CONST_NA, None, "", "NA"):
 				try:
 					if float(lastSoldFareb2c_val) > float(profileFare):
 						profileFare = CONST_NA
-				except ValueError:
+				except (ValueError, TypeError):
 					pass
-			if Af_Nb_Allin != CONST_NA and lastSoldFareb2c_val != CONST_NA:
+			if Af_Nb_Allin not in (CONST_NA, None, "", "NA") and lastSoldFareb2c_val not in (CONST_NA, None, "", "NA"):
 				try:
 					if float(Af_Nb_Allin) < float(lastSoldFareb2c_val):
 						Af_Nb_Allin = CONST_NA
-				except ValueError:
+				except (ValueError, TypeError):
 					pass
 
 			# B2B Evaluation
-			if lastSoldFareb2b_val != CONST_NA and profileFare != CONST_NA:
+			if lastSoldFareb2b_val not in (CONST_NA, None, "", "NA") and profileFare not in (CONST_NA, None, "", "NA"):
 				try:
 					if float(lastSoldFareb2b_val) > float(profileFare):
 						profileFare = CONST_NA
-				except ValueError:
+				except (ValueError, TypeError):
 					pass
-			if Af_Nb_Allin != CONST_NA and lastSoldFareb2b_val != CONST_NA:
+			if Af_Nb_Allin not in (CONST_NA, None, "", "NA") and lastSoldFareb2b_val not in (CONST_NA, None, "", "NA"):
 				try:
 					if float(Af_Nb_Allin) < float(lastSoldFareb2b_val):
 						Af_Nb_Allin = CONST_NA
-				except ValueError:
+				except (ValueError, TypeError):
 					pass
 
 		if should_process:
