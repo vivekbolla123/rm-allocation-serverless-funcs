@@ -703,7 +703,7 @@ class DetermineRBD:
 
             auto_tolerance_applied = False
             
-            if anchor_fare is not None and flag_val in (1, '1'):
+            if anchor_fare is not None:
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1295,8 +1295,8 @@ class DetermineRBD:
             else:
                 tolerance_limit = 0
 
-            # Auto-tolerance logic
-            if pre_tolerance_anchor is not None and flag_val in (1, '1'):
+            # Auto-tolerance history — always maintain history regardless of flag
+            if pre_tolerance_anchor is not None:
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1417,6 +1417,7 @@ class DetermineRBD:
                     else:
                         final_T = t_val
 
+                # T_prime calculation only when auto_tolerance_flag is enabled
                 if flag_val in (1, '1') and is_execution_run and target_record is not None:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
