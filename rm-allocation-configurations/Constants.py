@@ -609,3 +609,12 @@ REQUIRED_RBDS = [
     'Z7', 'Z8', 'Z9', 'ZA', 'ZB', 'ZC', 'ZD', 'ZE', 'ZF', 'ZH',
     'ZI', 'ZJ',
 ]
+
+# RBDs used exclusively for fare bucket creation in _fetch_fare_buckets
+FARE_BUCKET_RBDS = [
+    'Y', 'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',
+    'M', 'N0', 'N1', 'N2', 'N3', 'N4', 'O0', 'O1', 'O2', 'O3', 'O4',
+    'P0', 'P1', 'P2', 'P3', 'P4', 'Q0', 'Q1', 'Q2', 'Q3', 'Q4',
+    'R0', 'R1', 'R2', 'R3', 'R4', 'T0', 'T1', 'T2', 'T3', 'T4',
+    'U0', 'U1', 'U2', 'U3', 'U4', 'V0', 'V1', 'V2', 'V3', 'V4',
+]
