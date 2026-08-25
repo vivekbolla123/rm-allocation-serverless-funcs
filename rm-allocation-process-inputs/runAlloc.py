@@ -1604,7 +1604,7 @@ class DynAlloc:
 		raw_b2c_how_determined = str(safe_get_from_dict(openDataB2C_details, 'FareResult', default='Error determining B2C fare'))
 		self.outputSummaryRow_b2c.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2c_how_determined)
 		# Append _Ignoring_PF when profileFare was not used in determining the final anchor fare
-		if 'rofile' not in raw_b2c_how_determined and 'rofile' not in self.outputSummaryRow_b2c.HowDetermined:
+		if 'profile' not in raw_b2c_how_determined.lower() and 'profile' not in self.outputSummaryRow_b2c.HowDetermined.lower():
 			self.outputSummaryRow_b2c.HowDetermined += '_Ignoring_PF'
 		
 		self.outputSummaryRow_b2c.OpenRBD = str(safe_get_from_dict(openDataB2C_details, 'RBD', default='Z'))
@@ -1644,7 +1644,7 @@ class DynAlloc:
 			raw_b2b_how_determined = f"{b2b_anchor_source}_{imp_forecast_band}_{dplfBand_full}"
 
 		self.outputSummaryRow_b2b.HowDetermined = HowDeterminedParser.parse_and_format(raw_b2b_how_determined)
-		if 'rofile' not in raw_b2b_how_determined and 'rofile' not in self.outputSummaryRow_b2b.HowDetermined:
+		if 'profile' not in raw_b2b_how_determined.lower() and 'profile' not in self.outputSummaryRow_b2b.HowDetermined.lower():
 			self.outputSummaryRow_b2b.HowDetermined += '_Ignoring_PF'
 		self.outputSummaryRow_b2b.OpenRBD = str(safe_get_from_dict(openDataB2B_details, 'RBD', default='Z'))
 		
