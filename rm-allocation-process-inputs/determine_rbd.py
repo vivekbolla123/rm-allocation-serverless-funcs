@@ -140,7 +140,7 @@ class DetermineRBD:
                 open_result_value,
                 lastSoldFare,
                 current_strategy_fare,
-                CONST_NA,
+                profileFare,
                 upsell,
                 hardAnchorFare,
                 overBookingFare,
@@ -154,7 +154,7 @@ class DetermineRBD:
                 anchorFare=anchorFare,
                 anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
-                profileFare=CONST_NA,
+                profileFare=profileFare,
                 lastSellingFare=lastSoldFare,
                 hardAnchorFare=hardAnchorFare,
                 hard_anchor_flag=hard_anchor_flag,
@@ -214,7 +214,7 @@ class DetermineRBD:
                 anchorFare=anchorFare,
                 anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                 strategyFare=strategyFare,
-                profileFare=CONST_NA,
+                profileFare=profileFare,
                 lastSellingFare=lastSoldFare,
                 hardAnchorFare=hardAnchorFare,
                 hard_anchor_flag=hard_anchor_flag,
@@ -254,7 +254,7 @@ class DetermineRBD:
                             anchorFare=anchorFare,
                             anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                             strategyFare=strategyFare,
-                            profileFare=CONST_NA,
+                            profileFare=profileFare,
                             lastSellingFare=lastSoldFare,
                             hardAnchorFare=hardAnchorFare,
                             hard_anchor_flag=hard_anchor_flag,
@@ -304,7 +304,7 @@ class DetermineRBD:
                         anchorFare=anchorFare,
                         anchorFareBeforeTolerance=anchorFareBeforeTolerance,
                         strategyFare=strategyFare,
-                        profileFare=CONST_NA,
+                        profileFare=profileFare,
                         lastSellingFare=lastSoldFare,
                         hardAnchorFare=hardAnchorFare,
                         hard_anchor_flag=hard_anchor_flag,
@@ -703,7 +703,7 @@ class DetermineRBD:
 
             auto_tolerance_applied = False
             
-            if anchor_fare is not None and flag_val in (1, '1'):
+            if anchor_fare is not None:
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1275,8 +1275,6 @@ class DetermineRBD:
             return capped_fare, decision_text
         
         def calculate_tolerance_value(pre_tolerance_anchor=None):
-            if is_portfolio_flow:
-                return 0
             nonlocal toleranceValue
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
@@ -1297,8 +1295,8 @@ class DetermineRBD:
             else:
                 tolerance_limit = 0
 
-            # Auto-tolerance logic
-            if pre_tolerance_anchor is not None and flag_val in (1, '1'):
+            # Auto-tolerance history — always maintain history regardless of flag
+            if pre_tolerance_anchor is not None:
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1419,6 +1417,7 @@ class DetermineRBD:
                     else:
                         final_T = t_val
 
+                # T_prime calculation only when auto_tolerance_flag is enabled
                 if flag_val in (1, '1') and is_execution_run and target_record is not None:
                     forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
                     is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
@@ -1545,6 +1544,8 @@ class DetermineRBD:
                     T_prime = float(t_prime_val) if t_prime_val not in (None, "", "NA") else CONST_NA
 
             toleranceValue = f"{tolerance_limit:.2f}"
+            if is_portfolio_flow:
+                return 0
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return 0
             return tolerance_limit
@@ -1847,7 +1848,7 @@ class DetermineRBD:
         if defFareData.shape[0] != 0:
             if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
                 backstopFlag = True
-                backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below backstop {defFareData['TOTAL'][0]}"
+                backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below backstop {backstop}"
             
         # Edge case if the backstop values are placed very high - in which case it will place the backstop at Z0 and Y levels 
         if defFareData.shape[0] == 0:
@@ -1865,7 +1866,7 @@ class DetermineRBD:
                     FareToOpen = rbddata['TOTAL'][0]
                 else:
                     backstopFlag = True
-                    backstopReason = f"strategy fare {rbddata['TOTAL'][0]} is below forced highest backstop {defFareData['TOTAL'][0]}"
+                    backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below forced highest backstop {backstop}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
         else:
@@ -1874,7 +1875,7 @@ class DetermineRBD:
                     offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
                     if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
                         backstopFlag = True
-                        backstopReason = f"strategy fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {defFareData['TOTAL'][0]}"
+                        backstopReason = f"intended fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {backstop}"
                     RBDtoOpen = defFareData['RBD'][0]
                     FareToOpen = defFareData['TOTAL'][0]
                 else:
