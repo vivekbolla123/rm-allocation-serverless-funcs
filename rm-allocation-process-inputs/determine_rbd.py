@@ -7,7 +7,16 @@ from Constants import *
 import random
 import statistics
 from models.anchor_result import AnchorResult
+from utilities.offset_utils import (
+    is_multiplier_offset,
+    parse_multiplier_offset,
+    offset_snap_direction,
+    ladder_step_count,
+    OFFSET_DOWN,
+    OFFSET_MATCH,
+)
 import traceback
+import math
 
 class DetermineRBD:
     
@@ -58,6 +67,81 @@ class DetermineRBD:
         except ValueError:
             return f"_{v}"
 
+    def resolve_multiplier_offset(self, fare: float, offset):
+        """
+        Computes fare_target for a multiplier offset (e.g., 'X0.1').
+        Steps:
+          1. raw_target = fare * multiplier
+          2. delta = raw_target - fare
+          3. Clamp delta to guardrails (min_shift, max_shift)
+          4. fare_target = fare + clamped_delta
+        Returns (fare_target, snap_dir)
+        where snap_dir: 1 for Round Up, -1 for Round Down, 0 for Match.
+        """
+        guardrails = self.constantsutils.STRATEGY_OFFSET_GUARDRAILS
+        min_shift = float(guardrails.get('min_shift', 100))
+        max_shift = float(guardrails.get('max_shift', 2000))
+
+        multiplier = parse_multiplier_offset(offset)
+        if multiplier is None:
+            raise ValueError(f"Not a multiplier offset: {offset!r}")
+
+        # snap_dir comes from the shared rule so that every offset-direction decision
+        # (here, extremeFaresSkipping, getValueWithOffset) stays in agreement.
+        snap_dir = offset_snap_direction(offset)
+
+        if snap_dir == OFFSET_MATCH:
+            return float(fare), OFFSET_MATCH
+
+        delta_raw = (fare * multiplier) - fare
+        abs_delta = round(abs(delta_raw), 2)
+        abs_delta_clamped = max(min_shift, min(abs_delta, max_shift))
+        delta_clamped = math.copysign(abs_delta_clamped, delta_raw)
+        fare_target = fare + delta_clamped
+
+        return fare_target, snap_dir
+
+    def apply_multiplier_offset_snap(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria=None):
+        """
+        Multiplier-offset variant of the initial getValueWithOffset + getFares pipeline.
+        """
+        fare_target, snap_dir = self.resolve_multiplier_offset(float(anchorFare), offset)
+
+        self.logger.info(
+            f"Multiplier offset {offset}: anchorFare={anchorFare}, fare_target={fare_target:.2f}, snap_dir={snap_dir}"
+        )
+
+        rbd_list = self.rmdatabasehelper.rbd_list_builder(channel)
+        base_query = {
+            "Org": origin,
+            "Dst": destin,
+            "route": route,
+            "RBD": {"$in": rbd_list},
+            "TOTAL": {"$ne": 1}
+        }
+
+        try:
+            if snap_dir == 0:
+                pipeline = [
+                    {"$match": base_query},
+                    {"$addFields": {"fare_diff": {"$abs": {"$subtract": ["$TOTAL", fare_target]}}}},
+                    {"$sort": {"fare_diff": 1, "TOTAL": 1}},
+                ]
+                results = list(self.rmdatabasehelper.db.fares.aggregate(pipeline))
+            elif snap_dir < 0:
+                q = {**base_query, "TOTAL": {"$lte": fare_target, "$ne": 1}}
+                results = list(self.rmdatabasehelper.db.fares.find(q).sort("TOTAL", -1))
+            else:
+                q = {**base_query, "TOTAL": {"$gte": fare_target, "$ne": 1}}
+                results = list(self.rmdatabasehelper.db.fares.find(q).sort("TOTAL", 1))
+
+            rbddata = pd.DataFrame(results)
+        except Exception as e:
+            self.logger.error(f"Error in apply_multiplier_offset_snap: {e}")
+            rbddata = pd.DataFrame()
+
+        return openResult, rbddata
+
     def determineRBDToOpen(self, anchorFare, offset, channel, currFltDate, dplfBand, ndocounter, currBookedLoad, totalCapacity, currParams, backstop, currenttime, startEndOfDayDplfBand, dPLF, toleranceFare,plf,overBookingCount,hardAnchorFare,hardoffset,BookingsInHour,lastSoldFare,last7AvgVal,last7avg,b2b_discount_fare,discount_amount,w0Flag,directFlag,obfare, profileFare, isProfileAnchor, imp_forecast, imp_forecast_band, strategy_criteria, af_forecast_band, Af_Nb_Allin, PLF_Gain, forecast_plf, state=None):
         """Backwards-compatible wrapper. Delegates to ``computeFinalAnchor`` then
         ``applyAnchorToLadder`` so the existing call-sites in ``runAlloc.py`` and
@@ -106,7 +190,16 @@ class DetermineRBD:
         overBookingFare = 0
         openResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
         hardopenResult = pd.DataFrame(columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
-        openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria)
+        
+        if is_multiplier_offset(offset):
+            openResult, rbddata = self.apply_multiplier_offset_snap(
+                origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria
+            )
+        else:
+            openResult, rbddata = self.rmdatabasehelper.getValueWithOffset(
+                origin, destin, anchorFare, offset, channel, openResult, 'L', strategy_criteria
+            )
+
         if self.check_int(hardoffset) and hardAnchorFare!=CONST_NA:
             hardopenResult, hardrbddata = self.rmdatabasehelper.getValueWithOffset(origin, destin, hardAnchorFare, hardoffset, channel, hardopenResult, 'L')
             if hardrbddata.shape[0] == 0 and  hardAnchorFare!=CONST_NA:
@@ -1803,10 +1896,13 @@ class DetermineRBD:
 
     def extremeFaresSkipping(self, origin, destin, anchorFare, offset, channel, backstop, openResult, route):
         self.logger.info("Market Fare is out of price ladder range - allocating at extreme values")
-        # Fetch the Lowest or highest available fares
-        condition = 'LOW'
-        if int(offset) >= 0:
-            condition = 'HI'
+        # Fetch the Lowest or highest available fares.
+        # The direction comes from the offset's intent rather than its raw numeric value,
+        # so multiplier ('X') offsets pick the correct extreme. Previously these were
+        # coerced to 0 here, which always selected 'HI' and mis-priced downward
+        # multipliers (e.g. X0.8, X-1.12) that fell outside the ladder range.
+        condition = 'LOW' if offset_snap_direction(offset) == OFFSET_DOWN else 'HI'
+        self.logger.info(f"Extreme fare direction for offset '{offset}': {condition}")
 
         defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, condition, backstop, route)
 
@@ -1837,10 +1933,15 @@ class DetermineRBD:
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
+        # As in getFares: multiplier ('X') offsets contribute no ladder step count, so
+        # ladder_step_count yields 0 and index 0 of the pre-sorted ladder is used.
+        # Parsing via the helper also keeps int('X1.34') from raising here.
+        stepCount = ladder_step_count(offset)
+
         # Calculating the offset that is required based on entries remaining in the RBD table
-        offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1)
-        if int(offset) < 0:
-            offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
+        offsetToFetch = min(abs(stepCount), rbddata.shape[0] - 1)
+        if stepCount < 0:
+            offsetToFetch = min(abs(stepCount+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
         defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route)
@@ -1935,10 +2036,16 @@ class DetermineRBD:
         extremeFareFlag = False
         # We got back data purely on the basis of anchor fare - comparison with offset remains which is done in the subsequent section
 
+        # Multiplier ('X') offsets carry no ladder step count: apply_multiplier_offset_snap
+        # has already resolved the price target and returned rbddata sorted so that index 0
+        # is the snapped fare. ladder_step_count therefore yields 0 for them, which reads
+        # index 0 — the intended result — rather than misreading the multiplier as steps.
+        stepCount = ladder_step_count(offset)
+
         # Calculating the offset that is required based on entries remaining in the RBD table
-        offsetToFetch = min(abs(int(offset)), rbddata.shape[0] - 1)
-        if int(offset) < 0 and not (strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR)):
-            offsetToFetch = min(abs(int(offset)+1), rbddata.shape[0] - 1) 
+        offsetToFetch = min(abs(stepCount), rbddata.shape[0] - 1)
+        if stepCount < 0 and not (strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR or strategy_criteria == MIN2C_FARE_ANCHOR or strategy_criteria == MEDC_FARE_ANCHOR)):
+            offsetToFetch = min(abs(stepCount+1), rbddata.shape[0] - 1) 
 
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
         defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', 0, route)
