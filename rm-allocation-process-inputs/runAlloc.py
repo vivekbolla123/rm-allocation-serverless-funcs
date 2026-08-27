@@ -745,7 +745,7 @@ class DynAlloc:
 		# Populate summary row fields specific to full allocation
 		self.outputSummaryRow_b2c.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
 		self.outputSummaryRow_b2b.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
-		currentLoadFactor_val = (sod_tgtAtCurrentHour_abs / final_totalCapacity) * 100 if final_totalCapacity > 0 else 0.0
+		currentLoadFactor_val = (sod_tgtAtCurrentHour_abs / eff_capacity_for_variance) * 100 if eff_capacity_for_variance > 0 else 0.0
 		self.outputSummaryRow_b2c.currentLoadFactor = round(currentLoadFactor_val,2)
 		self.outputSummaryRow_b2b.currentLoadFactor = round(currentLoadFactor_val,2)
 		self.outputSummaryRow_b2c.bookingToday = sod_bookingToday

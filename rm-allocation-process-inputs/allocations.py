@@ -874,8 +874,9 @@ class RBDAllocations:
                         b2c_fare_weight = band_result['b2c_fare_weight']
                         profile_fare_weight = band_result['profile_fare_weight']
                     else:
+                        eff_cap_for_var = adjustedCapacity if (adjustedCapacity is not None and adjustedCapacity > 0) else final_totalCapacity
                         var_for_band = calculate_variance_for_load(
-                            simulated_booked_load, final_totalCapacity, ndocounter,
+                            simulated_booked_load, eff_cap_for_var, ndocounter,
                             sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs
                         )
                         band = self.rmdatabasehelper.getdpflBand(var_for_band)
