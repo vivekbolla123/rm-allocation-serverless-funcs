@@ -34,6 +34,7 @@ from helper.portfolio_aggregator import compute_portfolio_aggregates
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
 from utilities.time_utils import TimeUtils
+from utilities.offset_utils import is_multiplier_offset
 from constants_utils import ConstantsUtils
 from common.compute_utils import *
 
@@ -1127,7 +1128,7 @@ class DynAlloc:
 			if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 				self.outputSummaryRow_b2c.mktFile = himktFileb2c
-			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
+			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR, MIN2_FARE_ANCHOR, MIN2C_FARE_ANCHOR, MED_FARE_ANCHOR, MEDC_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 				self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 
@@ -1153,7 +1154,7 @@ class DynAlloc:
 						is_profile_anchor = True
 
 			if is_last7avg_anchor or is_profile_anchor:
-				self.outputSummaryRow_b2c.fareOffset = 0  # No offset if L7D avg is anchor
+				self.outputSummaryRow_b2c.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2c.fareOffset) else 0  # No offset if L7D avg is anchor
 
 			# determineRBDToOpen needs YYYY-MM-DD date
 			openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
@@ -1231,11 +1232,11 @@ class DynAlloc:
 						b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 						if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 							b2b_anchor_source = "B2CDiscounted"
-							self.outputSummaryRow_b2b.fareOffset = 0
+							self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				else:
 					self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Fallback
 				if offset_flag:
-					self.outputSummaryRow_b2b.fareOffset=0
+					self.outputSummaryRow_b2b.fareOffset="X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
 				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime = \
@@ -2362,7 +2363,7 @@ class DynAlloc:
 			if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 				self.outputSummaryRow_b2c.mktFile = himktFileb2c
-			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
+			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR, MIN2_FARE_ANCHOR, MIN2C_FARE_ANCHOR, MED_FARE_ANCHOR, MEDC_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 				self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 
@@ -2384,7 +2385,7 @@ class DynAlloc:
 						is_profile_anchor = True
 
 			if is_last7avg_anchor or is_profile_anchor:
-				self.outputSummaryRow_b2c.fareOffset = 0
+				self.outputSummaryRow_b2c.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2c.fareOffset) else 0
 
 		state.profileFare = profileFare
 		state.profileFaresData = profileFaresData
@@ -2587,11 +2588,11 @@ class DynAlloc:
 						b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 						if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 							b2b_anchor_source = "B2CDiscounted"
-							self.outputSummaryRow_b2b.fareOffset = 0
+							self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				else:
 					self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
 				if offset_flag:
-					self.outputSummaryRow_b2b.fareOffset = 0
+					self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				self.outputSummaryRow_b2b.strategyFare = self.outputSummaryRow_b2b.anchorFare
 
 				anchorResult_b2b = self.determinerbd.computeFinalAnchor(

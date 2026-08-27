@@ -5,6 +5,7 @@ import pytz
 from ownlogger import OwnLogger
 from Constants import *
 from utilities.time_utils import TimeUtils 
+from utilities.offset_utils import offset_snap_direction
 from helper.redis_helper import RedisHelper
 from constants_utils import ConstantsUtils
 
@@ -1616,7 +1617,14 @@ class RMDatabaseHelper:
         return include_rbd_list
 
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
-        self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
+        # Offsets reach here in either format. Only the direction of travel matters for
+        # building the ladder query below, so derive it via the shared helper instead of
+        # coercing multiplier ('X') offsets to 0 — that discarded the direction and made
+        # every downward multiplier query upward.
+        offsetDirection = offset_snap_direction(offset)
+
+        self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset)
+                         + " (direction " + str(offsetDirection) + ")")
 
         if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
             self.logger.info('Strategy Fare not available.')
@@ -1653,8 +1661,8 @@ class RMDatabaseHelper:
         sortorder = -1  # desc
         use_pipeline = False
 
-        if int(offset) < 0:
-            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+        if offsetDirection < 0:
+            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR or strategy_criteria == MIN2C_FARE_ANCHOR or strategy_criteria == MEDC_FARE_ANCHOR):
                 pipeline = [
                     {"$match": query},
                     {
@@ -1685,10 +1693,10 @@ class RMDatabaseHelper:
                 query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
-        if int(offset) >= 0:
+        if offsetDirection >= 0:
             anchorFare = float(anchorFare)
             if anchorFare > 0:
-                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR or strategy_criteria == MIN2C_FARE_ANCHOR or strategy_criteria == MEDC_FARE_ANCHOR):
                     pipeline = [
                         {"$match": query},
                         {
