@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import pandas as pd
 import pytz
@@ -2503,8 +2503,22 @@ class RMDatabaseHelper:
 
     def get_curveids(self, sector1, sector2, fltno1, fltno2, dep1, dep2):
         try:
-            dep1 = datetime.strptime(dep1, "%Y-%m-%d")  # Converts "2025-01-15" to datetime
-            dep2 = datetime.strptime(dep2, "%Y-%m-%d")
+            if isinstance(dep1, str):
+                try:
+                    dep1 = datetime.strptime(dep1, "%Y-%m-%d")
+                except ValueError:
+                    dep1 = datetime.strptime(dep1, "%m/%d/%Y")
+            elif isinstance(dep1, date) and not isinstance(dep1, datetime):
+                dep1 = datetime.combine(dep1, datetime.min.time())
+
+            if isinstance(dep2, str):
+                try:
+                    dep2 = datetime.strptime(dep2, "%Y-%m-%d")
+                except ValueError:
+                    dep2 = datetime.strptime(dep2, "%m/%d/%Y")
+            elif isinstance(dep2, date) and not isinstance(dep2, datetime):
+                dep2 = datetime.combine(dep2, datetime.min.time())
+
             # Query both market_list and market_list_international
             query1 = {
     "$or": [

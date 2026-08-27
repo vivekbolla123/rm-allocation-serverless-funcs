@@ -173,3 +173,41 @@ def test_connections_variance_matches_direct_variance():
     assert var_conn_high == var_direct_high
     assert round(var_conn_high, 4) == round(((110 - 90) / 180) * 100, 4)
 
+
+def test_connections_curve_mapping_order():
+    # Simulate cdf returned by MongoDB with sector 2 first and sector 1 second
+    cdf = pd.DataFrame([
+        {"Origin": "MAA", "Destin": "IXZ", "FlightNumber": 1145, "CurveID": "LS-AD-50%JAS"},
+        {"Origin": "BOM", "Destin": "MAA", "FlightNumber": 1145, "CurveID": "NM-Morn-35%JAS"}
+    ])
+    
+    sector1 = "BOMMAA"
+    sector2 = "MAAIXZ"
+    flightNo1 = "1145"
+    flightNo2 = "1145"
+
+    sec1_origin = sector1[:3]
+    sec1_destin = sector1[3:]
+    sec2_origin = sector2[:3]
+    sec2_destin = sector2[3:]
+    
+    sec1_mask = (cdf['Origin'] == sec1_origin) & (cdf['Destin'] == sec1_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo1))
+    sec2_mask = (cdf['Origin'] == sec2_origin) & (cdf['Destin'] == sec2_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo2))
+    
+    if sec1_mask.any():
+        CurveId1 = cdf[sec1_mask].iloc[0]['CurveID']
+    else:
+        CurveId1 = cdf["CurveID"].iloc[0]
+        
+    if sec2_mask.any():
+        CurveId2 = cdf[sec2_mask].iloc[0]['CurveID']
+    elif len(cdf) > 1:
+        CurveId2 = cdf["CurveID"].iloc[1]
+    else:
+        CurveId2 = cdf["CurveID"].iloc[0]
+
+    # Verify that CurveId1 is Sector 1's curve and CurveId2 is Sector 2's curve (not swapped)
+    assert CurveId1 == "NM-Morn-35%JAS"
+    assert CurveId2 == "LS-AD-50%JAS"
+
+

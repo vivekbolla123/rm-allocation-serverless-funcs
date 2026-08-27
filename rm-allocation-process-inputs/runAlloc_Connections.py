@@ -198,11 +198,39 @@ class DynAllocConnections:
                     self.redishelper.updateRunAudit()
                     break
                 else:
-                    CurveId1 = cdf["CurveID"][0]
-                    CurveId2 = cdf["CurveID"][1]
+                    sec1_origin = sector1[:3]
+                    sec1_destin = sector1[3:]
+                    sec2_origin = sector2[:3]
+                    sec2_destin = sector2[3:]
+                    
+                    sec1_mask = (cdf['Origin'] == sec1_origin) & (cdf['Destin'] == sec1_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo1))
+                    sec2_mask = (cdf['Origin'] == sec2_origin) & (cdf['Destin'] == sec2_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo2))
+                    
+                    if sec1_mask.any():
+                        CurveId1 = cdf[sec1_mask].iloc[0]['CurveID']
+                    else:
+                        CurveId1 = cdf["CurveID"].iloc[0]
+                        
+                    if sec2_mask.any():
+                        CurveId2 = cdf[sec2_mask].iloc[0]['CurveID']
+                    elif len(cdf) > 1:
+                        CurveId2 = cdf["CurveID"].iloc[1]
+                    else:
+                        CurveId2 = cdf["CurveID"].iloc[0]
+
                     self.CurveId1 = CurveId1
                     self.CurveId2 = CurveId2
-                    date2=datetime.strptime(tgdDate2, DATE_FORMAT_2).date()
+                    
+                    if isinstance(tgdDate2, str):
+                        try:
+                            date2 = datetime.strptime(tgdDate2, DATE_FORMAT_2).date()
+                        except ValueError:
+                            date2 = datetime.strptime(tgdDate2, DATE_FORMAT).date()
+                    elif isinstance(tgdDate2, (datetime, date)):
+                        date2 = tgdDate2.date() if isinstance(tgdDate2, datetime) else tgdDate2
+                    else:
+                        date2 = currDate
+
                     tgtBookedLoad1 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
                         ndocounter, CurveId1)
                     tgtBookedLoad2 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
