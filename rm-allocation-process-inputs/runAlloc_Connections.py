@@ -12,7 +12,7 @@ import pandas as pd
 import time as time_sleep
 
 from Constants import *
-from common.compute_utils import safe_float
+from common.compute_utils import safe_float, calculateVariance
 
 from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
@@ -352,13 +352,27 @@ class DynAllocConnections:
             startOfDayTgtAbs1 = startOfDayTgt1 * eff_capacity1
             self.tgtAtCurrentHour1 = (tgtBookedLoad1 - startOfDayTgtAbs1) * areaAtCurrentTime + startOfDayTgtAbs1
         else:
+            startOfDayTgtAbs1 = tgtBookedLoad1
             self.tgtAtCurrentHour1 = tgtBookedLoad1
+        self.startOfDayTgt1 = startOfDayTgt1
+        self.startOfDayTgtAbs1 = startOfDayTgtAbs1
         
         if startOfDayTgt2 is not None:
             startOfDayTgtAbs2 = startOfDayTgt2 * eff_capacity2
             self.tgtAtCurrentHour2 = (tgtBookedLoad2 - startOfDayTgtAbs2) * areaAtCurrentTime + startOfDayTgtAbs2
         else:
+            startOfDayTgtAbs2 = tgtBookedLoad2
             self.tgtAtCurrentHour2 = tgtBookedLoad2
+        self.startOfDayTgt2 = startOfDayTgt2
+        self.startOfDayTgtAbs2 = startOfDayTgtAbs2
+
+        try:
+            currDate = self.timeutils.getCurrentDate()
+            date2 = datetime.strptime(str(current_date2), DATE_FORMAT_2).date() if isinstance(current_date2, str) else current_date2
+            ndo2 = (date2 - currDate).days
+        except Exception:
+            ndo2 = ndocounter
+        self.ndo2 = ndo2
         sector1 = self.currParams.sector1
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
@@ -538,10 +552,18 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1 = ((bookload1 - self.tgtAtCurrentHour1) * 100 / eff_capacity1) if eff_capacity1 > 0 else 0.0
-                self.outputSummaryRow_b2c.variance2 = ((bookload2 - self.tgtAtCurrentHour2) * 100 / eff_capacity2) if eff_capacity2 > 0 else 0.0
-                self.outputSummaryRow_b2b.variance1 = ((bookload1 - self.tgtAtCurrentHour1) * 100 / eff_capacity1) if eff_capacity1 > 0 else 0.0
-                self.outputSummaryRow_b2b.variance2 = ((bookload2 - self.tgtAtCurrentHour2) * 100 / eff_capacity2) if eff_capacity2 > 0 else 0.0
+                var1 = calculateVariance(
+                    float(bookload1), eff_capacity1, ndocounter,
+                    self.tgtAtCurrentHour1, self.startOfDayTgt1, self.startOfDayTgtAbs1
+                )
+                var2 = calculateVariance(
+                    float(bookload2), eff_capacity2, self.ndo2,
+                    self.tgtAtCurrentHour2, self.startOfDayTgt2, self.startOfDayTgtAbs2
+                )
+                self.outputSummaryRow_b2c.variance1 = var1
+                self.outputSummaryRow_b2c.variance2 = var2
+                self.outputSummaryRow_b2b.variance1 = var1
+                self.outputSummaryRow_b2b.variance2 = var2
                 
                 imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,

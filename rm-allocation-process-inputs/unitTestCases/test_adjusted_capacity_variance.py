@@ -129,3 +129,47 @@ def test_connections_eff_capacity_calculation():
     direct_forecast = 80.0
     direct_variance = (direct_booked_pax / direct_cap * 100) - direct_forecast
     assert round(direct_variance, 4) == round((120 / 160 * 100) - 80.0, 4)  # 75 - 80 = -5.0
+
+
+def test_connections_variance_matches_direct_variance():
+    # Test NDO < 22: both use ((currBookedLoad / totalCapacity) - (tgtAtCurrentHour / totalCapacity)) * 100
+    bookload = 110
+    eff_cap = 180
+    ndo_low = 10
+    tgt_current = 95.0
+    sod_tgt_lf = 0.5
+    sod_tgt_abs = sod_tgt_lf * eff_cap  # 90.0
+
+    var_direct_low = calculateVariance(
+        currBookedLoad=float(bookload),
+        totalCapacity=eff_cap,
+        ndocounter=ndo_low,
+        tgtAtCurrentHour=tgt_current,
+        startOfDayBookLoad=sod_tgt_lf,
+        startOfDayTgtBookedLoad=sod_tgt_abs
+    )
+    # Connection logic calling calculateVariance with sector 1 parameters
+    var_conn_low = calculateVariance(
+        float(bookload), eff_cap, ndo_low,
+        tgt_current, sod_tgt_lf, sod_tgt_abs
+    )
+    assert var_conn_low == var_direct_low
+    assert round(var_conn_low, 4) == round(((110 / 180) - (95 / 180)) * 100, 4)
+
+    # Test NDO >= 22: both use ((currBookedLoad - startOfDayTgtBookedLoad) / totalCapacity) * 100
+    ndo_high = 25
+    var_direct_high = calculateVariance(
+        currBookedLoad=float(bookload),
+        totalCapacity=eff_cap,
+        ndocounter=ndo_high,
+        tgtAtCurrentHour=tgt_current,
+        startOfDayBookLoad=sod_tgt_lf,
+        startOfDayTgtBookedLoad=sod_tgt_abs
+    )
+    var_conn_high = calculateVariance(
+        float(bookload), eff_cap, ndo_high,
+        tgt_current, sod_tgt_lf, sod_tgt_abs
+    )
+    assert var_conn_high == var_direct_high
+    assert round(var_conn_high, 4) == round(((110 - 90) / 180) * 100, 4)
+
