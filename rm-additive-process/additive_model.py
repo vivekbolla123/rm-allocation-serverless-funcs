@@ -436,6 +436,18 @@ class AdditivePickupModelProcessor:
                 {'Pax Count': 'sum', 'Fare': 'sum'}
             ).reset_index()
 
+        # Align dtypes on merge keys before merging. In pandas 1.x, groupby with
+        # dropna=False can silently change column dtypes (datetime64 -> object, or
+        # time-object columns inferred as datetime64 when all-None). Coerce both
+        # sides to unambiguous, merge-safe types.
+        for target in ([fm_df, bookings] if not bookings.empty else [fm_df]):
+            target['DepartureDate'] = pd.to_datetime(target['DepartureDate'])
+            # STD holds datetime.time objects (or None); convert to string to avoid
+            # pandas type-inference issues on merge. Downstream _prepare_future_flights
+            # already converts str -> time via pd.to_datetime(..., format='%H:%M:%S').
+            target['STD'] = target['STD'].apply(
+                lambda x: str(x) if pd.notna(x) else None)
+
         future_df = fm_df.merge(bookings, on=merge_keys, how='left')
         future_df.rename(columns={'Pax Count': 'Total Bookings', 'Fare': 'Current_Revenue'}, inplace=True)
         future_df['Total Bookings'] = future_df['Total Bookings'].fillna(0).astype(int)
@@ -692,42 +704,33 @@ class AdditivePickupModelProcessor:
             .reset_index(name='Tagging')
         )
 
-        # tags = tags.sort_values(
-        #     by=['Sector', 'Quarter', 'Tagging_int'],
-        #     ascending=[True, True, False]
-        # )
+        tags = tags.sort_values(
+            by=['Sector', 'Quarter', 'Tagging_int'],
+            ascending=[True, True, False]
+        )
 
-        # mid_tagging_quarter = (
-        #     tags.groupby(['Sector', 'Quarter'], sort=False)['Tagging']
-        #     .apply(middle_tagging)
-        #     .reset_index(name='Tagging')
-        # )
+        mid_tagging_quarter = (
+            tags.groupby(['Sector', 'Quarter'], sort=False)['Tagging']
+            .apply(middle_tagging)
+            .reset_index(name='Tagging')
+        )
 
-        # tags = tags.sort_values(
-        #     by=['Sector', 'Tagging_int'],
-        #     ascending=[True, False]
-        # )
+        tags = tags.sort_values(
+            by=['Sector', 'Tagging_int'],
+            ascending=[True, False]
+        )
 
-        # mid_tagging_sector = (
-        #     tags.groupby(['Sector'], sort=False)['Tagging']
-        #     .apply(middle_tagging)
-        #     .reset_index(name='Tagging')
-        # )
-
-        # tags = tags.sort_values(
-        #     by=['DOW', 'Quarter', 'Tagging_int'],
-        #     ascending=[True, True, False]
-        # )
-
-        # mid_tagging_quarter = (
-        #     tags.groupby(['DOW', 'Quarter'], sort=False)['Tagging']
-        #     .apply(middle_tagging)
-        #     .reset_index(name='Tagging')
-        # )
+        mid_tagging_sector = (
+            tags.groupby(['Sector'], sort=False)['Tagging']
+            .apply(middle_tagging)
+            .reset_index(name='Tagging')
+        )
 
         logger.info(f"Future tagging computed: {len(mid_time_cluster_tagging)} TC-level, "
-                    f"{len(mid_tagging)} fallback entries.")
-        return mid_time_cluster_tagging, mid_tagging
+                    f"{len(mid_tagging)} DOW/Quarter, "
+                    f"{len(mid_tagging_quarter)} Quarter, "
+                    f"{len(mid_tagging_sector)} Sector fallback entries.")
+        return mid_time_cluster_tagging, mid_tagging, mid_tagging_quarter, mid_tagging_sector
 
     # =========================================================================
     # STEP 6: PREPARE COMBINED FLOWN+BOOKED DATA & ASSIGN FARE BUCKETS
@@ -805,7 +808,8 @@ class AdditivePickupModelProcessor:
     # =========================================================================
 
     def _pivot_ndo_data(self, combined_df, farebasis_df, historical_tagging_df,
-                        mid_time_cluster_tagging, mid_tagging):
+                        mid_time_cluster_tagging, mid_tagging,
+                        mid_tagging_quarter, mid_tagging_sector):
         """
         Pivot the required RBD data by NDO, impute missing fare buckets,
         fill zeros for past booking dates, and merge lean/peak tagging.
@@ -888,11 +892,12 @@ class AdditivePickupModelProcessor:
 
         # Fill NaN tagging with future tagging lookup
         pivot_ndo['Quarter'] = pivot_ndo['DepartureDate'].apply(get_quarter_abbr)
-        self._fill_nan_tagging(pivot_ndo, mid_time_cluster_tagging, mid_tagging)
+        self._fill_nan_tagging(pivot_ndo, mid_time_cluster_tagging, mid_tagging,
+                              mid_tagging_quarter, mid_tagging_sector)
 
         logger.info(f"Pivot NDO data ready: {len(pivot_ndo)} rows, "
                     f"remaining NaN tagging: {pivot_ndo['Tagging'].isna().sum()}")
-        return pivot_ndo
+        return pivot_ndo, remaining_df
     
     def _zscore_tag(self, lean_peak_df):
         """Compute Sector-TimeCluster Z-score lean/peak tags for one source slice."""
@@ -936,8 +941,11 @@ class AdditivePickupModelProcessor:
         return agg_df[['Sector', 'DepartureDate', 'FlightNumber', 'Time Cluster', 'Tagging']].copy()
 
 
-    def _fill_nan_tagging(self, df, mid_time_cluster_tagging, mid_tagging):
-        """Fill NaN tagging values using future tagging lookups (in-place)."""
+    def _fill_nan_tagging(self, df, mid_time_cluster_tagging, mid_tagging,
+                          mid_tagging_quarter, mid_tagging_sector):
+        """Fill NaN tagging values using future tagging lookups (in-place).
+        Fallback chain: Sector/DOW/Quarter/TC -> Sector/DOW/Quarter -> Sector/Quarter -> Sector.
+        """
         # First pass: Sector/DOW/Quarter/Time Cluster level
         na_mask = df['Tagging'].isna()
         if na_mask.sum() > 0:
@@ -954,11 +962,28 @@ class AdditivePickupModelProcessor:
             merged = na_rows.merge(lookup, on=['Sector', 'DOW', 'Quarter'], how='left')
             df.loc[na_mask, 'Tagging'] = merged['Tagging_mid'].values
 
+        # Third pass: Sector/Quarter level (fallback)
+        na_mask = df['Tagging'].isna()
+        if na_mask.sum() > 0:
+            lookup = mid_tagging_quarter.rename(columns={'Tagging': 'Tagging_qtr'})
+            na_rows = df.loc[na_mask, ['Sector', 'Quarter']].copy()
+            merged = na_rows.merge(lookup, on=['Sector', 'Quarter'], how='left')
+            df.loc[na_mask, 'Tagging'] = merged['Tagging_qtr'].values
+
+        # Fourth pass: Sector level (final fallback)
+        na_mask = df['Tagging'].isna()
+        if na_mask.sum() > 0:
+            lookup = mid_tagging_sector.rename(columns={'Tagging': 'Tagging_sec'})
+            na_rows = df.loc[na_mask, ['Sector']].copy()
+            merged = na_rows.merge(lookup, on=['Sector'], how='left')
+            df.loc[na_mask, 'Tagging'] = merged['Tagging_sec'].values
+
     # =========================================================================
     # STEP 8: PREPARE FUTURE FLIGHTS WITH TAGGING
     # =========================================================================
 
-    def _prepare_future_flights(self, future_df, mid_time_cluster_tagging, mid_tagging, farebasis_df):
+    def _prepare_future_flights(self, future_df, mid_time_cluster_tagging, mid_tagging,
+                                 mid_tagging_quarter, mid_tagging_sector, farebasis_df):
         """
         Prepare future flights DataFrame with tagging and fare bucket expansion.
         """
@@ -980,7 +1005,8 @@ class AdditivePickupModelProcessor:
             on=['Sector', 'DOW', 'Quarter', 'Time Cluster'],
             how='left'
         )
-        self._fill_nan_tagging(future_df, mid_time_cluster_tagging, mid_tagging)
+        self._fill_nan_tagging(future_df, mid_time_cluster_tagging, mid_tagging,
+                              mid_tagging_quarter, mid_tagging_sector)
 
         # Expand with fare buckets
         future_df_expanded = future_df.merge(farebasis_df, on='Sector', how='left')
@@ -1282,15 +1308,19 @@ class AdditivePickupModelProcessor:
             remaining_pivot['FlightNumber'].astype(str)
         )
 
+        # Only use flown flights for remaining RBD estimation (future flights
+        # have incomplete booking data and would understate the remaining pax).
+        remaining_pivot = remaining_pivot[remaining_pivot['DepartureDate'] < self.current_date]
+
         dfs = []
         for key, matched_keys in flight_matches.items():
             if not matched_keys:
                 continue
             future_sub = future_df[future_df['Key'] == key]
-            hist_sub = remaining_pivot[remaining_pivot['Key'].isin(matched_keys)]
+            hist_sub = remaining_pivot[remaining_pivot['Key'].isin(matched_keys)].drop(columns=['DOW'], errors='ignore')
             if future_sub.empty or hist_sub.empty:
                 continue
-            merged = future_sub.merge(hist_sub, on=['Sector', 'DOW'], how='left',
+            merged = future_sub.merge(hist_sub, on=['Sector'], how='left',
                                     suffixes=('_future', '_hist'))
             dfs.append(merged)
 
@@ -1302,6 +1332,13 @@ class AdditivePickupModelProcessor:
         remaining_pax['future_flight_NDO'] = (
             remaining_pax['DepartureDate_future'] - self.current_date
         ).dt.days
+
+        # Compute recency weights (same alpha-decay as the weighted prediction branch)
+        hist_dd = pd.to_datetime(remaining_pax['DepartureDate_hist'])
+        delta_days = (self.current_date - hist_dd).dt.days
+        x = delta_days.where(delta_days >= 0, WEIGHT_FUTURE_X)
+        remaining_pax['_weight'] = (WEIGHT_ALPHA ** x).fillna(0.0)
+
         remaining_pax.fillna(0, inplace=True)
 
         def sum_ndo(row):
@@ -1316,11 +1353,17 @@ class AdditivePickupModelProcessor:
 
         remaining_pax['remaining_raw'] = remaining_pax.apply(sum_ndo, axis=1)
 
-        remaining_merged = remaining_pax.groupby(
-            ['Sector', 'DepartureDate_future', 'STD_future', 'FlightNumber_future']
-        )['remaining_raw'].mean().reset_index()
+        # Weighted mean of remaining pax (recency-weighted, same as main prediction)
+        remaining_pax['_w_raw'] = remaining_pax['remaining_raw'] * remaining_pax['_weight']
+        group_keys = ['Sector', 'DepartureDate_future', 'STD_future', 'FlightNumber_future']
+        agg = remaining_pax.groupby(group_keys).agg(
+            w_sum=('_w_raw', 'sum'),
+            w_total=('_weight', 'sum')
+        ).reset_index()
+        agg['remaining_pax_count'] = np.where(
+            agg['w_total'] > 0, agg['w_sum'] / agg['w_total'], 0.0)
 
-        remaining_renamed = remaining_merged.rename(columns={'remaining_raw': 'remaining_pax_count'})
+        remaining_renamed = agg[group_keys + ['remaining_pax_count']]
         merge_keys = ['Sector', 'DepartureDate_future', 'FlightNumber_future']
 
         # ---- Fare bucket level ----
@@ -1871,22 +1914,28 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(historical_tagging, '04_historical_tagging')
 
         # --- Step 5: Future lean/peak tagging ---
-        mid_tc_tagging, mid_tagging = self._compute_future_tagging(lean_peak_source)
+        mid_tc_tagging, mid_tagging, mid_tagging_quarter, mid_tagging_sector = \
+            self._compute_future_tagging(lean_peak_source)
         self._save_intermediate(mid_tc_tagging, '05a_future_tagging_tc')
         self._save_intermediate(mid_tagging, '05b_future_tagging_fallback')
+        self._save_intermediate(mid_tagging_quarter, '05c_future_tagging_quarter')
+        self._save_intermediate(mid_tagging_sector, '05d_future_tagging_sector')
 
         # --- Step 6: Combine + assign fare buckets ---
         combined_df = self._prepare_combined_data(flown_df, booked_df, farebasis_df)
         self._save_intermediate(combined_df, '06_combined_data')
 
         # --- Step 7: Pivot NDO ---
-        pivot_ndo = self._pivot_ndo_data(combined_df, farebasis_df, historical_tagging,
-                                         mid_tc_tagging, mid_tagging)
+        pivot_ndo, remaining_df = self._pivot_ndo_data(combined_df, farebasis_df, historical_tagging,
+                                         mid_tc_tagging, mid_tagging,
+                                         mid_tagging_quarter, mid_tagging_sector)
         self._save_intermediate(pivot_ndo, '07_pivot_ndo', fmt='parquet')
+        self._save_intermediate(remaining_df, '07_remaining_data', fmt='csv')
 
         # --- Step 8: Prepare future flights ---
         future_df, future_df_expanded = self._prepare_future_flights(
-            future_flight_df, mid_tc_tagging, mid_tagging, farebasis_df)
+            future_flight_df, mid_tc_tagging, mid_tagging,
+            mid_tagging_quarter, mid_tagging_sector, farebasis_df)
         self._save_intermediate(future_df, '08a_future_flights_tagged')
         self._save_intermediate(future_df_expanded, '08b_future_flights_expanded')
 
@@ -1910,7 +1959,7 @@ class AdditivePickupModelProcessor:
         if result_df.empty:
             logger.warning(f"No matched results for {sectors} — batch produced no output.")
             return
-        self._save_intermediate(result_df, '10_matched_result', fmt='parquet')
+        self._save_intermediate(result_df, '10_matched_result', fmt='csv')
 
         # --- Step 11: Predictions (normal + weighted) ---
         (result_merged_df, result_final_df, _,
