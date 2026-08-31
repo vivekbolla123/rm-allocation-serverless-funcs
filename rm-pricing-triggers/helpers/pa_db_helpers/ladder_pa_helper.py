@@ -642,6 +642,9 @@ class LadderPAHelper:
             
             # Save B2B ladder first
             ladder_fares_b2b = ladder_result.get('ladder_fares_b2b', []) or []
+            # Default (GP) ladders are built in all-in space and supply both ladders, so the
+            # all-in values are used as given instead of being re-derived from the base fares.
+            allin_fares_b2b = list(ladder_result.get('allin_ladder_fares_b2b') or [])
             self.logger.info(f"B2B ladder fares count: {len(ladder_fares_b2b)} (expected: {self.TOTAL_B2B_FARES})")
             
             if ladder_fares_b2b:
@@ -668,7 +671,10 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
+                    if allin_fares_b2b:
+                        new_all_in = allin_fares_b2b[i]
+                    else:
+                        new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
                     
                     doc = {
                         'ladder_code': ladder_result['ladder_code'],
@@ -695,6 +701,7 @@ class LadderPAHelper:
             
             # Save B2C ladder
             ladder_fares_b2c = ladder_result.get('ladder_fares_b2c', []) or []
+            allin_fares_b2c = list(ladder_result.get('allin_ladder_fares_b2c') or [])
             self.logger.info(f"B2C ladder fares count: {len(ladder_fares_b2c)} (expected: {self.TOTAL_B2C_FARES})")
             
             if ladder_fares_b2c:
@@ -721,13 +728,8 @@ class LadderPAHelper:
                     
                     # Calculate all-in fares with taxes
                     current_all_in = self.calculate_all_in_fare_func(current_base, origin, destination, ftype="current")
-                    new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
-                    is_default_b2c = ladder_result.get('data_period_b2c') == 'Default'
-                    is_default_b2b = ladder_result.get('data_period_b2b') == 'Default'
-
-                    if is_default_b2c or is_default_b2b:
-                        new_all_in = new_base
-                        new_base = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="base")
+                    if allin_fares_b2c:
+                        new_all_in = allin_fares_b2c[i]
                     else:
                         new_all_in = self.calculate_all_in_fare_func(new_base, origin, destination, ftype="current")
 

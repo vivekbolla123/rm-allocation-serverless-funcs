@@ -154,6 +154,7 @@ class ConstantsUtils:
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
         self.plf_change_per = PLF_CHANGE_PER
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
+        self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
 
@@ -469,6 +470,8 @@ class ConstantsUtils:
                 self.plf_change_per = float(parameter_value)
             elif parameter_key == PLF_CHANGE_N_RUNS_KEY:
                 self.plf_change_n_runs = int(parameter_value)
+            elif parameter_key == STRATEGY_OFFSET_GUARDRAILS_KEY:
+                self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
                 

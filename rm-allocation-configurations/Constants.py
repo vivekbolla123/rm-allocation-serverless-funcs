@@ -351,6 +351,10 @@ MAXO_FARE_ANCHOR = "MAXO"
 OWNF_FARE_ANCHOR = "OWNF"
 MINC_FARE_ANCHOR = "MINC"
 MINOC_FARE_ANCHOR = "MINOC"
+MIN2_FARE_ANCHOR = "MIN2"
+MIN2C_FARE_ANCHOR = "MIN2C"
+MED_FARE_ANCHOR = "MED"
+MEDC_FARE_ANCHOR = "MEDC"
 
 YES_FLAG = 'Y'
 NO_FLAG = 'N'
@@ -554,6 +558,9 @@ DEFAULT_ML_CONFIG = '{ "top_rbd_count": { "B2C": 8, "B2B": 3 }, "top_gp_factor":
 DEFAULT_ML_CALC_CONFIG = '{ "backstop_distance_multiplier": 6, "q_fare_level": "10" }'
 PLF_CHANGE_PER = 2.0
 PLF_CHANGE_N_RUNS = 4
+
+STRATEGY_OFFSET_GUARDRAILS = '{"min_shift": 100, "max_shift": 2000}'
+STRATEGY_OFFSET_GUARDRAILS_KEY = "strategy_offset_guardrails"
 
 #HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
 #HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
