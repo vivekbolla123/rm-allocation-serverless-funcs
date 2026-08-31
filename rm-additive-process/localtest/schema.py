@@ -156,19 +156,20 @@ MONGO_DATASETS = {
 OUTPUT_COLLECTIONS = {
     'flight_level_weighted': 'add_model_flight_level_weighted',
     'fare_bucket_weighted': 'add_model_fare_bucket_level_weighted',
+    'inventory_ng': 'add_model_inventory_ng',
+}
+
+OUTPUT_CSV_NAMES = {
+    'flight_level_weighted': 'flight_level_weighted.csv',
+    'fare_bucket_weighted': 'add_model_fare_bucket_level_weighted.csv',
+    'inventory_ng': 'inventory_ng.csv',
 }
 
 # Emitted under one name, persisted under another.
-DATASET_ALIASES = {
-    'inventory_optimization': 'fare_bucket_weighted',
-}
+DATASET_ALIASES = {}
 
-# Emitted but discarded, because an aliased dataset supersedes it. Checked before
-# the aliases so the un-optimized fare-bucket frame is dropped while the optimized
-# one takes its place.
-SUPERSEDED_DATASETS = {
-    'fare_bucket_weighted',
-}
+# Emitted but discarded, because an aliased dataset supersedes it.
+SUPERSEDED_DATASETS = set()
 
 # Prefix used by every output collection. clear_outputs() drops the whole family
 # so collections left behind by an earlier configuration get cleaned up too.

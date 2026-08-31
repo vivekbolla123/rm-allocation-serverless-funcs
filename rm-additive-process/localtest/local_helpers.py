@@ -32,7 +32,8 @@ from helpers.db_helpers.additive_esb_helper import AdditiveEsbHelper
 from helpers.utils.common_utils import AdditiveCache
 
 from localtest.schema import (DATASET_ALIASES, OUTPUT_COLLECTION_PREFIX,
-                              OUTPUT_COLLECTIONS, SUPERSEDED_DATASETS, TBL_BOOKED,
+                              OUTPUT_COLLECTIONS, OUTPUT_CSV_NAMES,
+                              SUPERSEDED_DATASETS, TBL_BOOKED,
                               TBL_FLOWN, TBL_INVENTORY_LEG)
 
 
@@ -185,7 +186,15 @@ class LocalAdditiveCache(AdditiveCache):
         collection = self.mongo_db[collection_name]
 
         # Mirror the S3 partition overwrite: replace this snapshot+sector slice only.
-        keys = [c for c in partition_cols if c in df.columns]
+        keys = []
+        for p in partition_cols:
+            if p in df.columns:
+                keys.append(p)
+            elif p.lower() in df.columns:
+                keys.append(p.lower())
+            elif p.capitalize() in df.columns:
+                keys.append(p.capitalize())
+
         if keys:
             for combo, _part in df.groupby(keys, sort=False):
                 combo = combo if isinstance(combo, tuple) else (combo,)
@@ -204,7 +213,7 @@ class LocalAdditiveCache(AdditiveCache):
             self._write_csv(df, dataset, keys)
 
     def _write_csv(self, df, dataset, keys):
-        """One CSV per dataset, all sectors in it: `<dataset>.csv`.
+        """One CSV per dataset, all sectors in it: `<filename>.csv`.
 
         Sectors are processed one at a time, so the first write of a run truncates
         the file and later sectors append to it. No date in the name — a re-run
@@ -213,12 +222,14 @@ class LocalAdditiveCache(AdditiveCache):
         The 0..180 pickup-curve columns are dropped so the file opens in a
         spreadsheet; `write_full_csv` adds a `*_full.csv` that keeps them.
         """
+        csv_name = OUTPUT_CSV_NAMES.get(dataset, f'{dataset}.csv')
+        base_name = csv_name[:-4] if csv_name.endswith('.csv') else csv_name
         curve_cols = _ndo_columns(df)
         trimmed = df.drop(columns=curve_cols) if curve_cols else df
 
-        self._to_csv(trimmed, f'{dataset}.csv')
+        self._to_csv(trimmed, csv_name)
         if self.write_full_csv and curve_cols:
-            self._to_csv(df, f'{dataset}_full.csv')
+            self._to_csv(df, f'{base_name}_full.csv')
 
     def _to_csv(self, df, filename):
         path = os.path.join(self.output_dir, filename)

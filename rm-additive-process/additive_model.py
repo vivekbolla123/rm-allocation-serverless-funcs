@@ -1550,27 +1550,11 @@ class AdditivePickupModelProcessor:
     def _compute_inventory_optimization(self, bucket_df,
                                         base_col='predicted_pax_count',
                                         base_std_col='predicted_pax_std'):
-        """Step 15 — Inventory Optimization using EMSR-b.
+        """Step 15 — NextGen Inventory Optimization (inventory_ng).
 
         Calculates protection limits and authorization levels (AU) for each fare
-        bucket, adds the 80% promo fare (W RBD), and determines the opening fare
-        without considering promo inventory.
-
-        Demand: the most-processed per-bucket demand available (see
-        OPTIMIZATION_DEMAND_PREFERENCE), falling back to `base_col`. Using the raw
-        step-11 prediction here would mean the remaining-RBD distribution, the
-        analyst demand multiplier and the WTP redistribution had no effect on
-        inventory at all.
-
-        Sigma: only the step-11 prediction has a standard deviation
-        (`base_std_col`). Steps 12-14 are deterministic transforms of the mean and
-        carry no variance of their own, so sigma is scaled by the same per-bucket
-        ratio, which holds the coefficient of variation constant. In practice this
-        is a second-order effect because Sigma_Bar is clipped to
-        EMSR_SIGMA_FACTOR * Mu_Bar for most buckets.
-
-        Both the demand and the sigma actually used are written to the output as
-        `OptimizationDemand` / `OptimizationDemandStd` so the ladder is auditable.
+        bucket, executes competition response, demand redistribution, and closed-form
+        revenue forecasting to produce the 50-column NextGen dataset (inventory_ng).
         """
         if bucket_df is None or bucket_df.empty:
             return None
@@ -1594,8 +1578,6 @@ class AdditivePickupModelProcessor:
             if base_std_col in df.columns else pd.Series(0.0, index=df.index)
 
         # Hold the coefficient of variation constant across the step 12-14 uplift.
-        # np.divide with `where` so zero-demand buckets never evaluate the division
-        # (a plain np.where would still compute it and emit divide-by-zero).
         base_arr = base.to_numpy(dtype=float)
         positive = base_arr > 0
         ratio = np.ones_like(base_arr)
@@ -1605,21 +1587,20 @@ class AdditivePickupModelProcessor:
         df['OptimizationDemandStd'] = np.clip(base_std.to_numpy(dtype=float) * ratio,
                                               0.0, None)
 
-        logger.info(f"Computing inventory optimization (EMSR-b protection limits & AU) "
+        logger.info(f"Computing NextGen inventory optimization (inventory_ng) "
                     f"— demand={demand_col}, sigma from {base_std_col} scaled by the "
                     f"same ratio, buy-up factor={BUY_UP_FACTOR}...")
-        opt_df = compute_inventory_optimization_df(
+        inv_ng_df = compute_inventory_ng_df(
             df,
             pax_col='OptimizationDemand',
             std_col='OptimizationDemandStd',
             sigma_factor=EMSR_SIGMA_FACTOR,
             promo_ratio=PROMO_FARE_RATIO,
-            promo_rbd=PROMO_RBD,
             open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR,
             buy_up_factor=BUY_UP_FACTOR
         )
-        logger.info(f"Inventory optimization complete — {len(opt_df)} rows produced.")
-        return opt_df
+        logger.info(f"NextGen inventory optimization complete — {len(inv_ng_df)} rows produced.")
+        return inv_ng_df
 
     def _apply_demand_multiplier(self, flight_df, bucket_df):
         """Step 13 — adds: Demand Multiplier, Demand Multiplier Number,
@@ -2244,7 +2225,9 @@ class AdditivePickupModelProcessor:
             (weighted_final_df,  weighted_flight_level_cols, 'flight_level_weighted',
              'add_model_flight_level_weighted'),
             (weighted_merged_df, weighted_fare_bucket_cols,  'fare_bucket_weighted',
-             'add_model_fare_bucket_level_weighted')]
+             'add_model_fare_bucket_level_weighted'),
+            (optimized_df,       INVENTORY_NG_COLUMNS,       'inventory_ng',
+             'add_model_inventory_ng')]
 
         # =====================================================================
         # TEST — timestamped CSV in the local output directory
@@ -2257,10 +2240,6 @@ class AdditivePickupModelProcessor:
                     continue
                 self._save_to_csv(_subset(frame, cols), f'{name}_{timestamp}.csv')
 
-            if optimized_df is not None and not optimized_df.empty:
-                self._save_to_csv(_subset(optimized_df, optimization_cols),
-                                  f'inventory_optimization_{timestamp}.csv')
-
             # Full frames (all columns incl. NDO 0-180) -> parquet, not CSV.
             for frame, _cols, name, _dw in DATASETS:
                 if frame is None or frame.empty:
@@ -2271,10 +2250,10 @@ class AdditivePickupModelProcessor:
             return
 
         # =====================================================================
-                # PROD — S3 ONLY, partitioned by snapshot_date / sector
-                # (DW writes removed; each sector's partition is written independently
-                #  so parallel workers never conflict)
-                # =====================================================================
+        # PROD — S3 ONLY, partitioned by snapshot_date / sector
+        # (DW writes removed; each sector's partition is written independently
+        #  so parallel workers never conflict)
+        # =====================================================================
         logger.info(f"Saving to partitioned S3 "
                     f"({len(sectors) if sectors else '?'} sectors)...")
 
@@ -2284,9 +2263,6 @@ class AdditivePickupModelProcessor:
                 continue
             # full frame (incl. NDO curve) to S3; the trimmed `cols` are for
             # a lighter query-facing copy if you want one later.
-            self.cache.write_partitioned_s3(frame, s3_dataset)
-
-        if optimized_df is not None and not optimized_df.empty:
-            self.cache.write_partitioned_s3(optimized_df, 'inventory_optimization')
+            self.cache.write_partitioned_s3(_subset(frame, cols) if s3_dataset == 'inventory_ng' else frame, s3_dataset)
 
         logger.info("All PROD results saved to S3 successfully.")
