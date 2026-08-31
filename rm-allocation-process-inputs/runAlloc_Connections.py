@@ -363,9 +363,9 @@ class DynAllocConnections:
 
         # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
-            self.currParams.Lid1
+            eff_capacity1
         tgtBookedLoad2 = tgtBookedLoad2 * \
-            self.currParams.Lid2
+            eff_capacity2
         
         # Compute intraday-adjusted targets (aligned with direct variance logic)
         try:
@@ -377,7 +377,7 @@ class DynAllocConnections:
             areaAtCurrentTime = 1.0  # Fallback: use end-of-day target
         
         if startOfDayTgt1 is not None:
-            startOfDayTgtAbs1 = startOfDayTgt1 * self.currParams.Lid1
+            startOfDayTgtAbs1 = startOfDayTgt1 * eff_capacity1
             self.tgtAtCurrentHour1 = (tgtBookedLoad1 - startOfDayTgtAbs1) * areaAtCurrentTime + startOfDayTgtAbs1
         else:
             startOfDayTgtAbs1 = tgtBookedLoad1
@@ -386,7 +386,7 @@ class DynAllocConnections:
         self.startOfDayTgtAbs1 = startOfDayTgtAbs1
         
         if startOfDayTgt2 is not None:
-            startOfDayTgtAbs2 = startOfDayTgt2 * self.currParams.Lid2
+            startOfDayTgtAbs2 = startOfDayTgt2 * eff_capacity2
             self.tgtAtCurrentHour2 = (tgtBookedLoad2 - startOfDayTgtAbs2) * areaAtCurrentTime + startOfDayTgtAbs2
         else:
             startOfDayTgtAbs2 = tgtBookedLoad2
@@ -486,9 +486,9 @@ class DynAllocConnections:
             bookload1 = bookedLoadSingleRowSector1
             bookload2 = bookedLoadSingleRowSector2
             minLid = min(
-                self.currParams.Lid1,self.currParams.Lid2)
+                eff_capacity1, eff_capacity2)
             bookload = max(
-                bookload1 - (self.currParams.Lid1 - minLid), bookload2 - (self.currParams.Lid2 - minLid))
+                bookload1 - (eff_capacity1 - minLid), bookload2 - (eff_capacity2 - minLid))
             print("Combined Booked Load for " + str(flight1)+" "+str(
                 flight2) + " on " + str(current_date1) + " is :" + str(bookload))
             
@@ -595,7 +595,7 @@ class DynAllocConnections:
                 
                 imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
-                    capacity=self.currParams.Lid1, bookload=bookload1,
+                    capacity=eff_capacity1, bookload=bookload1,
                     curve_id=getattr(self, 'CurveId1', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf1', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF1', CONST_NA),
@@ -603,7 +603,7 @@ class DynAllocConnections:
                     forecast_model=getattr(self.currParams, 'forecast_model1', 'LB'))
                 imp2 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance2, forecasted_plf_sector2, forecasted_varience_sector2,
-                    capacity=self.currParams.Lid2, bookload=bookload2,
+                    capacity=eff_capacity2, bookload=bookload2,
                     curve_id=getattr(self, 'CurveId2', None),
                     forecast_run_plf=getattr(self.currParams, 'forecast_run_plf2', CONST_NA),
                     expected_plf=getattr(self.currParams, 'Expected_PLF2', CONST_NA),

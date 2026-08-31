@@ -29,6 +29,8 @@ class MarketListConnectiosnsRow:
         self.BookedPax2 = currParams.get("BookedPax2", CONST_NA)
         self.Lid1 = currParams.get("Lid1", CONST_NA) 
         self.Lid2 = currParams.get("Lid2", CONST_NA)
+        self.AdjustedCapacity1 = currParams.get("AdjustedCapacity1", CONST_NA)
+        self.AdjustedCapacity2 = currParams.get("AdjustedCapacity2", CONST_NA)
         self.sosFlag =  currParams.get("sosFlag", CONST_NA)
         
         self.OpeningRBDB2B1 = currParams.get("OpeningRBDB2B1", CONST_NA)  
