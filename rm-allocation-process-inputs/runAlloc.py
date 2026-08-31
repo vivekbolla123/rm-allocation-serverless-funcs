@@ -559,7 +559,7 @@ class DynAlloc:
 			self.getStartOfDayValues(
 				currBookedLoad, currFltDate, ndocounter,
 				tgtBookedLoadPercent, # Passed parameter
-				final_totalCapacity, currFltDepartureTime
+				(state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity), currFltDepartureTime
 			)
 
 		distress_pax_count = round(sod_startOfDayTgtBookedLoad_abs - float(currBookedLoad))
@@ -679,8 +679,9 @@ class DynAlloc:
 		sod_eodTgtBookedLoad_abs = state.sod_eodTgtBookedLoad_abs
 		sod_dplfBand = state.sod_dplfBand
 
+		eff_capacity_for_variance = state.base_adjustedCapacity if state.base_adjustedCapacity > 0 else final_totalCapacity
 		variance_full = calculateVariance(
-			float(currBookedLoad), final_totalCapacity, ndocounter,
+			float(currBookedLoad), eff_capacity_for_variance, ndocounter,
 			sod_tgtAtCurrentHour_abs, sod_startOfDayBookLoad_factor, sod_startOfDayTgtBookedLoad_abs
 		)
 		self.logger.info(f"Variance (Full Mode): {variance_full:.2f}")
@@ -701,10 +702,10 @@ class DynAlloc:
 		Af_Nb_Allin = CONST_NA
 		if ndocounter <= 30:
 			imp_forecast = getParsedImputedForecast(
-				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, eff_capacity_for_variance
 			)
 		if imp_forecast != CONST_NA:
-			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, final_totalCapacity)
+			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, eff_capacity_for_variance)
 			PLF_Gain = ((imp_forecast) - round(final_plf,2))
 
 		ndoBand_full = self.rmdatabasehelper.getNdoBand(ndocounter)
