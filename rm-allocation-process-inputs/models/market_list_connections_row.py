@@ -75,6 +75,7 @@ class MarketListConnectiosnsRow:
         self.DirectFlightNumber = currParams.get("DirectFlightNumber", CONST_NA)
         self.DirectFlightBookedPax = currParams.get("DirectFlightBookedPax", CONST_NA)
         self.DirectFlightLid = currParams.get("DirectFlightLid", CONST_NA)
+        self.DirectFlightAdjustedCapacity = currParams.get("DirectFlightAdjustedCapacity", CONST_NA)
         self.DirectFlightForecast = currParams.get("DirectFlightForecast", CONST_NA)
         self.DirectFlightPLF = currParams.get("DirectFlightPLF", CONST_NA)
         self.DirectFlightDepTime = currParams.get("DirectFlightDepTime", CONST_NA)

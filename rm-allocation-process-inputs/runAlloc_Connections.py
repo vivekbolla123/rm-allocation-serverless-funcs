@@ -12,7 +12,7 @@ import pandas as pd
 import time as time_sleep
 
 from Constants import *
-from common.compute_utils import safe_float
+from common.compute_utils import safe_float, calculateVariance
 
 from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
@@ -198,11 +198,39 @@ class DynAllocConnections:
                     self.redishelper.updateRunAudit()
                     break
                 else:
-                    CurveId1 = cdf["CurveID"][0]
-                    CurveId2 = cdf["CurveID"][1]
+                    sec1_origin = sector1[:3]
+                    sec1_destin = sector1[3:]
+                    sec2_origin = sector2[:3]
+                    sec2_destin = sector2[3:]
+                    
+                    sec1_mask = (cdf['Origin'] == sec1_origin) & (cdf['Destin'] == sec1_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo1))
+                    sec2_mask = (cdf['Origin'] == sec2_origin) & (cdf['Destin'] == sec2_destin) & (cdf['FlightNumber'].astype(str) == str(flightNo2))
+                    
+                    if sec1_mask.any():
+                        CurveId1 = cdf[sec1_mask].iloc[0]['CurveID']
+                    else:
+                        CurveId1 = cdf["CurveID"].iloc[0]
+                        
+                    if sec2_mask.any():
+                        CurveId2 = cdf[sec2_mask].iloc[0]['CurveID']
+                    elif len(cdf) > 1:
+                        CurveId2 = cdf["CurveID"].iloc[1]
+                    else:
+                        CurveId2 = cdf["CurveID"].iloc[0]
+
                     self.CurveId1 = CurveId1
                     self.CurveId2 = CurveId2
-                    date2=datetime.strptime(tgdDate2, DATE_FORMAT_2).date()
+                    
+                    if isinstance(tgdDate2, str):
+                        try:
+                            date2 = datetime.strptime(tgdDate2, DATE_FORMAT_2).date()
+                        except ValueError:
+                            date2 = datetime.strptime(tgdDate2, DATE_FORMAT).date()
+                    elif isinstance(tgdDate2, (datetime, date)):
+                        date2 = tgdDate2.date() if isinstance(tgdDate2, datetime) else tgdDate2
+                    else:
+                        date2 = currDate
+
                     tgtBookedLoad1 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
                         ndocounter, CurveId1)
                     tgtBookedLoad2 = self.rmdatabasehelper.getTargetBookedLoadFromBenchmarkCurve(
@@ -328,6 +356,10 @@ class DynAllocConnections:
         self.outputSummaryRow_b2c.Bookedload2 = bookedLoadSingleRowSector2
         self.outputSummaryRow_b2b.Bookedload1 = bookedLoadSingleRowSector1
         self.outputSummaryRow_b2b.Bookedload2 = bookedLoadSingleRowSector2
+        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
+        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else safe_float(getattr(self.currParams, 'Lid1', 0), 0.0)
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else safe_float(getattr(self.currParams, 'Lid2', 0), 0.0)
 
         # End-of-day targets (absolute)
         tgtBookedLoad1 = tgtBookedLoad1 * \
@@ -348,13 +380,27 @@ class DynAllocConnections:
             startOfDayTgtAbs1 = startOfDayTgt1 * self.currParams.Lid1
             self.tgtAtCurrentHour1 = (tgtBookedLoad1 - startOfDayTgtAbs1) * areaAtCurrentTime + startOfDayTgtAbs1
         else:
+            startOfDayTgtAbs1 = tgtBookedLoad1
             self.tgtAtCurrentHour1 = tgtBookedLoad1
+        self.startOfDayTgt1 = startOfDayTgt1
+        self.startOfDayTgtAbs1 = startOfDayTgtAbs1
         
         if startOfDayTgt2 is not None:
             startOfDayTgtAbs2 = startOfDayTgt2 * self.currParams.Lid2
             self.tgtAtCurrentHour2 = (tgtBookedLoad2 - startOfDayTgtAbs2) * areaAtCurrentTime + startOfDayTgtAbs2
         else:
+            startOfDayTgtAbs2 = tgtBookedLoad2
             self.tgtAtCurrentHour2 = tgtBookedLoad2
+        self.startOfDayTgt2 = startOfDayTgt2
+        self.startOfDayTgtAbs2 = startOfDayTgtAbs2
+
+        try:
+            currDate = self.timeutils.getCurrentDate()
+            date2 = datetime.strptime(str(current_date2), DATE_FORMAT_2).date() if isinstance(current_date2, str) else current_date2
+            ndo2 = (date2 - currDate).days
+        except Exception:
+            ndo2 = ndocounter
+        self.ndo2 = ndo2
         sector1 = self.currParams.sector1
         sector2 = self.currParams.sector2
         flight1 = self.currParams.flight1
@@ -534,10 +580,18 @@ class DynAllocConnections:
                 openResult = pd.DataFrame(
             columns=['RBD', 'Fare', 'FareResult', 'anchorFare', 'statusInd', 'allocationStatus'])
                 strfare=fare2 
-                self.outputSummaryRow_b2c.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
-                self.outputSummaryRow_b2c.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
-                self.outputSummaryRow_b2b.variance1=(bookload1-self.tgtAtCurrentHour1)*100/self.currParams.Lid1
-                self.outputSummaryRow_b2b.variance2=(bookload2-self.tgtAtCurrentHour2)*100/self.currParams.Lid2
+                var1 = calculateVariance(
+                    float(bookload1), eff_capacity1, ndocounter,
+                    self.tgtAtCurrentHour1, self.startOfDayTgt1, self.startOfDayTgtAbs1
+                )
+                var2 = calculateVariance(
+                    float(bookload2), eff_capacity2, self.ndo2,
+                    self.tgtAtCurrentHour2, self.startOfDayTgt2, self.startOfDayTgtAbs2
+                )
+                self.outputSummaryRow_b2c.variance1 = var1
+                self.outputSummaryRow_b2c.variance2 = var2
+                self.outputSummaryRow_b2b.variance1 = var1
+                self.outputSummaryRow_b2b.variance2 = var2
                 
                 imp1 = self.getParsedImputedForecast(
                     self.outputSummaryRow_b2c.variance1, forecasted_plf_sector1, forecasted_varience_sector1,
@@ -1254,8 +1308,13 @@ class DynAllocConnections:
         int_plf_threshold = self.rmdatabasehelper.get_international_bookload_threshold(ndocounter)
         yield_factor = self.constantsUtils.YIELD_FACTOR
         
-        plf1 = (bookload1 / self.currParams.Lid1 * 100) if self.currParams.Lid1 > 0 else 0
-        plf2 = (bookload2 / self.currParams.Lid2 * 100) if self.currParams.Lid2 > 0 else 0
+        adj_cap1 = safe_float(getattr(self.currParams, 'AdjustedCapacity1', None), 0.0)
+        adj_cap2 = safe_float(getattr(self.currParams, 'AdjustedCapacity2', None), 0.0)
+        eff_capacity1 = adj_cap1 if adj_cap1 > 0 else safe_float(getattr(self.currParams, 'Lid1', 0), 0.0)
+        eff_capacity2 = adj_cap2 if adj_cap2 > 0 else safe_float(getattr(self.currParams, 'Lid2', 0), 0.0)
+        
+        plf1 = (bookload1 / eff_capacity1 * 100) if eff_capacity1 > 0 else 0
+        plf2 = (bookload2 / eff_capacity2 * 100) if eff_capacity2 > 0 else 0
         
         # For domestic legs at NDO 30+, use DPLF band (3-6 = meets threshold) instead of forecast PLF
         if is_sector1_domestic and ndocounter >= 30 and variance1 is not None:
@@ -1380,15 +1439,19 @@ class DynAllocConnections:
                 # Compute direct flight variance for DPLF band lookup
                 direct_booked_pax = self.currParams.DirectFlightBookedPax
                 direct_lid = self.currParams.DirectFlightLid
+                direct_adj_cap = getattr(self.currParams, 'DirectFlightAdjustedCapacity', None)
                 try:
                     direct_booked_pax = float(direct_booked_pax) if direct_booked_pax and not pd.isna(direct_booked_pax) else 0
                     direct_lid = float(direct_lid) if direct_lid and not pd.isna(direct_lid) else 0
+                    direct_adj_cap = float(direct_adj_cap) if direct_adj_cap and not pd.isna(direct_adj_cap) else 0
                 except (ValueError, TypeError):
                     direct_booked_pax = 0
                     direct_lid = 0
+                    direct_adj_cap = 0
                 
-                if direct_lid > 0:
-                    direct_variance = (direct_booked_pax / direct_lid * 100) - (direct_forecast)
+                direct_capacity = direct_adj_cap if direct_adj_cap > 0 else direct_lid
+                if direct_capacity > 0:
+                    direct_variance = (direct_booked_pax / direct_capacity * 100) - (direct_forecast)
                     direct_dplf_band = self.rmdatabasehelper.getdpflBand(direct_variance)
                     try:
                         direct_dplf_band_val = int(direct_dplf_band) if direct_dplf_band is not None else 0
