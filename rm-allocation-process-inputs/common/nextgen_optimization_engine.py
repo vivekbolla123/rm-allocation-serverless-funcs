@@ -122,7 +122,9 @@ class NextGenOptimizationEngine:
         if df.empty:
             return df, 0.0, 0.0
 
-        if fare_col not in df.columns and 'FareMidpoint' in df.columns:
+        if fare_col not in df.columns and 'FareBucket_Lower' in df.columns:
+            df[fare_col] = df['FareBucket_Lower']
+        elif fare_col not in df.columns and 'FareMidpoint' in df.columns:
             df[fare_col] = df['FareMidpoint']
         elif fare_col not in df.columns and 'TOTAL' in df.columns:
             df[fare_col] = df['TOTAL']
@@ -400,7 +402,7 @@ class NextGenOptimizationEngine:
             return None
 
         if fare_col not in ladder_df.columns:
-            fare_col = next((c for c in ['fare', 'FareMidpoint', 'TOTAL', 'Total'] if c in ladder_df.columns), None)
+            fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in ladder_df.columns), None)
             if not fare_col:
                 return float(response_fare)
 
@@ -437,7 +439,7 @@ class NextGenOptimizationEngine:
             return df
 
         if fare_col not in df.columns:
-            fare_col = next((c for c in ['fare', 'FareMidpoint', 'TOTAL', 'Total'] if c in df.columns), 'fare')
+            fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in df.columns), 'fare')
 
         df[fare_col] = pd.to_numeric(df[fare_col], errors='coerce').fillna(0.0)
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
@@ -645,7 +647,7 @@ class NextGenOptimizationEngine:
             return 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, df
 
         if fare_col not in df.columns:
-            fare_col = next((c for c in ['fare', 'FareMidpoint', 'TOTAL', 'Total'] if c in df.columns), 'fare')
+            fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in df.columns), 'fare')
 
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
         fares = df[fare_col].tolist()

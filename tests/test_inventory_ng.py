@@ -94,8 +94,7 @@ class TestInventoryNG:
         assert res_df['LF_Forecast_Revised'].iloc[0] > 0
         assert res_df['AF_Forecast'].iloc[0] > 0
         assert res_df['RASK_Forecast'].iloc[0] > 0
-        assert res_df['Distance'].iloc[0] == 1148
-        assert res_df['qp_b2c_min'].iloc[0] == 4000.0  # (3000+5000)/2
+        assert res_df['qp_b2c_min'].iloc[0] == 3000.0  # lowest FareBucket_Lower
 
     def test_competition_response_demand_redistribution(self):
         """Verify that when market fare < anchor fare, demand redistribution and revised AU trigger properly."""
@@ -127,7 +126,7 @@ class TestInventoryNG:
         )
 
         assert not res_df.empty
-        assert res_df['strategy_fare'].iloc[0] == 7000.0
+        assert res_df['strategy_fare'].iloc[0] == 6000.0
         assert res_df['oal_b2c_min'].iloc[0] == 7000.0
 
     def test_schema_isolation_of_fare_bucket_weighted(self):

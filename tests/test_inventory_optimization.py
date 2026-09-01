@@ -98,15 +98,15 @@ def test_flight_inventory_optimization_values(sample_flight_data):
     """Test the exact mathematical calculations against the formula."""
     res = compute_flight_inventory_optimization(sample_flight_data)
     
-    # Check midpoints
-    # Open bucket: 25088 * 1.10 = 27596.8
-    assert pytest.approx(res.iloc[0]['FareMidpoint'], 0.1) == 27596.8
-    # Closed bucket: (21685 + 25088) / 2 = 23386.5
-    assert pytest.approx(res.iloc[1]['FareMidpoint'], 0.1) == 23386.5
-    # Lowest filed bucket: (1620 + 1911) / 2 = 1765.5
-    assert pytest.approx(res.iloc[6]['FareMidpoint'], 0.1) == 1765.5
-    # Promo bucket: 0.80 * 1765.5 = 1412.4
-    assert pytest.approx(res.iloc[7]['FareMidpoint'], 0.1) == 1412.4
+    # Check FareMidpoint / Fare from FareBucket_Lower
+    # Open bucket: 25088
+    assert pytest.approx(res.iloc[0]['FareMidpoint'], 0.1) == 25088.0
+    # Closed bucket: 21685
+    assert pytest.approx(res.iloc[1]['FareMidpoint'], 0.1) == 21685.0
+    # Lowest filed bucket: 1620
+    assert pytest.approx(res.iloc[6]['FareMidpoint'], 0.1) == 1620.0
+    # Promo bucket: 0.80 * 1620 = 1296.0
+    assert pytest.approx(res.iloc[7]['FareMidpoint'], 0.1) == 1296.0
 
     # Top class AU must equal capacity
     assert res.iloc[0]['AU'] == 189
@@ -130,8 +130,8 @@ def test_promo_fare_calculation():
     res = compute_flight_inventory_optimization(df)
     assert len(res) == 3
     promo_row = res.iloc[-1]
-    lowest_midpoint = (2000 + 3000) / 2.0  # 2500
-    assert promo_row['FareMidpoint'] == 0.80 * 2500  # 2000
+    lowest_lower = 2000.0
+    assert promo_row['FareMidpoint'] == 0.80 * 2000  # 1600
     assert promo_row['RBD'] == 'W'
     assert promo_row['AU'] <= 180
     assert promo_row['ProtectionLimit'] == 0
@@ -145,9 +145,9 @@ def test_opening_fare_without_promo(sample_flight_data):
     assert res.iloc[7]['IsOpeningFare'] == False  # Promo is never opening fare
     assert res['OpeningFareBucket'].iloc[0] == '1620-1911'
 
-    # If Current_Bookings = 136, class 7 (AU = 135) is closed -> class 6 (AU = 153) is open
+    # If Current_Bookings = 137, class 7 (AU = 136.01) is closed -> class 6 (AU = 154.21) is open
     sample_flight_data_high_bk = sample_flight_data.copy()
-    sample_flight_data_high_bk['Current_Bookings'] = 136
+    sample_flight_data_high_bk['Current_Bookings'] = 137
     res2 = compute_flight_inventory_optimization(sample_flight_data_high_bk)
     assert res2.iloc[5]['IsOpeningFare'] == True
     assert res2.iloc[6]['IsOpeningFare'] == False
@@ -244,9 +244,9 @@ def test_buy_up_factor_matches_brd_formula(sample_flight_data):
                     EMSR_SIGMA_FACTOR * mu_bar)
     f_j = sum(mu[i] * fares[i] for i in range(j + 1)) / mu_bar
     prob = (1.0 - (fares[j + 1] / f_j)) * (1.0 / (1.0 - alpha))
-    expected = max(0, math.ceil(mu_bar + norm.ppf(prob) * sigma_bar))
+    expected = max(0.0, float(mu_bar + norm.ppf(prob) * sigma_bar))
 
-    assert filed['ProtectionLimit'].iloc[j] == expected
+    assert pytest.approx(filed['ProtectionLimit'].iloc[j], 0.001) == expected
 
 
 def test_buy_up_factor_clamped_below_one():

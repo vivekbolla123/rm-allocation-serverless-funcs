@@ -1508,42 +1508,36 @@ class DynAlloc:
 
 					ladder_data = []
 					if s3_bucket_df is not None and not s3_bucket_df.empty:
-						count_col = next((c for c in ['Final_pax_count', 'New Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in s3_bucket_df.columns), None)
-						std_col = next((c for c in ['weighted_pax_std', 'std', 'predicted_pax_std', 'sigma'] if c in s3_bucket_df.columns), None)
+						count_col = next((c for c in ['OptimizationDemand', 'WTP_pax_count', 'New Final_pax_count', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in s3_bucket_df.columns), None)
+						std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'std', 'predicted_pax_std', 'sigma'] if c in s3_bucket_df.columns), None)
 						for idx, bucket_row in s3_bucket_df.iterrows():
 							b_name = str(bucket_row.get('FareBucket', f'Bucket_{idx}'))
 							b_lower = bucket_row.get('FareBucket_Lower')
 							b_upper = bucket_row.get('FareBucket_Upper')
 
-							# Calculate fare midpoint for weighted bucket
-							if pd.notna(b_lower) and pd.notna(b_upper) and str(b_upper).strip().lower() not in ['nan', 'null', 'none']:
+							# Take FareBucket_Lower directly as bucket fare
+							if pd.notna(b_lower):
 								try:
-									f_mid = (float(b_lower) + float(b_upper)) / 2.0
+									f_val = float(b_lower)
 								except (ValueError, TypeError):
-									f_mid = float(b_lower) if pd.notna(b_lower) else 0.0
-							elif pd.notna(b_lower):
-								try:
-									f_mid = float(b_lower) * 1.05
-								except (ValueError, TypeError):
-									f_mid = 0.0
+									f_val = 0.0
 							else:
 								try:
 									if '+' in b_name:
-										f_mid = float(b_name.replace('+', '').strip()) * 1.05
+										f_val = float(b_name.replace('+', '').strip())
 									elif '-' in b_name:
-										p1, p2 = b_name.split('-')
-										f_mid = (float(p1) + float(p2)) / 2.0
+										f_val = float(b_name.split('-')[0].strip())
 									else:
-										f_mid = float(b_name)
+										f_val = float(b_name)
 								except Exception:
-									f_mid = 0.0
+									f_val = 0.0
 
 							pax_val = float(bucket_row[count_col]) if count_col and pd.notna(bucket_row[count_col]) else 0.0
 							std_val = float(bucket_row[std_col]) if std_col and pd.notna(bucket_row[std_col]) else (0.25 * pax_val)
 
 							ladder_data.append({
 								'FareBucket': b_name,
-								'fare': round(f_mid, 2),
+								'fare': round(f_val, 2),
 								'mu': pax_val,
 								'sigma': std_val,
 								'FareBucket_Lower': b_lower if pd.notna(b_lower) else None,

@@ -387,14 +387,10 @@ def compute_flight_inventory_optimization(
     df['FareBucket_Lower'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce')
     df['FareBucket_Upper'] = pd.to_numeric(df['FareBucket_Upper'], errors='coerce')
 
-    # Compute FareMidpoint: (lower + upper)/2 for closed, lower * markup for open-ended
+    # Set FareMidpoint from FareBucket_Lower
     if 'FareMidpoint' not in df.columns:
-        df['FareMidpoint'] = np.where(
-            df['FareBucket_Upper'].notna() & (df['FareBucket_Upper'] > 0),
-            (df['FareBucket_Lower'] + df['FareBucket_Upper']) / 2.0,
-            df['FareBucket_Lower'] * open_bucket_markup
-        )
-    df['FareMidpoint'] = df['FareMidpoint'].round(2)
+        df['FareMidpoint'] = df['FareBucket_Lower']
+    df['FareMidpoint'] = pd.to_numeric(df['FareMidpoint'], errors='coerce').fillna(0.0).round(2)
 
     # Sort descending by FareMidpoint (highest fare class 1 -> lowest filed class n)
     df = df.sort_values('FareMidpoint', ascending=False).reset_index(drop=True)
@@ -640,12 +636,8 @@ def compute_flight_inventory_ng(
     df['FareBucket_Lower'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce')
     df['FareBucket_Upper'] = pd.to_numeric(df['FareBucket_Upper'], errors='coerce')
 
-    # Compute fare midpoint
-    df['fare'] = np.where(
-        df['FareBucket_Upper'].notna() & (df['FareBucket_Upper'] > 0),
-        (df['FareBucket_Lower'] + df['FareBucket_Upper']) / 2.0,
-        df['FareBucket_Lower'] * open_bucket_markup
-    ).round(2)
+    # Compute fare from FareBucket_Lower
+    df['fare'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce').fillna(0.0).round(2)
 
     # Sort descending by fare (highest class 0 to lowest class n-1)
     df = df.sort_values('fare', ascending=False).reset_index(drop=True)
