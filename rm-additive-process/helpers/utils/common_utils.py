@@ -161,9 +161,9 @@ class AdditiveCache:
         self.s3 = s3_client
         self.logger = logger
         CACHE_DIR = os.path.join(os.getcwd(), 'additive_model_cache')
-        self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
-        self.s3_cache_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache'
-        self.s3_output_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}datasets'
+        self.s3_bucket = 'qp-s3-fs'
+        self.s3_cache_prefix = f'additive_model_test/_cache'
+        self.s3_output_prefix = f'additive_model_test/datasets'
         self.local_dir = CACHE_DIR
         self.data = {}                     # run-scoped in-memory cache
 

@@ -167,11 +167,10 @@ class AdditivePickupModelProcessor:
         self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger)
         self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger)
 
-        self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
+        self.s3_bucket = 'qp-s3-fs'
         # Adhoc simulation writes to a completely separate S3 root so it never
         # touches the live cache or datasets.
-        _base = 'additive_model_test/' if self.simulate \
-            else configsettings.ADDITIVE_MODEL_FILE_PATH
+        _base = 'additive_model_test/'
         self.s3_cache_prefix = f'{_base}_cache'
         self.s3_output_prefix = f'{_base}datasets'
         CACHE_DIR = os.path.join(os.getcwd(),
@@ -228,7 +227,7 @@ class AdditivePickupModelProcessor:
         # (one per snapshot month). When set, fare buckets are built from the file
         # for THIS snapshot's month instead of qp_dw_rmalloc.fares. Optional
         # overrides['fares_col_map'] remaps CSV headers (see _load_local_fares).
-        self.fares_dir = r'C:\Users\kenneth.menezes\Work\RM\rm-allocation-serverless-funcs\rm-additive-process\testcases\inputs'
+        self.fares_dir = '/Users/jonathan-poul/Documents/work/projects/RM/rm-allocation-serverless-funcs/rm-additive-process/testcases/inputs'
         self.fares_col_map = overrides.get('fares_col_map') or {}
 
         self.cache.data = {}
@@ -480,6 +479,7 @@ class AdditivePickupModelProcessor:
             bookings = rev_df.groupby(merge_keys, dropna=False).agg(
                 {'Pax Count': 'sum', 'Fare': 'sum'}
             ).reset_index()
+            bookings['DepartureDate'] = pd.to_datetime(bookings['DepartureDate'])
 
         future_df = fm_df.merge(bookings, on=merge_keys, how='left')
         future_df.rename(columns={'Pax Count': 'Total Bookings', 'Fare': 'Current_Revenue'}, inplace=True)
