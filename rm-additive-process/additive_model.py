@@ -186,6 +186,28 @@ class AdditivePickupModelProcessor:
         else:
             self.active_sectors = []   # standalone full run -> fetch all active
 
+        # --- mapped-sector fallback (1:1 donor) ---------------------------------
+        # Prefetch sends `sector_entries` = [{sector, priority, mapped_sector}, ...]
+        # already priority-ordered (donor before dependent). Build {sector: donor}.
+        # In TEST / standalone, fall back to the config collection / CSV.
+        self.sector_entries = overrides.get('sector_entries') or []
+        self.mapped_sectors = {}
+        for e in self.sector_entries:
+            if e.get('mapped_sector'):
+                self.mapped_sectors[e['sector']] = e['mapped_sector']
+        if not self.mapped_sectors:
+            # No explicit entries (TEST or standalone) — pull the full config map
+            # and keep only rows relevant to the sectors we're processing.
+            try:
+                full_map = self.mongo_helper.load_mapped_sectors()
+                self.mapped_sectors = {s: m for s, m in full_map.items()
+                                       if s in set(self.active_sectors)}
+            except Exception as e:
+                logger.warning(f"[MappedSectors] unavailable: {e.__class__.__name__}: {e}")
+                self.mapped_sectors = {}
+        if self.mapped_sectors:
+            logger.info(f"[MappedSectors] active fallbacks: {self.mapped_sectors}")
+
         self.cache.data = {}
 
 # =============================================================================
@@ -657,8 +679,9 @@ class AdditivePickupModelProcessor:
         on the trailing 365 days ending on the last day of the previous month.
 
         Returns:
-            mid_time_cluster_tagging: Sector/DOW/Quarter/TimeCluster
-            mid_tagging:              Sector/DOW/Quarter (fallback)
+            dict of 7 fallback frames keyed by level name (q_dow_tc, q_dow,
+            q_tc, q, dow_tc, dow, sector). MP-sector levels are resolved at
+            fill-time by looking up the donor sector in these same frames.
         """
         logger.info("Computing future lean/peak tagging (re-derived on prev-month window)...")
 
@@ -678,59 +701,42 @@ class AdditivePickupModelProcessor:
         tags['Quarter'] = tags['DepartureDate'].apply(get_quarter_abbr)
         tags['Tagging_int'] = tags['Tagging'].apply(numerical_tagging)
 
-        # One descending sort by Tagging_int serves BOTH percentile groupbys:
-        # within any (Sector, DOW, Quarter) block the Tagging_int order is preserved
-        # even after sub-selecting a single Time Cluster, so middle_tagging (the
-        # positional middle) is the true 50th percentile in both.
-        tags = tags.sort_values(
-            by=['Sector', 'DOW', 'Quarter', 'Time Cluster', 'Tagging_int'],
-            ascending=[True, True, True, True, False]
-        )
+        # 7 grouping shapes per the BRD fallback ladder (coarsest last).
+        # 'TC' == Time Cluster. Each returns a frame [<keys>, 'Tagging'].
+        levels = self._future_tag_levels(tags)
 
-        mid_time_cluster_tagging = (
-            tags.groupby(['Sector', 'DOW', 'Quarter', 'Time Cluster'], sort=False)['Tagging']
-            .apply(middle_tagging)
-            .reset_index(name='Tagging')
-        )
+        logger.info("Future tagging computed (7 levels): " + ", ".join(
+            f"{name}={len(df)}" for name, df in levels.items()))
+        return levels
 
-        tags = tags.sort_values(
-            by=['Sector', 'DOW', 'Quarter', 'Tagging_int'],
-            ascending=[True, True, True, False]
-        )
-        
-        mid_tagging = (
-            tags.groupby(['Sector', 'DOW', 'Quarter'], sort=False)['Tagging']
-            .apply(middle_tagging)
-            .reset_index(name='Tagging')
-        )
+    # BRD future-tagging fallback ladder (per sector scope). Order matters:
+    # each is a coarser 50th-percentile grouping than the previous.
+    FUTURE_TAG_LEVELS = [
+        ('q_dow_tc', ['Sector', 'Quarter', 'DOW', 'Time Cluster']),
+        ('q_dow',    ['Sector', 'Quarter', 'DOW']),
+        ('q_tc',     ['Sector', 'Quarter', 'Time Cluster']),
+        ('q',        ['Sector', 'Quarter']),
+        ('dow_tc',   ['Sector', 'DOW', 'Time Cluster']),
+        ('dow',      ['Sector', 'DOW']),
+        ('sector',   ['Sector']),
+    ]
+    FUTURE_TAG_MIN_ENTRIES = 12
 
-        tags = tags.sort_values(
-            by=['Sector', 'Quarter', 'Tagging_int'],
-            ascending=[True, True, False]
-        )
-
-        mid_tagging_quarter = (
-            tags.groupby(['Sector', 'Quarter'], sort=False)['Tagging']
-            .apply(middle_tagging)
-            .reset_index(name='Tagging')
-        )
-
-        tags = tags.sort_values(
-            by=['Sector', 'Tagging_int'],
-            ascending=[True, False]
-        )
-
-        mid_tagging_sector = (
-            tags.groupby(['Sector'], sort=False)['Tagging']
-            .apply(middle_tagging)
-            .reset_index(name='Tagging')
-        )
-
-        logger.info(f"Future tagging computed: {len(mid_time_cluster_tagging)} TC-level, "
-                    f"{len(mid_tagging)} DOW/Quarter, "
-                    f"{len(mid_tagging_quarter)} Quarter, "
-                    f"{len(mid_tagging_sector)} Sector fallback entries.")
-        return mid_time_cluster_tagging, mid_tagging, mid_tagging_quarter, mid_tagging_sector
+    def _future_tag_levels(self, tags):
+        """Compute the 7-level 50th-percentile tagging frames from a tags frame.
+        A group with < FUTURE_TAG_MIN_ENTRIES rows is dropped from that level so
+        the fill step falls through to a coarser (better-supported) level."""
+        out = {}
+        for name, keys in self.FUTURE_TAG_LEVELS:
+            t = tags.sort_values(by=keys + ['Tagging_int'],
+                                 ascending=[True] * len(keys) + [False])
+            grp = t.groupby(keys, sort=False)
+            mid = grp['Tagging'].apply(middle_tagging).reset_index(name='Tagging')
+            counts = grp.size().reset_index(name='_n')
+            mid = mid.merge(counts, on=keys, how='left')
+            mid = mid[mid['_n'] >= self.FUTURE_TAG_MIN_ENTRIES].drop(columns='_n')
+            out[name] = mid
+        return out
 
     # =========================================================================
     # STEP 6: PREPARE COMBINED FLOWN+BOOKED DATA & ASSIGN FARE BUCKETS
@@ -808,8 +814,7 @@ class AdditivePickupModelProcessor:
     # =========================================================================
 
     def _pivot_ndo_data(self, combined_df, farebasis_df, historical_tagging_df,
-                        mid_time_cluster_tagging, mid_tagging,
-                        mid_tagging_quarter, mid_tagging_sector):
+                        tag_levels):
         """
         Pivot the required RBD data by NDO, impute missing fare buckets,
         fill zeros for past booking dates, and merge lean/peak tagging.
@@ -890,10 +895,9 @@ class AdditivePickupModelProcessor:
             how='left'
         )
 
-        # Fill NaN tagging with future tagging lookup
+        # Fill NaN tagging with future tagging lookup (14-level ladder)
         pivot_ndo['Quarter'] = pivot_ndo['DepartureDate'].apply(get_quarter_abbr)
-        self._fill_nan_tagging(pivot_ndo, mid_time_cluster_tagging, mid_tagging,
-                              mid_tagging_quarter, mid_tagging_sector)
+        self._fill_nan_tagging(pivot_ndo, tag_levels)
 
         logger.info(f"Pivot NDO data ready: {len(pivot_ndo)} rows, "
                     f"remaining NaN tagging: {pivot_ndo['Tagging'].isna().sum()}")
@@ -941,49 +945,46 @@ class AdditivePickupModelProcessor:
         return agg_df[['Sector', 'DepartureDate', 'FlightNumber', 'Time Cluster', 'Tagging']].copy()
 
 
-    def _fill_nan_tagging(self, df, mid_time_cluster_tagging, mid_tagging,
-                          mid_tagging_quarter, mid_tagging_sector):
-        """Fill NaN tagging values using future tagging lookups (in-place).
-        Fallback chain: Sector/DOW/Quarter/TC -> Sector/DOW/Quarter -> Sector/Quarter -> Sector.
-        """
-        # First pass: Sector/DOW/Quarter/Time Cluster level
-        na_mask = df['Tagging'].isna()
-        if na_mask.sum() > 0:
-            lookup = mid_time_cluster_tagging.rename(columns={'Tagging': 'Tagging_lookup'})
-            na_rows = df.loc[na_mask, ['Sector', 'DOW', 'Quarter', 'Time Cluster']].copy()
-            merged = na_rows.merge(lookup, on=['Sector', 'DOW', 'Quarter', 'Time Cluster'], how='left')
-            df.loc[na_mask, 'Tagging'] = merged['Tagging_lookup'].values
+    def _fill_nan_tagging(self, df, tag_levels):
+        """Fill NaN tagging (in-place) via the 14-level BRD ladder:
+        7 own-sector levels (Sector-Quarter-DOW-TC ... Sector), then the same 7
+        on the MAPPED (donor) sector for any sector with a 1:1 mapping.
+        `tag_levels` is the dict returned by _compute_future_tagging."""
 
-        # Second pass: Sector/DOW/Quarter level (fallback)
-        na_mask = df['Tagging'].isna()
-        if na_mask.sum() > 0:
-            lookup = mid_tagging.rename(columns={'Tagging': 'Tagging_mid'})
-            na_rows = df.loc[na_mask, ['Sector', 'DOW', 'Quarter']].copy()
-            merged = na_rows.merge(lookup, on=['Sector', 'DOW', 'Quarter'], how='left')
-            df.loc[na_mask, 'Tagging'] = merged['Tagging_mid'].values
+        def _apply(level_name, join_keys, sector_col):
+            """Fill remaining NaNs from tag_levels[level_name], joining df[sector_col]
+            (real sector or mapped donor) onto the lookup's 'Sector'."""
+            na_mask = df['Tagging'].isna()
+            if na_mask.sum() == 0:
+                return
+            lookup = tag_levels.get(level_name)
+            if lookup is None or lookup.empty:
+                return
+            lookup = lookup.rename(columns={'Tagging': '_tag_lk'})
+            # left-side keys: the sector column may be the donor ('_MP_Sector')
+            left_keys = [sector_col] + [k for k in join_keys if k != 'Sector']
+            na_rows = df.loc[na_mask, left_keys].copy()
+            na_rows = na_rows.rename(columns={sector_col: 'Sector'})
+            merged = na_rows.merge(lookup, on=join_keys, how='left')
+            df.loc[na_mask, 'Tagging'] = merged['_tag_lk'].values
 
-        # Third pass: Sector/Quarter level (fallback)
-        na_mask = df['Tagging'].isna()
-        if na_mask.sum() > 0:
-            lookup = mid_tagging_quarter.rename(columns={'Tagging': 'Tagging_qtr'})
-            na_rows = df.loc[na_mask, ['Sector', 'Quarter']].copy()
-            merged = na_rows.merge(lookup, on=['Sector', 'Quarter'], how='left')
-            df.loc[na_mask, 'Tagging'] = merged['Tagging_qtr'].values
+        # --- own-sector ladder (levels 1-7) ---
+        for name, keys in self.FUTURE_TAG_LEVELS:
+            _apply(name, keys, 'Sector')
 
-        # Fourth pass: Sector level (final fallback)
-        na_mask = df['Tagging'].isna()
-        if na_mask.sum() > 0:
-            lookup = mid_tagging_sector.rename(columns={'Tagging': 'Tagging_sec'})
-            na_rows = df.loc[na_mask, ['Sector']].copy()
-            merged = na_rows.merge(lookup, on=['Sector'], how='left')
-            df.loc[na_mask, 'Tagging'] = merged['Tagging_sec'].values
+        # --- mapped-sector ladder (levels 8-14) ---
+        if self.mapped_sectors and df['Tagging'].isna().any():
+            df['_MP_Sector'] = df['Sector'].map(self.mapped_sectors)
+            if df['_MP_Sector'].notna().any():
+                for name, keys in self.FUTURE_TAG_LEVELS:
+                    _apply(name, keys, '_MP_Sector')
+            df.drop(columns=['_MP_Sector'], inplace=True, errors='ignore')
 
     # =========================================================================
     # STEP 8: PREPARE FUTURE FLIGHTS WITH TAGGING
     # =========================================================================
 
-    def _prepare_future_flights(self, future_df, mid_time_cluster_tagging, mid_tagging,
-                                 mid_tagging_quarter, mid_tagging_sector, farebasis_df):
+    def _prepare_future_flights(self, future_df, tag_levels, farebasis_df):
         """
         Prepare future flights DataFrame with tagging and fare bucket expansion.
         """
@@ -999,14 +1000,9 @@ class AdditivePickupModelProcessor:
         future_df['DOW'] = future_df['DepartureDate'].dt.day_name()
         future_df['Time Cluster'] = future_df['STD'].apply(get_time_cluster)
 
-        # Merge tagging
-        future_df = future_df.merge(
-            mid_time_cluster_tagging,
-            on=['Sector', 'DOW', 'Quarter', 'Time Cluster'],
-            how='left'
-        )
-        self._fill_nan_tagging(future_df, mid_time_cluster_tagging, mid_tagging,
-                              mid_tagging_quarter, mid_tagging_sector)
+        # Assign tagging via the full 14-level ladder (level 1 = Sector-Quarter-DOW-TC).
+        future_df['Tagging'] = np.nan
+        self._fill_nan_tagging(future_df, tag_levels)
 
         # Expand with fare buckets
         future_df_expanded = future_df.merge(farebasis_df, on='Sector', how='left')
@@ -1031,13 +1027,26 @@ class AdditivePickupModelProcessor:
     # STEP 9: FLIGHT MATCHING LOGIC
     # =========================================================================
 
+    # All tag ints, used to detect when a ±N window already covers every tag.
+    _ALL_TAG_INTS = {0, 1, 2, 3}
+
+    @staticmethod
+    def _tag_window(tag, n):
+        """Set of tag strings within +-n of `tag` on the numerical scale."""
+        base = numerical_tagging(tag)
+        names = {'Lean': 0, 'Shoulder': 1, 'Peak': 2, 'Super Peak': 3}
+        return {name for name, i in names.items() if abs(i - base) <= n}
+
     def _find_matching_flights(self, future_df, hist_flight_df):
         """
-        For each future flight, find >= MIN_FLIGHT_MATCHES historical flights.
-        Returns dict: {future_key: [historical keys]}. Flights that can't reach the
-        minimum candidate count are skipped entirely (absent from the dict).
+        For each future flight, walk the BRD flown-flight fallback ladder to gather
+        >= MIN_FLIGHT_MATCHES historical (FLOWN) matches, then apply the SAME winning
+        group to the future (UNFLOWN) flights with NO minimum. `self.mapped_sectors`
+        supplies a 1:1 donor sector for the final MP fallback levels.
+
+        Returns {future_key: [historical/future match keys]}.
         """
-        logger.info("Building flight match dictionary...")
+        logger.info("Building flight match dictionary (flown ladder + MP fallback)...")
         min_matches = MIN_FLIGHT_MATCHES
 
         hist = hist_flight_df.copy()
@@ -1052,7 +1061,52 @@ class AdditivePickupModelProcessor:
 
         hist['STD_min'] = hist['STD'].apply(to_minutes)
 
-        time_windows = [2, 4, 6, 8, 12]  # hours
+        # Split flown (complete NDO curve) vs unflown (future) once.
+        flown = hist[hist['DepartureDate'] < self.current_date].copy()
+        unflown = hist[hist['DepartureDate'] >= self.current_date].copy()
+
+        TIME_BAND_HOURS = 2   # BRD: +-2h band on the DOW-Tagging levels
+
+        def _select(pool, sector, tag_set, dow, future_min, time_band):
+            """Apply one group definition to a candidate pool. tag_set=None means
+            all taggings; dow=None means any DOW; time_band=None means any STD."""
+            m = pool['Sector'] == sector
+            if tag_set is not None:
+                m &= pool['Tagging'].isin(tag_set)
+            if dow is not None:
+                m &= pool['DOW'] == dow
+            cand = pool[m]
+            if time_band is not None and pd.notna(future_min) and not cand.empty:
+                diffs = (cand['STD_min'] - future_min).abs()
+                diffs = diffs.where(diffs <= 720, 1440 - diffs)   # midnight wrap
+                cand = cand[diffs <= time_band * 60]
+            return cand
+
+        def _ladder(sector, tagging, dow, future_min, is_mp):
+            """Yield (tag_set, dow, time_band) group definitions in BRD order.
+            Own-sector: DOW-Tagging(+-2h) -> Tagging -> +-1 -> +-2 -> ... -> all.
+            MP-sector: only DOW-Tagging(+-2h) -> Tagging."""
+            # 1) Sector - DOW - Tagging  (+-2h band)
+            yield ({tagging}, dow, TIME_BAND_HOURS)
+            # 2) Sector - Tagging  (any DOW, any time)
+            yield ({tagging}, None, None)
+            if is_mp:
+                return
+            # 3..: Sector - (+-N Tagging) until the window covers all tags
+            n = 1
+            prev = {tagging}
+            while True:
+                win = self._tag_window(tagging, n)
+                if win != prev:
+                    yield (win, None, None)
+                    prev = win
+                covered = {numerical_tagging(t) for t in win}
+                if covered >= self._ALL_TAG_INTS:
+                    break
+                n += 1
+            # final) Sector - (All taggings)
+            yield (None, None, None)
+
         matches_dict = {}
         skipped = 0
 
@@ -1061,46 +1115,41 @@ class AdditivePickupModelProcessor:
             sector = future_row['Sector']
             dow = future_row['DOW']
             tagging = future_row['Tagging']
-            future_date = future_row['DepartureDate']
             future_min = to_minutes(future_row['STD'])
+            donor = self.mapped_sectors.get(sector)
 
-            # 1) Sector + DOW + Tagging, past flights only
-            candidates = hist[
-                (hist['Sector'] == sector) &
-                (hist['DOW'] == dow) &
-                (hist['Tagging'] == tagging) &
-                (hist['DepartureDate'] < future_date)
-            ]
+            winning = None   # (scope_sector, tag_set, dow, time_band)
 
-            # 2) Fallback: drop DOW -> Sector + Tagging
-            if len(candidates) < min_matches:
-                candidates = hist[
-                    (hist['Sector'] == sector) &
-                    (hist['Tagging'] == tagging) &
-                    (hist['DepartureDate'] < future_date)
-                ]
+            # --- own-sector flown ladder ---
+            for tag_set, dow_used, band in _ladder(sector, tagging, dow, future_min, is_mp=False):
+                cand = _select(flown, sector, tag_set, dow_used, future_min, band)
+                if len(cand) >= min_matches:
+                    winning = (sector, tag_set, dow_used, band)
+                    break
 
-            # 3) Still not enough candidates -> skip this flight
-            if len(candidates) < min_matches or pd.isna(future_min):
+            # --- MP-sector flown ladder (DOW-Tagging, Tagging only) ---
+            if winning is None and donor:
+                for tag_set, dow_used, band in _ladder(donor, tagging, dow, future_min, is_mp=True):
+                    cand = _select(flown, donor, tag_set, dow_used, future_min, band)
+                    if len(cand) >= min_matches:
+                        winning = (donor, tag_set, dow_used, band)
+                        break
+
+            if winning is None:
                 skipped += 1
                 continue
 
-            # 4) Expand STD window until we reach min_matches
-            matched = candidates.iloc[0:0]
-            for window_hours in time_windows:
-                diffs = (candidates['STD_min'] - future_min).abs()
-                diffs = diffs.where(diffs <= 720, 1440 - diffs)  # wrap-around
-                matched = candidates[diffs <= window_hours * 60]
-                if len(matched) >= min_matches:
-                    matches_dict[future_key] = matched['Key'].tolist()
-                    break
-            else:
-                # Never hit min_matches across all windows — keep whatever we found
-                matches_dict[future_key] = matched['Key'].tolist() if not matched.empty else []
+            # --- apply the winning group to BOTH flown and unflown pools ---
+            scope_sector, tag_set, dow_used, band = winning
+            flown_match = _select(flown, scope_sector, tag_set, dow_used, future_min, band)
+            unflown_match = _select(unflown, scope_sector, tag_set, dow_used, future_min, band)
+            keys = flown_match['Key'].tolist() + unflown_match['Key'].tolist()
+            matches_dict[future_key] = keys
 
         total_matches = sum(len(v) for v in matches_dict.values())
         logger.info(f"Flight matching complete: {len(matches_dict)} future flights matched, "
-                    f"{skipped} skipped (insufficient candidates), {total_matches} total matches.")
+                    f"{skipped} skipped (no group reached {min_matches} flown matches), "
+                    f"{total_matches} total matches.")
         return matches_dict
 
     # =========================================================================
@@ -1815,7 +1864,12 @@ class AdditivePickupModelProcessor:
         try:
             # resolve sectors (bin / TEST / standalone-all)
             self.active_sectors = self.mongo_helper.fetch_active_sectors(self.mode, self.active_sectors, self.test_sectors)
-            sectors = sorted(self.active_sectors)
+            # Preserve prefetch priority order (donor before dependent). Only sort
+            # when there are no mapped-sector dependencies to honour.
+            if self.mapped_sectors:
+                sectors = list(self.active_sectors)   # already priority-ordered
+            else:
+                sectors = sorted(self.active_sectors)
             logger.info(f"{len(sectors)} sector(s) to process: {sectors}")
 
             # run-scoped master data (fetched once, survives per-sector resets)
@@ -1823,11 +1877,13 @@ class AdditivePickupModelProcessor:
 
             for i, sector in enumerate(sectors, 1):
                 logger.info("-" * 80)
-                logger.info(f"[{i}/{len(sectors)}] Sector {sector}")
+                donor = self.mapped_sectors.get(sector)
+                logger.info(f"[{i}/{len(sectors)}] Sector {sector}"
+                            + (f" (mapped -> {donor})" if donor else ""))
                 self.active_sectors = [sector]
                 t0 = _time.perf_counter()
                 try:
-                    self._run_batch([sector])
+                    self._run_batch([sector], donor=donor)
                     dt = round(_time.perf_counter() - t0, 3)
                     succeeded.append(sector)
                     sector_stats[sector] = {'seconds': dt, 'status': 'SUCCESS'}
@@ -1877,8 +1933,24 @@ class AdditivePickupModelProcessor:
         finally:
             self._close_connections()
 
-    def _run_batch(self, sectors):
-        """Run steps 1-15 for one sector batch. Saves every step's output in TEST mode."""
+    def _restrict_future_frames_to(self, keep_sectors):
+        """Keep only `keep_sectors` rows in the FUTURE frames so a fetched donor
+        contributes history only (no donor output). Historical frames are left
+        intact for the fallback ladders."""
+        keep = set(keep_sectors)
+        for key in ('future_flight_master', 'forward_raw_df'):
+            df = self.cache.data.get(key)
+            if df is not None and not df.empty and 'Sector' in df.columns:
+                self.cache.data[key] = df[df['Sector'].isin(keep)].copy()
+
+    def _run_batch(self, sectors, donor=None):
+        """Run steps 1-15 for one sector batch. Saves every step's output in TEST mode.
+
+        `donor` (mapped sector): when set, its HISTORICAL data (flown, tagging,
+        lean/peak) is fetched alongside the sector so the tagging + matching
+        fallback ladders can borrow it. The donor's FUTURE flights are stripped
+        out after fetch so only the real sector produces output.
+        """
         self.cache.reset_batch()
 
         t_fetch_start = _time.perf_counter()
@@ -1887,8 +1959,14 @@ class AdditivePickupModelProcessor:
         farebasis_df = self._fetch_fare_buckets()
         self._save_intermediate(farebasis_df, '01_fare_buckets')
 
-        # --- Step 2: Fetch (cached) ---
-        self.esb_helper.fetch_all_data(self.active_sectors, self.today.date(), self.current_date, FORCE_BACKFILL)
+        # --- Step 2: Fetch (cached). Include the donor so its history is present. ---
+        fetch_sectors = list(dict.fromkeys(self.active_sectors + ([donor] if donor else [])))
+        self.esb_helper.fetch_all_data(fetch_sectors, self.today.date(), self.current_date, FORCE_BACKFILL)
+
+        # Strip the donor's FUTURE flights/bookings so it never produces output;
+        # its historical rows stay in hist_raw_df for the fallback ladders.
+        if donor:
+            self._restrict_future_frames_to(self.active_sectors)
 
         t_fetch_end = _time.perf_counter()
         fetch_secs = round(t_fetch_end - t_fetch_start, 2)
@@ -1913,29 +1991,24 @@ class AdditivePickupModelProcessor:
         historical_tagging = self._compute_lean_peak_tagging(lean_peak_source)
         self._save_intermediate(historical_tagging, '04_historical_tagging')
 
-        # --- Step 5: Future lean/peak tagging ---
-        mid_tc_tagging, mid_tagging, mid_tagging_quarter, mid_tagging_sector = \
-            self._compute_future_tagging(lean_peak_source)
-        self._save_intermediate(mid_tc_tagging, '05a_future_tagging_tc')
-        self._save_intermediate(mid_tagging, '05b_future_tagging_fallback')
-        self._save_intermediate(mid_tagging_quarter, '05c_future_tagging_quarter')
-        self._save_intermediate(mid_tagging_sector, '05d_future_tagging_sector')
+        # --- Step 5: Future lean/peak tagging (7-level ladder dict) ---
+        tag_levels = self._compute_future_tagging(lean_peak_source)
+        for name, df in tag_levels.items():
+            self._save_intermediate(df, f'05_future_tagging_{name}')
 
         # --- Step 6: Combine + assign fare buckets ---
         combined_df = self._prepare_combined_data(flown_df, booked_df, farebasis_df)
         self._save_intermediate(combined_df, '06_combined_data')
 
         # --- Step 7: Pivot NDO ---
-        pivot_ndo, remaining_df = self._pivot_ndo_data(combined_df, farebasis_df, historical_tagging,
-                                         mid_tc_tagging, mid_tagging,
-                                         mid_tagging_quarter, mid_tagging_sector)
+        pivot_ndo, remaining_df = self._pivot_ndo_data(
+            combined_df, farebasis_df, historical_tagging, tag_levels)
         self._save_intermediate(pivot_ndo, '07_pivot_ndo', fmt='parquet')
         self._save_intermediate(remaining_df, '07_remaining_data', fmt='csv')
 
         # --- Step 8: Prepare future flights ---
         future_df, future_df_expanded = self._prepare_future_flights(
-            future_flight_df, mid_tc_tagging, mid_tagging,
-            mid_tagging_quarter, mid_tagging_sector, farebasis_df)
+            future_flight_df, tag_levels, farebasis_df)
         self._save_intermediate(future_df, '08a_future_flights_tagged')
         self._save_intermediate(future_df_expanded, '08b_future_flights_expanded')
 
@@ -1959,7 +2032,7 @@ class AdditivePickupModelProcessor:
         if result_df.empty:
             logger.warning(f"No matched results for {sectors} — batch produced no output.")
             return
-        self._save_intermediate(result_df, '10_matched_result', fmt='csv')
+        self._save_intermediate(result_df, '10_matched_result', fmt='parquet')
 
         # --- Step 11: Predictions (normal + weighted) ---
         (result_merged_df, result_final_df, _,

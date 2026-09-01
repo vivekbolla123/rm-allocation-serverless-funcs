@@ -433,11 +433,21 @@ Middle index: `(5-1)//2 = 2` → picks `Lean`
 | BOMDEL | Monday | AMJ | 14:30-18:00 | Shoulder |
 | BOMDEL | Tuesday | OND | 7:30-11:00 | Peak |
 
-**Fallback (`mid_tagging`):** Same but without Time Cluster (used when TC-level match not found):
+**Fallback ladder (4 levels).** `_compute_future_tagging` produces four progressively coarser 50th-percentile frames, and `_fill_nan_tagging` applies them in order until every future flight has a tag:
 
-| Sector | DOW | Quarter | Tagging |
-|--------|-----|---------|---------|
-| BOMDEL | Monday | AMJ | Shoulder |
+1. **`mid_time_cluster_tagging`** — Sector / DOW / Quarter / Time Cluster (most specific)
+2. **`mid_tagging`** — Sector / DOW / Quarter
+3. **`mid_tagging_quarter`** — Sector / Quarter
+4. **`mid_tagging_sector`** — Sector (final fallback)
+
+Each coarser level has fewer rows (broader grouping) but covers gaps the finer levels miss, so a future flight on an unusual DOW/Time-Cluster combination still receives a sector-level tag rather than staying NaN.
+
+| Level | Keys | Example |
+|-------|------|---------|
+| `mid_time_cluster_tagging` | Sector, DOW, Quarter, Time Cluster | (BOMDEL, Monday, AMJ, 7:30-11:00) → Lean |
+| `mid_tagging` | Sector, DOW, Quarter | (BOMDEL, Monday, AMJ) → Shoulder |
+| `mid_tagging_quarter` | Sector, Quarter | (BOMDEL, AMJ) → Shoulder |
+| `mid_tagging_sector` | Sector | (BOMDEL) → Shoulder |
 
 ---
 
@@ -527,23 +537,28 @@ Fare buckets: `[1620-1911, 1911-2145, ..., 3000-4000, 4000-5000, ...]`
 
 **Purpose:** For each future flight, find historically similar flights to use as the basis for predicting additional bookings.
 
+**Candidate pool — FLOWN flights only.** Matching runs against historical flights that have **actually departed** (`DepartureDate < current_date`), so only complete NDO curves feed the prediction. Future-dated flights (not yet flown, incomplete booking curves) are excluded from the candidate pool. The pool is further restricted to flights that received a **genuine historical (Z-score) tag** — flights whose tag came only from the future-tagging fallback are excluded (tracked via the `_hist_tagged` flag on `pivot_ndo`) so predictions are grounded in real RASK-based tags.
+
 **Matching Criteria:**
 1. Same Sector
 2. Same Day of Week (DOW)
 3. Same Tagging (Lean/Shoulder/Peak/Super Peak)
-4. Historical departure date < future departure date (only past flights)
-5. STD within ±2 hours (expands to ±4, ±6, ±8, ±12 if < 15 matches found)
+4. Flight has already flown (`DepartureDate < current_date`)
+5. STD within ±2 hours (expands to ±4, ±6, ±8, ±12 if < 13 matches found)
 
-**Minimum matches required:** 15
+**Minimum matches required:** 13 (`MIN_FLIGHT_MATCHES`)
+
+**Fallback:** if Sector + DOW + Tagging yields < 13 flown matches, drop DOW → Sector + Tagging. If still < 13, the flight is **skipped** (no low-confidence prediction).
 
 **Example:**
 
 Future flight: `BOMDEL_2026-08-15_1234` (Saturday, Shoulder, STD 08:20)
 
-Search in historical data:
+Search in flown data:
 - Sector = BOMDEL ✓
 - DOW = Saturday ✓
-- Tagging = Shoulder ✓
+- Tagging = Shoulder ✓ (historically-tagged only)
+- Already departed (`DepartureDate < today`) ✓
 - STD within ±2 hours of 08:20 → [06:20, 10:20]
 
 Found 18 matches within ±2h → stored.
@@ -554,7 +569,7 @@ Found 18 matches within ±2h → stored.
 {
     'BOMDEL_2026-08-15_1234': ['BOMDEL_2025-08-09_1234', 'BOMDEL_2025-08-02_1234', 
                                 'BOMDEL_2025-07-26_1234', ...],  # 18 keys
-    'BOMDEL_2026-08-16_1234': ['BOMDEL_2025-08-10_1234', ...],  # 15+ keys
+    'BOMDEL_2026-08-16_1234': ['BOMDEL_2025-08-10_1234', ...],  # 13+ keys
 }
 ```
 
@@ -564,7 +579,7 @@ Found 18 matches within ±2h → stored.
 |-----------|------------|
 | BOMDEL_2026-08-15_1234 | 18 |
 | BOMDEL_2026-08-16_1234 | 22 |
-| DELBOM_2026-08-15_5678 | 15 |
+| DELBOM_2026-08-15_5678 | 14 |
 
 ---
 
@@ -576,8 +591,8 @@ Found 18 matches within ±2h → stored.
 
 1. For each `future_key` → get list of `matched_hist_keys`
 2. Get future flight's expanded rows (per fare bucket)
-3. Get historical flights' pivot_ndo rows for matched keys
-4. Merge on: Sector, DOW, Tagging, FareBasis
+3. Get historical flights' pivot_ndo rows for matched keys (DOW dropped from the frame)
+4. Merge on: **Sector, Tagging, FareBasis** (DOW is *not* a merge key — it was already applied as a preference during matching in Step 9, so forcing it again here would over-restrict and produce noisy single-flight joins)
 
 **Example:**
 
@@ -649,9 +664,13 @@ predicted_pax_std = sqrt( Σ std(NDO_i)² for i = 0 to N )
 
 1. Filter `remaining_df` to only non-required RBDs
 2. Pivot remaining data by NDO (same structure, no fare bucket dimension)
-3. For each future flight, find matched historical flights (same `flight_matches` dict)
-4. Sum remaining pax for NDOs ≤ future_flight_NDO → mean across matches
-5. Distribute proportionally across fare buckets:
+3. Keep **flown flights only** (`DepartureDate < current_date`) — future flights have incomplete curves and would understate the remaining pax
+4. For each future flight, gather the matched historical flights (same `flight_matches` dict), joining on **Sector only** (DOW dropped — matching on DOW here left as few as one flight and produced noisy single-flight estimates)
+5. Sum remaining pax for NDOs ≤ future_flight_NDO per matched flight, then take the **recency-weighted mean** across matches using the same decay as Step 11 (`weight = 0.99 ^ x`, `x = current_date − DepartureDate_hist`, future-dated → `x = 1`):
+   ```
+   remaining_pax_count = Σ(weight × remaining_raw) / Σ(weight)
+   ```
+6. Distribute proportionally across fare buckets:
 
 ```
 FareBasis_Prediction_ratio = predicted_pax_count_bucket / Total_Predicted_pax_count_flight
@@ -888,7 +907,7 @@ For fare class `j` (where class 1 is highest fare):
 | # | Edge Case | Handling |
 |---|-----------|----------|
 | 1 | New sector, no history | NaN tagging fails the boolean candidate mask; 0 candidates → flight skipped cleanly, no exception |
-| 2 | Fewer than 13 matches | Sector+DOW+Tagging → Sector+Tagging fallback → if still <13, flight is **skipped entirely** (no low-confidence prediction) |
+| 2 | Fewer than 13 matches | Sector+DOW+Tagging → Sector+Tagging fallback (both on FLOWN flights only) → if still <13, flight is **skipped entirely** (no low-confidence prediction) |
 | 3 | Missing fare-bucket config | `_fetch_fare_buckets()` raises — job aborts rather than guessing prices |
 | 4 | Completely new flight number | Matched on Sector/DOW/Tagging/time, not flight number — handled |
 | 5 | Single-sample time cluster | `Count = 1` → STD = NaN → Z = NaN → dropped from tagging |
@@ -900,6 +919,9 @@ For fare class `j` (where class 1 is highest fare):
 | 11 | Zero-booking future flight | Kept via the flight universe taken before the NDO filter; Total Bookings = 0 |
 | 12 | M ≤ 1 in weighted std | NaN — dispersion not estimable from one observation |
 | 13 | Late cancellation (post-departure) | CDP-driven month refresh rewrites the affected month partition(s) — see Storage |
+| 14 | Not-yet-flown flight in match pool | Excluded — matching (Step 9) and remaining-RBD (Step 12) both filter to `DepartureDate < current_date` so incomplete forward curves never dilute the average |
+| 15 | Fallback-tagged history in match pool | Excluded — only flights with a genuine Z-score (historical) tag join the candidate pool via the `_hist_tagged` flag; future-tagging-derived tags don't leak into matching |
+| 16 | Datetime/object dtype mismatch on merge keys | `_derive_future_flights` coerces `DepartureDate` to `datetime64` and `STD` (time objects) to string before the schedule↔bookings merge — pandas 1.x can silently change dtypes during `groupby(dropna=False)`, which otherwise raises "merge on datetime64 and object" |
 
 ## Known Limitations
 
@@ -1051,7 +1073,7 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 | Lean/Peak Tagging (Step 4) | RASK computed only on actual departure days. Each DOW gets its own tag pool (only Tue, Thu, Fri have entries) |
 | Future Tagging (Step 5) | 50th percentile computed per DOW. Mon/Wed/Sat/Sun have NO tagging entries for DELIXB |
 | Future Flights (Step 8) | If a future DELIXB flight is scheduled on Tuesday → tagging found. If scheduled on Monday (unusual) → NaN tagging after both fallback passes |
-| Flight Matching (Step 9) | Matches on **DOW** first. A Tuesday future flight only looks for historical Tuesday flights. With ~52 Tuesdays in 365 days, after Tagging and STD filtering, typically 15-40 matches are found |
+| Flight Matching (Step 9) | Matches on **DOW** first, against FLOWN flights only. A Tuesday future flight only looks for departed Tuesday flights. With ~52 Tuesdays in 365 days, after Tagging and STD filtering, typically 13-40 matches are found (else the Sector+Tagging DOW-drop fallback applies) |
 | Predictions (Step 11) | Normal prediction proceeds. No degradation in quality for the operating days |
 
 **Key insight:** The DOW-based matching naturally handles irregular schedules. The model doesn't assume a flight operates daily — it only matches against days the flight actually flew.
@@ -1085,7 +1107,7 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 | Step 7 (Tagging Merge) | Historical tagging merge → NaN | NaN |
 | Step 7 (Fill NaN) | Future tagging lookup → no BLRCCU entries → still NaN | **Tagging stays NaN** |
 | Step 8 (Future Flights) | Tagging merge → NaN | Future flights have NaN Tagging |
-| Step 9 (Matching) | `hist_grouped.get_group(('BLRCCU', dow, NaN))` | **KeyError → matches = []** |
+| Step 9 (Matching) | Boolean mask on Sector/DOW/Tagging over FLOWN flights returns 0 rows (NaN tag matches nothing; no departed BLRCCU flights) | **< 13 matches → flight skipped** |
 | Step 10 (Matched Result) | No matches → skipped | No rows for BLRCCU |
 | Step 11 (Predictions) | No matched data → no predictions | **BLRCCU absent from output** |
 
@@ -1093,13 +1115,13 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 
 **When does it start working?**
 - After the first flight departs (becomes flown data in the cache)
-- Specifically: needs ≥15 departed flights on the same DOW with the same Tagging level
-- Practically: **~5-8 weeks** after launch (3 DOWs × 5 weeks = 15 matches per DOW)
+- Specifically: needs ≥13 departed flights on the same DOW with the same Tagging level (or ≥13 after the Sector+Tagging DOW-drop fallback)
+- Practically: **~4-7 weeks** after launch
 
 **Partial data scenario (first few weeks):**
-- Week 1-2: Flights depart but <15 matches per DOW → predictions attempted with <15 matches (less reliable, higher variance)
-- Week 3-4: Some DOW/Tagging combinations reach 15+ matches → predictions begin appearing for those
-- Week 5+: Most combinations saturated → full predictions
+- Early weeks: fewer than 13 flown matches per group → flight is **skipped** (no low-confidence prediction is emitted; the model does not predict below the 13-match floor)
+- As data accumulates: once a Sector+DOW+Tagging (or Sector+Tagging) group reaches 13 flown matches, predictions begin appearing for those flights
+- Steady state: most combinations saturated → full predictions
 
 ---
 
@@ -1126,8 +1148,8 @@ The Key column is only used to INDEX rows in pivot_ndo for retrieval after match
 |----------|:---------------------:|:---------------:|------------|
 | Irregular schedule (Tue/Thu/Fri only) | ✓ Yes (on operating days) | N/A — works immediately | None needed |
 | New day added to existing route | ✗ No (for new day only) | 5-8 weeks | None — wait for data |
-| Brand new sector, no history | ✗ No | 5-8 weeks | Could seed with similar sector's data (not implemented) |
+| Brand new sector, no history | ✗ No | 4-7 weeks | Could seed with a mapped/similar sector's data (planned, not yet wired) |
 | Brand new flight number, same route | ✓ Yes | Immediate | None needed |
-| Sector with very thin history (<15 total flights) | Partial (low confidence) | Ongoing | Model uses whatever matches exist; expand time window helps |
+| Sector with very thin history (<13 flown matches) | ✗ No (skipped) | Ongoing | Below the 13-match floor the flight is skipped; expanding the STD window (±2h→±12h) or the Sector+Tagging fallback may lift it over the floor |
 | Historical tagging all one type (e.g., always "Lean") | ✓ Yes | N/A | All future flights tagged "Lean" → matches found within same tag |
 | Future flight on a DOW that never operated | ✗ No | 5+ weeks | Sector-level fallback tagging attempted, but matching still needs DOW-specific history |

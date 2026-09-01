@@ -91,6 +91,46 @@ def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expe
     sqs.send_message(QueueUrl=PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
 
 
+def _load_mapped_sectors():
+    """{sector: mapped_sector} 1:1 fallback donors from config_additive_mapped_sectors.
+    Empty dict on any error (feature simply inactive)."""
+    try:
+        docs = db_master.config_additive_mapped_sectors.find(
+            {}, {'_id': 0, 'sector': 1, 'mapped_sector': 1})
+        out = {}
+        for d in docs:
+            s, m = d.get('sector'), d.get('mapped_sector')
+            if s and m and s != m:
+                out[str(s).strip()] = str(m).strip()
+        return out
+    except Exception as e:
+        logger.warning(f"[prefetch] mapped-sectors load failed ({e.__class__.__name__}: {e}).")
+        return {}
+
+
+def _send_process_cluster(entries, run_id, batch_index, batch_total,
+                          sectors_expected, mode):
+    """Send one SQS message carrying a cluster of sector entries.
+
+    Each entry: {'sector': str, 'priority': int, 'mapped_sector': str|None}.
+    The process worker sorts by priority so a mapped-sector donor (priority 0) is
+    fetched/cached before the dependent sector (priority 1) that borrows its data.
+    """
+    message = {
+        'modules': {'additive_process': 1},
+        'overrides': {
+            'sectors': [e['sector'] for e in entries],   # back-compat flat list
+            'sector_entries': entries,                    # priority + mapping
+            'run_id': run_id,
+            'batch_index': batch_index,
+            'batch_total': batch_total,
+            'sectors_expected': sectors_expected,
+            'mode': mode,
+        }
+    }
+    sqs.send_message(QueueUrl=PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
+
+
 def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
                       sectors_expected=0, mode='PROD'):
     """Start a Glue fetch-only job. Glue emits 1 SQS msg/sector after caching."""
@@ -165,51 +205,116 @@ def lambda_handler(event, context):
         logger.error("[prefetch] No active sectors found — aborting.")
         return {"statusCode": 400, "body": "No active sectors"}
 
-    # --- lane split: cached vs uncached ---
-    if force_backfill or refresh_spec:
-        cached_sectors, uncached_sectors = [], active
-    else:
-        cached_sectors = [s for s in active if _sector_has_cache(s)]
-        uncached_set = set(cached_sectors)
-        uncached_sectors = [s for s in active if s not in uncached_set]
+    # --- mapped-sector fallback config (1:1) ---
+    mapping = _load_mapped_sectors()          # {sector: mapped_sector}
+    active_set = set(active)
+    # Only mappings whose dependent is actually active this run matter.
+    mapping = {s: m for s, m in mapping.items() if s in active_set}
+    mapped_targets = set(mapping.values())    # donor sectors (must run first)
+    logger.info(f"[prefetch] {len(mapping)} active mapped-sector fallback(s); "
+                f"{len(mapped_targets)} donor sector(s).")
 
-    logger.info(f"[prefetch] cached={len(cached_sectors)}, uncached={len(uncached_sectors)}")
+    # --- cache status for every sector we might touch (active + donors) ---
+    def _cached(s):
+        return force_backfill is False and refresh_spec is None and _sector_has_cache(s)
 
-    sectors_expected = len(active)
+    # --- routing ---
+    #   uncached + has mapping  -> PROCESS (worker falls back to donor data)
+    #   uncached + no mapping   -> GLUE fetch-only
+    #   cached                  -> PROCESS
+    # Donors that are themselves active are processed normally; a donor that is
+    # NOT an active sector but is needed and uncached must be backfilled via Glue.
+    glue_sectors = []
+    process_sectors = []
+    for s in active:
+        if _cached(s):
+            process_sectors.append(s)
+        elif s in mapping:
+            process_sectors.append(s)          # borrow donor data in-process
+        else:
+            glue_sectors.append(s)
 
-    # --- uncached -> Glue fetch-only (chunked); Glue emits SQS per sector ---
-    glue_batches = [uncached_sectors[i:i + GLUE_BATCH_SIZE]
-                    for i in range(0, len(uncached_sectors), GLUE_BATCH_SIZE)]
+    # Ensure donors that are active are in process_sectors (they are, if active).
+    # Donors not in the active list but needed & uncached -> Glue backfill first.
+    extra_donor_backfill = [m for m in mapped_targets
+                            if m not in active_set and not _sector_has_cache(m)]
+    glue_sectors.extend(extra_donor_backfill)
 
-    # --- cached -> one SQS message per sector (AWS batch size does the grouping) ---
-    batch_total_cached = len(cached_sectors)
+    sectors_expected = len(process_sectors)    # only PROCESS sectors produce output
+
+    # --- build clusters (each becomes ONE SQS message, SQS batch size = 1) ---
+    # Rule 1: a dependent sector rides in the SAME message as its donor, donor at
+    #         priority 0, dependent at priority 1 (donor cached in-process first).
+    # Rule 2: independent sectors are paired 2-per-message.
+    # Rule 3: donor/dependent clusters are dispatched FIRST; plain sectors after.
+    proc_set = set(process_sectors)
+    donors_in_proc = [m for m in mapped_targets if m in proc_set]
+    dependents = [s for s in process_sectors if s in mapping]
+    plain = [s for s in process_sectors
+             if s not in mapping and s not in mapped_targets]
+
+    clusters = []          # each: list of {sector, priority, mapped_sector}
+
+    # (a) donor + its dependents grouped together
+    grouped = set()
+    for donor in donors_in_proc:
+        deps = [s for s in dependents if mapping[s] == donor]
+        entry = [{'sector': donor, 'priority': 0, 'mapped_sector': None}]
+        for d in deps:
+            entry.append({'sector': d, 'priority': 1, 'mapped_sector': donor})
+            grouped.add(d)
+        grouped.add(donor)
+        clusters.append(entry)
+
+    # (b) any dependent whose donor is NOT in process (donor backfilled via Glue)
+    #     still needs to run; it carries its mapped_sector so the worker can
+    #     read the donor's cache once Glue has populated it.
+    for d in dependents:
+        if d in grouped:
+            continue
+        clusters.append([{'sector': d, 'priority': 1, 'mapped_sector': mapping[d]}])
+        grouped.add(d)
+
+    # (c) plain sectors -> 2 per message
+    SECTORS_PER_MSG = 2
+    for i in range(0, len(plain), SECTORS_PER_MSG):
+        chunk = plain[i:i + SECTORS_PER_MSG]
+        clusters.append([{'sector': s, 'priority': 0, 'mapped_sector': None}
+                         for s in chunk])
+
+    # --- uncached (no mapping) -> Glue fetch-only (chunked) ---
+    glue_batches = [glue_sectors[i:i + GLUE_BATCH_SIZE]
+                    for i in range(0, len(glue_sectors), GLUE_BATCH_SIZE)]
 
     # --- audit skeleton BEFORE dispatching ---
     snapshot_date = datetime.utcnow().strftime('%Y-%m-%d')
-    planned = [{'batch_index': i, 'sectors': [s], 'lane': 'lambda'}
-               for i, s in enumerate(cached_sectors)]
+    planned = [{'batch_index': i,
+                'sectors': [e['sector'] for e in c],
+                'lane': 'lambda'} for i, c in enumerate(clusters)]
     planned += [{'sectors': b, 'lane': 'glue_then_lambda'} for b in glue_batches]
 
     if sectors_expected > 0:
         _write_audit_skeleton(run_id, snapshot_date, sectors_expected,
                               planned, mode, analyst)
 
-    # --- dispatch Glue jobs ---
+    # --- dispatch Glue jobs (donor backfills + unmapped uncached) ---
     glue_units = 0
     for batch in glue_batches:
         _start_glue_fetch(batch, run_id, force_backfill, refresh_spec,
                           sectors_expected=sectors_expected, mode=mode)
         glue_units += 1
 
-    # --- dispatch one SQS message per cached sector ---
+    # --- dispatch clusters: donor/dependent clusters first, then plain ---
+    batch_total = len(clusters)
     lambda_units = 0
-    for idx, sector in enumerate(cached_sectors):
-        _send_process_message(sector, run_id, idx, batch_total_cached,
+    for idx, cluster in enumerate(clusters):
+        _send_process_cluster(cluster, run_id, idx, batch_total,
                               sectors_expected, mode)
         lambda_units += 1
 
-    logger.info(f"[prefetch] DONE — {lambda_units} SQS messages (1/sector), "
-                f"{glue_units} Glue jobs (fetch-only) | run_id={run_id}")
+    logger.info(f"[prefetch] DONE — {lambda_units} SQS message(s) "
+                f"({len(process_sectors)} process sector(s)), "
+                f"{glue_units} Glue job(s) (fetch-only) | run_id={run_id}")
 
     return {
         "statusCode": 200,
@@ -218,7 +323,8 @@ def lambda_handler(event, context):
             "lambda_units": lambda_units,
             "glue_units": glue_units,
             "sectors_total": len(active),
-            "sectors_cached": len(cached_sectors),
-            "sectors_uncached": len(uncached_sectors),
+            "sectors_process": len(process_sectors),
+            "sectors_glue": len(glue_sectors),
+            "mapped_fallbacks": len(mapping),
         })
     }

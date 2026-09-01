@@ -59,6 +59,7 @@ def lambda_handler(event, context):
         merged_sectors, sectors_by_msg = [], {}
         base_overrides, modules = None, None
 
+        merged_entries = {}   # sector -> {sector, priority, mapped_sector}
         for rec in records:
             data = json.loads(rec["body"])
             if modules is None:
@@ -67,6 +68,26 @@ def lambda_handler(event, context):
             secs = list(ov.get("sectors") or [])
             sectors_by_msg[rec["messageId"]] = secs
             merged_sectors.extend(secs)
+
+            # New contract: structured entries with priority + mapped_sector.
+            # Fall back to the flat sector list (priority 0, no mapping) if absent.
+            entries = ov.get("sector_entries")
+            if not entries:
+                entries = [{"sector": s, "priority": 0, "mapped_sector": None}
+                           for s in secs]
+            for e in entries:
+                s = e.get("sector")
+                if not s:
+                    continue
+                prev = merged_entries.get(s)
+                # keep the entry carrying a mapping / the lower priority number
+                if prev is None or (e.get("mapped_sector") and not prev.get("mapped_sector")):
+                    merged_entries[s] = {
+                        "sector": s,
+                        "priority": int(e.get("priority", 0)),
+                        "mapped_sector": e.get("mapped_sector"),
+                    }
+
             if base_overrides is None:
                 base_overrides = dict(ov)   # run_id/sectors_expected/mode identical across the batch
 
@@ -75,9 +96,18 @@ def lambda_handler(event, context):
             # nothing runnable -> redeliver everything so it isn't silently dropped
             return {"batchItemFailures": [{"itemIdentifier": m} for m in sectors_by_msg]}
 
-        overrides = {**base_overrides, "sectors": sorted(set(merged_sectors))}
+        # Sort by priority so donor sectors (priority 0) run before dependents (1).
+        sector_entries = sorted(merged_entries.values(),
+                                key=lambda e: (e["priority"], e["sector"]))
+        overrides = {
+            **base_overrides,
+            "sectors": [e["sector"] for e in sector_entries],   # priority-ordered
+            "sector_entries": sector_entries,
+        }
+        base_overrides.pop("sector_entries", None)   # avoid stale copy in base
         logger.info(f"Batched {len(records)} message(s) -> "
-                    f"{len(overrides['sectors'])} sector(s): {overrides['sectors']}")
+                    f"{len(overrides['sectors'])} sector(s) (priority-ordered): "
+                    f"{overrides['sectors']}")
 
         try:
             result = _run_modules(modules, overrides, context)
@@ -110,8 +140,8 @@ def lambda_handler(event, context):
 
 # Uncomment the following lines to test the lambda_handler function locally with a sample payload.
 
-# event = {
-#     "modules": {"additive_process": 1},
-#     "overrides": {"mode": "TEST", "sectors": ["BOMDEL"], "analyst": "Kenneth Menezes"}
-# }
-# lambda_handler(event, None)
+event = {
+    "modules": {"additive_process": 1},
+    "overrides": {"mode": "TEST", "sectors": ["DELBLR"], "analyst": "Kenneth Menezes"}
+}
+lambda_handler(event, None)
