@@ -53,75 +53,55 @@ def _run_modules(modules, overrides, context):
 
 
 def lambda_handler(event, context):
-    # --- SQS path: batch size > 1 delivers MULTIPLE 1-sector messages ---
+    # --- SQS path: batch size up to 5 delivers MULTIPLE 1-sector messages ---
+    #
+    # Contract (one sector per message):
+    #   plain      -> {"sectors": ["DELBOM"]}
+    #   donor      -> {"sectors": ["BOMDEL"], "dependent_sectors": ["NMIDEL", ...]}
+    #   dependent  -> {"sectors": ["JAIBLR"], "mapped_sector": "BOMDEL"}
+    #
+    # Each SQS message is processed INDEPENDENTLY (not merged into one bin) so a
+    # per-message failure only redelivers that message. A donor, after it finishes
+    # processing, re-enqueues its dependents (see AdditivePickupModelProcessor.run).
     if "Records" in event:
         records = event["Records"]
-        merged_sectors, sectors_by_msg = [], {}
-        base_overrides, modules = None, None
-
-        merged_entries = {}   # sector -> {sector, priority, mapped_sector}
+        batch_failures = []
         for rec in records:
-            data = json.loads(rec["body"])
-            if modules is None:
-                modules = data.get("modules")
+            mid = rec["messageId"]
+            try:
+                data = json.loads(rec["body"])
+            except Exception as e:
+                logger.error(f"[{mid}] bad JSON body: {e}")
+                batch_failures.append({"itemIdentifier": mid})
+                continue
+
+            modules = data.get("modules")
             ov = data.get("overrides", data)
             secs = list(ov.get("sectors") or [])
-            sectors_by_msg[rec["messageId"]] = secs
-            merged_sectors.extend(secs)
+            if not modules or not secs:
+                logger.error(f"[{mid}] missing 'modules' or 'sectors' — redelivering")
+                batch_failures.append({"itemIdentifier": mid})
+                continue
 
-            # New contract: structured entries with priority + mapped_sector.
-            # Fall back to the flat sector list (priority 0, no mapping) if absent.
-            entries = ov.get("sector_entries")
-            if not entries:
-                entries = [{"sector": s, "priority": 0, "mapped_sector": None}
-                           for s in secs]
-            for e in entries:
-                s = e.get("sector")
-                if not s:
-                    continue
-                prev = merged_entries.get(s)
-                # keep the entry carrying a mapping / the lower priority number
-                if prev is None or (e.get("mapped_sector") and not prev.get("mapped_sector")):
-                    merged_entries[s] = {
-                        "sector": s,
-                        "priority": int(e.get("priority", 0)),
-                        "mapped_sector": e.get("mapped_sector"),
-                    }
+            overrides = dict(ov)
+            overrides["sectors"] = secs
+            dep = overrides.get("dependent_sectors")
+            mp = overrides.get("mapped_sector")
+            logger.info(f"[{mid}] sector(s)={secs}"
+                        + (f" donor->dependents={dep}" if dep else "")
+                        + (f" dependent(mapped<-{mp})" if mp else ""))
 
-            if base_overrides is None:
-                base_overrides = dict(ov)   # run_id/sectors_expected/mode identical across the batch
+            try:
+                result = _run_modules(modules, overrides, context)
+                failed = set(result.get("sectors_failed") or []) if result else set(secs)
+            except Exception as e:
+                logger.error(f"[{mid}] run crashed: {e}\n{traceback.format_exc()}")
+                failed = set(secs)
 
-        if not modules:
-            logger.error("'modules' key missing in all records")
-            # nothing runnable -> redeliver everything so it isn't silently dropped
-            return {"batchItemFailures": [{"itemIdentifier": m} for m in sectors_by_msg]}
+            if failed:
+                logger.warning(f"[{mid}] reporting for redelivery (failed: {sorted(failed)})")
+                batch_failures.append({"itemIdentifier": mid})
 
-        # Sort by priority so donor sectors (priority 0) run before dependents (1).
-        sector_entries = sorted(merged_entries.values(),
-                                key=lambda e: (e["priority"], e["sector"]))
-        overrides = {
-            **base_overrides,
-            "sectors": [e["sector"] for e in sector_entries],   # priority-ordered
-            "sector_entries": sector_entries,
-        }
-        base_overrides.pop("sector_entries", None)   # avoid stale copy in base
-        logger.info(f"Batched {len(records)} message(s) -> "
-                    f"{len(overrides['sectors'])} sector(s) (priority-ordered): "
-                    f"{overrides['sectors']}")
-
-        try:
-            result = _run_modules(modules, overrides, context)
-            failed = set(result.get("sectors_failed") or []) if result else set(overrides["sectors"])
-        except Exception as e:
-            logger.error(f"Batch run crashed: {e}\n{traceback.format_exc()}")
-            failed = set(overrides["sectors"])          # redeliver the whole batch
-
-        # a message redelivers only if one of ITS sectors failed (1:1 here)
-        batch_failures = [
-            {"itemIdentifier": mid}
-            for mid, secs in sectors_by_msg.items()
-            if failed.intersection(secs)
-        ]
         if batch_failures:
             logger.warning(f"Reporting {len(batch_failures)} message(s) for redelivery")
         return {"batchItemFailures": batch_failures}
@@ -140,8 +120,8 @@ def lambda_handler(event, context):
 
 # Uncomment the following lines to test the lambda_handler function locally with a sample payload.
 
-event = {
-    "modules": {"additive_process": 1},
-    "overrides": {"mode": "TEST", "sectors": ["DELBLR"], "analyst": "Kenneth Menezes"}
-}
-lambda_handler(event, None)
+# event = {
+#     "modules": {"additive_process": 1},
+#     "overrides": {"mode": "TEST", "sectors": ["DELBLR"], "analyst": "Kenneth Menezes"}
+# }
+# lambda_handler(event, None)
