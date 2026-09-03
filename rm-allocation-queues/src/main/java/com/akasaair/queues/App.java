@@ -582,6 +582,84 @@ public class App implements CommandLineRunner {
                         throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
                     }
                 }
+                case CONFIG_FORECAST_ALLOCATION_GRID_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadForecastAllocationGridFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Forecast Allocation Grid to DB. Please check file content");
+                            throw new RuntimeException("Error processing forecast allocation grid: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
+                case CONFIG_FORECAST_ALLOCATION_BANDS_TABLE_NAME -> {
+                    try {
+                        MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
+                        collection.updateOne(
+                                eq("obj_id", obj_id),
+                                combine(
+                                        set("status", status),
+                                        set("inprogress_timestamp", Date.from(LocalDateTime.now().atZone(ZoneId.systemDefault()).toInstant()))
+                                )
+                        );
+                    } catch (Exception e) {
+                        listOfErrors.get().add(DATABASE_ACCESS_ERROR_MESSAGE);
+                        log.info(DATABASE_ACCESS_ERROR_MESSAGE);
+                        e.printStackTrace();
+                    }
+
+                    try {
+                        ResponseBytes<GetObjectResponse> response = s3Client.getObject(
+                                GetObjectRequest.builder()
+                                        .bucket(bucketName)
+                                        .key(key)
+                                        .build(),
+                                ResponseTransformer.toBytes()
+                        );
+
+                        String fileContent = new String(response.asByteArray(), StandardCharsets.UTF_8);
+                        long rowCount = new BufferedReader(new StringReader(fileContent)).lines().skip(1).count();
+                        numOfRows.set((int) Math.min(rowCount, Integer.MAX_VALUE));
+
+                        try (Reader reader = new StringReader(fileContent)) {
+                            uploadForecastAllocationBandsFile(reader, userName, obj_id);
+                        } catch (Exception e) {
+                            listOfErrors.get().add("Error Uploading Forecast Allocation Bands to DB. Please check file content");
+                            throw new RuntimeException("Error processing forecast allocation bands: " + e.getMessage(), e);
+                        }
+                    } catch (Exception ex) {
+                        throw new RuntimeException("Error during file processing: " + ex.getMessage(), ex);
+                    }
+                }
                 case STRATEGY_TABLE_NAME -> {
                     try {
                         MongoCollection<Document> collection = database.getCollection("inputs_file_upload");
@@ -6103,6 +6181,150 @@ public class App implements CommandLineRunner {
             error_occurred.set(1);
             log.error("Error processing Auto Tolerance Config: {}", e.getMessage(), e);
             listOfErrors.get().add("Failed to process Auto Tolerance Config file");
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadForecastAllocationGridFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = CONFIG_FORECAST_ALLOCATION_GRID_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            List<String> errors = new ArrayList<>();
+            boolean isValid = ForecastAllocationValidator.validateGridFile(csvData, errors);
+            if (!isValid || !errors.isEmpty()) {
+                listOfErrors.get().addAll(errors);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                return;
+            }
+
+            List<String> rawHeaders = csvData.get(0);
+            List<String> headers = new ArrayList<>();
+            for (String h : rawHeaders) {
+                headers.add(h != null ? h.replace("\uFEFF", "").trim().toLowerCase() : "");
+            }
+            int bandIdx = headers.indexOf("band");
+            int trendIdx = headers.indexOf("trend");
+            int formulaIdx = headers.indexOf("formula");
+            int descIdx = headers.indexOf("description");
+
+            List<Document> gridDocuments = new ArrayList<>();
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                if (row.isEmpty() || row.size() <= Math.max(bandIdx, Math.max(trendIdx, formulaIdx))) {
+                    continue;
+                }
+
+                int band = Integer.parseInt(row.get(bandIdx).trim());
+                String trend = row.get(trendIdx).trim();
+                String formula = row.get(formulaIdx).trim();
+                String description = descIdx != -1 && row.size() > descIdx ? row.get(descIdx).trim() : "";
+
+                Document doc = new Document();
+                doc.put("band", band);
+                doc.put("trend", trend);
+                doc.put("formula", formula);
+                doc.put("description", description);
+                gridDocuments.add(doc);
+            }
+
+            if (!gridDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document());
+                collection.insertMany(gridDocuments);
+            }
+
+            try {
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            } catch (Exception s3Ex) {
+                log.warn("Could not backup {} to S3: {}", tableName, s3Ex.getMessage());
+            }
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Forecast Allocation Grid: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Forecast Allocation Grid file: " + e.getMessage());
+            addErrorsToTable(listOfErrors.get(), obj_id);
+            throw e;
+        } finally {
+            updateInputStatus(tableName);
+        }
+    }
+
+    public void uploadForecastAllocationBandsFile(Reader file, String userName, String obj_id) throws Exception {
+        String tableName = CONFIG_FORECAST_ALLOCATION_BANDS_TABLE_NAME;
+        try {
+            insertAuditStatement(tableName, getCurrentDateTime(), userName, obj_id);
+            insertInputStatusTable(tableName);
+
+            List<List<String>> csvData = getDataFromCSVFile(file);
+            List<String> errors = new ArrayList<>();
+            boolean isValid = ForecastAllocationValidator.validateBandsFile(csvData, errors);
+            if (!isValid || !errors.isEmpty()) {
+                listOfErrors.get().addAll(errors);
+                error_occurred.set(1);
+                addErrorsToTable(listOfErrors.get(), obj_id);
+                return;
+            }
+
+            List<String> rawHeaders = csvData.get(0);
+            List<String> headers = new ArrayList<>();
+            for (String h : rawHeaders) {
+                headers.add(h != null ? h.replace("\uFEFF", "").trim().toLowerCase() : "");
+            }
+            int bandIdx = headers.indexOf("band");
+            int startIdx = headers.indexOf("start");
+            int endIdx = headers.indexOf("end");
+            int tolIdx = headers.indexOf("tolerance");
+            int b2bIdx = headers.indexOf("b2b_factor");
+
+            List<Document> bandsDocuments = new ArrayList<>();
+            for (int i = 1; i < csvData.size(); i++) {
+                List<String> row = csvData.get(i);
+                int maxIdx = Math.max(bandIdx, Math.max(startIdx, Math.max(endIdx, Math.max(tolIdx, b2bIdx))));
+                if (row.isEmpty() || row.size() <= maxIdx) {
+                    continue;
+                }
+
+                int band = Integer.parseInt(row.get(bandIdx).trim());
+                double start = Double.parseDouble(row.get(startIdx).trim());
+                double end = Double.parseDouble(row.get(endIdx).trim());
+                double tolerance = Double.parseDouble(row.get(tolIdx).trim());
+                double b2bFactor = Double.parseDouble(row.get(b2bIdx).trim());
+
+                Document doc = new Document();
+                doc.put("band", band);
+                doc.put("start", start);
+                doc.put("end", end);
+                doc.put("tolerance", tolerance);
+                doc.put("b2b_factor", b2bFactor);
+                bandsDocuments.add(doc);
+            }
+
+            if (!bandsDocuments.isEmpty()) {
+                MongoCollection<Document> collection = database.getCollection(tableName);
+                collection.deleteMany(new Document());
+                collection.insertMany(bandsDocuments);
+            }
+
+            try {
+                s3FileStorageDao.storeFile(createCSV(tableName), tableName, obj_id);
+            } catch (Exception s3Ex) {
+                log.warn("Could not backup {} to S3: {}", tableName, s3Ex.getMessage());
+            }
+            updateAuditStatement(tableName, getCurrentDateTime(), obj_id);
+
+        } catch (Exception e) {
+            error_occurred.set(1);
+            log.error("Error processing Forecast Allocation Bands: {}", e.getMessage(), e);
+            listOfErrors.get().add("Failed to process Forecast Allocation Bands file: " + e.getMessage());
             addErrorsToTable(listOfErrors.get(), obj_id);
             throw e;
         } finally {
