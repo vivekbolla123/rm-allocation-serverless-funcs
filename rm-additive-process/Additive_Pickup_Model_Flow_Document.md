@@ -653,6 +653,16 @@ Matched historical: 18 flights → each contributes its NDO row for FareBasis `3
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-08-02 | 1234 | 2 | 1 | 3 | ... | 0 |
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-07-26 | 1234 | 4 | 3 | 2 | ... | 0 |
 
+> **Memory note (chunked execution).** Steps 10 and 11 are fused and run in
+> chunks of `PREDICT_CHUNK_KEYS` future-flight keys at a time (`_build_and_predict_chunked`).
+> The exploded matched frame (future × buckets × matches × 181 NDO cols) is only
+> ever held for one chunk before it is reduced to the per-bucket prediction rows.
+> Every Step-11 reduction groups by the full future-flight identity, so keys never
+> interact across chunks — the concatenated result is **numerically identical** to
+> processing all keys at once, and **no match is excluded**. This is purely a
+> memory bound (the earlier all-at-once path OOM'd once coarse ladder levels
+> pulled in whole-sector match sets).
+
 ---
 
 ### Step 11: Calculate Predictions

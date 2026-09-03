@@ -602,6 +602,11 @@ MIN_FLIGHT_MATCHES = 13
 WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
+# Steps 10+11 are processed this many future-flight keys at a time so the
+# exploded (future x buckets x matches x NDO) frame is never fully materialized.
+# Purely a memory knob — output is identical for any value (every reduction is
+# per-future-key). Lower it if a heavy sector still approaches the memory limit.
+PREDICT_CHUNK_KEYS = 300
 
 # --- Additive-model LOGIC constants (subject to tuning) -----------------------
 # Geometric-progression fare-bucket count. GP generates this many boundary

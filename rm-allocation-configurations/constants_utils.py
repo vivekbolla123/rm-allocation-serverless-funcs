@@ -166,6 +166,7 @@ class ConstantsUtils:
         self.FARE_BUCKET_RBDS = FARE_BUCKET_RBDS
         # Logic constants subject to tuning (also live in Constants.py).
         self.MIN_FLIGHT_MATCHES = MIN_FLIGHT_MATCHES
+        self.PREDICT_CHUNK_KEYS = PREDICT_CHUNK_KEYS
         self.WEIGHT_ALPHA = WEIGHT_ALPHA
         self.WEIGHT_FUTURE_X = WEIGHT_FUTURE_X
         self.GP_FARE_BUCKET_POINTS = GP_FARE_BUCKET_POINTS

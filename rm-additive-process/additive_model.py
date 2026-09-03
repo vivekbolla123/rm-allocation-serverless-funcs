@@ -1219,9 +1219,6 @@ class AdditivePickupModelProcessor:
         logger.info("Building fare bucket level matched result dataset...")
         ndo_cols = self.cache.data['ndo_cols']
 
-        # Index pivot_ndo by Key for fast lookup
-        pivot_ndo_indexed = pivot_ndo.set_index('Key') if 'Key' not in pivot_ndo.index.names else pivot_ndo
-
         # Future keys that were matched via their donor (fallback). Their matched
         # historical rows carry Sector=donor and must be relabelled to the
         # dependent so the Sector-keyed merge below lines up. Own-sector wins are
@@ -1391,6 +1388,52 @@ class AdditivePickupModelProcessor:
 
         return (result_merged_df, result_final_df, result_merged_df_std,
                 weighted_merged_df, weighted_final_df)
+
+    def _build_and_predict_chunked(self, future_df_expanded, pivot_ndo, flight_matches):
+        """Memory-safe Steps 10+11: build the matched result and reduce it to the
+        five prediction frames WITHOUT ever holding the full exploded cross-product
+        in memory.
+
+        Every Step-11 reduction (mean/std/weighted-mean, matched-current-bookings)
+        groups by the FULL future-flight identity, so a future key's rows never
+        interact with another key's rows. Processing future keys in chunks and
+        concatenating the *reduced* per-chunk frames is therefore numerically
+        identical to processing all keys at once — no match is dropped, no value
+        changes. Only the transient exploded frame is bounded (one chunk at a time).
+        """
+        keys = [k for k, v in flight_matches.items() if v]
+        if not keys:
+            logger.warning("No matched results produced.")
+            empty = pd.DataFrame()
+            return empty, empty, empty, empty, empty
+
+        chunk_size = getattr(self.constants_utils, 'PREDICT_CHUNK_KEYS', 300)
+        parts = {'rm': [], 'rf': [], 'rms': [], 'wm': [], 'wf': []}
+        n_chunks = (len(keys) + chunk_size - 1) // chunk_size
+
+        for ci in range(0, len(keys), chunk_size):
+            chunk_keys = keys[ci:ci + chunk_size]
+            sub_matches = {k: flight_matches[k] for k in chunk_keys}
+            # Build the exploded frame for THIS chunk only.
+            result_df = self._build_matched_result(future_df_expanded, pivot_ndo, sub_matches)
+            if result_df.empty:
+                continue
+            rm, rf, rms, wm, wf = self._calculate_predictions(result_df)
+            parts['rm'].append(rm)
+            parts['rf'].append(rf)
+            parts['rms'].append(rms)
+            parts['wm'].append(wm)
+            parts['wf'].append(wf)
+            del result_df, rm, rf, rms, wm, wf
+            logger.info(f"  [Step10+11] chunk {ci // chunk_size + 1}/{n_chunks} done "
+                        f"({len(chunk_keys)} future keys).")
+
+        def _cat(lst):
+            return (pd.concat(lst, ignore_index=True, copy=False)
+                    if lst else pd.DataFrame())
+
+        return (_cat(parts['rm']), _cat(parts['rf']), _cat(parts['rms']),
+                _cat(parts['wm']), _cat(parts['wf']))
 
     # =========================================================================
     # STEP 12: REMAINING RBD DISTRIBUTION
@@ -2221,21 +2264,21 @@ class AdditivePickupModelProcessor:
                           for k, v in flight_matches.items()]),
             '09_flight_matches_summary')
 
-        # --- Step 10: Build matched result ---
-        result_df = self._build_matched_result(future_df_expanded, pivot_ndo, flight_matches)
-        if result_df.empty:
+        # --- Steps 10+11: Build matched result + predictions (chunked, memory-safe) ---
+        # Processed in chunks of future keys so the exploded (future x buckets x
+        # matches x 181 NDO) frame is never fully materialized. Output is identical
+        # to the all-at-once path because every reduction groups by future-flight
+        # identity — no match is dropped.
+        (result_merged_df, result_final_df, _,
+         weighted_merged_df, weighted_final_df) = self._build_and_predict_chunked(
+            future_df_expanded, pivot_ndo, flight_matches)
+        if result_merged_df.empty:
             logger.warning(f"No matched results for {sectors} — batch produced no output.")
             return
-        self._save_intermediate(result_df, '10_matched_result', fmt='parquet')
-
-        # --- Step 11: Predictions (normal + weighted) ---
-        (result_merged_df, result_final_df, _,
-         weighted_merged_df, weighted_final_df) = self._calculate_predictions(result_df)
         self._save_intermediate(result_merged_df, '11a_pred_fare_bucket_normal')
         self._save_intermediate(weighted_merged_df, '11b_pred_fare_bucket_weighted')
         self._save_intermediate(result_final_df, '11c_pred_flight_normal')
         self._save_intermediate(weighted_final_df, '11d_pred_flight_weighted')
-        del result_df
 
         # --- Step 12: Remaining RBD distribution ---
         (result_merged_df, result_final_df) = self._distribute_remaining_rbd(
