@@ -1766,8 +1766,13 @@ class RMDatabaseHelper:
         # else:  # B2B
         #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
+        try:
+            backstop_val = float(backstop) if backstop not in (None, '', 'NA', 'None', CONST_NA) else 0.0
+        except (ValueError, TypeError):
+            backstop_val = 0.0
+
         # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
+        query["TOTAL"] = {"$gte": backstop_val, "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:

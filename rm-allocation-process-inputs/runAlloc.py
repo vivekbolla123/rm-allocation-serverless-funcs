@@ -1389,7 +1389,14 @@ class DynAlloc:
 			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
 			b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
 
-			if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
+			b2b_backstop_val = 0.0
+			try:
+				if b2b_backstop_final not in (None, '', 'NA', 'None', CONST_NA) and pd.notna(b2b_backstop_final):
+					b2b_backstop_val = float(b2b_backstop_final)
+			except (ValueError, TypeError):
+				b2b_backstop_val = 0.0
+
+			if b2b_backstop_val > 0 and float(b2b_Z0_fare) < b2b_backstop_val:
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 			param_b2b_factor = getattr(self.currParams, 'b2b_factor', -1) # Default if not present
