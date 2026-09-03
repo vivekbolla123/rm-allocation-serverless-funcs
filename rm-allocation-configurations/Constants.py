@@ -19,7 +19,7 @@ CONNECTION_CARRIER_INCLUSION = '["6E","AI","IX","XY","FZ","GF","J9","KU","FD","S
 NAVODS_ALERT_SECTOR_LIST = '["BOMDEL1127", "BOMDEL1120", "DELBOM1719", "DELBOM1411", "BOMDBR1529", "DBRBOM1530", "CCUBOM1125", "CCUBOM1173"]'
 NAVODS_ALERT_MAX_NDO = 3
 
-DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0"}'
+DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0", "buy_up_factor_NG": "0.0", "connection_fare_flag_NG": "0", "additional_connection_duration_NG": "4.0", "CompetitionResponseGrid_NG": "DEFAULT", "nextgen_flag_NG": "0", "competition_response_flag_NG": "1"}'
 DEFAULT_MARKET_LIST_DAYS = 30
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
@@ -393,8 +393,9 @@ CONST_MARKET_LIST_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList.csv"
 CONST_MARKET_LIST_CONNECTIONS_FILE_PATH = os.path.join(_ROOT_DIR, "params", "MarketList_Connections.csv")
 CONST_AU_GRID_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid.csv")
 CONST_SUMMARY_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary.csv")
-CONST_SUMMARY_NEXTGEN_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_nextgen.csv")
-CONST_INVENTORY_OPTIMIZATION_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "inventory_optimization.csv")
+CONST_NEXTGEN_OUTPUT_DIR = os.path.join(_TESTCASES_DIR, "outputnexgen", "generated_output")
+CONST_SUMMARY_NEXTGEN_FILE_PATH = os.path.join(CONST_NEXTGEN_OUTPUT_DIR, "summary_nextgen.csv")
+CONST_INVENTORY_OPTIMIZATION_FILE_PATH = os.path.join(CONST_NEXTGEN_OUTPUT_DIR, "inventory_optimization.csv")
 CONST_AU_GRID_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_sales.csv")
 CONST_SUMMARY_SALES_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "summary_sales.csv")
 CONST_AU_GRID_CONNECTIONS_FILE_PATH = os.path.join(_TESTCASES_DIR, "output", "generated_output", "AUGrid_Connections.csv")
@@ -427,14 +428,14 @@ CONST_OUTPUT_SUMMARY_ORDER = [
 ]
 
 CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
-    'Origin', 'Destin', 'FltNum', 'DepDate', 'SnapshotDate', 'Capacity',
-    'NG_Historical current booked', 'NG_LF Forecast', 'NG_AF Forecast',
-    'NG_Opening fare', 'NG_FirstRBD', 'Strategy fare', 'Anchor fare',
-    'Current_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-    'Predicted_Pickup_Revised', 'Predicted_Flown_Revised',
+    'Origin', 'Destin', 'FltNum', 'DepDate', 'Capacity',
+    'NG_FirstRBD', 'Predicted_Flown_Revised',
     'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
     'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
-    'buy_up_factor', 'RunId'
+    'buy_up_factor', 'RunId', 'Id',
+    'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
+    'NG_Opening_fare', 'Strategy_fare', 'Anchor_fare',
+    'analystName', 'status', 'allocationStatus'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
@@ -442,12 +443,8 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
-    'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
-    'Capped_Predicted_Flown_Revised', 'A_cap', 'Current_Revenue', 'Expected_Revenue',
-    'Total_Expected_Revenue', 'Predicted_Revenue', 'SnapshotDate', 'Tagging',
-    'FareBucket', 'FareBucket_Upper', 'sigma', 'STD_future', 'STD_dt', 'oal_b2c_max',
-    'qp_b2c_min', 'qp_b2c_max', 'mu_bar', 'sigma_bar', 'F_j', 'protection_limit_yj',
-    'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3', 'A', 'Denominator'
+    'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Current_Revenue',
+    'SnapshotDate', 'Tagging', 'FareBucket'
 ]
 
 

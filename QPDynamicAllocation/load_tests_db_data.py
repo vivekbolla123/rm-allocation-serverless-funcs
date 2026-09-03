@@ -84,12 +84,6 @@ class Schema:
         self.load_generic_collection("auto_tolerance_grid_values", "auto_tolerance_grid_values.csv")
         self.load_generic_collection("auto_tolerance_redis_state", "auto_tolerance_redis_state.csv")
 
-        # Load NextGen AU Optimization & Competition Response Tables
-        self.load_generic_collection("comp_response_plf_bands", "comp_response_plf_bands.csv")
-        self.load_generic_collection("comp_response_grid", "comp_response_grid.csv")
-        self.load_generic_collection("comp_fare_recalibration", "comp_fare_recalibration.csv")
-        self.load_generic_collection("add_model_fare_bucket_level_weighted", "add_model_fare_bucket_level_weighted.csv")
-        
         self.transformCollections()
 
     def load_generic_collection(self, collectionName, dataFile, use_dw=False):

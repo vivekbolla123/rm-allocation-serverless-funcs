@@ -1537,70 +1537,6 @@ class AdditivePickupModelProcessor:
                     f"(source={src}).")
         return df
 
-    # Per-bucket demand candidates for step 15, most-processed first. The BRD asks
-    # for "the mean demand predicted for each fare bucket", which is the pipeline's
-    # FINAL demand — after remaining-RBD distribution (12), the demand multiplier
-    # (13) and the WTP redistribution (14) — not the raw step-11 prediction.
-    OPTIMIZATION_DEMAND_PREFERENCE = (
-        'WTP_pax_count',            # step 14
-        'New Final_pax_count',      # step 13
-        'Final_pax_count',          # step 12
-    )
-
-    def _compute_inventory_optimization(self, bucket_df,
-                                        base_col='predicted_pax_count',
-                                        base_std_col='predicted_pax_std'):
-        """Step 15 — NextGen Inventory Optimization (inventory_ng).
-
-        Calculates protection limits and authorization levels (AU) for each fare
-        bucket, executes competition response, demand redistribution, and closed-form
-        revenue forecasting to produce the 50-column NextGen dataset (inventory_ng).
-        """
-        if bucket_df is None or bucket_df.empty:
-            return None
-
-        df = bucket_df.copy()
-
-        demand_col = next((c for c in self.OPTIMIZATION_DEMAND_PREFERENCE
-                           if c in df.columns), None)
-        if demand_col is None:
-            demand_col = base_col
-            logger.warning(f"[Step 15] No post-processing demand column found; "
-                           f"falling back to {base_col}.")
-        if demand_col not in df.columns:
-            logger.error(f"[Step 15] Demand column {demand_col} missing — skipped.")
-            return None
-
-        demand = pd.to_numeric(df[demand_col], errors='coerce').fillna(0.0).clip(lower=0.0)
-        base = pd.to_numeric(df.get(base_col), errors='coerce') \
-            if base_col in df.columns else pd.Series(np.nan, index=df.index)
-        base_std = pd.to_numeric(df.get(base_std_col), errors='coerce').fillna(0.0) \
-            if base_std_col in df.columns else pd.Series(0.0, index=df.index)
-
-        # Hold the coefficient of variation constant across the step 12-14 uplift.
-        base_arr = base.to_numpy(dtype=float)
-        positive = base_arr > 0
-        ratio = np.ones_like(base_arr)
-        np.divide(demand.to_numpy(dtype=float), base_arr,
-                  out=ratio, where=positive)
-        df['OptimizationDemand'] = demand
-        df['OptimizationDemandStd'] = np.clip(base_std.to_numpy(dtype=float) * ratio,
-                                              0.0, None)
-
-        logger.info(f"Computing NextGen inventory optimization (inventory_ng) "
-                    f"— demand={demand_col}, sigma from {base_std_col} scaled by the "
-                    f"same ratio, buy-up factor={BUY_UP_FACTOR}...")
-        inv_ng_df = compute_inventory_ng_df(
-            df,
-            pax_col='OptimizationDemand',
-            std_col='OptimizationDemandStd',
-            sigma_factor=EMSR_SIGMA_FACTOR,
-            promo_ratio=PROMO_FARE_RATIO,
-            open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR,
-            buy_up_factor=BUY_UP_FACTOR
-        )
-        logger.info(f"NextGen inventory optimization complete — {len(inv_ng_df)} rows produced.")
-        return inv_ng_df
 
     def _apply_demand_multiplier(self, flight_df, bucket_df):
         """Step 13 — adds: Demand Multiplier, Demand Multiplier Number,
@@ -2034,23 +1970,19 @@ class AdditivePickupModelProcessor:
         self._save_intermediate(result_merged_df, '14a_fare_bucket_wtp_normal')
         self._save_intermediate(weighted_merged_df, '14b_fare_bucket_wtp_weighted')
 
-        # --- Step 15: Inventory Optimization (EMSR-b) ---
-        optimized_df = self._compute_inventory_optimization(result_merged_df)
-        self._save_intermediate(optimized_df, '15_inventory_optimization')
-
         t_process_end = _time.perf_counter()
         process_secs = round(t_process_end - t_process_start, 2)
-        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-15): {process_secs}s")
+        logger.info(f"[TIMING] {sectors} — PROCESS (Steps 3-14): {process_secs}s")
 
         t_save_start = _time.perf_counter()
 
-        # --- Step 16: Save final results ---
-        self._save_results(result_merged_df, result_final_df, optimized_df,
+        # --- Step 15: Save final results (Inventory Optimization is delegated to AWS Glue job) ---
+        self._save_results(result_merged_df, result_final_df,
                            weighted_merged_df, weighted_final_df, sectors=sectors)
 
         t_save_end = _time.perf_counter()
         save_secs = round(t_save_end - t_save_start, 2)
-        logger.info(f"[TIMING] {sectors} — SAVE (Step 16): {save_secs}s")
+        logger.info(f"[TIMING] {sectors} — SAVE (Step 15): {save_secs}s")
         logger.info(f"[TIMING] {sectors} — TOTAL: fetch={fetch_secs}s, "
                     f"process={process_secs}s, save={save_secs}s, "
                     f"sum={round(fetch_secs + process_secs + save_secs, 2)}s")
@@ -2065,8 +1997,8 @@ class AdditivePickupModelProcessor:
         """
         self.cache.data = {}
 
-    def _save_results(self, result_merged_df, result_final_df, optimized_df,
-                      weighted_merged_df=None, weighted_final_df=None, sectors=None):
+    def _save_results(self, result_merged_df, result_final_df,
+                      weighted_merged_df=None, weighted_final_df=None, sectors=None, optimized_df=None):
         """
         TEST -> timestamped CSV locally.
         PROD -> idempotent DW tables + Hive-partitioned S3 (snapshot_date/sector).
@@ -2133,15 +2065,6 @@ class AdditivePickupModelProcessor:
             'New predicted_pax_count_final', 'New Final Total Bookings',
             'Load_Factor', 'OpeningFareBucket', 'OpeningFareMidpoint']
 
-        optimization_cols = [
-            'SnapshotDate', 'Sector', 'DepartureDate', 'DOW', 'STD',
-            'FlightNumber', 'Capacity', 'Current_Bookings', 'Tagging', 'FareBucket',
-            'FareBucket_Lower', 'FareBucket_Upper', 'FareMidpoint',
-            'predicted_pax_count', 'predicted_pax_std',
-            'OptimizationDemand', 'OptimizationDemandStd',
-            'ProtectionLimit', 'AU',
-            'OpeningFareBucket', 'OpeningFareMidpoint', 'IsOpeningFare', 'RBD']
-
         # ---------------- helpers (parse bounds BEFORE the FareBasis rename) ----------------
         FLIGHT_RENAME = {
             'DepartureDate_future': 'DepartureDate',
@@ -2190,13 +2113,11 @@ class AdditivePickupModelProcessor:
         # ---------------- prepare every frame identically ----------------
         result_merged_df = _parse_bucket_bounds(result_merged_df)
         weighted_merged_df = _parse_bucket_bounds(weighted_merged_df)
-        optimized_df = _parse_bucket_bounds(optimized_df)
 
         result_final_df = _finalise(result_final_df, FLIGHT_RENAME)
         result_merged_df = _finalise(result_merged_df, BUCKET_RENAME)
         weighted_final_df = _finalise(weighted_final_df, FLIGHT_RENAME)
         weighted_merged_df = _finalise(weighted_merged_df, BUCKET_RENAME)
-        optimized_df = _finalise(optimized_df, BUCKET_RENAME)
 
         # ---------------- derived columns (correct grain, guarded) ----------------
         # Predicted_Total_Bookings — FARE-BUCKET frames
@@ -2225,9 +2146,7 @@ class AdditivePickupModelProcessor:
             (weighted_final_df,  weighted_flight_level_cols, 'flight_level_weighted',
              'add_model_flight_level_weighted'),
             (weighted_merged_df, weighted_fare_bucket_cols,  'fare_bucket_weighted',
-             'add_model_fare_bucket_level_weighted'),
-            (optimized_df,       INVENTORY_NG_COLUMNS,       'inventory_ng',
-             'add_model_inventory_ng')]
+             'add_model_fare_bucket_level_weighted')]
 
         # =====================================================================
         # TEST — timestamped CSV in the local output directory
@@ -2263,6 +2182,6 @@ class AdditivePickupModelProcessor:
                 continue
             # full frame (incl. NDO curve) to S3; the trimmed `cols` are for
             # a lighter query-facing copy if you want one later.
-            self.cache.write_partitioned_s3(_subset(frame, cols) if s3_dataset == 'inventory_ng' else frame, s3_dataset)
+            self.cache.write_partitioned_s3(frame, s3_dataset)
 
-        logger.info("All PROD results saved to S3 successfully.")
+        logger.info("All PROD results saved to S3 successfully.")

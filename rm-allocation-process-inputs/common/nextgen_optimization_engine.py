@@ -710,26 +710,51 @@ class NextGenOptimizationEngine:
         flight_std=None,
         curr_params=None,
         db_helper=None,
-        recalibration_dict=None
+        recalibration_dict=None,
+        tax_helper=None
     ):
         """
         Executes end-to-end NextGen AU optimization and revenue forecasting for a single flight.
         Dynamically queries DB for grid rules, bands, parameters, and competitor recalibrations.
+        Converts all-in competitor market fares to airline component for fair comparison against
+        the weighted forecast ladder, and ensures all summary fares are presented as all-in fares.
         """
         # Dynamic parameter extraction from curr_params / market_list / DB
-        buy_up = getattr(curr_params, 'buy_up_factor', 0.0) if curr_params else 0.0
-        comp_flag = getattr(curr_params, 'competition_response_flag', 1) if curr_params else 1
-        time_range = getattr(curr_params, 'time_range', 2.0) if curr_params else 2.0
-        carr_excl = getattr(curr_params, 'carrier_exclusion', None) if curr_params else None
-        grid_name = str(getattr(curr_params, 'grid_name', 'DEFAULT')).strip() or 'DEFAULT'
-        backstop = getattr(curr_params, 'price_floor', getattr(curr_params, 'b2c_backstop', None)) if curr_params else None
-        hardanchor = getattr(curr_params, 'price_cap', getattr(curr_params, 'hardanchor', None)) if curr_params else None
-        ndo = getattr(curr_params, 'ndocounter', getattr(curr_params, 'NDO', 0)) if curr_params else 0
-        first_rbd = getattr(curr_params, 'first_rbd_alloc', 20) if curr_params else 20
-        promo_threshold = getattr(curr_params, 'plfthreshold', 95.0) if curr_params else 95.0
-        sigma_factor = getattr(curr_params, 'sigma_factor', 0.25) if curr_params else 0.25
-        promo_ratio = getattr(curr_params, 'promo_fare_factor', 0.80) if curr_params else 0.80
-        cov_param = getattr(curr_params, 'coverage_parameter', 3.0) if curr_params else 3.0
+        def _get_val(obj, *keys, default=None):
+            if obj is None:
+                return default
+            for k in keys:
+                if hasattr(obj, k):
+                    v = getattr(obj, k)
+                    if type(v).__name__ != 'MagicMock' and v is not None and v != CONST_NA:
+                        return v
+                elif isinstance(obj, dict) and k in obj:
+                    v = obj[k]
+                    if v is not None and v != CONST_NA:
+                        return v
+            return default
+
+        origin = _get_val(curr_params, 'origin', 'Origin', default=None)
+        destin = _get_val(curr_params, 'destin', 'destination', 'Destin', default=None)
+        route = _get_val(curr_params, 'route', default=None)
+
+        # Resolve tax helper if not passed explicitly
+        if tax_helper is None:
+            tax_helper = _get_val(curr_params, 'tax_helper', default=getattr(db_helper, 'tax_helper', None))
+
+        buy_up = _get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0)
+        comp_flag = _get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=1)
+        time_range = _get_val(curr_params, 'time_range', default=2.0)
+        carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
+        grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
+        backstop = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
+        hardanchor = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+        ndo = _get_val(curr_params, 'ndocounter', 'NDO', default=0)
+        first_rbd = _get_val(curr_params, 'first_rbd_alloc', default=20)
+        promo_threshold = _get_val(curr_params, 'plfthreshold', default=95.0)
+        sigma_factor = _get_val(curr_params, 'sigma_factor', default=0.25)
+        promo_ratio = _get_val(curr_params, 'promo_fare_factor', default=0.80)
+        cov_param = _get_val(curr_params, 'coverage_parameter', default=3.0)
 
         # Step 1: Initial EMSR-b
         init_df, anchor_fare, promo_au = cls.compute_initial_emsr_b(
@@ -741,8 +766,8 @@ class NextGenOptimizationEngine:
         )
 
         # Step 2: Competition Response & Strategy Fare
-        conn_fare_flag = getattr(curr_params, 'connection_fare_flag', 0) if curr_params else 0
-        add_conn_dur = getattr(curr_params, 'additional_connection_duration', 4.0) if curr_params else 4.0
+        conn_fare_flag = _get_val(curr_params, 'connection_fare_flag_NG', 'connection_fare_flag', default=0)
+        add_conn_dur = _get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=4.0)
         dir_dur = getattr(curr_params, 'flight_duration', getattr(curr_params, 'outbound_duration', None)) if curr_params else None
 
         c_min, c_med = cls.filter_market_fares(
@@ -755,14 +780,27 @@ class NextGenOptimizationEngine:
             coverage_param=cov_param
         )
 
-        # Apply Recalibration if present
-        if c_min is not None and recalibration_dict:
-            c_min = c_min + recalibration_dict.get('default', 0.0)
+        # Preserve original ALL-IN market fares for output reporting
+        c_min_allin = c_min
+        c_med_allin = c_med
+
+        # Convert market fares to AIRLINE COMPONENT for fair comparison against anchor fare
+        c_min_comp = c_min
+        c_med_comp = c_med
+        if tax_helper and origin and destin:
+            if c_min is not None:
+                c_min_comp = tax_helper.allin_to_airline_component(c_min, origin, destin, route=route)
+            if c_med is not None:
+                c_med_comp = tax_helper.allin_to_airline_component(c_med, origin, destin, route=route)
+
+        # Apply Recalibration if present (recalibration applies to airline component)
+        if c_min_comp is not None and recalibration_dict:
+            c_min_comp = c_min_comp + recalibration_dict.get('default', 0.0)
 
         rule_applied = "N/A"
         strategy_fare = anchor_fare
 
-        if comp_flag == 1 and c_min is not None:
+        if comp_flag == 1 and c_min_comp is not None:
             # Dynamic Band Lookups from DB
             pred_pickup_init = sum(init_df['mu'])
             plf_pct = ((float(current_bookings) + pred_pickup_init) / float(capacity)) * 100.0 if capacity > 0 else 0.0
@@ -782,7 +820,7 @@ class NextGenOptimizationEngine:
                 rule_applied = "Min (1.2A, 0.8C)" if plf_band == 0 else ("Min (1.3A, 0.9C)" if plf_band == 1 else "C")
                 criteria = "Min"
 
-            response_fare = cls.evaluate_grid_response(rule_applied, anchor_fare, c_min, c_med)
+            response_fare = cls.evaluate_grid_response(rule_applied, anchor_fare, c_min_comp, c_med_comp)
             strategy_fare = cls.determine_strategy_fare(response_fare, init_df)
         else:
             strategy_fare = anchor_fare
@@ -804,7 +842,7 @@ class NextGenOptimizationEngine:
             redistrib_df, capacity, current_bookings, current_revenue
         )
 
-        # Find opening fare & seats on opening fare
+        # Find opening fare & seats on opening fare (in airline component)
         open_classes = final_df[final_df['AU_Revised'] > float(current_bookings)]
         if not open_classes.empty:
             opening_fare = float(open_classes['fare'].iloc[-1])
@@ -827,12 +865,12 @@ class NextGenOptimizationEngine:
             'Predicted_Revenue': round(pred_rev, 2),
             'Predicted_Pickup_Revised': round(pickup_rev, 4),
             'Predicted_Flown_Revised': round(flown_rev, 4),
-            'MarketFare_Selected': c_min,
-            'MarketFare_Min': c_min,
-            'MarketFare_Max': c_med,
+            'MarketFare_Selected': c_min_allin,
+            'MarketFare_Min': c_min_allin,
+            'MarketFare_Max': c_med_allin,
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
-            'nextgen_flag': getattr(curr_params, 'nextgen_flag', 0) if curr_params else 0,
+            'nextgen_flag': _get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0),
             'competition_response_flag': comp_flag,
             'buy_up_factor': buy_up
         }

@@ -44,3 +44,6 @@ class OutputSummaryNextGen:
         self.analystName = CONST_NA
         self.status = CONST_NA
         self.allocationStatus = CONST_NA
+
+    def to_dict(self):
+        return {col: getattr(self, col, CONST_NA) for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER}

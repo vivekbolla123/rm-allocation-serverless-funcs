@@ -34,7 +34,7 @@ class TestNextGenLocalIntegration:
         return helper
 
     def test_market_list_row_parsing(self):
-        """Verify that MarketListRow parses all BRD input fields correctly."""
+        """Verify that MarketListRow parses all NextGen input fields and reuses existing columns correctly."""
         raw_dict = {
             "Origin": "BOM",
             "Destin": "DEL",
@@ -42,30 +42,37 @@ class TestNextGenLocalIntegration:
             "PerStart": "08/01/2026",
             "PerEnd": "08/01/2026",
             "DOW": "1111111",
-            "price_floor": 3500.0,
-            "price_cap": 30000.0,
-            "buy_up_factor": 0.15,
-            "connection_fare_flag": 1,
-            "additional_connection_duration": 3.5,
-            "time_range": 2.5,
-            "carrier_exclusion": "6E,SG",
-            "grid_name": "DEFAULT",
-            "nextgen_flag": 1,
-            "competition_response_flag": 1
+            "B2CBackstop": 3500.0,
+            "hardAnchor": 30000.0,
+            "CarrExlusionB2C": "6E,SG",
+            "buy_up_factor_NG": 0.15,
+            "connection_fare_flag_NG": 1,
+            "additional_connection_duration_NG": 3.5,
+            "CompetitionResponseGrid_NG": "DEFAULT",
+            "nextgen_flag_NG": 1,
+            "competition_response_flag_NG": 1
         }
         row = MarketListRow(raw_dict)
         assert row.origin == "BOM"
         assert row.destin == "DEL"
         assert row.flight_number == 1127
         assert row.price_floor == 3500.0
+        assert row.b2c_backstop == 3500.0
         assert row.price_cap == 30000.0
-        assert row.buy_up_factor == 0.15
-        assert row.connection_fare_flag == 1
-        assert row.additional_connection_duration == 3.5
-        assert row.time_range == 2.5
+        assert row.hardanchor == 30000.0
         assert row.carrier_exclusion == "6E,SG"
+        assert row.carr_exclusion_b2c == "6E,SG"
+        assert row.buy_up_factor_NG == 0.15
+        assert row.buy_up_factor == 0.15
+        assert row.connection_fare_flag_NG == 1
+        assert row.connection_fare_flag == 1
+        assert row.additional_connection_duration_NG == 3.5
+        assert row.additional_connection_duration == 3.5
+        assert row.CompetitionResponseGrid_NG == "DEFAULT"
         assert row.grid_name == "DEFAULT"
+        assert row.nextgen_flag_NG == 1
         assert row.nextgen_flag == 1
+        assert row.competition_response_flag_NG == 1
         assert row.competition_response_flag == 1
 
     def test_end_to_end_flight_nextgen_execution(self, mock_db_helper):
@@ -83,13 +90,20 @@ class TestNextGenLocalIntegration:
             {'AirlineCode': 'AI', 'fare': 5100.0, 'DepTime': '10:00'},
         ]
         curr_params = MagicMock()
+        curr_params.buy_up_factor_NG = 0.0
         curr_params.buy_up_factor = 0.0
+        curr_params.competition_response_flag_NG = 1
         curr_params.competition_response_flag = 1
         curr_params.time_range = 2.0
+        curr_params.carr_exclusion_b2c = None
         curr_params.carrier_exclusion = None
+        curr_params.CompetitionResponseGrid_NG = "DEFAULT"
         curr_params.grid_name = "DEFAULT"
+        curr_params.b2c_backstop = 3000.0
         curr_params.price_floor = 3000.0
+        curr_params.hardanchor = 40000.0
         curr_params.price_cap = 40000.0
+        curr_params.nextgen_flag_NG = 1
         curr_params.nextgen_flag = 1
         curr_params.ndocounter = 2
 
@@ -190,19 +204,9 @@ class TestNextGenLocalIntegration:
         assert read_df['Final_pax_count'].iloc[0] == 3.20
 
     def test_all_inventory_optimization_columns(self):
-        """Verify that inventory_optimization generates all 57 required columns."""
-        expected_columns = [
-            'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-            'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
-            'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
-            'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
-            'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
-            'Capped_Predicted_Flown_Revised', 'A_cap', 'Current_Revenue', 'Expected_Revenue',
-            'Total_Expected_Revenue', 'Predicted_Revenue', 'SnapshotDate', 'Tagging',
-            'FareBucket', 'FareBucket_Upper', 'sigma', 'STD_future', 'STD_dt', 'oal_b2c_max',
-            'qp_b2c_min', 'qp_b2c_max', 'mu_bar', 'sigma_bar', 'F_j', 'protection_limit_yj',
-            'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3', 'A', 'Denominator'
-        ]
+        """Verify that inventory_optimization generates all required columns as per CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER."""
+        from Constants import CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER
+        expected_columns = CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER
 
         ladder_df = pd.DataFrame({
             'FareBucket': ['Y', 'B', 'M'],

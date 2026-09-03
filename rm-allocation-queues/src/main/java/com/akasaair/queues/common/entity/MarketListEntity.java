@@ -140,4 +140,16 @@ public class MarketListEntity {
     public String ProfileFareUpsell;
     @Column(name = "auto_tolerance_flag")
     public String auto_tolerance_flag;
+    @Column(name = "buy_up_factor_NG")
+    public String buy_up_factor_NG;
+    @Column(name = "connection_fare_flag_NG")
+    public String connection_fare_flag_NG;
+    @Column(name = "additional_connection_duration_NG")
+    public String additional_connection_duration_NG;
+    @Column(name = "CompetitionResponseGrid_NG")
+    public String CompetitionResponseGrid_NG;
+    @Column(name = "nextgen_flag_NG")
+    public String nextgen_flag_NG;
+    @Column(name = "competition_response_flag_NG")
+    public String competition_response_flag_NG;
 }

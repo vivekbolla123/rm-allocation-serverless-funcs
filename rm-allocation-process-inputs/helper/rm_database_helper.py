@@ -917,7 +917,7 @@ class RMDatabaseHelper:
             latest_row = nextgen_results[-1]
             doc = vars(latest_row) if not isinstance(latest_row, dict) else latest_row.copy()
             doc.pop('_id', None)
-            clean_doc = {k: (None if pd.isna(v) else v) for k, v in doc.items()}
+            clean_doc = {k: (None if pd.isna(doc.get(k)) else doc.get(k)) for k in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if k in doc}
             try:
                 self.db.run_summary_nextgen.insert_one(clean_doc)
             except Exception as e:
@@ -936,7 +936,7 @@ class RMDatabaseHelper:
                 for r in opt_rows:
                     d = vars(r) if not isinstance(r, dict) else r.copy()
                     d.pop('_id', None)
-                    clean_d = {k: (None if pd.isna(v) else v) for k, v in d.items()}
+                    clean_d = {k: (None if pd.isna(d.get(k)) else d.get(k)) for k in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if k in d}
                     docs.append(clean_d)
                 if docs:
                     self.db.inventory_optimization.insert_many(docs)
@@ -992,18 +992,47 @@ class RMDatabaseHelper:
 
     def get_additive_fare_bucket_forecast(self, sector, snapshot_date=None, departure_date=None, flight_number=None):
         """
-        Reads the weighted fare bucket forecast directly from the MySQL Data Warehouse table:
-        `RM_DW_DATA.add_model_fare_bucket_level_weighted` via self.dwconn, or from the
-        local test collection `add_model_fare_bucket_level_weighted` during local testing.
+        Reads the weighted fare bucket forecast directly from MongoDB:
+        `add_model_fare_bucket_level_weighted` collection (primary), with fallback
+        to MySQL Data Warehouse `RM_DW_DATA.add_model_fare_bucket_level_weighted`.
         """
         import re
 
-        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        sec_clean = str(sector).replace('/', '') if sector else ''
         dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
         flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
         flt_int = int(flt_digits) if flt_digits else None
-        sec_clean = str(sector).replace('/', '') if sector else ''
 
+        # 1. Primary: Read directly from MongoDB collection add_model_fare_bucket_level_weighted
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                col = getattr(self.db, 'add_model_fare_bucket_level_weighted', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"Sector": sector},
+                            {"Sector": sec_clean},
+                            {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
+                        if dep_str and 'DepartureDate' in df.columns:
+                            df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
+                        if flt_int and 'FlightNumber' in df.columns:
+                            flt_match = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
+                            if not flt_match.empty:
+                                return flt_match
+                        if not df.empty:
+                            return df
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_fare_bucket_level_weighted: {e}")
+
+        # 2. Secondary Fallback: MySQL DW (legacy)
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
         if dw_engine is not None:
             try:
                 query = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
@@ -1014,26 +1043,127 @@ class RMDatabaseHelper:
                 df = pd.read_sql(query, dw_engine)
                 if df is not None and not df.empty:
                     return df
+                if (df is None or df.empty) and flt_digits:
+                    query_sec = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                    if dep_str:
+                        query_sec += f" AND DATE(DepartureDate) = '{dep_str}'"
+                    df_sec = pd.read_sql(query_sec, dw_engine)
+                    if df_sec is not None and not df_sec.empty:
+                        return df_sec
             except Exception as e:
                 self.logger.warning(f"Could not query RM_DW_DATA.add_model_fare_bucket_level_weighted: {e}")
 
-        # Local test fixture fallback (loaded from add_model_fare_bucket_level_weighted.csv)
-        if hasattr(self, 'db') and hasattr(self.db, 'add_model_fare_bucket_level_weighted'):
+        return None
+
+    def get_additive_inventory_ng(self, sector, date=None, flight=None, ndo=None):
+        """
+        Reads NextGen inventory optimization output from MongoDB:
+        `add_model_inventory_ng` collection, with fallback to MySQL DW `RM_DW_DATA.add_model_inventory_ng`.
+        """
+        import re
+
+        sec_clean = str(sector).replace('/', '') if sector else ''
+        date_str = pd.to_datetime(date).strftime('%Y-%m-%d') if date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight)) if flight is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+
+        # 1. MongoDB Read
+        if hasattr(self, 'db') and self.db is not None:
             try:
-                q = {}
-                if sector:
-                    q["$or"] = [{"Sector": sector}, {"Sector": sec_clean}, {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}]
-                docs = list(self.db.add_model_fare_bucket_level_weighted.find(q))
-                if docs:
-                    df = pd.DataFrame(docs)
-                    if dep_str and 'DepartureDate' in df.columns:
-                        df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
-                    if flt_int and 'FlightNumber' in df.columns:
-                        df = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
-                    if not df.empty:
+                col = getattr(self.db, 'add_model_inventory_ng', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"sector": sector},
+                            {"sector": sec_clean},
+                            {"sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    if date_str:
+                        q["date"] = date_str
+                    if flt_int is not None:
+                        q["flight"] = {"$in": [flt_int, str(flt_int), flt_digits]}
+                    if ndo is not None:
+                        q["NDO"] = int(ndo)
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
                         return df
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_inventory_ng: {e}")
+
+        # 2. DW Fallback
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_inventory_ng WHERE (sector = '{sector}' OR sector = '{sec_clean}')"
+                if date_str:
+                    query += f" AND DATE(date) = '{date_str}'"
+                if flt_digits:
+                    query += f" AND flight = {flt_digits}"
+                if ndo is not None:
+                    query += f" AND NDO = {int(ndo)}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_inventory_ng from DW: {e}")
+
+        return None
+
+    def get_additive_flight_level_weighted(self, sector, departure_date=None, flight_number=None):
+        """
+        Reads flight-level weighted forecast from MongoDB:
+        `add_model_flight_level_weighted` collection, with fallback to MySQL DW.
+        """
+        import re
+
+        sec_clean = str(sector).replace('/', '') if sector else ''
+        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+
+        # 1. MongoDB Read
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                col = getattr(self.db, 'add_model_flight_level_weighted', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"Sector": sector},
+                            {"Sector": sec_clean},
+                            {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    if dep_str:
+                        q["DepartureDate"] = dep_str
+                    if flt_int is not None:
+                        q["FlightNumber"] = {"$in": [flt_int, str(flt_int), flt_digits]}
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
+                        return df
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_flight_level_weighted: {e}")
+
+        # 2. DW Fallback
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_flight_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                if dep_str:
+                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                if flt_digits:
+                    query += f" AND FlightNumber = {flt_digits}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_flight_level_weighted from DW: {e}")
 
         return None
 
