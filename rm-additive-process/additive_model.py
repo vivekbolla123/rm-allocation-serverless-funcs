@@ -2447,6 +2447,12 @@ class AdditivePickupModelProcessor:
                     continue
                 self._save_to_csv(_subset(frame, cols), f'{name}_{timestamp}.csv')
 
+            # Full weighted frames (all columns incl. NDO 0-180) -> parquet.
+            for frame, _cols, name, _dw in DATASETS:
+                if frame is None or frame.empty:
+                    continue
+                self._save_to_parquet(frame, f'{name}_full_{timestamp}.parquet')
+
             logger.info("All TEST results saved successfully.")
             return
 
