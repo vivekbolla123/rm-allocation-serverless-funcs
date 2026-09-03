@@ -6221,10 +6221,12 @@ public class App implements CommandLineRunner {
                     continue;
                 }
 
-                int band = Integer.parseInt(row.get(bandIdx).trim());
-                String trend = row.get(trendIdx).trim();
-                String formula = row.get(formulaIdx).trim();
-                String description = descIdx != -1 && row.size() > descIdx ? row.get(descIdx).trim() : "";
+                ForecastAllocationValidator.ExtractedGridRow extracted = ForecastAllocationValidator.extractGridRow(row, bandIdx, trendIdx, formulaIdx, descIdx);
+
+                int band = Integer.parseInt(extracted.bandStr);
+                String trend = extracted.trendStr;
+                String formula = extracted.formulaStr;
+                String description = extracted.descriptionStr;
 
                 Document doc = new Document();
                 doc.put("band", band);

@@ -9,12 +9,68 @@ public class ForecastAllocationValidator {
             "increasing", "stable", "decreasing"
     ));
 
-    private static final Set<String> ALLOWED_TOKENS = new HashSet<>(Arrays.asList(
-            "strategy", "profile", "lsf", "highest", "middle", "lowest",
-            "max", "min", "average", "avg", "mean", "median", "fare", "fares"
-    ));
-
     private static final Pattern FORMULA_CHAR_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\+\\-\\*/%\\(\\),.]+$");
+
+    public static class ExtractedGridRow {
+        public String bandStr;
+        public String trendStr;
+        public String formulaStr;
+        public String descriptionStr;
+    }
+
+    /**
+     * Extracts and safely re-stitches formula parts if an unquoted CSV contained commas inside a formula (e.g. Min(LSF, Strategy)).
+     */
+    public static ExtractedGridRow extractGridRow(List<String> row, int bandIdx, int trendIdx, int formulaIdx, int descIdx) {
+        ExtractedGridRow res = new ExtractedGridRow();
+        res.bandStr = bandIdx >= 0 && bandIdx < row.size() ? row.get(bandIdx).trim() : "";
+        res.trendStr = trendIdx >= 0 && trendIdx < row.size() ? row.get(trendIdx).trim() : "";
+
+        String rawFormula = formulaIdx >= 0 && formulaIdx < row.size() ? row.get(formulaIdx).trim() : "";
+        int balance = getParenthesesBalance(rawFormula);
+
+        if (balance > 0 && row.size() > formulaIdx + 1) {
+            // Unquoted formula containing commas was split across multiple columns by CSV parser
+            StringBuilder formulaBuilder = new StringBuilder(rawFormula);
+            int nextIdx = formulaIdx + 1;
+            while (nextIdx < row.size() && balance > 0) {
+                String part = row.get(nextIdx).trim();
+                formulaBuilder.append(", ").append(part);
+                balance += getParenthesesBalance(part);
+                nextIdx++;
+            }
+            res.formulaStr = formulaBuilder.toString();
+
+            // Any remaining columns after the formula are the description
+            if (nextIdx < row.size()) {
+                StringBuilder descBuilder = new StringBuilder();
+                for (int d = nextIdx; d < row.size(); d++) {
+                    if (descBuilder.length() > 0) {
+                        descBuilder.append(", ");
+                    }
+                    descBuilder.append(row.get(d).trim());
+                }
+                res.descriptionStr = descBuilder.toString();
+            } else {
+                res.descriptionStr = "";
+            }
+        } else {
+            res.formulaStr = rawFormula;
+            res.descriptionStr = descIdx != -1 && descIdx < row.size() ? row.get(descIdx).trim() : "";
+        }
+
+        return res;
+    }
+
+    public static int getParenthesesBalance(String s) {
+        if (s == null) return 0;
+        int balance = 0;
+        for (char c : s.toCharArray()) {
+            if (c == '(') balance++;
+            else if (c == ')') balance--;
+        }
+        return balance;
+    }
 
     /**
      * Validates the config_forecast_allocation_grid CSV data.
@@ -40,6 +96,7 @@ public class ForecastAllocationValidator {
         int bandIdx = headers.indexOf("band");
         int trendIdx = headers.indexOf("trend");
         int formulaIdx = headers.indexOf("formula");
+        int descIdx = headers.indexOf("description");
 
         if (bandIdx == -1 || trendIdx == -1 || formulaIdx == -1) {
             errors.add("Missing required columns for Grid file. Expected: band, trend, formula, description. Found: " + rawHeaders);
@@ -60,9 +117,10 @@ public class ForecastAllocationValidator {
                 continue;
             }
 
-            String bandStr = row.get(bandIdx).trim();
-            String trendStr = row.get(trendIdx).trim();
-            String formulaStr = row.get(formulaIdx).trim();
+            ExtractedGridRow extracted = extractGridRow(row, bandIdx, trendIdx, formulaIdx, descIdx);
+            String bandStr = extracted.bandStr;
+            String trendStr = extracted.trendStr;
+            String formulaStr = extracted.formulaStr;
 
             // 1. Validate band
             int band;
@@ -237,17 +295,6 @@ public class ForecastAllocationValidator {
     }
 
     private static boolean hasBalancedParentheses(String s) {
-        int balance = 0;
-        for (char c : s.toCharArray()) {
-            if (c == '(') {
-                balance++;
-            } else if (c == ')') {
-                balance--;
-                if (balance < 0) {
-                    return false;
-                }
-            }
-        }
-        return balance == 0;
+        return getParenthesesBalance(s) == 0;
     }
 }
