@@ -603,6 +603,31 @@ WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
 
+# --- Additive-model LOGIC constants (subject to tuning) -----------------------
+# Geometric-progression fare-bucket count. GP generates this many boundary
+# points; consecutive duplicates collapse, so a sector may end with FEWER
+# buckets than this when actual fares are clustered.
+GP_FARE_BUCKET_POINTS = 19
+# Lowest fare bucket's lower bound is reduced by this factor to catch fares
+# just under the boundary (0.8 => -20%).
+FARE_BUCKET_LOWER_FACTOR = 0.8
+# Future-tagging ladder: a grouping level with fewer than this many rows is
+# dropped so the fill falls through to a coarser, better-supported level.
+FUTURE_TAG_MIN_ENTRIES = 12
+# Flight matching: +-N hour band applied on the DOW-Tagging ladder levels.
+TIME_BAND_HOURS = 2
+
+# --- Additive-model parameter KEYS (DB overrides via rm_parameter_values) -----
+PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
+MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
+WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
+WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
+PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"
+GP_FARE_BUCKET_POINTS_KEY = "GP_FARE_BUCKET_POINTS"
+FARE_BUCKET_LOWER_FACTOR_KEY = "FARE_BUCKET_LOWER_FACTOR"
+FUTURE_TAG_MIN_ENTRIES_KEY = "FUTURE_TAG_MIN_ENTRIES"
+TIME_BAND_HOURS_KEY = "TIME_BAND_HOURS"
+
 REQUIRED_RBDS = [
     'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',
     'M', 'N', 'N0', 'N1', 'N2', 'N3', 'N4', 'O',
