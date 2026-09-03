@@ -599,6 +599,12 @@ SECTOR_BATCH_SIZE = 6
 NDO_RANGE = list(range(181))           # 0..180
 PREDICTION_HORIZON_DAYS = 180
 MIN_FLIGHT_MATCHES = 13
+# Upper bound on matched historical flights kept per future flight (Step 9).
+# Coarse matching-ladder levels (Sector-all-taggings) can return the whole
+# sector history; Step 10 then explodes to (future x buckets x matches x 181
+# NDO cols) — the OOM source. Keeping the closest-STD / most-recent N caps that
+# product with negligible effect on the averaged prediction. 0 disables the cap.
+MAX_FLIGHT_MATCHES = 60
 WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
@@ -625,6 +631,7 @@ TIME_BAND_HOURS = 2
 # --- Additive-model parameter KEYS (DB overrides via rm_parameter_values) -----
 PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
 MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
+MAX_FLIGHT_MATCHES_KEY = "MAX_FLIGHT_MATCHES"
 WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
 WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
 PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"

@@ -1125,6 +1125,31 @@ class AdditivePickupModelProcessor:
                 cand = cand[diffs <= time_band * 60]
             return cand
 
+        # Cap on matches kept per future flight. Coarse ladder levels
+        # (Sector-all-taggings) can return the ENTIRE sector history (hundreds of
+        # flights); Step 10 then explodes to (future x buckets x matches x 181 NDO
+        # cols). Keeping the closest-STD, then most-recent N bounds that product
+        # with negligible effect on the averaged prediction. DB-overridable via
+        # MAX_FLIGHT_MATCHES_KEY; getattr fallback keeps it working before the
+        # deployed constants file is updated. 0 / None => no cap.
+        max_matches = getattr(self.constants_utils, 'MAX_FLIGHT_MATCHES', 60)
+
+        def _cap(cand, future_min):
+            """Keep the closest-STD, then most-recent, `max_matches` rows.
+            Ordering is deterministic so the kept set is stable across runs."""
+            if not max_matches or len(cand) <= max_matches:
+                return cand
+            c = cand.copy()
+            if pd.notna(future_min):
+                d = (c['STD_min'] - future_min).abs()
+                c['_std_prox'] = d.where(d <= 720, 1440 - d)   # midnight wrap
+            else:
+                c['_std_prox'] = 0
+            # closest STD first, then most-recent departure, then Key for stability
+            c = c.sort_values(['_std_prox', 'DepartureDate', 'Key'],
+                              ascending=[True, False, True]).head(max_matches)
+            return c.drop(columns='_std_prox')
+
         def _ladder(sector, tagging, dow, future_min, is_mp):
             """Yield (tag_set, dow, time_band) group definitions in BRD order.
             Own-sector: DOW-Tagging(+-2h) -> Tagging -> +-1 -> +-2 -> ... -> all.
@@ -1185,8 +1210,10 @@ class AdditivePickupModelProcessor:
 
             # --- apply the winning group to BOTH flown and unflown pools ---
             scope_sector, tag_set, dow_used, band = winning
-            flown_match = _select(flown, scope_sector, tag_set, dow_used, future_min, band)
-            unflown_match = _select(unflown, scope_sector, tag_set, dow_used, future_min, band)
+            flown_match = _cap(
+                _select(flown, scope_sector, tag_set, dow_used, future_min, band), future_min)
+            unflown_match = _cap(
+                _select(unflown, scope_sector, tag_set, dow_used, future_min, band), future_min)
             keys = flown_match['Key'].tolist() + unflown_match['Key'].tolist()
             matches_dict[future_key] = keys
 

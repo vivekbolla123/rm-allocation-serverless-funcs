@@ -140,6 +140,7 @@ The model's logic constants live in `Constants.py` and are mirrored into `Consta
 | Constant | Default | Cast | Used in |
 |----------|:-------:|:----:|---------|
 | `MIN_FLIGHT_MATCHES` | 13 | `int` | Step 9 — flown-pool match threshold |
+| `MAX_FLIGHT_MATCHES` | 60 | `int` | Step 9 — cap on matches kept per future flight (closest-STD, then most-recent); bounds the Step 10 explosion. `0` disables the cap |
 | `WEIGHT_ALPHA` | 0.99 | `float` | Steps 11/12 — recency decay |
 | `WEIGHT_FUTURE_X` | 1 | `int` | Steps 11/12 — weight exponent for not-yet-departed history |
 | `GP_FARE_BUCKET_POINTS` | 19 | `int` | Step 1 — GP boundary points (upper bound on bucket count) |
