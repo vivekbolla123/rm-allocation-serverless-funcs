@@ -1819,6 +1819,14 @@ class AdditivePickupModelProcessor:
         pair_keys = ['Sector', 'DepartureDate_future', 'FlightNumber_future',
                      'DepartureDate_hist', 'FlightNumber_hist']
         pairs = result_df.drop_duplicates(pair_keys)[pair_keys].copy()
+        # FLOWN matches only. Unflown (future) matched flights have no rows in
+        # hist_raw_df, so they would contribute booked=0 while still carrying a
+        # high recency weight (x<0 -> clamped to WEIGHT_FUTURE_X), dragging the
+        # weighted average down. They represent incomplete curves and must be
+        # excluded here — consistent with the matching pool and Step 12.
+        pairs = pairs[pd.to_datetime(pairs['DepartureDate_hist']) < self.current_date].copy()
+        if pairs.empty:
+            return empty
         pairs['NDO_future'] = (pd.to_datetime(pairs['DepartureDate_future'])
                                - self.current_date).dt.days
         x = (self.current_date - pd.to_datetime(pairs['DepartureDate_hist'])).dt.days
