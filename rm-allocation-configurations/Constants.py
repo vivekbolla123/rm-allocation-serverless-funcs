@@ -357,6 +357,10 @@ MAXO_FARE_ANCHOR = "MAXO"
 OWNF_FARE_ANCHOR = "OWNF"
 MINC_FARE_ANCHOR = "MINC"
 MINOC_FARE_ANCHOR = "MINOC"
+MIN2_FARE_ANCHOR = "MIN2"
+MIN2C_FARE_ANCHOR = "MIN2C"
+MED_FARE_ANCHOR = "MED"
+MEDC_FARE_ANCHOR = "MEDC"
 
 YES_FLAG = 'Y'
 NO_FLAG = 'N'
@@ -600,6 +604,9 @@ DEFAULT_ML_CALC_CONFIG = '{ "backstop_distance_multiplier": 6, "q_fare_level": "
 PLF_CHANGE_PER = 2.0
 PLF_CHANGE_N_RUNS = 4
 
+STRATEGY_OFFSET_GUARDRAILS = '{"min_shift": 100, "max_shift": 2000}'
+STRATEGY_OFFSET_GUARDRAILS_KEY = "strategy_offset_guardrails"
+
 #HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
 #HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
 #HOLD_BOOKING_ALERT_THRESHOLD = 20
@@ -652,6 +659,30 @@ OPEN_BUCKET_MIDPOINT_FACTOR = 1.10     # Midpoint factor for upper open-ended fa
 # more seats are held back for higher fares. Initial value is 0 (no buy-up), which
 # leaves the ladder identical to the un-factored formula.
 BUY_UP_FACTOR = 0.0
+# --- Additive-model LOGIC constants (subject to tuning) -----------------------
+# Geometric-progression fare-bucket count. GP generates this many boundary
+# points; consecutive duplicates collapse, so a sector may end with FEWER
+# buckets than this when actual fares are clustered.
+GP_FARE_BUCKET_POINTS = 19
+# Lowest fare bucket's lower bound is reduced by this factor to catch fares
+# just under the boundary (0.8 => -20%).
+FARE_BUCKET_LOWER_FACTOR = 0.8
+# Future-tagging ladder: a grouping level with fewer than this many rows is
+# dropped so the fill falls through to a coarser, better-supported level.
+FUTURE_TAG_MIN_ENTRIES = 12
+# Flight matching: +-N hour band applied on the DOW-Tagging ladder levels.
+TIME_BAND_HOURS = 2
+
+# --- Additive-model parameter KEYS (DB overrides via rm_parameter_values) -----
+PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
+MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
+WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
+WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
+PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"
+GP_FARE_BUCKET_POINTS_KEY = "GP_FARE_BUCKET_POINTS"
+FARE_BUCKET_LOWER_FACTOR_KEY = "FARE_BUCKET_LOWER_FACTOR"
+FUTURE_TAG_MIN_ENTRIES_KEY = "FUTURE_TAG_MIN_ENTRIES"
+TIME_BAND_HOURS_KEY = "TIME_BAND_HOURS"
 
 REQUIRED_RBDS = [
     'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',

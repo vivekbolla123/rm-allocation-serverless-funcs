@@ -208,6 +208,24 @@ class MarketFareService:
                 if ((hardcriteria == MAX_FARE_ANCHOR ) and (len(hardmktFareRange)>0)):
                     hardfare = hardmktFareRange['gross_fare'].iloc[-1]
 
+            # MIN2/MIN2C -> second lowest market fare; MED/MEDC -> median (averaged) market fare.
+            # These use the raw sorted market fare list (no outlier filtering) and are carried in the
+            # low fare fields (MktFare_Min) so they feed the MIN anchor branch downstream.
+            if criteria == MIN2_FARE_ANCHOR or criteria == MIN2C_FARE_ANCHOR:
+                if len(mktFareRange) > 1:
+                    lowFare = mktFareRange['gross_fare'].iloc[1]
+                    lowAirlineCode = mktFareRange['outbound_airline_code'].iloc[1]
+                    lowFilghtNum = mktFareRange['outbound_flight'].iloc[1]
+                    lowmktFile = mktFareRange['mktFile'].iloc[1]
+            elif criteria == MED_FARE_ANCHOR or criteria == MEDC_FARE_ANCHOR:
+                medianFare = float(np.median(mktFareRange['gross_fare']))
+                lowFare = medianFare
+                # Use the market fare row closest to the (possibly averaged) median for reporting metadata
+                closest_idx = (mktFareRange['gross_fare'] - medianFare).abs().idxmin()
+                lowAirlineCode = mktFareRange['outbound_airline_code'].loc[closest_idx]
+                lowFilghtNum = mktFareRange['outbound_flight'].loc[closest_idx]
+                lowmktFile = mktFareRange['mktFile'].loc[closest_idx]
+
             isMarketFareAvailable = True
 
         # Apply market fare adjustments

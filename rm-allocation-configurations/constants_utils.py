@@ -154,6 +154,7 @@ class ConstantsUtils:
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
         self.plf_change_per = PLF_CHANGE_PER
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
+        self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
         # Inventory Optimization (EMSR-b) Constants
@@ -162,6 +163,21 @@ class ConstantsUtils:
         self.PROMO_RBD = str(PROMO_RBD)
         self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
         self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
+        # --- Additive Pickup Model constants ---------------------------------
+        # Structural / RBD sets and NDO range.
+        self.NDO_RANGE = NDO_RANGE
+        self.PREDICTION_HORIZON_DAYS = PREDICTION_HORIZON_DAYS
+        self.PARQUET_ROW_THRESHOLD = PARQUET_ROW_THRESHOLD
+        self.REQUIRED_RBDS = REQUIRED_RBDS
+        self.FARE_BUCKET_RBDS = FARE_BUCKET_RBDS
+        # Logic constants subject to tuning (also live in Constants.py).
+        self.MIN_FLIGHT_MATCHES = MIN_FLIGHT_MATCHES
+        self.WEIGHT_ALPHA = WEIGHT_ALPHA
+        self.WEIGHT_FUTURE_X = WEIGHT_FUTURE_X
+        self.GP_FARE_BUCKET_POINTS = GP_FARE_BUCKET_POINTS
+        self.FARE_BUCKET_LOWER_FACTOR = FARE_BUCKET_LOWER_FACTOR
+        self.FUTURE_TAG_MIN_ENTRIES = FUTURE_TAG_MIN_ENTRIES
+        self.TIME_BAND_HOURS = TIME_BAND_HOURS
 
 
         self.logger = logging.getLogger()
@@ -476,6 +492,8 @@ class ConstantsUtils:
                 self.plf_change_per = float(parameter_value)
             elif parameter_key == PLF_CHANGE_N_RUNS_KEY:
                 self.plf_change_n_runs = int(parameter_value)
+            elif parameter_key == STRATEGY_OFFSET_GUARDRAILS_KEY:
+                self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
             elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
@@ -488,6 +506,24 @@ class ConstantsUtils:
                 self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
             elif parameter_key == BUY_UP_FACTOR_KEY:
                 self.BUY_UP_FACTOR = float(parameter_value)
+            elif parameter_key == PREDICTION_HORIZON_DAYS_KEY:
+                self.PREDICTION_HORIZON_DAYS = int(parameter_value)
+            elif parameter_key == MIN_FLIGHT_MATCHES_KEY:
+                self.MIN_FLIGHT_MATCHES = int(parameter_value)
+            elif parameter_key == WEIGHT_ALPHA_KEY:
+                self.WEIGHT_ALPHA = float(parameter_value)
+            elif parameter_key == WEIGHT_FUTURE_X_KEY:
+                self.WEIGHT_FUTURE_X = int(parameter_value)
+            elif parameter_key == PARQUET_ROW_THRESHOLD_KEY:
+                self.PARQUET_ROW_THRESHOLD = int(parameter_value)
+            elif parameter_key == GP_FARE_BUCKET_POINTS_KEY:
+                self.GP_FARE_BUCKET_POINTS = int(parameter_value)
+            elif parameter_key == FARE_BUCKET_LOWER_FACTOR_KEY:
+                self.FARE_BUCKET_LOWER_FACTOR = float(parameter_value)
+            elif parameter_key == FUTURE_TAG_MIN_ENTRIES_KEY:
+                self.FUTURE_TAG_MIN_ENTRIES = int(parameter_value)
+            elif parameter_key == TIME_BAND_HOURS_KEY:
+                self.TIME_BAND_HOURS = int(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

@@ -40,6 +40,7 @@ class AdditiveMongoHelper:
         self.mode = 'PROD'
         self._dm = None
         self._wtp = None
+        self._mapped_sectors = None
         # run metadata for audit
         self.run_id = None
         self.sectors_expected = None
@@ -198,7 +199,7 @@ class AdditiveMongoHelper:
         """Raw QP all-in fares for these sectors from qp_dw_rmalloc.fares."""
         self.logger.info("Fetching fares from qp_dw_rmalloc.fares ...")
         docs = list(self.db.fares.find(
-            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$ne": 1}, "TOTAL": {"$ne": 99999},
+            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$ne": 1}, "TOTAL": {"$ne": 99999}, "route":{"$eq": "L"},
              "RBD": {"$in": list(required_rbds)}},
             {"_id": 0, "SECTOR": 1, "RBD": 1, "TOTAL": 1}
         ))
@@ -344,6 +345,56 @@ class AdditiveMongoHelper:
                 for m in quarter_months(q):
                     if s:
                         out[(s, int(y), int(m))] = float(pct)
+        return out
+
+    # =========================================================================
+    # MAPPED SECTORS  (Sector -> Mapped Sector, 1:1 fallback donor)
+    # =========================================================================
+    def load_mapped_sectors(self):
+        """{sector: mapped_sector} — the analyst-configured 1:1 fallback donor.
+
+        A sector with thin/no history falls back to its mapped sector's flown
+        data, tagging and NDO curves. TEST reads a local CSV; PROD reads
+        qp_rm_master.config_additive_mapped_sectors.
+        """
+        if self._mapped_sectors is not None:
+            return self._mapped_sectors
+        mapping = {}
+        try:
+            if self.mode == 'TEST':
+                path = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    'testcases', 'inputs', 'Mapped_sectors.csv')
+                raw = pd.read_csv(path) if os.path.exists(path) else pd.DataFrame()
+            else:
+                coll = getattr(configsettings, 'ADDITIVE_MAPPED_SECTORS_COLL',
+                               'config_additive_mapped_sectors')
+                raw = pd.DataFrame(list(self._config_db()[coll].find({}, {'_id': 0})))
+            mapping = self._normalize_mapped_sectors(raw)
+            self.logger.info(f"[MappedSectors] loaded {len(mapping)} mapping(s) ({self.mode}).")
+        except Exception as e:
+            self.logger.warning(f"[MappedSectors] load failed ({e.__class__.__name__}: {e}); "
+                                f"no sector fallbacks available.")
+        self._mapped_sectors = mapping
+        return mapping
+
+    @staticmethod
+    def _normalize_mapped_sectors(raw):
+        """Return {sector: mapped_sector}; case-insensitive column match, 1:1."""
+        if raw is None or raw.empty:
+            return {}
+        df = raw.rename(columns={c: str(c).strip().lower() for c in raw.columns})
+        sec_col = next((c for c in ('sector',) if c in df.columns), None)
+        map_col = next((c for c in ('mapped_sector', 'mappedsector',
+                                    'mp_sector', 'mapped') if c in df.columns), None)
+        if sec_col is None or map_col is None:
+            return {}
+        out = {}
+        for s, m in zip(df[sec_col], df[map_col]):
+            if pd.notna(s) and pd.notna(m):
+                s, m = str(s).strip(), str(m).strip()
+                if s and m and s != m:
+                    out[s] = m
         return out
 
     # =========================================================================

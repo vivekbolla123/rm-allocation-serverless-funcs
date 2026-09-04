@@ -3634,6 +3634,12 @@ public class App implements CommandLineRunner {
                 }
                 Map<String, String> map = strategyMap.get(keyVal);
 
+                // Normalize multiplier offset: uppercase 'x' prefix (e.g. x0 -> X0)
+                if (decision.equalsIgnoreCase(CSV_HEADER_OFFSET) && value != null
+                        && value.trim().toLowerCase().startsWith("x")) {
+                    value = value.trim().toUpperCase();
+                }
+
                 if (!validationForStrategyGrid(decision, value)) {
                     error_occurred.set(1);
                     updateInputStatus(tableName);
@@ -3749,6 +3755,16 @@ public class App implements CommandLineRunner {
             return getListOfCriteria().contains(value);
         }
         if (decision.equalsIgnoreCase(CSV_HEADER_OFFSET)) {
+            // Support multiplier offsets: X-1.12, X0, X1.34 (already uppercased before validation)
+            if (value.startsWith("X")) {
+                try {
+                    String numericPart = value.substring(1); // strip the 'X'
+                    Double.parseDouble(numericPart);
+                    return true;
+                } catch (NumberFormatException e) {
+                    return false;
+                }
+            }
             // CWE-190: Safe parseInt with NumberFormatException handling
             try {
                 return getListOfOffset().contains(Integer.parseInt(value));
