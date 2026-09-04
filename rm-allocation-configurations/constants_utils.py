@@ -166,6 +166,8 @@ class ConstantsUtils:
         self.FARE_BUCKET_RBDS = FARE_BUCKET_RBDS
         # Logic constants subject to tuning (also live in Constants.py).
         self.MIN_FLIGHT_MATCHES = MIN_FLIGHT_MATCHES
+        self.MAX_FLIGHT_MATCHES = MAX_FLIGHT_MATCHES
+        self.PREDICT_CHUNK_KEYS = PREDICT_CHUNK_KEYS
         self.WEIGHT_ALPHA = WEIGHT_ALPHA
         self.WEIGHT_FUTURE_X = WEIGHT_FUTURE_X
         self.GP_FARE_BUCKET_POINTS = GP_FARE_BUCKET_POINTS
@@ -494,6 +496,8 @@ class ConstantsUtils:
                 self.PREDICTION_HORIZON_DAYS = int(parameter_value)
             elif parameter_key == MIN_FLIGHT_MATCHES_KEY:
                 self.MIN_FLIGHT_MATCHES = int(parameter_value)
+            elif parameter_key == MAX_FLIGHT_MATCHES_KEY:
+                self.MAX_FLIGHT_MATCHES = int(parameter_value)
             elif parameter_key == WEIGHT_ALPHA_KEY:
                 self.WEIGHT_ALPHA = float(parameter_value)
             elif parameter_key == WEIGHT_FUTURE_X_KEY:
