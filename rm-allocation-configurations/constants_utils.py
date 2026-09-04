@@ -121,6 +121,7 @@ class ConstantsUtils:
         self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
         self.WINDOW_MINUTES = WINDOW_MINUTES
         self.EQT_RECIPIENTS = EQT_RECIPIENTS
+        self.PAYLOAD_RESTRICTION_RECIPIENTS = PAYLOAD_RESTRICTION_RECIPIENTS
         self.HOLD_BOOKING_ALERT_CONFIGURATION = HOLD_BOOKING_ALERT_CONFIGURATION
         
         # Phase 2 Constants
@@ -460,6 +461,8 @@ class ConstantsUtils:
                 self.GENERATE_CWT_RULES = str(parameter_value).lower() == 'true'
             elif parameter_key == EQT_RECIPIENTS_KEY:
                 self.EQT_RECIPIENTS = parameter_value
+            elif parameter_key == PAYLOAD_RESTRICTION_RECIPIENTS_KEY:
+                self.PAYLOAD_RESTRICTION_RECIPIENTS = parameter_value
             elif parameter_key == GROUP_SCALING_FACTOR_KEY:
                 self.GROUP_SCALING_FACTOR = float(parameter_value)
             elif parameter_key == GROUP_AU_BATCH_KEY:

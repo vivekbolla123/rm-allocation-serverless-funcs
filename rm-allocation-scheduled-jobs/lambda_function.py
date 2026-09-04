@@ -49,6 +49,7 @@ from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
 from fetchactiveflights import FetchActiveFlights
 from equipmentChange import EQTAlloc
+from payloadRestriction import PayloadRestriction
 from hold_booking_alert.hold_booking_alert import HoldBookingAlert
 
 def create_logger():
@@ -172,6 +173,7 @@ module_map = {
     "saleinv_leanpeak_map": SaleInvLeanPeakMap,
     "fetchactiveflights": FetchActiveFlights,
     "eqt_alloc": EQTAlloc,
+    "payload_restriction": PayloadRestriction,
     "hold_booking_alert": HoldBookingAlert
 }
 

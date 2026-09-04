@@ -551,6 +551,10 @@ GDS_RBD_VALUES = "Y,B,C,D,E,F,H,I,J,K,M,N2,O2,P2,Q2,R2,T2,U2,V2,Z4,W6,L,X,A"
 
 EQT_RECIPIENTS = "FlightAnalyst@akasaair.com,rmsupport@akasaair.com,closed.rm.it@akasaair.com"
 EQT_RECIPIENTS_KEY = "EQT_RECIPIENTS"
+
+# Payload restriction (RM support LID / adjusted-capacity update) recipients
+PAYLOAD_RESTRICTION_RECIPIENTS = "rmsupport@akasaair.com,closed.rm.it@akasaair.com"
+PAYLOAD_RESTRICTION_RECIPIENTS_KEY = "PAYLOAD_RESTRICTION_RECIPIENTS"
 GROUP_SCALING_FACTOR = 0.7
 GROUP_AU_BATCH = 5
 GROUP_IMP_FORECAST_REDUCTION = 95
