@@ -49,8 +49,8 @@ class MarketListRow:
         self.directFlag = parse_int_flag(currParams.get("directFlag"), 1)
         self.cug_mkt_flag = parse_int_flag(currParams.get("CugFlag"), CONST_NA)
         self.mkt_fare_flag = parse_int_flag(currParams.get("MktFareFlag"), CONST_NA)
-        self.tbfenhflag = parse_int_flag(currParams.get("TBFEnhFlag"), CONST_NA)
-        self.outboundstop = parse_int_flag(currParams.get("Outbound_Stop"), CONST_NA)
+        parsed_outbound_stop = parse_int_flag(currParams.get("Outbound_Stop", currParams.get("outbound_stop", currParams.get("outboundstop", 0))), 0)
+        self.outboundstop = 0 if parsed_outbound_stop in (CONST_NA, None) else parsed_outbound_stop
         self.market_discount = parse_int_flag(currParams.get("Marketfare_Upsell"), CONST_NA)
         
         self.saleflag = parse_int_flag(currParams.get("saleflag"), CONST_NA)

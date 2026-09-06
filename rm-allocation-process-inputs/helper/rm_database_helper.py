@@ -644,6 +644,7 @@ class RMDatabaseHelper:
                         
                         # Second Flight Departure Date
                         "SecondFlightDepartureDate": "$connections_details.Departuredate2",
+                        "connection_duration": "$connections_details.connection_duration",
                         
                         # Direct Flight Data for Scenario 4 (Connection OD)
                         "DirectFlightNumber": "$connections_details.DirectFlightNumber",
@@ -1162,6 +1163,16 @@ class RMDatabaseHelper:
                 self.logger.warning("Neither market_fares_ag nor market_fares_rg collections found")
                 return pd.DataFrame()
  
+            outbound_stop_raw = getattr(currParams, 'outboundstop', getattr(currParams, 'outbound_stop', 0))
+            try:
+                max_stops = int(outbound_stop_raw) if outbound_stop_raw not in (None, '', 'NA') else 0
+            except (ValueError, TypeError):
+                max_stops = 0
+            if max_stops < 0:
+                max_stops = 0
+
+            allowed_stops = [str(i) for i in range(max_stops + 1)] + list(range(max_stops + 1)) + [float(i) for i in range(max_stops + 1)]
+
             # Build match conditions
             base_match_conditions = {
                 "source_airport": origin,
@@ -1170,7 +1181,7 @@ class RMDatabaseHelper:
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
                 },
-                "outbound_stop": '0'
+                "outbound_stop": {"$in": allowed_stops}
             }
             
             if flight_exclusion_list:
@@ -2565,6 +2576,22 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return ""
+
+    def get_connection_details(self, flightno1, flightno2, org, destin, depDate):
+        try:
+            result = self.db.connections_details.find_one({
+                "FlightNo1": int(flightno1),
+                "FlightNo2": int(flightno2),
+                "Origin1": org,
+                "Destnination2": destin,
+                "Departuredate1": depDate
+            })
+            dep2 = result.get('Departuredate2', '') if result else ""
+            conn_dur = result.get('connection_duration', None) if result else None
+            return dep2, conn_dur
+        except Exception as e:
+            self.logger.error(e)
+            return "", None
 
     def get_tbf_discount(self, month, sector):
         try:

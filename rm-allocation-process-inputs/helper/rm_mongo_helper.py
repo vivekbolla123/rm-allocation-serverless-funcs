@@ -81,6 +81,16 @@ class MarketFareMongoDB:
                 self.logger.warning("Neither market_fares_ag nor market_fares_rg collections found")
                 return pd.DataFrame()
  
+            outbound_stop_raw = getattr(currParams, 'outboundstop', getattr(currParams, 'outbound_stop', 0))
+            try:
+                max_stops = int(outbound_stop_raw) if outbound_stop_raw not in (None, '', 'NA') else 0
+            except (ValueError, TypeError):
+                max_stops = 0
+            if max_stops < 0:
+                max_stops = 0
+
+            allowed_stops = [str(i) for i in range(max_stops + 1)] + list(range(max_stops + 1)) + [float(i) for i in range(max_stops + 1)]
+
             # Build match conditions
             base_match_conditions = {
                 "source_airport": origin,
@@ -89,7 +99,7 @@ class MarketFareMongoDB:
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
                 },
-                "outbound_stop": '0'
+                "outbound_stop": {"$in": allowed_stops}
             }
             
             if flt_exclusion_list:
@@ -327,6 +337,11 @@ class MarketFareMongoDB:
                 }
             }
 
+            try:
+                outbound_dur_val = float(outboundDuration)
+            except (ValueError, TypeError):
+                outbound_dur_val = 0.0
+
             # Build the main matching conditions
             match_conditions = {
                 "source_airport": origin,
@@ -334,7 +349,7 @@ class MarketFareMongoDB:
                 "channel": channel,
                 "outbound_airline_code": {"$nin": carr_exclusion_list + ["QP", "G8"]},
                 "outbound_stop": {"$lte": f"{outBoundStop}"},
-                "outbound_duration": {"$lte": int(outboundDuration)},
+                "outbound_duration": {"$lte": outbound_dur_val},
                 "departure_date": {
                     "$gte": start_of_day,
                     "$lte": end_of_day

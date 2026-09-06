@@ -895,8 +895,8 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
 
 
 def quick_optimize(mkt_list, nav_helper):
-    """Look up SecondFlightDepartureDate by joining market list against
-    ActiveJourneyView query results instead of calling Navitaire API."""
+    """Look up SecondFlightDepartureDate and connection flight duration by joining
+    market list against ActiveJourneyView query results instead of calling Navitaire API."""
     print(f"Optimizing {len(mkt_list)} rows...")
 
     min_date = mkt_list['DepartureDate'].min()
@@ -910,9 +910,39 @@ def quick_optimize(mkt_list, nav_helper):
     conn_df['DepartureDate'] = pd.to_datetime(conn_df['DepartureDate1']).dt.date
     conn_df['SecondFlightDepartureDate'] = pd.to_datetime(conn_df['DepartureDate2']).dt.date
 
+    # Calculate connection duration (hours) if not directly returned by SP
+    if 'ConnectionDuration' in conn_df.columns and conn_df['ConnectionDuration'].notna().any():
+        conn_df['connection_duration'] = pd.to_numeric(conn_df['ConnectionDuration'], errors='coerce')
+    else:
+        def _calc_duration(row):
+            try:
+                d1_str = str(row['DepartureDate1']).split()[0]
+                std1_str = str(row['STD1']).strip()
+                dep1_dt = datetime.strptime(f"{d1_str} {std1_str}", "%Y-%m-%d %H:%M")
+
+                d2_str = str(row['DepartureDate2']).split()[0]
+                d2_date = datetime.strptime(d2_str, "%Y-%m-%d").date()
+                std2_str = str(row['STD2']).strip()
+                sta2_str = str(row['STA2']).strip()
+
+                std2_time = datetime.strptime(std2_str, "%H:%M").time()
+                sta2_time = datetime.strptime(sta2_str, "%H:%M").time()
+                if sta2_time < std2_time:
+                    arr2_date = d2_date + timedelta(days=1)
+                else:
+                    arr2_date = d2_date
+
+                arr2_dt = datetime.combine(arr2_date, sta2_time)
+                duration_hrs = (arr2_dt - dep1_dt).total_seconds() / 3600.0
+                return round(duration_hrs, 2)
+            except Exception:
+                return None
+
+        conn_df['connection_duration'] = conn_df.apply(_calc_duration, axis=1)
+
     # Deduplicate — keep first match per key
     lookup = conn_df.drop_duplicates(subset=['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate'])
-    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate', 'SecondFlightDepartureDate']]
+    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate', 'SecondFlightDepartureDate', 'connection_duration']]
 
     mkt_list['Flight1'] = mkt_list['Flight1'].astype('int64')
     mkt_list['Flight2'] = mkt_list['Flight2'].astype('int64')

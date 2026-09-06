@@ -112,10 +112,18 @@ class DynAllocConnections:
         startDate2Str = self.currParams.SecondFlightDepartureDate
         endDate2Str = self.currParams.SecondFlightDepartureDate
         if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-            startDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+            startDate2Str, conn_dur = self.rmdatabasehelper.get_connection_details(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
-            endDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+            if not startDate2Str:
+                startDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+                    self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], startDateStr)
+            endDate2Str, _ = self.rmdatabasehelper.get_connection_details(
                 self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+            if not endDate2Str:
+                endDate2Str = self.rmdatabasehelper.get_second_flight_dep(
+                    self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], endDateStr)
+            if conn_dur is not None and getattr(self.currParams, 'connection_duration', None) in (CONST_NA, None, ''):
+                self.currParams.connection_duration = conn_dur
         if startDate2Str=="" or endDate2Str=="":
             self.outputSummaryRow_b2c = OutputSummaryConnections()
             print("Unable to get the DepDate of SecondFlight invalid connection- Aborting")
@@ -160,8 +168,13 @@ class DynAllocConnections:
                 bookedLoadSingleRowSector1 = bookedLoad_sector1
                 tgdDate2 = self.currParams.SecondFlightDepartureDate
                 if self.inputSource.input_source[CONST_BOOKLOAD] == TEST_DATA:
-                    tgdDate2 = self.rmdatabasehelper.get_second_flight_dep(
+                    tgdDate2, conn_dur = self.rmdatabasehelper.get_connection_details(
                         self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
+                    if not tgdDate2:
+                        tgdDate2 = self.rmdatabasehelper.get_second_flight_dep(
+                            self.currParams.flight1, self.currParams.flight2, self.currParams.sector1[:3], self.currParams.sector2[3:], tgtDate)
+                    if conn_dur is not None and getattr(self.currParams, 'connection_duration', None) in (CONST_NA, None, ''):
+                        self.currParams.connection_duration = conn_dur
 
 
                 cdf = self.rmdatabasehelper.get_curveids(
@@ -498,6 +511,19 @@ class DynAllocConnections:
             b2c_rbd_sector2 = self.currParams.OpeningRBDB2C2
             origin = sector1[:3]
             destin = sector2[-3:]
+            actual_dur = getattr(self.currParams, 'connection_duration', None)
+            if actual_dur in (CONST_NA, None, ''):
+                actual_dur = getattr(self.currParams, 'actual_connection_duration', None)
+            try:
+                actual_dur_val = float(actual_dur) if actual_dur not in (CONST_NA, None, '') else 0.0
+            except (ValueError, TypeError):
+                actual_dur_val = 0.0
+            try:
+                ml_dur_val = float(self.currParams.outbound_duration) if self.currParams.outbound_duration not in (CONST_NA, None, '') else 0.0
+            except (ValueError, TypeError):
+                ml_dur_val = 0.0
+            final_outbound_duration = round(actual_dur_val + ml_dur_val, 2) if actual_dur_val > 0 else ml_dur_val
+
             qpcurrency = self.rmdatabasehelper.get_qp_currency(origin,destin)
             if len(qpcurrency)!=0:
                 self.qpcurrency = qpcurrency['currency'][0]
@@ -555,7 +581,7 @@ class DynAllocConnections:
                 self.outputSummaryRow_b2c.SellingFare2 = SellingFare2
                 
                 lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
+                    B2C_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, final_outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                 self.outputSummaryRow_b2c.MktFare_Min=lowFare
                 self.outputSummaryRow_b2c.AirlineCode_Min=lowAirlineCode
                 self.outputSummaryRow_b2c.FlightNumber_Min=lowFilghtNum
@@ -716,7 +742,7 @@ class DynAllocConnections:
                         self.outputSummaryRow_b2b.SellingFare1 = SellingFare1
                         self.outputSummaryRow_b2b.SellingFare2 = SellingFare2
                         lowFare, hiFare, lowAirlineCode, hiAirlineCode, lowFilghtNum, hiFilghtNum, isMarketFareAvailable, criteria,lowmktFile,himktFile = self.marketfaresservice.getMarketFareAnchorFareConnections(
-                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, self.currParams.outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
+                            B2B_CHANNEL, self.currParams, current_date1, self.currParams.outboundstop, final_outbound_duration, self.currParams.fareAnchor,self.inputSource,self.convert_currency)
                         self.outputSummaryRow_b2b.MktFare_Min=lowFare
                         self.outputSummaryRow_b2b.AirlineCode_Min=lowAirlineCode
                         self.outputSummaryRow_b2b.FlightNumber_Min=lowFilghtNum
@@ -825,7 +851,7 @@ class DynAllocConnections:
                 str(current_date2), DATE_FORMAT_2).date().strftime(DATE_FORMAT)
             self.outputSummaryRow_b2c.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2c.outBoundStop = self.currParams.outboundstop
-            self.outputSummaryRow_b2c.outboundDuration = self.currParams.outbound_duration
+            self.outputSummaryRow_b2c.outboundDuration = str(final_outbound_duration)
             self.outputSummaryRow_b2c.fareOffset = self.currParams.offset
             self.outputSummaryRow_b2c.Id = b2cRunId
             self.outputSummaryRow_b2c.RunId = self.runId
@@ -850,7 +876,7 @@ class DynAllocConnections:
             self.outputSummaryRow_b2c.criteria=self.currParams.fareAnchor
             self.outputSummaryRow_b2c.fareOffset=str(self.currParams.offset)
             self.outputSummaryRow_b2c.outBoundStop=str(self.currParams.outboundstop)
-            self.outputSummaryRow_b2c.outboundDuration=str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2c.outboundDuration=str(final_outbound_duration)
             self.outputSummaryRow_b2c.Currency=str(self.qpcurrency)
             self.outputSummaryRow_b2c.conversionRate=str(self.conversion_rate)
             self.outputSummaryRow_b2c.firstrbd=str(self.currParams.first_rbd_alloc)
@@ -890,7 +916,7 @@ class DynAllocConnections:
             self.outputSummaryRow_b2b.criteria = self.currParams.fareAnchor
             self.outputSummaryRow_b2b.fareOffset = str(self.currParams.offset)
             self.outputSummaryRow_b2b.outBoundStop = str(self.currParams.outboundstop)
-            self.outputSummaryRow_b2b.outboundDuration = str(self.currParams.outbound_duration)
+            self.outputSummaryRow_b2b.outboundDuration = str(final_outbound_duration)
             self.outputSummaryRow_b2b.conversionRate = str(self.conversion_rate)
             self.allocResults.append(self.outputSummaryRow_b2b)
             self.rmdatabasehelper.insertSummaryRow_connections(

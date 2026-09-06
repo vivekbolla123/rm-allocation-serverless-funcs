@@ -95,7 +95,8 @@ BEGIN
             s2.DepartureStation + s2.ArrivalStation AS Sector2,
             il2.FlightDate AS DepartureDate2, 
             RIGHT('0' + CAST(s2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTD % 60 AS VARCHAR), 2) AS STD2,
-            RIGHT('0' + CAST(s2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTA % 60 AS VARCHAR), 2) AS STA2
+            RIGHT('0' + CAST(s2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(s2.PaxSTA % 60 AS VARCHAR), 2) AS STA2,
+            ROUND(((DATEDIFF(DAY, il1.FlightDate, il2.FlightDate) + CASE WHEN s2.PaxSTA < s2.PaxSTD THEN 1 ELSE 0 END) * 1440.0 + s2.PaxSTA - s1.PaxSTD) / 60.0, 2) AS ConnectionDuration
         FROM (
             SELECT DISTINCT ScheduleJourneyID, JourneyDepartureStation, JourneyArrivalStation, JourneyBeginDate, JourneyEndDate 
             FROM #BaseSchedule WHERE JourneyType = 4
@@ -135,7 +136,8 @@ BEGIN
             l2.DepartureStation + l2.ArrivalStation AS Sector2,
             il2.FlightDate AS DepartureDate2,
             RIGHT('0' + CAST(l2.PaxSTD / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l2.PaxSTD % 60 AS VARCHAR), 2) AS STD2,
-            RIGHT('0' + CAST(l2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l2.PaxSTA % 60 AS VARCHAR), 2) AS STA2
+            RIGHT('0' + CAST(l2.PaxSTA / 60 AS VARCHAR), 2) + ':' + RIGHT('0' + CAST(l2.PaxSTA % 60 AS VARCHAR), 2) AS STA2,
+            ROUND(((DATEDIFF(DAY, il1.FlightDate, il2.FlightDate) + CASE WHEN l2.PaxSTA < l2.PaxSTD THEN 1 ELSE 0 END) * 1440.0 + l2.PaxSTA - l1.PaxSTD) / 60.0, 2) AS ConnectionDuration
         FROM (
             SELECT DISTINCT ScheduleJourneyID, JourneyDepartureStation, JourneyArrivalStation, JourneyBeginDate, JourneyEndDate 
             FROM #BaseSchedule WHERE JourneyType = 2
@@ -176,7 +178,8 @@ BEGIN
         Sector2,
         DepartureDate2,
         STD2,
-        STA2
+        STA2,
+        ConnectionDuration
     FROM (
         SELECT *,
                ROW_NUMBER() OVER (
