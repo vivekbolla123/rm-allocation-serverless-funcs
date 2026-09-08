@@ -1438,6 +1438,12 @@ class AdditivePickupModelProcessor:
         parts = {'rm': [], 'rf': [], 'rms': [], 'wm': [], 'wf': []}
         n_chunks = (len(keys) + chunk_size - 1) // chunk_size
 
+        # TEST-only: collect each chunk's exploded matched frame so the full
+        # intermediate_10_matched_result artifact is still produced for local
+        # testing. Skipped in PROD to preserve the memory bound.
+        collect_matched = (self.mode == 'TEST')
+        matched_parts = [] if collect_matched else None
+
         for ci in range(0, len(keys), chunk_size):
             chunk_keys = keys[ci:ci + chunk_size]
             sub_matches = {k: flight_matches[k] for k in chunk_keys}
@@ -1445,6 +1451,8 @@ class AdditivePickupModelProcessor:
             result_df = self._build_matched_result(future_df_expanded, pivot_ndo, sub_matches)
             if result_df.empty:
                 continue
+            if collect_matched:
+                matched_parts.append(result_df.copy())
             rm, rf, rms, wm, wf = self._calculate_predictions(result_df)
             parts['rm'].append(rm)
             parts['rf'].append(rf)
@@ -1458,6 +1466,9 @@ class AdditivePickupModelProcessor:
         def _cat(lst):
             return (pd.concat(lst, ignore_index=True, copy=False)
                     if lst else pd.DataFrame())
+
+        if collect_matched and matched_parts:
+            self._save_intermediate(_cat(matched_parts), '10_matched_result', fmt='parquet')
 
         return (_cat(parts['rm']), _cat(parts['rf']), _cat(parts['rms']),
                 _cat(parts['wm']), _cat(parts['wf']))
@@ -1805,10 +1816,16 @@ class AdditivePickupModelProcessor:
 
         Matches the raw notebook logic: each matched flight's current bookings =
         SUM of its raw 'Pax Count' where NDO_future < NDO (closed window, n exclusive),
-        taken from the UNCAPPED historical bookings (hist_raw_df, NDO up to 365) and
         merged on FLIGHT IDENTITY (all fare buckets) — not the 0..180 fare-bucket
         pivot. Average = mean across matched flights; weighted average uses the same
         weight w = alpha^x, x = SD - DD_hist as the weighted prediction.
+
+        Booking source is the UNION of flown history (hist_raw_df) and forward
+        bookings (forward_raw_df). The notebook kept future bookings inside
+        hist_raw_df; the flight-matching split later separated them, so both are
+        re-unioned here. This lets an UNFLOWN matched flight contribute its real,
+        NDO-aligned bookings (its count where NDO_future < NDO) instead of a fake
+        zero — the closed-window rule is identical for flown and unflown matches.
         """
         empty = pd.DataFrame(columns=['Sector', 'DepartureDate_future', 'FlightNumber_future',
                                       'Matched_Current_Bookings',
@@ -1825,9 +1842,31 @@ class AdditivePickupModelProcessor:
         x = x.where(x >= 0, self.constants_utils.WEIGHT_FUTURE_X)
         pairs['Weight'] = (self.constants_utils.WEIGHT_ALPHA ** x).fillna(0.0)
 
-        # raw historical bookings (uncapped NDO), keyed on the matched flight identity
-        hist = self.cache.data['hist_raw_df'][
-            ['Sector', 'DepartureDate', 'FlightNumber', 'NDO', 'Pax Count']].copy()
+        # Booking source = FLOWN history (hist_raw_df) UNION FORWARD bookings
+        # (forward_raw_df). The flight-matching split moved future flights out of
+        # hist_raw_df into forward_raw_df; without the forward side, unflown
+        # matched flights would resolve to booked=0 (fake zeros) and drag the
+        # weighted average down. Both carry per-NDO 'Pax Count', so the SAME
+        # closed-window rule (NDO_future < NDO) applies uniformly to flown and
+        # unflown matches — the unflown flight then contributes its real, NDO-
+        # aligned bookings (what it had by the equivalent days-out point), not its
+        # raw as-of-snapshot total.
+        _src_cols = ['Sector', 'DepartureDate', 'FlightNumber', 'NDO', 'Pax Count']
+        _hist_raw = self.cache.data.get('hist_raw_df')
+        _fwd_raw = self.cache.data.get('forward_raw_df')
+        _frames = []
+        if _hist_raw is not None and not _hist_raw.empty:
+            _frames.append(_hist_raw[_src_cols])
+        if _fwd_raw is not None and not _fwd_raw.empty:
+            # forward rows include schedule rows with no booking (PNR null); keep
+            # only actual bookings so a null-PNR row doesn't inject phantom pax.
+            _fwd = _fwd_raw
+            if 'PNR' in _fwd.columns:
+                _fwd = _fwd[_fwd['PNR'].notna()]
+            _frames.append(_fwd[_src_cols])
+        if not _frames:
+            return empty
+        hist = pd.concat(_frames, ignore_index=True).copy()
         hist = hist.rename(columns={'DepartureDate': 'DepartureDate_hist',
                                     'FlightNumber': 'FlightNumber_hist'})
         hist['FlightNumber_hist'] = pd.to_numeric(hist['FlightNumber_hist'], errors='coerce')
