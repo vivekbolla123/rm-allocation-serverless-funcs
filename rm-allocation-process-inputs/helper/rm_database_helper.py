@@ -1626,8 +1626,8 @@ class RMDatabaseHelper:
         # every downward multiplier query upward.
         offsetDirection = offset_snap_direction(offset)
 
-        self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset)
-                         + " (direction " + str(offsetDirection) + ")")
+        # self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset)
+        #                  + " (direction " + str(offsetDirection) + ")")
 
         if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
             self.logger.info('Strategy Fare not available.')
