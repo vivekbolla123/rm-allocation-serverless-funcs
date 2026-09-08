@@ -615,9 +615,46 @@ SECTOR_BATCH_SIZE = 6
 NDO_RANGE = list(range(181))           # 0..180
 PREDICTION_HORIZON_DAYS = 180
 MIN_FLIGHT_MATCHES = 13
+# Upper bound on matched historical flights kept per future flight (Step 9).
+# Coarse matching-ladder levels (Sector-all-taggings) can return the whole
+# sector history; Step 10 then explodes to (future x buckets x matches x 181
+# NDO cols) — the OOM source. Keeping the closest-STD / most-recent N caps that
+# product with negligible effect on the averaged prediction. 0 disables the cap.
+MAX_FLIGHT_MATCHES = 60
 WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
+# Steps 10+11 are processed this many future-flight keys at a time so the
+# exploded (future x buckets x matches x NDO) frame is never fully materialized.
+# Purely a memory knob — output is identical for any value (every reduction is
+# per-future-key). Lower it if a heavy sector still approaches the memory limit.
+PREDICT_CHUNK_KEYS = 300
+
+# --- Additive-model LOGIC constants (subject to tuning) -----------------------
+# Geometric-progression fare-bucket count. GP generates this many boundary
+# points; consecutive duplicates collapse, so a sector may end with FEWER
+# buckets than this when actual fares are clustered.
+GP_FARE_BUCKET_POINTS = 19
+# Lowest fare bucket's lower bound is reduced by this factor to catch fares
+# just under the boundary (0.8 => -20%).
+FARE_BUCKET_LOWER_FACTOR = 0.8
+# Future-tagging ladder: a grouping level with fewer than this many rows is
+# dropped so the fill falls through to a coarser, better-supported level.
+FUTURE_TAG_MIN_ENTRIES = 12
+# Flight matching: +-N hour band applied on the DOW-Tagging ladder levels.
+TIME_BAND_HOURS = 2
+
+# --- Additive-model parameter KEYS (DB overrides via rm_parameter_values) -----
+PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
+MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
+MAX_FLIGHT_MATCHES_KEY = "MAX_FLIGHT_MATCHES"
+WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
+WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
+PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"
+GP_FARE_BUCKET_POINTS_KEY = "GP_FARE_BUCKET_POINTS"
+FARE_BUCKET_LOWER_FACTOR_KEY = "FARE_BUCKET_LOWER_FACTOR"
+FUTURE_TAG_MIN_ENTRIES_KEY = "FUTURE_TAG_MIN_ENTRIES"
+TIME_BAND_HOURS_KEY = "TIME_BAND_HOURS"
 
 REQUIRED_RBDS = [
     'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',
