@@ -1005,16 +1005,17 @@ class DynAlloc:
 
 							hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
 
-							trigger_hours = 0
-							time_8am = time(8, 0)
-							time_12pm = time(12, 0)
-
-							if time_8am <= departure_time_obj < time_12pm:
-								# For flights departing between 8 AM and 12 PM
-								trigger_hours = 12
-							else:
-								# For flights departing between 12 PM and 8 AM (next day)
-								trigger_hours = 12
+							# Trigger window is configured per departure-time band
+							# (SPOILAGE_REDUCTION_TRIGGER_BANDS in Constants.py /
+							# rm_parameter_values).
+							spoilage_bands = parse_spoilage_trigger_bands(
+								self.constantsUtils.SPOILAGE_REDUCTION_TRIGGER_BANDS
+							)
+							trigger_hours = get_spoilage_trigger_hours(
+								spoilage_bands,
+								departure_time_obj,
+								self.constantsUtils.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS,
+							)
 
 							if hours_to_departure <= trigger_hours:
 								self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
@@ -3691,8 +3692,8 @@ class DynAlloc:
 			month_str_for_profile=payload.get("month_str", ""),
 			dow_str_for_profile=payload.get("dow_str", ""),
 			deptTime_str_hhmm=payload.get("deptTime_hhmm", ""),
-			b2c_backstop_final=payload.get("b2c_backstop_final"),
-			b2b_backstop_final=payload.get("b2b_backstop_final"),
+			b2c_backstop_final=safe_float(payload.get("b2c_backstop_final"), CONST_NA),
+			b2b_backstop_final=safe_float(payload.get("b2b_backstop_final"), CONST_NA),
 			auto_b2c_backstop_str=payload.get("auto_b2c_backstop_str", "NA"),
 			auto_b2b_backstop_str=payload.get("auto_b2b_backstop_str", "NA"),
 			lastSoldFareb2c_val=payload.get("lastSoldFareb2c"),
