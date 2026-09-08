@@ -189,6 +189,9 @@ OVERBOOKING_MANUAL_LF_KEY = 'OVERBOOKING_MANUAL_LF'
 OVERBOOKING_MAX_COUNT_KEY = 'OVERBOOKING_MAX_COUNT'
 OVERBOOKING_CAP_KEY = 'OVERBOOKING_CAP'
 CUG_DISCOUNT_KEY = 'CUG_DISCOUNT'
+SPOILAGE_REDUCTION_PLF_THRESHOLD_KEY = 'SPOILAGE_REDUCTION_PLF_THRESHOLD'
+SPOILAGE_REDUCTION_TRIGGER_BANDS_KEY = 'SPOILAGE_REDUCTION_TRIGGER_BANDS'
+SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS_KEY = 'SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS'
 IMP_FORECAST_DEDUCTION_ML_KEY = 'IMP_FORECAST_DEDUCTION_ML'
 IMP_FORECAST_DEDUCTION_LB_KEY = 'IMP_FORECAST_DEDUCTION_LB'
 IMP_FORECAST_DEDUCTION_KEY = 'IMP_FORECAST_DEDUCTION'
@@ -515,6 +518,19 @@ TBF_OPEN_SEATS = 8
 DOMESTIC_PLF_THRESHOLD = 95.0
 INTERNATIONAL_PLF_THRESHOLD = 80.0
 CUG_DISCOUNT = 5
+
+# --- D-0 Spoilage Reduction ---------------------------------------------------
+# PLF (%) above which spoilage reduction is skipped to avoid dilution.
+SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
+# Departure-time bands (inclusive, HH:MM) mapped to the number of hours before
+# departure at which the D-0 spoilage reduction becomes active.
+# Current policy:
+#   Departures 00:01 - 11:00 -> 16 hours before departure
+#   Departures 11:01 - 23:59 -> 10 hours before departure
+# A band may wrap past midnight by setting startTime > endTime.
+SPOILAGE_REDUCTION_TRIGGER_BANDS = '[{"startTime": "00:01", "endTime": "11:00", "triggerHours": 16}, {"startTime": "11:01", "endTime": "23:59", "triggerHours": 10}]'
+# Used when a departure time falls outside every configured band (e.g. 00:00).
+SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = 12
 
 IMP_FORECAST_DEDUCTION_LB = 0
 IMP_FORECAST_DEDUCTION_ML = 0
