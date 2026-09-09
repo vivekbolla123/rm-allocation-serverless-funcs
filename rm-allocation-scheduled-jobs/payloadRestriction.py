@@ -85,10 +85,11 @@ class NavInventoryClient:
         return None, reason
 
     def get_leg_information(self, leg_key):
-        """Fetch current leg information (lid, adjustedCapacity) for a leg key.
+        """Fetch current leg information (lid, adjustedCapacity, capacity) for a leg key.
 
-        Returns (info_dict, error_reason). info_dict has keys 'lid' and
-        'adjustedCapacity' (may be None if absent). On failure info_dict is None.
+        Returns (info_dict, error_reason). info_dict has keys 'lid',
+        'adjustedCapacity' and 'capacity' (the physical equipment capacity, may be
+        None if absent). On failure info_dict is None.
         """
         url = f"{self.base_url}/dcs/v2/inventory/legs/{leg_key}"
         response = self.session.get(url)
@@ -100,7 +101,8 @@ class NavInventoryClient:
         leg_information = response.json().get('data', {}).get('legInformation', {}) or {}
         return {
             'lid': leg_information.get('lid'),
-            'adjustedCapacity': leg_information.get('adjustedCapacity')
+            'adjustedCapacity': leg_information.get('adjustedCapacity'),
+            'capacity': leg_information.get('capacity')
         }, None
 
     def update_leg_lid_capacity(self, leg_key, lid, adjusted_capacity):
@@ -382,6 +384,7 @@ class PayloadRestriction:
                     if original_info is None:
                         original_lid = None
                         original_adjusted_capacity = None
+                        original_capacity = None
                         self.logger.info(
                             f"Could not read original leg info for {flight_number} "
                             f"{origin}-{destination} on {dep_date_iso}: {info_reason}"
@@ -389,6 +392,28 @@ class PayloadRestriction:
                     else:
                         original_lid = original_info.get('lid')
                         original_adjusted_capacity = original_info.get('adjustedCapacity')
+                        original_capacity = original_info.get('capacity')
+
+                    # Guard: the new adjusted capacity cannot exceed the physical
+                    # equipment capacity of the flight.
+                    if original_capacity is not None and adjusted_capacity > original_capacity:
+                        reason = (
+                            f"Requested adjustedCapacity ({adjusted_capacity}) exceeds the "
+                            f"equipment capacity ({original_capacity})"
+                        )
+                        self.logger.info(
+                            f"Skipping NAV update for {flight_number} {origin}-{destination} "
+                            f"on {dep_date_iso}: {reason}"
+                        )
+                        failures.append({
+                            **base_record,
+                            'legKey': leg_key,
+                            'originalLid': original_lid,
+                            'originalAdjustedCapacity': original_adjusted_capacity,
+                            'equipmentCapacity': original_capacity,
+                            'reason': reason
+                        })
+                        continue
 
                     success, patch_reason = nav_client.update_leg_lid_capacity(
                         leg_key, lid, adjusted_capacity
@@ -804,64 +829,49 @@ class PayloadRestriction:
                     </tr>
                 """)
 
+            # Append one row per failed flight into the SAME table. The two
+            # LID columns are replaced by a single cell showing a bold, all-caps
+            # ACTION REQUIRED banner and the reason for failure.
+            for fail in failures:
+                flight_number = fail.get('flightNumber')
+                origin = fail.get('origin')
+                destination = fail.get('destination')
+                dep_date = fail.get('departureDate')
+                try:
+                    dep_date_disp = pd.to_datetime(dep_date).strftime('%d %b %Y') if dep_date else "&mdash;"
+                except Exception:
+                    dep_date_disp = dep_date or "&mdash;"
+                reason = fail.get('reason', 'Unknown error')
+
+                bg = "#fdf6f6" if len(row_html) % 2 == 0 else "#fbeceb"
+                row_html.append(f"""
+                    <tr style="background-color:{bg};">
+                        <td style="padding:9px 12px; font-size:12.5px; color:#333333; border-bottom:1px solid #eeeeee;">
+                            QP {flight_number}
+                        </td>
+                        <td style="padding:9px 12px; font-size:12.5px; color:#333333; border-bottom:1px solid #eeeeee;">
+                            {origin}&ndash;{destination}
+                        </td>
+                        <td style="padding:9px 12px; font-size:12.5px; color:#666666; border-bottom:1px solid #eeeeee;">
+                            {dep_date_disp}
+                        </td>
+                        <td colspan="2" style="padding:9px 12px; font-size:12px; color:#b3261e; border-bottom:1px solid #eeeeee;">
+                            <strong style="color:#b3261e; letter-spacing:0.5px;">ACTION REQUIRED</strong><br>
+                            <span style="color:#8a3029;">{reason}</span>
+                        </td>
+                    </tr>
+                """)
+
             if not row_html:
                 row_html.append("""
                     <tr>
                         <td colspan="5" style="padding:14px 12px; font-size:12.5px; color:#999999; text-align:center; border-bottom:1px solid #eeeeee;">
-                            No flights were successfully updated in NAV.
+                            No flights were processed.
                         </td>
                     </tr>
                 """)
 
             restriction_rows = "".join(row_html)
-
-            # Build a failure table (only when there are failures)
-            failure_section = ""
-            if failures:
-                fail_rows = []
-                for fail in failures:
-                    flight_number = fail.get('flightNumber')
-                    origin = fail.get('origin')
-                    destination = fail.get('destination')
-                    dep_date = fail.get('departureDate')
-                    try:
-                        dep_date_disp = pd.to_datetime(dep_date).strftime('%d %b %Y') if dep_date else "—"
-                    except Exception:
-                        dep_date_disp = dep_date or "—"
-                    reason = fail.get('reason', 'Unknown error')
-
-                    bg = "#ffffff" if len(fail_rows) % 2 == 0 else "#fdf6f6"
-                    fail_rows.append(f"""
-                        <tr style="background-color:{bg};">
-                            <td style="padding:9px 12px; font-size:12.5px; color:#333333; border-bottom:1px solid #eeeeee;">
-                                QP {flight_number}
-                            </td>
-                            <td style="padding:9px 12px; font-size:12.5px; color:#333333; border-bottom:1px solid #eeeeee;">
-                                {origin}&ndash;{destination}
-                            </td>
-                            <td style="padding:9px 12px; font-size:12.5px; color:#666666; border-bottom:1px solid #eeeeee;">
-                                {dep_date_disp}
-                            </td>
-                            <td style="padding:9px 12px; font-size:12px; color:#b3261e; border-bottom:1px solid #eeeeee;">
-                                {reason}
-                            </td>
-                        </tr>
-                    """)
-
-                failure_section = f"""
-                                <p style="margin:24px 0 8px 0; font-size:13px; color:#b3261e; font-weight:600;">
-                                    Failed updates ({total_failed})
-                                </p>
-                                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eeeeee; border-radius:6px; border-collapse:separate;">
-                                    <tr style="background-color:#fbeceb;">
-                                        <th style="padding:10px 12px; font-size:11px; color:#8a3029; text-transform:uppercase; letter-spacing:0.4px; text-align:left; border-bottom:1px solid #eeeeee;">Flight</th>
-                                        <th style="padding:10px 12px; font-size:11px; color:#8a3029; text-transform:uppercase; letter-spacing:0.4px; text-align:left; border-bottom:1px solid #eeeeee;">Sector</th>
-                                        <th style="padding:10px 12px; font-size:11px; color:#8a3029; text-transform:uppercase; letter-spacing:0.4px; text-align:left; border-bottom:1px solid #eeeeee;">Departure</th>
-                                        <th style="padding:10px 12px; font-size:11px; color:#8a3029; text-transform:uppercase; letter-spacing:0.4px; text-align:left; border-bottom:1px solid #eeeeee;">Reason</th>
-                                    </tr>
-                                    {"".join(fail_rows)}
-                                </table>
-                """
 
             html_body = f"""
             <html>
@@ -936,7 +946,7 @@ class PayloadRestriction:
                                     (previous &rarr; new).
                                 </p>
 
-                                <!-- Successful updates table -->
+                                <!-- Updates table (successful changes + failed flights) -->
                                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eeeeee; border-radius:6px; border-collapse:separate;">
                                     <tr style="background-color:#f5f3fb;">
                                         <th style="padding:10px 12px; font-size:11px; color:#666666; text-transform:uppercase; letter-spacing:0.4px; text-align:left; border-bottom:1px solid #eeeeee;">Flight</th>
@@ -947,7 +957,6 @@ class PayloadRestriction:
                                     </tr>
                                     {restriction_rows}
                                 </table>
-                                {failure_section}
 
                             </td>
                         </tr>
