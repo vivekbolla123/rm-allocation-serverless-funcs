@@ -171,7 +171,9 @@ class ConstantsUtils:
         self.MIN_FLIGHT_MATCHES = MIN_FLIGHT_MATCHES
         self.MAX_FLIGHT_MATCHES = MAX_FLIGHT_MATCHES
         self.PREDICT_CHUNK_KEYS = PREDICT_CHUNK_KEYS
+        self.AUDIT_UNMATCHED_KEYS_CAP = AUDIT_UNMATCHED_KEYS_CAP
         self.WEIGHT_ALPHA = WEIGHT_ALPHA
+        self.WEIGHT_ALPHA_FUTURE = WEIGHT_ALPHA_FUTURE
         self.WEIGHT_FUTURE_X = WEIGHT_FUTURE_X
         self.GP_FARE_BUCKET_POINTS = GP_FARE_BUCKET_POINTS
         self.FARE_BUCKET_LOWER_FACTOR = FARE_BUCKET_LOWER_FACTOR
@@ -509,6 +511,8 @@ class ConstantsUtils:
                 self.MAX_FLIGHT_MATCHES = int(parameter_value)
             elif parameter_key == WEIGHT_ALPHA_KEY:
                 self.WEIGHT_ALPHA = float(parameter_value)
+            elif parameter_key == WEIGHT_ALPHA_FUTURE_KEY:
+                self.WEIGHT_ALPHA_FUTURE = float(parameter_value)
             elif parameter_key == WEIGHT_FUTURE_X_KEY:
                 self.WEIGHT_FUTURE_X = int(parameter_value)
             elif parameter_key == PARQUET_ROW_THRESHOLD_KEY:
