@@ -73,7 +73,10 @@ class ConstantsUtils:
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
         self.CUG_DISCOUNT = CUG_DISCOUNT
-        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
+        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = SPOILAGE_REDUCTION_PLF_THRESHOLD
+        self.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS
+        # Raw JSON; parsed at point of use via common.compute_utils.parse_spoilage_trigger_bands.
+        self.SPOILAGE_REDUCTION_TRIGGER_BANDS = SPOILAGE_REDUCTION_TRIGGER_BANDS
         self.IMP_FORECAST_DEDUCTION_ML = IMP_FORECAST_DEDUCTION_ML
         self.IMP_FORECAST_DEDUCTION_LB = IMP_FORECAST_DEDUCTION_LB
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
@@ -334,6 +337,12 @@ class ConstantsUtils:
                 self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
             elif parameter_key == CUG_DISCOUNT_KEY:
                 self.CUG_DISCOUNT = int(parameter_value)
+            elif parameter_key == SPOILAGE_REDUCTION_PLF_THRESHOLD_KEY:
+                self.SPOILAGE_REDUCTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == SPOILAGE_REDUCTION_TRIGGER_BANDS_KEY:
+                self.SPOILAGE_REDUCTION_TRIGGER_BANDS = parameter_value
+            elif parameter_key == SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS_KEY:
+                self.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = float(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_ML_KEY:
                 self.IMP_FORECAST_DEDUCTION_ML = int(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_LB_KEY:

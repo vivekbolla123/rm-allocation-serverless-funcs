@@ -1904,7 +1904,12 @@ class DetermineRBD:
         condition = 'LOW' if offset_snap_direction(offset) == OFFSET_DOWN else 'HI'
         self.logger.info(f"Extreme fare direction for offset '{offset}': {condition}")
 
-        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, condition, backstop, route)
+        try:
+            backstop_val = float(backstop) if backstop not in (None, '', 'NA', 'None', CONST_NA) else 0.0
+        except (ValueError, TypeError):
+            backstop_val = 0.0
+
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, condition, backstop_val, route)
 
         # Edge case where backstop is placed at a very large value - allocates at Z0 or Y levels
         if defFareData.shape[0] == 0:
@@ -1943,11 +1948,16 @@ class DetermineRBD:
         if stepCount < 0:
             offsetToFetch = min(abs(stepCount+1), rbddata.shape[0] - 1) 
 
+        try:
+            backstop_val = float(backstop) if backstop not in (None, '', 'NA', 'None', CONST_NA) else 0.0
+        except (ValueError, TypeError):
+            backstop_val = 0.0
+
         # Comparison with the backstop table - to ensure we are picking a value higher than the backstop
-        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop, route)
+        defFareData = self.rmdatabasehelper.fetchExtremePublishedFare(origin, destin, channel, 'LOW', backstop_val, route)
 
         if defFareData.shape[0] != 0:
-            if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop > 0:
+            if rbddata['TOTAL'][0] < defFareData['TOTAL'][0] and backstop_val > 0:
                 backstopFlag = True
                 backstopReason = f"intended fare {rbddata['TOTAL'][0]} is below backstop {backstop}"
             
@@ -1974,7 +1984,7 @@ class DetermineRBD:
             if defFareData.shape[0] != 0:
                 if float(defFareData['TOTAL'][0]) >= float(rbddata['TOTAL'][offsetToFetch]):
                     offsetToFetch = min(len(defFareData['TOTAL'])-1, offsetToFetch)
-                    if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop > 0:
+                    if rbddata['TOTAL'][0] < defFareData['TOTAL'][offsetToFetch] and backstop_val > 0:
                         backstopFlag = True
                         backstopReason = f"intended fare {rbddata['TOTAL'][offsetToFetch]} is below backstop {backstop}"
                     RBDtoOpen = defFareData['RBD'][0]

@@ -1,6 +1,63 @@
 from Constants import *
 import math
+import json
+import logging
 import pandas as pd
+from datetime import datetime
+
+
+def parse_spoilage_trigger_bands(json_str):
+  """Parse the D-0 spoilage-reduction trigger bands.
+
+  Input format: [{"startTime": "00:01", "endTime": "11:00", "triggerHours": 16}, ...]
+  Output: [(time(0, 1), time(11, 0), 16.0), (time(11, 1), time(23, 59), 10.0)]
+
+  Returns an empty list when the input is missing/unparseable; callers then
+  fall back to the configured default trigger hours.
+  """
+  try:
+    raw_data = json.loads(json_str) if isinstance(json_str, str) else json_str
+    parsed = []
+    for band in raw_data:
+      start = datetime.strptime(str(band['startTime']).strip(), TIME_FORMAT).time()
+      end = datetime.strptime(str(band['endTime']).strip(), TIME_FORMAT).time()
+      parsed.append((start, end, float(band['triggerHours'])))
+    return parsed
+  except Exception as e:
+    logging.getLogger().error(f"Error parsing spoilage reduction trigger bands: {e}")
+    return []
+
+
+def get_spoilage_trigger_hours(bands, departure_time, default_hours):
+  """Hours-before-departure at which spoilage reduction activates for a given
+  departure time.
+
+  Args:
+    bands: Parsed bands as returned by ``parse_spoilage_trigger_bands`` — a list
+      of ``(start_time, end_time, trigger_hours)`` tuples.
+    departure_time: A ``datetime.time``, a ``datetime``, or an ``HH:MM`` string.
+    default_hours: Returned when no band matches (e.g. a 00:00 departure against
+      bands that start at 00:01, or an empty band list).
+
+  Bands are inclusive on both ends and may wrap past midnight
+  (startTime > endTime).
+  """
+  if isinstance(departure_time, str):
+    departure_time = datetime.strptime(departure_time.strip(), TIME_FORMAT).time()
+  elif isinstance(departure_time, datetime):
+    departure_time = departure_time.time()
+
+  for start, end, trigger_hours in bands:
+    if start <= end:
+      in_band = start <= departure_time <= end
+    else:
+      # Band wraps past midnight, e.g. 23:01 -> 02:00
+      in_band = departure_time >= start or departure_time <= end
+    if in_band:
+      return trigger_hours
+
+  return float(default_hours)
+
 
 def getParsedForecast(self):
   # Check if CanAdjustedForecast flag is set to 1, use adjustedPLF instead
