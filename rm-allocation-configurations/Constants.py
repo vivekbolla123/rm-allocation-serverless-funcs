@@ -609,7 +609,10 @@ MIN_FLIGHT_MATCHES = 13
 # NDO cols) — the OOM source. Keeping the closest-STD / most-recent N caps that
 # product with negligible effect on the averaged prediction. 0 disables the cap.
 MAX_FLIGHT_MATCHES = 60
-WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
+WEIGHT_ALPHA = 0.99                     # recency decay for FLOWN matches (weighted branch)
+WEIGHT_ALPHA_FUTURE = 0                 # recency decay for FUTURE/unflown matches:
+                                        # 0 -> future matches get weight 0 (excluded);
+                                        # set to 0.99 to restore the original decayed weight.
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
 # Steps 10+11 are processed this many future-flight keys at a time so the
@@ -617,6 +620,11 @@ PARQUET_ROW_THRESHOLD = 250_000
 # Purely a memory knob — output is identical for any value (every reduction is
 # per-future-key). Lower it if a heavy sector still approaches the memory limit.
 PREDICT_CHUNK_KEYS = 300
+# Audit: max number of unmatched future-flight keys stored per sector in
+# sector_stats.<SECTOR>.unmatched_keys. The exact count is always recorded
+# (unmatched_count); this only caps the stored key list so a data-starved sector
+# cannot bloat the single per-run audit document (Mongo 16 MB limit). 0 = no cap.
+AUDIT_UNMATCHED_KEYS_CAP = 500
 
 # --- Additive-model LOGIC constants (subject to tuning) -----------------------
 # Geometric-progression fare-bucket count. GP generates this many boundary
@@ -637,6 +645,7 @@ PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
 MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
 MAX_FLIGHT_MATCHES_KEY = "MAX_FLIGHT_MATCHES"
 WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
+WEIGHT_ALPHA_FUTURE_KEY = "WEIGHT_ALPHA_FUTURE"
 WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
 PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"
 GP_FARE_BUCKET_POINTS_KEY = "GP_FARE_BUCKET_POINTS"
