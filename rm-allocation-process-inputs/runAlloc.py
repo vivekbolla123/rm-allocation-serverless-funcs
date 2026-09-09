@@ -981,7 +981,7 @@ class DynAlloc:
 		last_seven_avg_val = state.last_seven_avg_val
 
 		is_spoilage_reduction_active = False
-		if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
+		if ndocounter <= 2 and int(self.currParams.Spoilage_Flag)==1:
 			self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
 			try:
 				# 1. Check for last seven sold fare availability
@@ -1005,16 +1005,17 @@ class DynAlloc:
 
 							hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
 
-							trigger_hours = 0
-							time_8am = time(8, 0)
-							time_12pm = time(12, 0)
-
-							if time_8am <= departure_time_obj < time_12pm:
-								# For flights departing between 8 AM and 12 PM
-								trigger_hours = 12
-							else:
-								# For flights departing between 12 PM and 8 AM (next day)
-								trigger_hours = 12
+							# Trigger window is configured per departure-time band
+							# (SPOILAGE_REDUCTION_TRIGGER_BANDS in Constants.py /
+							# rm_parameter_values).
+							spoilage_bands = parse_spoilage_trigger_bands(
+								self.constantsUtils.SPOILAGE_REDUCTION_TRIGGER_BANDS
+							)
+							trigger_hours = get_spoilage_trigger_hours(
+								spoilage_bands,
+								departure_time_obj,
+								self.constantsUtils.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS,
+							)
 
 							if hours_to_departure <= trigger_hours:
 								self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
@@ -1389,7 +1390,14 @@ class DynAlloc:
 			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
 			b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
 
-			if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
+			b2b_backstop_val = 0.0
+			try:
+				if b2b_backstop_final not in (None, '', 'NA', 'None', CONST_NA) and pd.notna(b2b_backstop_final):
+					b2b_backstop_val = float(b2b_backstop_final)
+			except (ValueError, TypeError):
+				b2b_backstop_val = 0.0
+
+			if b2b_backstop_val > 0 and float(b2b_Z0_fare) < b2b_backstop_val:
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 			param_b2b_factor = getattr(self.currParams, 'b2b_factor', -1) # Default if not present
@@ -3691,8 +3699,8 @@ class DynAlloc:
 			month_str_for_profile=payload.get("month_str", ""),
 			dow_str_for_profile=payload.get("dow_str", ""),
 			deptTime_str_hhmm=payload.get("deptTime_hhmm", ""),
-			b2c_backstop_final=payload.get("b2c_backstop_final"),
-			b2b_backstop_final=payload.get("b2b_backstop_final"),
+			b2c_backstop_final=safe_float(payload.get("b2c_backstop_final"), CONST_NA),
+			b2b_backstop_final=safe_float(payload.get("b2b_backstop_final"), CONST_NA),
 			auto_b2c_backstop_str=payload.get("auto_b2c_backstop_str", "NA"),
 			auto_b2b_backstop_str=payload.get("auto_b2b_backstop_str", "NA"),
 			lastSoldFareb2c_val=payload.get("lastSoldFareb2c"),
