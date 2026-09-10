@@ -117,7 +117,7 @@ def _load_mapped_sectors():
     (e.g. NMIDEL, NMIBLR, JAIBLR -> BOMDEL). Empty dict on any error (feature
     simply inactive)."""
     try:
-        docs = db_master.config_additive_mapped_sectors.find(
+        docs = db_rmalloc.config_additive_mapped_sectors.find(
             {}, {'_id': 0, 'sector': 1, 'mapped_sector': 1})
         out = {}
         for d in docs:
