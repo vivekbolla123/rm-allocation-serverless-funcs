@@ -11,6 +11,8 @@ import requests
 from uuid import uuid4
 import io
 
+from sqlalchemy import text
+
 from Constants import AKASA_AIRLINE_CODE, DATE_FORMAT, DATE_FORMAT_2
 
 
@@ -160,10 +162,11 @@ class PayloadRestriction:
         self.logger = logger or logging.getLogger()
         self.mongoconn = params['mongoconn']
         self.nav_conn = params['navconn']  # Navitaire SQL Server (NAV ODS)
+        self.s3_client = params['s3']
+        self.lambda_client = params['lambda_client']
 
         # Application MongoDB database
         self.db = self.mongoconn["qp_dw_rmalloc"]
-
         self.nav_db_name = configsettings.NAV_DB_NAME
 
         # ConstantsUtils for system parameters
@@ -250,24 +253,32 @@ class PayloadRestriction:
             dep_start_str = pd.to_datetime(dep_start).strftime('%Y-%m-%d')
             dep_end_str = pd.to_datetime(dep_end).strftime('%Y-%m-%d')
 
-            query = f"""
+            query = text(f"""
             SELECT DISTINCT
                 IL.FlightNumber,
                 IL.DepartureStation,
                 IL.ArrivalStation,
                 IL.DepartureDate
             FROM {self.nav_db_name}rez.InventoryLeg IL
-            WHERE IL.DepartureStation = '{origin}'
-                AND IL.ArrivalStation = '{destination}'
-                AND IL.FlightNumber = '{flight_number}'
+            WHERE IL.DepartureStation = :origin
+                AND IL.ArrivalStation = :destination
+                AND IL.FlightNumber = :flight_number
                 AND IL.Lid > 0
                 AND IL.Status NOT IN (2)
-                AND IL.DepartureDate BETWEEN CAST('{dep_start_str}' AS DATE)
-                                         AND CAST('{dep_end_str}' AS DATE)
+                AND IL.DepartureDate BETWEEN CAST(:dep_start AS DATE)
+                                         AND CAST(:dep_end AS DATE)
             ORDER BY IL.DepartureDate;
-            """
+            """)
 
-            df = pd.read_sql(query, self.nav_conn)
+            params = {
+                "origin": origin,
+                "destination": destination,
+                "flight_number": flight_number,
+                "dep_start": dep_start_str,
+                "dep_end": dep_end_str,
+            }
+
+            df = pd.read_sql(query, self.nav_conn, params=params)
             self.logger.info(
                 f"Found {len(df)} flights for {origin}-{destination} flight {flight_number} "
                 f"between {dep_start_str} and {dep_end_str}"
@@ -679,7 +690,7 @@ class PayloadRestriction:
     def upload_to_s3(self, df, version_id):
         """Upload market_list_payload_restriction data to S3."""
         try:
-            s3_client = boto3.client('s3', region_name='ap-south-1')
+            s3_client = self.s3_client
             bucket_name = configsettings.S3_BUCKET_NAME
             s3_folder_path = f"{configsettings.S3_FILE_PATH}rm-admin/{self.S3_SUBFOLDER}"
             file_name = f"{version_id}_{self.MARKET_LIST_TABLE_NAME}"
@@ -709,7 +720,7 @@ class PayloadRestriction:
     def invoke_reallocation_lambda(self, run_id):
         """Invoke the prefetch-inputs Lambda to run the restricted flights as adhoc."""
         try:
-            lambda_client = boto3.client('lambda')
+            lambda_client = self.lambda_client
             lambda_function_name = configsettings.PREFETCH_INPUTS_LAMBDA
 
             payload = {
