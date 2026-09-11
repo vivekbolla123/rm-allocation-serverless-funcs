@@ -53,5 +53,6 @@ public interface TableNamesConstants {
     public static final String AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME = "auto_tolerance_ndo_config";
     public static final String AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME = "auto_tolerance_delta_bands";
     public static final String AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME = "auto_tolerance_grid_values";
+    public static final String PAYLOAD_RESTRICTION_TABLE_NAME = "config_payload_restriction";
 
 }
