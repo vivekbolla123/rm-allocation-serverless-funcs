@@ -642,7 +642,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
       2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
       3. Append sibling rows, free intermediate memory, move to next window
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change", "Payload_Restriction"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
@@ -1561,7 +1561,7 @@ def lambda_handler(event, context):
         type = data[run_type_key]
     if region_key in data:
         region = data[region_key]
-    if type not in ("Adhoc", "Equipment_Change"):
+    if type not in ("Adhoc", "Equipment_Change", "Payload_Restriction"):
         is_connections_required = '1'
     if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]
