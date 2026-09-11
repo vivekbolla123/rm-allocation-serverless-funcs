@@ -49,6 +49,7 @@ from saleinv_rbl_calc import SaleInvRBLCalc
 from saleinv_leanpeak_map import SaleInvLeanPeakMap
 from fetchactiveflights import FetchActiveFlights
 from equipmentChange import EQTAlloc
+from payloadRestriction import PayloadRestriction
 from hold_booking_alert.hold_booking_alert import HoldBookingAlert
 
 def create_logger():
@@ -134,6 +135,7 @@ try:
         aws_secret_access_key=configsettings.RM_WEBSERVICE_AWS_SECRET_KEY_OLD_PROD,
         region_name='ap-south-1'
     )
+    lambda_client = boto3.client('lambda')
 
 except Exception as e:
     logger.error(e)
@@ -172,6 +174,7 @@ module_map = {
     "saleinv_leanpeak_map": SaleInvLeanPeakMap,
     "fetchactiveflights": FetchActiveFlights,
     "eqt_alloc": EQTAlloc,
+    "payload_restriction": PayloadRestriction,
     "hold_booking_alert": HoldBookingAlert
 }
 
@@ -214,7 +217,8 @@ def lambda_handler(event, context):
         params['s3'] = s3
         params['s3_old'] = s3_old
         params['cache_client'] = cache_client
-        params['events'] = events 
+        params['events'] = events
+        params['lambda_client'] = lambda_client
         params['constantutils'] = ConstantsUtils(mongo_db)
         
         Module = module_map[module_key]

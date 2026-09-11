@@ -73,7 +73,10 @@ class ConstantsUtils:
         self.DOMESTIC_PLF_THRESHOLD = DOMESTIC_PLF_THRESHOLD
         self.INTERNATIONAL_PLF_THRESHOLD = INTERNATIONAL_PLF_THRESHOLD
         self.CUG_DISCOUNT = CUG_DISCOUNT
-        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
+        self.SPOILAGE_REDUCTION_PLF_THRESHOLD = SPOILAGE_REDUCTION_PLF_THRESHOLD
+        self.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS
+        # Raw JSON; parsed at point of use via common.compute_utils.parse_spoilage_trigger_bands.
+        self.SPOILAGE_REDUCTION_TRIGGER_BANDS = SPOILAGE_REDUCTION_TRIGGER_BANDS
         self.IMP_FORECAST_DEDUCTION_ML = IMP_FORECAST_DEDUCTION_ML
         self.IMP_FORECAST_DEDUCTION_LB = IMP_FORECAST_DEDUCTION_LB
         self.IMP_FORECAST_DEDUCTION = IMP_FORECAST_DEDUCTION
@@ -121,6 +124,7 @@ class ConstantsUtils:
         self.GRACE_PERIOD_MINUTES = GRACE_PERIOD_MINUTES
         self.WINDOW_MINUTES = WINDOW_MINUTES
         self.EQT_RECIPIENTS = EQT_RECIPIENTS
+        self.PAYLOAD_RESTRICTION_RECIPIENTS = PAYLOAD_RESTRICTION_RECIPIENTS
         self.HOLD_BOOKING_ALERT_CONFIGURATION = HOLD_BOOKING_ALERT_CONFIGURATION
         
         # Phase 2 Constants
@@ -167,7 +171,11 @@ class ConstantsUtils:
         self.FARE_BUCKET_RBDS = FARE_BUCKET_RBDS
         # Logic constants subject to tuning (also live in Constants.py).
         self.MIN_FLIGHT_MATCHES = MIN_FLIGHT_MATCHES
+        self.MAX_FLIGHT_MATCHES = MAX_FLIGHT_MATCHES
+        self.PREDICT_CHUNK_KEYS = PREDICT_CHUNK_KEYS
+        self.AUDIT_UNMATCHED_KEYS_CAP = AUDIT_UNMATCHED_KEYS_CAP
         self.WEIGHT_ALPHA = WEIGHT_ALPHA
+        self.WEIGHT_ALPHA_FUTURE = WEIGHT_ALPHA_FUTURE
         self.WEIGHT_FUTURE_X = WEIGHT_FUTURE_X
         self.GP_FARE_BUCKET_POINTS = GP_FARE_BUCKET_POINTS
         self.FARE_BUCKET_LOWER_FACTOR = FARE_BUCKET_LOWER_FACTOR
@@ -331,6 +339,12 @@ class ConstantsUtils:
                 self.INTERNATIONAL_PLF_THRESHOLD = int(parameter_value)
             elif parameter_key == CUG_DISCOUNT_KEY:
                 self.CUG_DISCOUNT = int(parameter_value)
+            elif parameter_key == SPOILAGE_REDUCTION_PLF_THRESHOLD_KEY:
+                self.SPOILAGE_REDUCTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == SPOILAGE_REDUCTION_TRIGGER_BANDS_KEY:
+                self.SPOILAGE_REDUCTION_TRIGGER_BANDS = parameter_value
+            elif parameter_key == SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS_KEY:
+                self.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = float(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_ML_KEY:
                 self.IMP_FORECAST_DEDUCTION_ML = int(parameter_value)
             elif parameter_key == IMP_FORECAST_DEDUCTION_LB_KEY:
@@ -459,6 +473,8 @@ class ConstantsUtils:
                 self.GENERATE_CWT_RULES = str(parameter_value).lower() == 'true'
             elif parameter_key == EQT_RECIPIENTS_KEY:
                 self.EQT_RECIPIENTS = parameter_value
+            elif parameter_key == PAYLOAD_RESTRICTION_RECIPIENTS_KEY:
+                self.PAYLOAD_RESTRICTION_RECIPIENTS = parameter_value
             elif parameter_key == GROUP_SCALING_FACTOR_KEY:
                 self.GROUP_SCALING_FACTOR = float(parameter_value)
             elif parameter_key == GROUP_AU_BATCH_KEY:
@@ -497,8 +513,12 @@ class ConstantsUtils:
                 self.PREDICTION_HORIZON_DAYS = int(parameter_value)
             elif parameter_key == MIN_FLIGHT_MATCHES_KEY:
                 self.MIN_FLIGHT_MATCHES = int(parameter_value)
+            elif parameter_key == MAX_FLIGHT_MATCHES_KEY:
+                self.MAX_FLIGHT_MATCHES = int(parameter_value)
             elif parameter_key == WEIGHT_ALPHA_KEY:
                 self.WEIGHT_ALPHA = float(parameter_value)
+            elif parameter_key == WEIGHT_ALPHA_FUTURE_KEY:
+                self.WEIGHT_ALPHA_FUTURE = float(parameter_value)
             elif parameter_key == WEIGHT_FUTURE_X_KEY:
                 self.WEIGHT_FUTURE_X = int(parameter_value)
             elif parameter_key == PARQUET_ROW_THRESHOLD_KEY:

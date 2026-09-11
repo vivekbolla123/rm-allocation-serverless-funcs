@@ -1125,6 +1125,31 @@ class AdditivePickupModelProcessor:
                 cand = cand[diffs <= time_band * 60]
             return cand
 
+        # Cap on matches kept per future flight. Coarse ladder levels
+        # (Sector-all-taggings) can return the ENTIRE sector history (hundreds of
+        # flights); Step 10 then explodes to (future x buckets x matches x 181 NDO
+        # cols). Keeping the closest-STD, then most-recent N bounds that product
+        # with negligible effect on the averaged prediction. DB-overridable via
+        # MAX_FLIGHT_MATCHES_KEY; getattr fallback keeps it working before the
+        # deployed constants file is updated. 0 / None => no cap.
+        max_matches = getattr(self.constants_utils, 'MAX_FLIGHT_MATCHES', 60)
+
+        def _cap(cand, future_min):
+            """Keep the closest-STD, then most-recent, `max_matches` rows.
+            Ordering is deterministic so the kept set is stable across runs."""
+            if not max_matches or len(cand) <= max_matches:
+                return cand
+            c = cand.copy()
+            if pd.notna(future_min):
+                d = (c['STD_min'] - future_min).abs()
+                c['_std_prox'] = d.where(d <= 720, 1440 - d)   # midnight wrap
+            else:
+                c['_std_prox'] = 0
+            # closest STD first, then most-recent departure, then Key for stability
+            c = c.sort_values(['_std_prox', 'DepartureDate', 'Key'],
+                              ascending=[True, False, True]).head(max_matches)
+            return c.drop(columns='_std_prox')
+
         def _ladder(sector, tagging, dow, future_min, is_mp):
             """Yield (tag_set, dow, time_band) group definitions in BRD order.
             Own-sector: DOW-Tagging(+-2h) -> Tagging -> +-1 -> +-2 -> ... -> all.
@@ -1152,6 +1177,7 @@ class AdditivePickupModelProcessor:
 
         matches_dict = {}
         donor_won = {}   # {future_key: (donor_sector, dependent_sector)} — fallback wins
+        unmatched_keys = []   # future flights that failed EVERY ladder level
         skipped = 0
 
         for _, future_row in future_df.iterrows():
@@ -1181,12 +1207,15 @@ class AdditivePickupModelProcessor:
 
             if winning is None:
                 skipped += 1
+                unmatched_keys.append(future_key)
                 continue
 
             # --- apply the winning group to BOTH flown and unflown pools ---
             scope_sector, tag_set, dow_used, band = winning
-            flown_match = _select(flown, scope_sector, tag_set, dow_used, future_min, band)
-            unflown_match = _select(unflown, scope_sector, tag_set, dow_used, future_min, band)
+            flown_match = _cap(
+                _select(flown, scope_sector, tag_set, dow_used, future_min, band), future_min)
+            unflown_match = _cap(
+                _select(unflown, scope_sector, tag_set, dow_used, future_min, band), future_min)
             keys = flown_match['Key'].tolist() + unflown_match['Key'].tolist()
             matches_dict[future_key] = keys
 
@@ -1199,6 +1228,7 @@ class AdditivePickupModelProcessor:
                 donor_won[future_key] = (donor, sector)
 
         self._donor_won = donor_won
+        self._unmatched_keys = unmatched_keys   # consumed by run() for the audit
 
         total_matches = sum(len(v) for v in matches_dict.values())
         logger.info(f"Flight matching complete: {len(matches_dict)} future flights matched, "
@@ -1218,9 +1248,6 @@ class AdditivePickupModelProcessor:
         """
         logger.info("Building fare bucket level matched result dataset...")
         ndo_cols = self.cache.data['ndo_cols']
-
-        # Index pivot_ndo by Key for fast lookup
-        pivot_ndo_indexed = pivot_ndo.set_index('Key') if 'Key' not in pivot_ndo.index.names else pivot_ndo
 
         # Future keys that were matched via their donor (fallback). Their matched
         # historical rows carry Sector=donor and must be relabelled to the
@@ -1392,9 +1419,110 @@ class AdditivePickupModelProcessor:
         return (result_merged_df, result_final_df, result_merged_df_std,
                 weighted_merged_df, weighted_final_df)
 
+    def _build_and_predict_chunked(self, future_df_expanded, pivot_ndo, flight_matches):
+        """Memory-safe Steps 10+11: build the matched result and reduce it to the
+        five prediction frames WITHOUT ever holding the full exploded cross-product
+        in memory.
+
+        Every Step-11 reduction (mean/std/weighted-mean, matched-current-bookings)
+        groups by the FULL future-flight identity, so a future key's rows never
+        interact with another key's rows. Processing future keys in chunks and
+        concatenating the *reduced* per-chunk frames is therefore numerically
+        identical to processing all keys at once — no match is dropped, no value
+        changes. Only the transient exploded frame is bounded (one chunk at a time).
+        """
+        keys = [k for k, v in flight_matches.items() if v]
+        if not keys:
+            logger.warning("No matched results produced.")
+            empty = pd.DataFrame()
+            return empty, empty, empty, empty, empty
+
+        chunk_size = getattr(self.constants_utils, 'PREDICT_CHUNK_KEYS', 300)
+        parts = {'rm': [], 'rf': [], 'rms': [], 'wm': [], 'wf': []}
+        n_chunks = (len(keys) + chunk_size - 1) // chunk_size
+
+        # TEST-only: collect each chunk's exploded matched frame so the full
+        # intermediate_10_matched_result artifact is still produced for local
+        # testing. Skipped in PROD to preserve the memory bound.
+        collect_matched = (self.mode == 'TEST')
+        matched_parts = [] if collect_matched else None
+
+        for ci in range(0, len(keys), chunk_size):
+            chunk_keys = keys[ci:ci + chunk_size]
+            sub_matches = {k: flight_matches[k] for k in chunk_keys}
+            # Build the exploded frame for THIS chunk only.
+            result_df = self._build_matched_result(future_df_expanded, pivot_ndo, sub_matches)
+            if result_df.empty:
+                continue
+            if collect_matched:
+                matched_parts.append(result_df.copy())
+            rm, rf, rms, wm, wf = self._calculate_predictions(result_df)
+            parts['rm'].append(rm)
+            parts['rf'].append(rf)
+            parts['rms'].append(rms)
+            parts['wm'].append(wm)
+            parts['wf'].append(wf)
+            del result_df, rm, rf, rms, wm, wf
+            logger.info(f"  [Step10+11] chunk {ci // chunk_size + 1}/{n_chunks} done "
+                        f"({len(chunk_keys)} future keys).")
+
+        def _cat(lst):
+            return (pd.concat(lst, ignore_index=True, copy=False)
+                    if lst else pd.DataFrame())
+
+        if collect_matched and matched_parts:
+            self._save_intermediate(_cat(matched_parts), '10_matched_result', fmt='parquet')
+
+        return (_cat(parts['rm']), _cat(parts['rf']), _cat(parts['rms']),
+                _cat(parts['wm']), _cat(parts['wf']))
+
     # =========================================================================
     # STEP 12: REMAINING RBD DISTRIBUTION
     # =========================================================================
+
+    def _zero_remaining_rows_for_missing_keys(self, matched_keys, present_keys,
+                                              pivot_ndo_cols):
+        """
+        Build all-zero remaining-RBD rows for FLOWN matched flights that have no
+        rows in remaining_pivot (i.e. they booked zero non-required-RBD pax).
+
+        A matched Key looks like 'Sector_YYYY-MM-DD_FlightNumber'. A key is
+        re-injected only when:
+          * it is not already present in remaining_pivot (present_keys), AND
+          * its historical departure date is < current_date (flown).
+        Future matches are intentionally left out — they have incomplete curves.
+
+        Returns a DataFrame mirroring remaining_pivot's schema (index cols + NDO
+        value cols set to 0), or None when there is nothing to add.
+        """
+        missing = [k for k in matched_keys if k not in present_keys]
+        if not missing:
+            return None
+
+        recs = []
+        for k in missing:
+            # Split from the right so sectors containing underscores are safe.
+            parts = k.rsplit('_', 2)
+            if len(parts) != 3:
+                continue
+            sector, dd_str, flight_no = parts
+            dd = pd.to_datetime(dd_str, errors='coerce')
+            if pd.isna(dd) or dd >= self.current_date:
+                # Skip unparseable keys and future flights (not flown history).
+                continue
+            # Match remaining_pivot's int64 FlightNumber when the token is numeric.
+            fn = int(flight_no) if flight_no.isdigit() else flight_no
+            recs.append({'Sector': sector, 'DepartureDate': dd,
+                         'DOW': dd.day_name(), 'FlightNumber': fn,
+                         'STD': None, 'Key': k})
+        if not recs:
+            return None
+
+        zero_df = pd.DataFrame(recs)
+        # All NDO columns are zero (this flight picked up no remaining-RBD pax).
+        for c in pivot_ndo_cols:
+            zero_df[c] = 0
+        return zero_df
 
     def _distribute_remaining_rbd(self, future_df, pivot_ndo, flight_matches,
                                 result_merged_df, result_final_df,
@@ -1429,6 +1557,18 @@ class AdditivePickupModelProcessor:
         # have incomplete booking data and would understate the remaining pax).
         remaining_pivot = remaining_pivot[remaining_pivot['DepartureDate'] < self.current_date]
 
+        # A FLOWN matched flight that booked ZERO remaining-RBD pax has no rows in
+        # remaining_df, so it never appears in remaining_pivot and would silently
+        # drop out of the average. That is real evidence of low remaining demand and
+        # must be kept: we re-inject such flights below as all-zero rows (remaining_raw
+        # = 0) carrying their true departure date so their recency weight is correct.
+        # Set of flown keys we DO have remaining data for (used to detect the gaps):
+        present_keys = set(remaining_pivot['Key'])
+        # NDO value columns currently on the pivot (fill these with 0 for zero rows).
+        pivot_ndo_cols = [c for c in remaining_pivot.columns
+                          if c not in ('Sector', 'DepartureDate', 'DOW',
+                                       'FlightNumber', 'STD', 'Key')]
+
         # Mirror _build_matched_result's merge-column handling: DOW is dropped from
         # the historical side there (it was applied as a preference during Step 9,
         # so re-merging on it would over-restrict). Drop the SAME columns here so
@@ -1442,9 +1582,21 @@ class AdditivePickupModelProcessor:
             if not matched_keys:
                 continue
             future_sub = future_df[future_df['Key'] == key]
+            if future_sub.empty:
+                continue
             hist_sub = remaining_pivot[remaining_pivot['Key'].isin(matched_keys)].drop(
                 columns=DROP_FOR_MERGE, errors='ignore')
-            if future_sub.empty or hist_sub.empty:
+
+            # Re-inject FLOWN matched flights that had zero remaining-RBD pax (and so
+            # are absent from remaining_pivot) as all-zero rows. Only flown keys
+            # (hist departure < current_date) are added — future matches stay excluded.
+            zero_rows = self._zero_remaining_rows_for_missing_keys(
+                matched_keys, present_keys, pivot_ndo_cols)
+            if zero_rows is not None and not zero_rows.empty:
+                zero_rows = zero_rows.drop(columns=DROP_FOR_MERGE, errors='ignore')
+                hist_sub = pd.concat([hist_sub, zero_rows], ignore_index=True)
+
+            if hist_sub.empty:
                 continue
             # Donor fallback: relabel matched donor rows to the dependent Sector
             # for THIS future key so the Sector-level join aligns.
@@ -1465,11 +1617,21 @@ class AdditivePickupModelProcessor:
             remaining_pax['DepartureDate_future'] - self.current_date
         ).dt.days
 
-        # Compute recency weights (same alpha-decay as the weighted prediction branch)
+        # Compute recency weights (same rule as the weighted prediction branch):
+        # flown (SD >= DD) -> WEIGHT_ALPHA^(SD - DD); future/unflown (SD < DD) ->
+        # WEIGHT_ALPHA_FUTURE^(DD - SD) (0 by default). remaining_pivot is already
+        # flown-only here, so the future branch is currently inert, but the rule is
+        # kept identical across all branches.
         hist_dd = pd.to_datetime(remaining_pax['DepartureDate_hist'])
         delta_days = (self.current_date - hist_dd).dt.days
-        x = delta_days.where(delta_days >= 0, self.constants_utils.WEIGHT_FUTURE_X)
-        remaining_pax['_weight'] = (self.constants_utils.WEIGHT_ALPHA ** x).fillna(0.0)
+        _alpha = self.constants_utils.WEIGHT_ALPHA
+        _alpha_future = self.constants_utils.WEIGHT_ALPHA_FUTURE
+        x_flown = delta_days.where(delta_days >= 0, 0)
+        x_future = (-delta_days).where(delta_days < 0, 0)
+        remaining_pax['_weight'] = np.where(
+            delta_days.to_numpy() >= 0,
+            (_alpha ** x_flown).fillna(0.0).to_numpy(dtype=float),
+            (_alpha_future ** x_future).fillna(0.0).to_numpy(dtype=float))
 
         remaining_pax.fillna(0, inplace=True)
 
@@ -1492,6 +1654,17 @@ class AdditivePickupModelProcessor:
         # Weighted mean of remaining pax (recency-weighted, same as main prediction)
         remaining_pax['_w_raw'] = remaining_pax['remaining_raw'] * remaining_pax['_weight']
         group_keys = ['Sector', 'DepartureDate_future', 'STD_future', 'FlightNumber_future']
+
+        # TEST-only: per matched-row remaining-RBD breakdown — for each future
+        # flight x matched historical flight, the remaining pax it contributed
+        # (remaining_raw, closed to NDO <= future_flight_NDO) and its weight.
+        if self.mode == 'TEST':
+            dbg_cols = [c for c in [
+                'Sector', 'DepartureDate_future', 'STD_future', 'FlightNumber_future',
+                'DepartureDate_hist', 'FlightNumber_hist', 'future_flight_NDO',
+                '_weight', 'remaining_raw'] if c in remaining_pax.columns]
+            dbg = remaining_pax[dbg_cols].rename(columns={'_weight': 'Weight'})
+            self._save_intermediate(dbg, f'12_remaining_matched_rows_{count_col}', fmt='csv')
         agg = remaining_pax.groupby(group_keys).agg(
             w_sum=('_w_raw', 'sum'),
             w_total=('_weight', 'sum')
@@ -1735,10 +1908,16 @@ class AdditivePickupModelProcessor:
 
         Matches the raw notebook logic: each matched flight's current bookings =
         SUM of its raw 'Pax Count' where NDO_future < NDO (closed window, n exclusive),
-        taken from the UNCAPPED historical bookings (hist_raw_df, NDO up to 365) and
         merged on FLIGHT IDENTITY (all fare buckets) — not the 0..180 fare-bucket
         pivot. Average = mean across matched flights; weighted average uses the same
         weight w = alpha^x, x = SD - DD_hist as the weighted prediction.
+
+        Booking source is the UNION of flown history (hist_raw_df) and forward
+        bookings (forward_raw_df). The notebook kept future bookings inside
+        hist_raw_df; the flight-matching split later separated them, so both are
+        re-unioned here. This lets an UNFLOWN matched flight contribute its real,
+        NDO-aligned bookings (its count where NDO_future < NDO) instead of a fake
+        zero — the closed-window rule is identical for flown and unflown matches.
         """
         empty = pd.DataFrame(columns=['Sector', 'DepartureDate_future', 'FlightNumber_future',
                                       'Matched_Current_Bookings',
@@ -1751,13 +1930,43 @@ class AdditivePickupModelProcessor:
         pairs = result_df.drop_duplicates(pair_keys)[pair_keys].copy()
         pairs['NDO_future'] = (pd.to_datetime(pairs['DepartureDate_future'])
                                - self.current_date).dt.days
-        x = (self.current_date - pd.to_datetime(pairs['DepartureDate_hist'])).dt.days
-        x = x.where(x >= 0, self.constants_utils.WEIGHT_FUTURE_X)
-        pairs['Weight'] = (self.constants_utils.WEIGHT_ALPHA ** x).fillna(0.0)
+        _delta = (self.current_date - pd.to_datetime(pairs['DepartureDate_hist'])).dt.days
+        # flown (SD >= DD): w = WEIGHT_ALPHA^(SD - DD).
+        # future/unflown (SD < DD): w = WEIGHT_ALPHA_FUTURE^(DD - SD) (0 by default).
+        _alpha = self.constants_utils.WEIGHT_ALPHA
+        _alpha_future = self.constants_utils.WEIGHT_ALPHA_FUTURE
+        _x_flown = _delta.where(_delta >= 0, 0)
+        _x_future = (-_delta).where(_delta < 0, 0)
+        pairs['Weight'] = np.where(
+            _delta.to_numpy() >= 0,
+            (_alpha ** _x_flown).fillna(0.0).to_numpy(dtype=float),
+            (_alpha_future ** _x_future).fillna(0.0).to_numpy(dtype=float))
 
-        # raw historical bookings (uncapped NDO), keyed on the matched flight identity
-        hist = self.cache.data['hist_raw_df'][
-            ['Sector', 'DepartureDate', 'FlightNumber', 'NDO', 'Pax Count']].copy()
+        # Booking source = FLOWN history (hist_raw_df) UNION FORWARD bookings
+        # (forward_raw_df). The flight-matching split moved future flights out of
+        # hist_raw_df into forward_raw_df; without the forward side, unflown
+        # matched flights would resolve to booked=0 (fake zeros) and drag the
+        # weighted average down. Both carry per-NDO 'Pax Count', so the SAME
+        # closed-window rule (NDO_future < NDO) applies uniformly to flown and
+        # unflown matches — the unflown flight then contributes its real, NDO-
+        # aligned bookings (what it had by the equivalent days-out point), not its
+        # raw as-of-snapshot total.
+        _src_cols = ['Sector', 'DepartureDate', 'FlightNumber', 'NDO', 'Pax Count']
+        _hist_raw = self.cache.data.get('hist_raw_df')
+        _fwd_raw = self.cache.data.get('forward_raw_df')
+        _frames = []
+        if _hist_raw is not None and not _hist_raw.empty:
+            _frames.append(_hist_raw[_src_cols])
+        if _fwd_raw is not None and not _fwd_raw.empty:
+            # forward rows include schedule rows with no booking (PNR null); keep
+            # only actual bookings so a null-PNR row doesn't inject phantom pax.
+            _fwd = _fwd_raw
+            if 'PNR' in _fwd.columns:
+                _fwd = _fwd[_fwd['PNR'].notna()]
+            _frames.append(_fwd[_src_cols])
+        if not _frames:
+            return empty
+        hist = pd.concat(_frames, ignore_index=True).copy()
         hist = hist.rename(columns={'DepartureDate': 'DepartureDate_hist',
                                     'FlightNumber': 'FlightNumber_hist'})
         hist['FlightNumber_hist'] = pd.to_numeric(hist['FlightNumber_hist'], errors='coerce')
@@ -1823,9 +2032,18 @@ class AdditivePickupModelProcessor:
         hist_dd = pd.to_datetime(result_df['DepartureDate_hist'])
         delta_days = (self.current_date - hist_dd).dt.days          # SD - DD
 
-        # SD >= DD -> x = (SD - DD) ; SD < DD -> x = 1
-        x = delta_days.where(delta_days >= 0, self.constants_utils.WEIGHT_FUTURE_X)
-        w = (alpha ** x).fillna(0.0).to_numpy(dtype=float)          # (n_rows,)
+        # SD >= DD (flown)          -> w = WEIGHT_ALPHA        ^ (SD - DD)
+        # SD <  DD (future/unflown) -> w = WEIGHT_ALPHA_FUTURE ^ (DD - SD)
+        # WEIGHT_ALPHA_FUTURE defaults to 0 (unflown matches excluded); set it to
+        # WEIGHT_ALPHA (0.99) to restore the original decayed future weight.
+        alpha_future = self.constants_utils.WEIGHT_ALPHA_FUTURE
+        dd_np = delta_days.to_numpy(dtype=float)
+        x_flown = delta_days.where(delta_days >= 0, 0)
+        x_future = (-delta_days).where(delta_days < 0, 0)
+        w = np.where(
+            dd_np >= 0,
+            (alpha ** x_flown).fillna(0.0).to_numpy(dtype=float),
+            (alpha_future ** x_future).fillna(0.0).to_numpy(dtype=float))   # (n_rows,)
 
         # ---- Group codes, computed ONCE -----------------------------------------
 
@@ -2062,6 +2280,20 @@ class AdditivePickupModelProcessor:
                     logger.error(f"  {sector} FAILED after {dt}s: {e}")
                     logger.error(traceback.format_exc())
                 finally:
+                    # Record future flights that matched at NO ladder level. Always
+                    # store the exact count; cap the stored keys so a data-starved
+                    # sector can't bloat the (single, all-sector) audit document.
+                    unmatched = list(getattr(self, '_unmatched_keys', []) or [])
+                    cap = getattr(self.constants_utils, 'AUDIT_UNMATCHED_KEYS_CAP', 500)
+                    stat = sector_stats.get(sector, {})
+                    stat['unmatched_count'] = len(unmatched)
+                    stat['unmatched_keys'] = (unmatched if (not cap or len(unmatched) <= cap)
+                                              else unmatched[:cap])
+                    if len(unmatched) > 0:
+                        logger.info(f"  {sector}: {len(unmatched)} future flight(s) "
+                                    f"unmatched at all levels"
+                                    + (f" (storing first {cap})" if cap and len(unmatched) > cap else ""))
+                    sector_stats[sector] = stat
                     self.mongo_helper.audit_upsert_sector(sector, sector_stats[sector])
                     self.cache.reset_batch()
 
@@ -2132,6 +2364,10 @@ class AdditivePickupModelProcessor:
         # Per-batch: future keys matched via donor fallback (set in Step 9). Reset
         # so a prior sector's donor wins never leak into this batch's merges.
         self._donor_won = {}
+        # Per-batch: future flight keys that failed EVERY match ladder level
+        # (set in Step 9, surfaced to the audit by run()). Reset so an early
+        # return (e.g. no history) leaves an empty list, not a stale one.
+        self._unmatched_keys = []
 
         t_fetch_start = _time.perf_counter()
 
@@ -2221,21 +2457,21 @@ class AdditivePickupModelProcessor:
                           for k, v in flight_matches.items()]),
             '09_flight_matches_summary')
 
-        # --- Step 10: Build matched result ---
-        result_df = self._build_matched_result(future_df_expanded, pivot_ndo, flight_matches)
-        if result_df.empty:
+        # --- Steps 10+11: Build matched result + predictions (chunked, memory-safe) ---
+        # Processed in chunks of future keys so the exploded (future x buckets x
+        # matches x 181 NDO) frame is never fully materialized. Output is identical
+        # to the all-at-once path because every reduction groups by future-flight
+        # identity — no match is dropped.
+        (result_merged_df, result_final_df, _,
+         weighted_merged_df, weighted_final_df) = self._build_and_predict_chunked(
+            future_df_expanded, pivot_ndo, flight_matches)
+        if result_merged_df.empty:
             logger.warning(f"No matched results for {sectors} — batch produced no output.")
             return
-        self._save_intermediate(result_df, '10_matched_result', fmt='parquet')
-
-        # --- Step 11: Predictions (normal + weighted) ---
-        (result_merged_df, result_final_df, _,
-         weighted_merged_df, weighted_final_df) = self._calculate_predictions(result_df)
         self._save_intermediate(result_merged_df, '11a_pred_fare_bucket_normal')
         self._save_intermediate(weighted_merged_df, '11b_pred_fare_bucket_weighted')
         self._save_intermediate(result_final_df, '11c_pred_flight_normal')
         self._save_intermediate(weighted_final_df, '11d_pred_flight_weighted')
-        del result_df
 
         # --- Step 12: Remaining RBD distribution ---
         (result_merged_df, result_final_df) = self._distribute_remaining_rbd(
