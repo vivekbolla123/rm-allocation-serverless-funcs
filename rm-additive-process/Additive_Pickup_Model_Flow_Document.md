@@ -74,6 +74,32 @@ The forecast math (Steps 1–15) is identical to the previous single-job version
 
 The shared `lambda_function.py` handler routes a nested `overrides` key wholesale even for SQS events, so no handler change is needed beyond registering `additive_process` in `module_map`.
 
+Each SQS message carries **one sector** (SQS batch size 5, concurrency 60). Messages are processed **independently** in the handler — a per-message failure redelivers only that message.
+
+**Mapped sectors (N:1 fallback donor — own-data-first).** Many thin/no-history sectors may map to a single donor (e.g. `NMIDEL, NMIBLR, JAIBLR → BOMDEL`, configured in `qp_rm_master.config_additive_mapped_sectors`). The flow is two-phase and rides the same 1-sector-per-message queue:
+
+1. **Prefetch** dispatches the **donor** as a normal message, tagging it with the dependent list. Dependents are **not** dispatched here.
+   ```json
+   {"modules": {"additive_process": 1},
+    "overrides": {"sectors": ["BOMDEL"],
+                  "dependent_sectors": ["NMIDEL", "NMIBLR", "JAIBLR"],
+                  "run_id": "…", "sectors_expected": 48, "mode": "PROD"}}
+   ```
+2. **The donor caches its history, then fans out immediately.** As soon as the donor finishes **Step 2** (its history is written to the warm cache), the worker **enqueues each dependent** as its own 1-sector message carrying `mapped_sector`. Crucially this happens **before** the donor runs Steps 3–15, so dependents execute **in parallel** with the donor's own processing rather than waiting for it to finish (`_enqueue_dependents_after_cache`, one-shot per invocation via the `_deps_enqueued` guard):
+   ```json
+   {"modules": {"additive_process": 1},
+    "overrides": {"sectors": ["JAIBLR"], "mapped_sector": "BOMDEL", "run_id": "…", "mode": "PROD"}}
+   ```
+3. **Each dependent runs** on its own invocation. It fetches its own (possibly thin) history **plus** the donor's, but the donor's history is **NOT relabelled** — it keeps its own `Sector` label through tagging and matching. This is the **own-data-first** contract:
+   - **Own history is tried first.** The dependent walks all 7 own-sector tagging levels and all own-sector flight-matching levels against **its own** flown history. If it clears the `MIN_FLIGHT_MATCHES` threshold, the donor is **never consulted** and the output is identical to a standalone run of that sector.
+   - **Donor is a fallback only.** Only when all 7 own levels fail to reach the threshold does the dependent fall to the donor's tagging levels (8–14) and the donor's flight-matching ladder.
+   - **Relabel happens at merge time, per winning key only.** When the donor wins a match for a given future flight, exactly those matched donor rows are relabelled to the dependent `Sector` right before the Step 10 / Step 12 joins (tracked in `self._donor_won = {future_key: (donor, dependent)}`). So join keys line up without erasing provenance for the own-data path.
+   - **Donor history is bucketed with the dependent's fare buckets** (Step 6 / Step 7) so it can be pooled and matched, but it stays labelled `Sector=donor` until a merge-time relabel. The donor's **future** flights are stripped (`_restrict_future_frames_to`) so no donor output leaks.
+
+   **Fail-fast:** a dependent with **no QP fares** to build fare buckets is failed directly (cannot forecast without its own buckets); a message that declares `mapped_sector` but resolves **no donor** is failed directly (mapping is required, no silent standalone fallback).
+
+`sectors_expected` counts donors + plain + **dependents** (dependents produce output and write their own audit stat), so the run's `audit_finalize` only closes once every dependent has also completed. Excluding mapped sectors, normal sectors behave exactly as before — and a data-rich mapped sector now also behaves exactly like a standalone run, because the donor is only reached on genuine own-data starvation.
+
 ---
 
 ## Code Structure (Process Lambda)
@@ -106,6 +132,23 @@ self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger).bind_context(self.c
 self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger).bind_context(self.cache, self.mode)
 self.mongo_helper.set_run(run_id, sectors_expected, analyst, batch_index, snapshot_date)
 ```
+
+### Tunable Constants
+
+The model's logic constants live in `Constants.py` and are mirrored into `ConstantsUtils` (`constants_utils.py`), which also exposes DB overrides via `rm_parameter_values` (all DB parameter values are strings, so each is cast on read). The structural sets (`NDO_RANGE`, `REQUIRED_RBDS`, `FARE_BUCKET_RBDS`) are static; the following are the calculation constants intended for tuning:
+
+| Constant | Default | Cast | Used in |
+|----------|:-------:|:----:|---------|
+| `MIN_FLIGHT_MATCHES` | 13 | `int` | Step 9 — flown-pool match threshold |
+| `MAX_FLIGHT_MATCHES` | 60 | `int` | Step 9 — cap on matches kept per future flight (closest-STD, then most-recent); bounds the Step 10 explosion. `0` disables the cap |
+| `WEIGHT_ALPHA` | 0.99 | `float` | Steps 11/12 — recency decay |
+| `WEIGHT_FUTURE_X` | 1 | `int` | Steps 11/12 — weight exponent for not-yet-departed history |
+| `GP_FARE_BUCKET_POINTS` | 19 | `int` | Step 1 — GP boundary points (upper bound on bucket count) |
+| `FARE_BUCKET_LOWER_FACTOR` | 0.8 | `float` | Step 6 — lowest bucket's lower-bound scale |
+| `FUTURE_TAG_MIN_ENTRIES` | 12 | `int` | Step 5 — min rows for a tagging level to be usable |
+| `TIME_BAND_HOURS` | 2 | `int` | Step 9 — STD band on the DOW-Tagging ladder level |
+| `PREDICTION_HORIZON_DAYS` | 180 | `int` | Step 8 — forecast horizon |
+| `PARQUET_ROW_THRESHOLD` | 250000 | `int` | storage chunking |
 
 ---
 
@@ -230,10 +273,10 @@ Computes sector-level fare buckets dynamically from airline fare components usin
 2. For each sector:
    - Get sorted unique fare values (TOTAL column)
    - G1 = min fare, G19 = max fare
-   - Compute common ratio: `R = (G19/G1)^(1/18)`
-   - Generate 19 GP values: `G_i = G1 × R^(i-1)`
-   - Match each GP value to closest actual fare component (deduplicate consecutive matches)
-   - Form 19 buckets: 18 consecutive ranges + 1 open-ended
+   - Compute common ratio: `R = (G19/G1)^(1/(N-1))` where `N = GP_FARE_BUCKET_POINTS` (default **19**)
+   - Generate `N` GP values: `G_i = G1 × R^(i-1)`
+   - Match each GP value to closest actual fare component (**deduplicate consecutive matches**)
+   - Form buckets: consecutive ranges + 1 open-ended top bucket
 
 **Example DataFrame (`farebasis_df`) for sector BOMAMD:**
 
@@ -247,7 +290,7 @@ Computes sector-level fare buckets dynamically from airline fare components usin
 | BOMAMD | 21685-25088 |
 | BOMAMD | 25088+ |
 
-**Total: 19 fare buckets per sector** (18 lower-upper ranges + 1 open-ended)
+**Up to 19 fare buckets per sector** (18 lower-upper ranges + 1 open-ended). The count is an **upper bound**, not fixed: because consecutive GP points that map to the **same** actual fare are de-duplicated, a sector whose real fares are **clustered** ends with **fewer** buckets (e.g. BOMDEL collapses to 16). Each sector's bucket set is computed **independently from its own fares** — so a donor's bucket count never changes a dependent's, since the dependent uses its own QP fares for its own buckets.
 
 ---
 
@@ -425,7 +468,7 @@ Same structure as Flown Data but from `BOOKEDDATAPAX` for departures today to +1
 Sorted tags: `[Shoulder, Shoulder, Lean, Lean, Lean]`  
 Middle index: `(5-1)//2 = 2` → picks `Lean`
 
-**Output (`mid_time_cluster_tagging`):**
+**Output (level `q_dow_tc` — the finest of the 7 frames):**
 
 | Sector | DOW | Quarter | Time Cluster | Tagging |
 |--------|-----|---------|--------------|---------|
@@ -433,11 +476,21 @@ Middle index: `(5-1)//2 = 2` → picks `Lean`
 | BOMDEL | Monday | AMJ | 14:30-18:00 | Shoulder |
 | BOMDEL | Tuesday | OND | 7:30-11:00 | Peak |
 
-**Fallback (`mid_tagging`):** Same but without Time Cluster (used when TC-level match not found):
+**Fallback ladder (7 own-sector levels, + 7 donor levels = 14).** `_compute_future_tagging` now returns a **dict of 7** progressively coarser 50th-percentile frames (`_future_tag_levels`), and `_fill_nan_tagging` applies them in order until every future flight has a tag. Each level drops any group with fewer than **`FUTURE_TAG_MIN_ENTRIES` (12)** rows, so a sparsely-supported fine group falls through to a better-supported coarser level rather than producing a low-confidence tag.
 
-| Sector | DOW | Quarter | Tagging |
-|--------|-----|---------|---------|
-| BOMDEL | Monday | AMJ | Shoulder |
+Own-sector levels (1–7), coarsest last:
+
+| # | Level key | Grouping keys | Example |
+|---|-----------|---------------|---------|
+| 1 | `q_dow_tc` | Sector, Quarter, DOW, Time Cluster | (BOMDEL, AMJ, Monday, 7:30-11:00) → Lean |
+| 2 | `q_dow`    | Sector, Quarter, DOW | (BOMDEL, AMJ, Monday) → Shoulder |
+| 3 | `q_tc`     | Sector, Quarter, Time Cluster | (BOMDEL, AMJ, 7:30-11:00) → Shoulder |
+| 4 | `q`        | Sector, Quarter | (BOMDEL, AMJ) → Shoulder |
+| 5 | `dow_tc`   | Sector, DOW, Time Cluster | (BOMDEL, Monday, 7:30-11:00) → Shoulder |
+| 6 | `dow`      | Sector, DOW | (BOMDEL, Monday) → Shoulder |
+| 7 | `sector`   | Sector | (BOMDEL) → Shoulder |
+
+**Mapped-sector levels (8–14).** Only for a dependent (mapped) sector whose own 7 levels still leave NaNs: `_fill_nan_tagging` maps the dependent's `Sector` to its donor (`_MP_Sector`) and re-applies the **same 7 grouping shapes** against the donor's tagging frames. A normal sector never enters this branch (`if self.mapped_sectors and df['Tagging'].isna().any()`). This is the tagging half of the **own-data-first** contract: the donor's tags are used only after the dependent's own tags are exhausted.
 
 ---
 
@@ -451,7 +504,8 @@ Middle index: `(5-1)//2 = 2` → picks `Lean`
 2. Filter: `Pax Count > 0` (removes SOL-only rows)
 3. Calculate `AvgFare = Fare / Pax Count`
 4. For each row, find the fare bucket where `Lower ≤ AvgFare < Upper`
-5. First fare bucket allows 80% of lower bound (per BRD)
+5. Lowest fare bucket's lower bound is scaled by `FARE_BUCKET_LOWER_FACTOR` (default **0.8**, i.e. −20%) to catch near-boundary fares (per BRD)
+6. **Donor rows (mapped sectors):** a donor history row (`Sector=donor`) has no buckets of its own, so it is bucketed using the **dependent's** ranges (via the inverted `{donor: dependent}` map). The row keeps `Sector=donor`; only its `FareBasis` comes from the dependent's ladder, so it can be pooled and matched while provenance is preserved until a merge-time relabel.
 
 **Example: Sector BOMAMD, AvgFare = 3500**
 
@@ -527,26 +581,33 @@ Fare buckets: `[1620-1911, 1911-2145, ..., 3000-4000, 4000-5000, ...]`
 
 **Purpose:** For each future flight, find historically similar flights to use as the basis for predicting additional bookings.
 
-**Matching Criteria:**
-1. Same Sector
-2. Same Day of Week (DOW)
-3. Same Tagging (Lean/Shoulder/Peak/Super Peak)
-4. Historical departure date < future departure date (only past flights)
-5. STD within ±2 hours (expands to ±4, ±6, ±8, ±12 if < 15 matches found)
+**Flown vs unflown split.** The historical pool is split **once** into `flown` (`DepartureDate < current_date`, complete NDO curves) and `unflown` (`DepartureDate >= current_date`, incomplete forward curves). The `MIN_FLIGHT_MATCHES` threshold is evaluated **only against the flown pool** — this is what decides the winning group. The `unflown` pool is never counted toward the minimum.
 
-**Minimum matches required:** 15
+**The winning group is chosen from FLOWN, then applied to BOTH pools.** Once a group definition clears the flown threshold, that **same** group (sector, tag-set, DOW, time-band) is applied to both the flown and unflown pools **with no minimum**, and the two key-lists are concatenated. So future flights inherit the historical winner's group without themselves needing to satisfy the threshold.
+
+**Matching ladder (own-sector, in order).** For each future flight, `_ladder` yields group definitions coarsest-last; the first to clear `MIN_FLIGHT_MATCHES` on the flown pool wins:
+1. Sector + DOW + Tagging within **±`TIME_BAND_HOURS` (2h)** of STD
+2. Sector + Tagging (any DOW, any STD)
+3. Sector + **±1 tagging window** (any DOW/STD), then ±2, ±3 … until the window covers every tag
+4. Sector + **all taggings** (final own-sector fallback)
+
+**Minimum matches required:** 13 (`MIN_FLIGHT_MATCHES`), on the flown pool only.
+
+**Mapped-sector (donor) ladder.** If **all** own-sector levels fail to reach the threshold **and** the sector has a donor, matching falls to the donor with a shorter ladder — Sector(donor) + DOW + Tagging (±2h), then Sector(donor) + Tagging. When the donor wins, the future key is recorded in `self._donor_won` so Steps 10/12 relabel exactly those donor rows to the dependent at merge time. A normal sector never enters this branch (`donor is None`).
+
+**Skipped flights.** If neither the own-sector ladder nor (if applicable) the donor ladder reaches the threshold, the flight is **skipped** (absent from `flight_matches`) — no low-confidence prediction.
+
+STD time-band uses a midnight-wrap-safe distance (`diff > 720 → 1440 − diff`).
 
 **Example:**
 
 Future flight: `BOMDEL_2026-08-15_1234` (Saturday, Shoulder, STD 08:20)
 
-Search in historical data:
-- Sector = BOMDEL ✓
-- DOW = Saturday ✓
-- Tagging = Shoulder ✓
-- STD within ±2 hours of 08:20 → [06:20, 10:20]
+Ladder walk on the **flown** pool:
+- Level 1: Sector = BOMDEL, DOW = Saturday, Tagging = Shoulder, STD within ±2h of 08:20 → [06:20, 10:20] → **18 flown matches ≥ 13 → wins here**.
+- The winning group is then also applied to the `unflown` pool (no minimum); flown + unflown keys are concatenated and stored.
 
-Found 18 matches within ±2h → stored.
+If Level 1 had returned < 13 flown, the walk would continue (drop DOW, then widen the tagging window, then all-tags), and only after all own-sector levels fail would a donor (if configured) be tried.
 
 **Output (`flight_matches` dict):**
 
@@ -554,7 +615,7 @@ Found 18 matches within ±2h → stored.
 {
     'BOMDEL_2026-08-15_1234': ['BOMDEL_2025-08-09_1234', 'BOMDEL_2025-08-02_1234', 
                                 'BOMDEL_2025-07-26_1234', ...],  # 18 keys
-    'BOMDEL_2026-08-16_1234': ['BOMDEL_2025-08-10_1234', ...],  # 15+ keys
+    'BOMDEL_2026-08-16_1234': ['BOMDEL_2025-08-10_1234', ...],  # 13+ keys
 }
 ```
 
@@ -564,7 +625,7 @@ Found 18 matches within ±2h → stored.
 |-----------|------------|
 | BOMDEL_2026-08-15_1234 | 18 |
 | BOMDEL_2026-08-16_1234 | 22 |
-| DELBOM_2026-08-15_5678 | 15 |
+| DELBOM_2026-08-15_5678 | 14 |
 
 ---
 
@@ -576,8 +637,9 @@ Found 18 matches within ±2h → stored.
 
 1. For each `future_key` → get list of `matched_hist_keys`
 2. Get future flight's expanded rows (per fare bucket)
-3. Get historical flights' pivot_ndo rows for matched keys
-4. Merge on: Sector, DOW, Tagging, FareBasis
+3. Get historical flights' pivot_ndo rows for matched keys (DOW dropped from the frame)
+4. Merge on: **Sector, Tagging, FareBasis** (DOW is *not* a merge key — it was already applied as a preference during matching in Step 9, so forcing it again here would over-restrict and produce noisy single-flight joins)
+5. **Donor fallback relabel (mapped sectors only).** If this future key was won by its donor (`self._donor_won`), the matched historical rows carry `Sector=donor`; they are relabelled to the dependent `Sector` for that key only, immediately before the merge, so the `Sector` join aligns. Keys won on the dependent's own history are untouched.
 
 **Example:**
 
@@ -591,6 +653,16 @@ Matched historical: 18 flights → each contributes its NDO row for FareBasis `3
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-08-09 | 1234 | 3 | 2 | 1 | ... | 0 |
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-08-02 | 1234 | 2 | 1 | 3 | ... | 0 |
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-07-26 | 1234 | 4 | 3 | 2 | ... | 0 |
+
+> **Memory note (chunked execution).** Steps 10 and 11 are fused and run in
+> chunks of `PREDICT_CHUNK_KEYS` future-flight keys at a time (`_build_and_predict_chunked`).
+> The exploded matched frame (future × buckets × matches × 181 NDO cols) is only
+> ever held for one chunk before it is reduced to the per-bucket prediction rows.
+> Every Step-11 reduction groups by the full future-flight identity, so keys never
+> interact across chunks — the concatenated result is **numerically identical** to
+> processing all keys at once, and **no match is excluded**. This is purely a
+> memory bound (the earlier all-at-once path OOM'd once coarse ladder levels
+> pulled in whole-sector match sets).
 
 ---
 
@@ -649,9 +721,15 @@ predicted_pax_std = sqrt( Σ std(NDO_i)² for i = 0 to N )
 
 1. Filter `remaining_df` to only non-required RBDs
 2. Pivot remaining data by NDO (same structure, no fare bucket dimension)
-3. For each future flight, find matched historical flights (same `flight_matches` dict)
-4. Sum remaining pax for NDOs ≤ future_flight_NDO → mean across matches
-5. Distribute proportionally across fare buckets:
+3. Keep **flown flights only** (`DepartureDate < current_date`) — future flights have incomplete curves and would understate the remaining pax
+4. For each future flight, gather the matched historical flights (same `flight_matches` dict), joining on **Sector only** (DOW dropped — matching on DOW here left as few as one flight and produced noisy single-flight estimates)
+5. Sum remaining pax for NDOs ≤ future_flight_NDO per matched flight, then take the **recency-weighted mean** across matches using the same decay as Step 11 (`weight = 0.99 ^ x`, `x = current_date − DepartureDate_hist`, future-dated → `x = 1`):
+   ```
+   remaining_pax_count = Σ(weight × remaining_raw) / Σ(weight)
+   ```
+   > **Performance note.** The per-row NDO sum (`remaining_raw`) is **vectorised**: instead of a Python `apply(axis=1)` looping over 181 NDO columns per row, a `(1, n_ndo)` column-index vector is broadcast against the `(rows, 1)` NDO-limit column to build a mask, and the masked matrix is summed in NumPy/C. This is behaviour-preserving (identical output to the old loop) but replaces the main hotspot that made Step 12 slow on the exploded match frame — the step also runs twice (normal + weighted), so the exploded frame is large.
+   > **Donor fallback.** For a future flight matched via its donor (`_donor_won`), the matched donor rows carry `Sector=donor`; they are relabelled to the dependent `Sector` for that key just before the `Sector`-keyed join, mirroring Step 10.
+6. Distribute proportionally across fare buckets:
 
 ```
 FareBasis_Prediction_ratio = predicted_pax_count_bucket / Total_Predicted_pax_count_flight
@@ -771,21 +849,19 @@ from the **higher** bucket — the cheapest bucket gains, the top loses, still s
 
 ### Step 15: Save Results
 
+**Weighted-only storage.** The model computes both a normal-mean and a weighted-mean branch internally (the weighted branch reuses the normal frames through Steps 12–14), but **only the weighted outputs are persisted**. The normal-path CSVs, the per-frame `*_full_*.parquet` debug dumps, and the (always-`None`) `inventory_optimization` dataset are no longer written.
+
 **TEST mode outputs (CSV files in `additive_model_output/`):**
 
 | File | Content |
 |------|---------|
-| `flight_level_normal_*.csv` | Flight-level predictions (normal mean) |
 | `flight_level_weighted_*.csv` | Flight-level predictions (weighted mean) |
-| `fare_bucket_normal_*.csv` | Fare-bucket-level predictions (normal) |
-| `fare_bucket_weighted_*.csv` | Fare-bucket-level predictions (weighted) |
-| `inventory_optimization_*.csv` | Protection limits and AU per fare class *(only when EMSR-b is wired; currently not produced)* |
-| `*_full_*.csv` | Full DataFrames with all intermediate columns for debugging |
-| `intermediate_*.csv` | Per-step intermediate outputs |
+| `fare_bucket_weighted_*.csv` | Fare-bucket-level predictions (weighted mean) |
+| `intermediate_*.csv` / `.parquet` | Per-step intermediate outputs (still written for debugging) |
 
 **PROD mode outputs (S3 only — DW writes removed):**
-- Partitioned Parquet datasets in S3 under `{env}/additive_model/datasets/{dataset}/snapshot_date=YYYY-MM-DD/sector=XXX/data.parquet` for: `flight_level_normal`, `fare_bucket_normal`, `flight_level_weighted`, `fare_bucket_weighted` (and `inventory_optimization` **only** once EMSR-b is wired — `optimized_df` is `None` today).
-- The fare-bucket datasets carry the Step 13/14 columns `Demand_Multiplier`, `DAP`, `WTP_Factor`, `WTP_pax_count`; flight-level datasets carry `Demand_Multiplier`, `DAP`, `DAP_Total_Bookings`. The demand-adjusted, price-redistributed `WTP_pax_count` is the headline fare-bucket number.
+- Partitioned Parquet datasets in S3 under `{env}/additive_model/datasets/{dataset}/snapshot_date=YYYY-MM-DD/sector=XXX/data.parquet` for **only** `flight_level_weighted` and `fare_bucket_weighted`. These are the **full** frames (all columns incl. the pivoted NDO 0–180 curve).
+- The fare-bucket dataset carries the Step 13/14 columns `Demand_Multiplier`, `DAP`, `WTP_Factor`, `WTP_pax_count`; the flight-level dataset carries `Demand_Multiplier`, `DAP`, `DAP_Total_Bookings`. The demand-adjusted, price-redistributed `WTP_pax_count` is the headline fare-bucket number.
 - Each sector writes its own partition independently, so parallel `process` Lambdas never conflict.
 - Per-sector timing + run status written to `qp_dw_rmalloc.additive_model_run_audit` (see **Audit Lifecycle & Load Balancer**).
 
@@ -888,8 +964,8 @@ For fare class `j` (where class 1 is highest fare):
 | # | Edge Case | Handling |
 |---|-----------|----------|
 | 1 | New sector, no history | NaN tagging fails the boolean candidate mask; 0 candidates → flight skipped cleanly, no exception |
-| 2 | Fewer than 13 matches | Sector+DOW+Tagging → Sector+Tagging fallback → if still <13, flight is **skipped entirely** (no low-confidence prediction) |
-| 3 | Missing fare-bucket config | `_fetch_fare_buckets()` raises — job aborts rather than guessing prices |
+| 2 | Fewer than 13 flown matches | Own-sector ladder walks Sector+DOW+Tagging(±2h) → Sector+Tagging → ±N tag-window → all-tags (all on **FLOWN** only). For a mapped sector, a donor ladder is tried only after all own levels fail. If still < 13, flight is **skipped** |
+| 3 | Missing fare-bucket config | `_fetch_fare_buckets()` raises; **for a dependent** the batch also fails fast if it has no dependent-sector buckets — the sector fails cleanly (not the whole run) rather than guessing |
 | 4 | Completely new flight number | Matched on Sector/DOW/Tagging/time, not flight number — handled |
 | 5 | Single-sample time cluster | `Count = 1` → STD = NaN → Z = NaN → dropped from tagging |
 | 6 | Capacity change (aircraft swap) | `max` capacity per flight; RASK uses the flight's own capacity |
@@ -900,13 +976,27 @@ For fare class `j` (where class 1 is highest fare):
 | 11 | Zero-booking future flight | Kept via the flight universe taken before the NDO filter; Total Bookings = 0 |
 | 12 | M ≤ 1 in weighted std | NaN — dispersion not estimable from one observation |
 | 13 | Late cancellation (post-departure) | CDP-driven month refresh rewrites the affected month partition(s) — see Storage |
+| 14 | Not-yet-flown flight in match pool | The `unflown` pool never counts toward `MIN_FLIGHT_MATCHES` (threshold is flown-only); it only inherits the flown winner's group. Remaining-RBD (Step 12) filters to `DepartureDate < current_date` |
+| 15 | Fallback-tagged history in match pool | Excluded — only flights with a genuine Z-score (historical) tag join the candidate pool via the `_hist_tagged` flag; future-tagging-derived tags don't leak into matching |
+| 16 | Datetime/object dtype mismatch on merge keys | `_derive_future_flights` coerces `DepartureDate` to `datetime64` and `STD` (time objects) to string before the schedule↔bookings merge — pandas 1.x can silently change dtypes during `groupby(dropna=False)` |
+| 17 | Sparse future-tagging group (< 12 rows) | `FUTURE_TAG_MIN_ENTRIES` drops any level-group below the floor so the fill falls through to a coarser, better-supported level rather than emitting a low-confidence tag |
+| 18 | Data-rich mapped (dependent) sector | Own history clears the threshold at levels 1–7, so the donor is **never consulted** — output is identical to a standalone run. Donor is reached only on genuine own-data starvation |
+| 19 | Unflown matched flight in `Matched_Current_Bookings` | Its bookings live in `forward_raw_df`, not `hist_raw_df`. `_matched_current_bookings` reads the UNION of both so an unflown match contributes its real NDO-aligned bookings (closed window `NDO_future < NDO`), not a fake zero. Before this, the flight-matching split had left the metric reading flown-only, collapsing the weighted value near departure |
+| 19 | Dependent with no mapped donor | If a message declares `mapped_sector` but no donor resolves, the sector is **failed fast** — never silently run as a no-donor standalone |
+| 20 | Donor-won match, Sector join mismatch | Donor rows keep `Sector=donor` through matching; they are relabelled to the dependent **per winning key** just before the Step 10/12 `Sector` joins (`_donor_won`), so join keys align without erasing own-data provenance |
+| 21 | Donor fares in a different range than dependent buckets | Donor history is bucketed with the **dependent's** ranges (inverted `{donor: dependent}` map) in Steps 6/7, so a donor fare outside the dependent's outer bounds still lands in the nearest open/edge bucket rather than being dropped |
+| 22 | Donor fails after dependents already enqueued | Dependents are fanned out right after the donor **caches** (Step 2), before Steps 3–15. A later donor-processing failure does **not** un-enqueue dependents; each dependent runs on the already-warm cache independently. (Trade-off of the parallel fan-out: dependents no longer wait for full donor success.) |
+| 23 | Duplicate dependent fan-out on retry | `_enqueue_dependents_after_cache` is one-shot per invocation via `_deps_enqueued`; the post-loop call is idempotent, so an SQS redelivery of the donor message will re-enqueue (by design, since the first enqueue may not have been durably sent) but a single invocation never double-sends |
+| 24 | All GP points map to one fare | `_compute_gp_fare_buckets` returns a single open-ended `"{fare}+"` bucket when < 2 distinct matched fares remain after dedup — no crash, but the sector effectively has one bucket |
+| 25 | Empty remaining-RBD match set | If no future key has any matched remaining-RBD history, Step 12 returns the pre-distribution frames unchanged (`remaining_pax_count` defaults to 0) instead of erroring |
+| 26 | Weighted branch shares normal frames | Steps 12–14 run twice (normal + weighted); `_donor_won` is reset per **batch** (not per branch) so the same donor-relabel map correctly applies to both branches within a sector |
 
 ## Known Limitations
 
 | # | Limitation | Detail |
 |---|-----------|--------|
 | 1 | No demand unconstraining | Historical data is constrained (accepted bookings); sold-out low fares understate true demand |
-| 2 | O(N×M) flight matching | Vectorised on time, but still a full historical scan per future flight |
+| 2 | O(N×M) flight matching | Still a per-future-flight ladder walk over the flown pool; the remaining-RBD NDO sum is now vectorised (Step 12), removing the previous main hotspot |
 | 3 | Single global decay α = 0.99 | Not fitted per sector/season against realised bookings |
 | 4 | No day-of-year seasonality | DOW + Quarter + Tagging capture most of it; specific holidays are not modelled explicitly |
 | 5 | Coarse time bands | ~4.5h bands treat 07:31 and 10:59 as identical |
@@ -947,10 +1037,10 @@ sectors▼             ▼                    ▼
       │ ready  │  Step 6  Combine + fare-bucket assign          │
       └───────►│  Step 7  Pivot NDO (0-180)                     │
    (next run)  │  Step 8  Future flights + tagging              │
-               │  Step 9  Flight matching (±2h → ±12h)          │
-               │  Step 10 Matched result                        │
+               │  Step 9  Match: own ladder → donor fallback    │
+               │  Step 10 Matched result (donor relabel@merge)  │
                │  Step 11 Predictions (mean + weighted, α=0.99) │
-               │  Step 12 Remaining-RBD distribution            │
+               │  Step 12 Remaining-RBD (vectorised NDO sum)    │
                │  Step 13 Demand Multiplier (flight-level %)    │
                │  Step 14 WTP redistribution (price infl/defl)  │
                │  Step 15 Save                                  │
@@ -1051,15 +1141,13 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 | Lean/Peak Tagging (Step 4) | RASK computed only on actual departure days. Each DOW gets its own tag pool (only Tue, Thu, Fri have entries) |
 | Future Tagging (Step 5) | 50th percentile computed per DOW. Mon/Wed/Sat/Sun have NO tagging entries for DELIXB |
 | Future Flights (Step 8) | If a future DELIXB flight is scheduled on Tuesday → tagging found. If scheduled on Monday (unusual) → NaN tagging after both fallback passes |
-| Flight Matching (Step 9) | Matches on **DOW** first. A Tuesday future flight only looks for historical Tuesday flights. With ~52 Tuesdays in 365 days, after Tagging and STD filtering, typically 15-40 matches are found |
+| Flight Matching (Step 9) | Matches on **DOW** first, against FLOWN flights only. A Tuesday future flight only looks for departed Tuesday flights. With ~52 Tuesdays in 365 days, after Tagging and STD filtering, typically 13-40 matches are found (else the Sector+Tagging DOW-drop fallback applies) |
 | Predictions (Step 11) | Normal prediction proceeds. No degradation in quality for the operating days |
 
 **Key insight:** The DOW-based matching naturally handles irregular schedules. The model doesn't assume a flight operates daily — it only matches against days the flight actually flew.
 
-**Potential issue:** If a flight is newly extended to a day it never flew (e.g., DELIXB adds Saturday service), there will be zero historical Saturday matches for DELIXB. In this case:
-- The time window expands (±2h → ±4h → ±6h → ±8h → ±12h) but still finds nothing because there are NO Saturday DELIXB flights in history
-- Result: `matches_dict[key] = []` → no prediction for those Saturday flights
-- **Mitigation:** Over a few weeks, Saturday data accumulates in the cache and predictions begin
+**Potential issue:** If a flight is newly extended to a day it never flew (e.g., DELIXB adds Saturday service), the DOW level finds zero Saturday matches. The ladder then **drops DOW** (Sector+Tagging), widens the tagging window, and finally tries all-tags — so a Saturday flight can still match against other-DOW DELIXB flights of the same tag. Only if the whole own-sector ladder (and any donor ladder) stays under 13 flown matches is the flight skipped.
+- **Mitigation:** Over a few weeks, Saturday data accumulates in the cache and the finer DOW level starts winning.
 
 ---
 
@@ -1079,13 +1167,13 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 | Step 3c (Booked Data) | Forward bookings exist | ✓ Has booked data |
 | Step 3d (Future Flights) | flight_master has scheduled flights | ✓ Future flights with Total Bookings |
 | Step 4 (Historical Tagging) | No historical flights → no RASK → no tags | Empty for BLRCCU |
-| Step 5 (Future Tagging) | No historical tags to compute 50th percentile | `mid_time_cluster_tagging` has no BLRCCU rows |
+| Step 5 (Future Tagging) | No historical tags to compute 50th percentile | The 7 tagging-level frames have no BLRCCU rows (unless BLRCCU is mapped to a donor, whose levels 8–14 would supply tags) |
 | Step 6 (Combined Data) | Booked data contributes to combined_df | ✓ But only forward bookings (no flown) |
 | Step 7 (Pivot NDO) | Pivot includes booked data for BLRCCU | ✓ Has NDO values (from forward bookings) |
 | Step 7 (Tagging Merge) | Historical tagging merge → NaN | NaN |
 | Step 7 (Fill NaN) | Future tagging lookup → no BLRCCU entries → still NaN | **Tagging stays NaN** |
 | Step 8 (Future Flights) | Tagging merge → NaN | Future flights have NaN Tagging |
-| Step 9 (Matching) | `hist_grouped.get_group(('BLRCCU', dow, NaN))` | **KeyError → matches = []** |
+| Step 9 (Matching) | Boolean mask on Sector/DOW/Tagging over FLOWN flights returns 0 rows (NaN tag matches nothing; no departed BLRCCU flights) | **< 13 matches → flight skipped** |
 | Step 10 (Matched Result) | No matches → skipped | No rows for BLRCCU |
 | Step 11 (Predictions) | No matched data → no predictions | **BLRCCU absent from output** |
 
@@ -1093,13 +1181,13 @@ Example: sectors with costs `[55, 42, 40, 39, 20, 12, 10, 8]` into 3 bins →
 
 **When does it start working?**
 - After the first flight departs (becomes flown data in the cache)
-- Specifically: needs ≥15 departed flights on the same DOW with the same Tagging level
-- Practically: **~5-8 weeks** after launch (3 DOWs × 5 weeks = 15 matches per DOW)
+- Specifically: needs ≥13 departed flights on the same DOW with the same Tagging level (or ≥13 after the Sector+Tagging DOW-drop fallback)
+- Practically: **~4-7 weeks** after launch
 
 **Partial data scenario (first few weeks):**
-- Week 1-2: Flights depart but <15 matches per DOW → predictions attempted with <15 matches (less reliable, higher variance)
-- Week 3-4: Some DOW/Tagging combinations reach 15+ matches → predictions begin appearing for those
-- Week 5+: Most combinations saturated → full predictions
+- Early weeks: fewer than 13 flown matches per group → flight is **skipped** (no low-confidence prediction is emitted; the model does not predict below the 13-match floor)
+- As data accumulates: once a Sector+DOW+Tagging (or Sector+Tagging) group reaches 13 flown matches, predictions begin appearing for those flights
+- Steady state: most combinations saturated → full predictions
 
 ---
 
@@ -1126,8 +1214,8 @@ The Key column is only used to INDEX rows in pivot_ndo for retrieval after match
 |----------|:---------------------:|:---------------:|------------|
 | Irregular schedule (Tue/Thu/Fri only) | ✓ Yes (on operating days) | N/A — works immediately | None needed |
 | New day added to existing route | ✗ No (for new day only) | 5-8 weeks | None — wait for data |
-| Brand new sector, no history | ✗ No | 5-8 weeks | Could seed with similar sector's data (not implemented) |
+| Brand new sector, no history | ✗ No (unless mapped) | 4-7 weeks | **Now wired:** map it to a donor in `config_additive_mapped_sectors` and it borrows the donor's flown curves via the own-data-first fallback while producing output under its own Sector |
 | Brand new flight number, same route | ✓ Yes | Immediate | None needed |
-| Sector with very thin history (<15 total flights) | Partial (low confidence) | Ongoing | Model uses whatever matches exist; expand time window helps |
+| Sector with very thin history (<13 flown matches) | ✗ No (unless mapped) | Ongoing | Below the 13-match floor the own-sector ladder (drop DOW → widen tagging → all-tags) may lift it over the floor; failing that, a configured donor supplies the fallback, else the flight is skipped |
 | Historical tagging all one type (e.g., always "Lean") | ✓ Yes | N/A | All future flights tagged "Lean" → matches found within same tag |
 | Future flight on a DOW that never operated | ✗ No | 5+ weeks | Sector-level fallback tagging attempted, but matching still needs DOW-specific history |

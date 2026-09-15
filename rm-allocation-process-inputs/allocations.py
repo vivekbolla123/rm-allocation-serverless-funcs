@@ -178,136 +178,136 @@ class RBDAllocations:
             incremental_list.append(incremental)
             rbdlabel_list.append(RBDLabel)
             price_list.append(price)
-        if hard_anchor_fare !="" and  pd.notna(hard_anchor_fare) and hard_anchor_fare!=0 and hard_anchor_fare !="NA" :
-            self.logger.info("Hard Anchor Fare detected. Skipping Spoilage Reduction override.")
-            try:
-                plfthreshold = int(plfthreshold)
-                # 1. Find the RBD closest to the last seven sold average fare
-                B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(hard_anchor_fare)
-                higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] >= 0]
-                target_rbd_df_index = higher_fares['FareDiff'].idxmin()
+        # if hard_anchor_fare !="" and  pd.notna(hard_anchor_fare) and hard_anchor_fare!=0 and hard_anchor_fare !="NA" :
+        #     self.logger.info("Hard Anchor Fare detected. Skipping Spoilage Reduction override.")
+        #     try:
+        #         plfthreshold = int(plfthreshold)
+        #         # 1. Find the RBD closest to the last seven sold average fare
+        #         B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(hard_anchor_fare)
+        #         higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] >= 0]
+        #         target_rbd_df_index = higher_fares['FareDiff'].idxmin()
                 
-                opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
+        #         opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
 
-                # Ensure the system isn't already opening at a price point higher than the target
-                if opening_rbd_df_index == target_rbd_df_index and bookedload<plfthreshold:
-                    self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
+        #         # Ensure the system isn't already opening at a price point higher than the target
+        #         if opening_rbd_df_index == target_rbd_df_index and bookedload<plfthreshold:
+        #             self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
             
-                    # Calculate 97% of total capacity for the target RBD
-                    ninety_seven_percent_seats = max(round(totalCapacity * (plfthreshold/100)), currBookedLoad+first_rbd_alloc)
-                    remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
+        #             # Calculate 97% of total capacity for the target RBD
+        #             ninety_seven_percent_seats = max(round(totalCapacity * (plfthreshold/100)), currBookedLoad+first_rbd_alloc)
+        #             remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
                     
-                    # Find the next level RBD (one level higher in price than target)
-                    next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
+        #             # Find the next level RBD (one level higher in price than target)
+        #             next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
                     
-                    # Override allocations in currRec
-                    status = "D-0 Spoilage Reduction - 97% at Target RBD"
-                    au_at_next_rbds = ninety_seven_percent_seats
-                    # Initialize jumping price for subsequent allocations
-                    target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
-                    jumping_price = target_price + (target_price * (jumpPercent / 100))
+        #             # Override allocations in currRec
+        #             status = "D-0 Spoilage Reduction - 97% at Target RBD"
+        #             au_at_next_rbds = ninety_seven_percent_seats
+        #             # Initialize jumping price for subsequent allocations
+        #             target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
+        #             jumping_price = target_price + (target_price * (jumpPercent / 100))
                     
-                    # Set allocations for all RBDs
-                    for i in range(B2CRBDs.shape[0]):
-                        au_class_index_to_update = i + 1
-                        current_price = B2CRBDs['TOTAL'].iloc[i]
-                        next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
+        #             # Set allocations for all RBDs
+        #             for i in range(B2CRBDs.shape[0]):
+        #                 au_class_index_to_update = i + 1
+        #                 current_price = B2CRBDs['TOTAL'].iloc[i]
+        #                 next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
                         
-                        if i < target_rbd_df_index:
-                            # For RBDs below target: set to current booked load (restrictive)
-                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
-                        elif i == target_rbd_df_index:
-                            # At target RBD: allocate plfthreshold% of total capacity
-                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
-                        else:
-                            # Apply jumping logic - only increment allocation when price meets jumping threshold
-                            next_price_diff = abs(next_price - jumping_price)
-                            curr_price_diff = abs(current_price - jumping_price)
+        #                 if i < target_rbd_df_index:
+        #                     # For RBDs below target: set to current booked load (restrictive)
+        #                     currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
+        #                 elif i == target_rbd_df_index:
+        #                     # At target RBD: allocate plfthreshold% of total capacity
+        #                     currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
+        #                 else:
+        #                     # Apply jumping logic - only increment allocation when price meets jumping threshold
+        #                     next_price_diff = abs(next_price - jumping_price)
+        #                     curr_price_diff = abs(current_price - jumping_price)
                             
-                            if jumping_price >= next_price:
-                                # Jumping price is higher than next RBD, skip allocation increment
-                                pass
-                            elif curr_price_diff <= next_price_diff:
-                                # Current price is closer to jumping price, allocate and update jumping price
-                                au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
-                                jumping_price = current_price + (current_price * (jumpPercent / 100))
-                            # else: skip allocation increment for this RBD
+        #                     if jumping_price >= next_price:
+        #                         # Jumping price is higher than next RBD, skip allocation increment
+        #                         pass
+        #                     elif curr_price_diff <= next_price_diff:
+        #                         # Current price is closer to jumping price, allocate and update jumping price
+        #                         au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
+        #                         jumping_price = current_price + (current_price * (jumpPercent / 100))
+        #                     # else: skip allocation increment for this RBD
                             
-                            # For the final RBD, allocate all remaining seats
-                            if i == B2CRBDs.shape[0] - 1:
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
-                            else:
-                                # Set the current AU level for this RBD
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
+        #                     # For the final RBD, allocate all remaining seats
+        #                     if i == B2CRBDs.shape[0] - 1:
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+        #                     else:
+        #                         # Set the current AU level for this RBD
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
                         
                     
-                elif opening_rbd_df_index < target_rbd_df_index and bookedload<plfthreshold:
-                    # 2. Determine the number of seats allocated normally *before* the target RBD
-                    allocated_seats_before_target = 0
-                    if target_rbd_df_index > 0:
-                        # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
-                        au_index_before_target = target_rbd_df_index 
-                        allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
-                        # If the value is None (should not happen but good practice), default to current booked load
-                        if allocated_seats_before_target is None:
-                            allocated_seats_before_target = currBookedLoad
-                    else:
-                        # If the target RBD is the first one, the base is simply the current booked load
-                        allocated_seats_before_target = currBookedLoad
+        #         elif opening_rbd_df_index < target_rbd_df_index and bookedload<plfthreshold:
+        #             # 2. Determine the number of seats allocated normally *before* the target RBD
+        #             allocated_seats_before_target = 0
+        #             if target_rbd_df_index > 0:
+        #                 # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
+        #                 au_index_before_target = target_rbd_df_index 
+        #                 allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
+        #                 # If the value is None (should not happen but good practice), default to current booked load
+        #                 if allocated_seats_before_target is None:
+        #                     allocated_seats_before_target = currBookedLoad
+        #             else:
+        #                 # If the target RBD is the first one, the base is simply the current booked load
+        #                 allocated_seats_before_target = currBookedLoad
 
-                    # 3. Calculate the pool of seats to be distributed from this point forward
-                    seats_to_distribute = totalCapacity 
+        #             # 3. Calculate the pool of seats to be distributed from this point forward
+        #             seats_to_distribute = totalCapacity 
 
-                    if seats_to_distribute > 0:
-                        # 4. Calculate the 97% split based on this *correct* pool of seats
-                        ninety_seven_percent_seats = round(seats_to_distribute * (plfthreshold/100))
+        #             if seats_to_distribute > 0:
+        #                 # 4. Calculate the 97% split based on this *correct* pool of seats
+        #                 ninety_seven_percent_seats = round(seats_to_distribute * (plfthreshold/100))
                         
-                        # The new AU values are cumulative, built upon the allocation of the previous class
-                        au_at_target_rbd=max(ninety_seven_percent_seats,allocated_seats_before_target+other_rbd_alloc_value)
-                        # The rest will open up fully
+        #                 # The new AU values are cumulative, built upon the allocation of the previous class
+        #                 au_at_target_rbd=max(ninety_seven_percent_seats,allocated_seats_before_target+other_rbd_alloc_value)
+        #                 # The rest will open up fully
 
-                        # 5. Override allocations in currRec from the target RBD onwards
-                        status = "D-0 Spoilage Reduction" # Update the status message
-                        au_at_next_rbds = au_at_target_rbd
-                        # Initialize jumping price for subsequent allocations
-                        target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
-                        jumping_price = target_price + (target_price * (jumpPercent / 100))
+        #                 # 5. Override allocations in currRec from the target RBD onwards
+        #                 status = "D-0 Spoilage Reduction" # Update the status message
+        #                 au_at_next_rbds = au_at_target_rbd
+        #                 # Initialize jumping price for subsequent allocations
+        #                 target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
+        #                 jumping_price = target_price + (target_price * (jumpPercent / 100))
                         
-                        # Iterate through the DataFrame from the target index to the end
-                        for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
+        #                 # Iterate through the DataFrame from the target index to the end
+        #                 for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
                             
-                            au_class_index_to_update = i + 1
-                            current_price = B2CRBDs['TOTAL'].iloc[i]
-                            next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
+        #                     au_class_index_to_update = i + 1
+        #                     current_price = B2CRBDs['TOTAL'].iloc[i]
+        #                     next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
                             
-                            if i == target_rbd_df_index:
-                                # At the target RBD, dump plfthreshold% of the remaining seats
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_target_rbd, totalCapacity)))
-                            else:
-                                # Apply jumping logic - only increment allocation when price meets jumping threshold
-                                next_price_diff = abs(next_price - jumping_price)
-                                curr_price_diff = abs(current_price - jumping_price)
+        #                     if i == target_rbd_df_index:
+        #                         # At the target RBD, dump plfthreshold% of the remaining seats
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_target_rbd, totalCapacity)))
+        #                     else:
+        #                         # Apply jumping logic - only increment allocation when price meets jumping threshold
+        #                         next_price_diff = abs(next_price - jumping_price)
+        #                         curr_price_diff = abs(current_price - jumping_price)
                                 
-                                if jumping_price >= next_price:
-                                    # Jumping price is higher than next RBD, skip allocation increment
-                                    pass
-                                elif curr_price_diff <= next_price_diff:
-                                    # Current price is closer to jumping price, allocate and update jumping price
-                                    au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
-                                    jumping_price = current_price + (current_price * (jumpPercent / 100))
-                                # else: skip allocation increment for this RBD
+        #                         if jumping_price >= next_price:
+        #                             # Jumping price is higher than next RBD, skip allocation increment
+        #                             pass
+        #                         elif curr_price_diff <= next_price_diff:
+        #                             # Current price is closer to jumping price, allocate and update jumping price
+        #                             au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
+        #                             jumping_price = current_price + (current_price * (jumpPercent / 100))
+        #                         # else: skip allocation increment for this RBD
                                 
-                                # For the final RBD, allocate all remaining seats
-                                if i == B2CRBDs.shape[0] - 1:
-                                    currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
-                                else:
-                                    # For all subsequent (more expensive) RBDs, set the current AU level
-                                    currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
-                    else:
-                        self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
+        #                         # For the final RBD, allocate all remaining seats
+        #                         if i == B2CRBDs.shape[0] - 1:
+        #                             currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+        #                         else:
+        #                             # For all subsequent (more expensive) RBDs, set the current AU level
+        #                             currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
+        #             else:
+        #                 self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
 
-            except Exception as e:
-                self.logger.error(f"Error during spoilage reduction override: {e}")
+        #     except Exception as e:
+        #         self.logger.error(f"Error during spoilage reduction override: {e}")
         
         if is_spoilage_reduction_active and pd.notna(last_seven_avg_fare):
             self.logger.info("Applying D-0 Spoilage Reduction override.")
@@ -849,6 +849,13 @@ class RBDAllocations:
                 except (ValueError, TypeError):
                     b2c_fare_numeric = 0.0
 
+                b2c_backstop_val = 0.0
+                try:
+                    if b2c_backstop_final is not None and b2c_backstop_final != CONST_NA and str(b2c_backstop_final).strip() != '':
+                        b2c_backstop_val = float(b2c_backstop_final)
+                except (ValueError, TypeError):
+                    b2c_backstop_val = 0.0
+
                 # Pre-fetch all group forecast bands once to avoid repeated MongoDB calls
                 all_forecast_bands = self.rmdatabasehelper.get_all_group_forecast_bands()
 
@@ -874,8 +881,9 @@ class RBDAllocations:
                         b2c_fare_weight = band_result['b2c_fare_weight']
                         profile_fare_weight = band_result['profile_fare_weight']
                     else:
+                        eff_cap_for_var = adjustedCapacity if (adjustedCapacity is not None and adjustedCapacity > 0) else final_totalCapacity
                         var_for_band = calculate_variance_for_load(
-                            simulated_booked_load, final_totalCapacity, ndocounter,
+                            simulated_booked_load, eff_cap_for_var, ndocounter,
                             sod_tgtAtCurrentHour_abs, sod_startOfDayTgtBookedLoad_abs
                         )
                         band = self.rmdatabasehelper.getdpflBand(var_for_band)
@@ -953,8 +961,8 @@ class RBDAllocations:
                         # Fare anchor crossed GA, stop iteration
                         break
 
-                    if fare_anchor < b2c_backstop_final:
-                        fare_anchor = b2c_backstop_final
+                    if b2c_backstop_val > 0 and fare_anchor < b2c_backstop_val:
+                        fare_anchor = b2c_backstop_val
 
                     # --- Step 7: Find nearest higher group RBD and assign seats ---
                     # Find the nearest RBD with fare >= fare_anchor
@@ -1048,110 +1056,141 @@ class RBDAllocations:
     
     
     def tbf_allocation(self,alloc_df,brd_counter,currRec,tbfFlag,B2CRBDs,currtbfBookedLoad,currBookedLoad,adjustedCapacity,openingRBDPrice,month,sector,tbfenhflag,depdate):
-        max_au = currBookedLoad+int(self.constantsutils.TBF_SEATS)
-        rbd_list = self.constantsutils.TBF_RBD.split(',')
-        blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE,depdate)
-        alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
+        try:
+            curr_booked = float(currBookedLoad) if currBookedLoad is not None else 0.0
+        except (ValueError, TypeError):
+            curr_booked = 0.0
+        try:
+            tbf_seats = int(self.constantsutils.TBF_SEATS)
+        except (ValueError, TypeError):
+            tbf_seats = 20
+        max_au = curr_booked + tbf_seats
+        rbd_list = [r.strip() for r in str(self.constantsutils.TBF_RBD).split(',') if r.strip()]
+        try:
+            blocked_seats = self.rmdatabasehelper.get_tbf_seats_blocked(self.constantsutils.TBF_ORG_CODE, depdate)
+            blocked_seats_val = float(blocked_seats) if blocked_seats is not None else 0.0
+        except Exception:
+            blocked_seats_val = 0.0
+
+        if alloc_df is not None and not alloc_df.empty and 'jumpingRBDPrice' in alloc_df.columns:
+            alloc_df = alloc_df.sort_values(by='jumpingRBDPrice').reset_index(drop=True)
+        elif alloc_df is not None and not alloc_df.empty:
+            alloc_df = alloc_df.reset_index(drop=True)
+        else:
+            alloc_df = pd.DataFrame()
+
         tbf_rbds = pd.DataFrame()
-        if not B2CRBDs.empty:
-            tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list)]
-            tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
+        if B2CRBDs is not None and not B2CRBDs.empty and 'RBD' in B2CRBDs.columns and 'TOTAL' in B2CRBDs.columns:
+            tbf_rbds = B2CRBDs[B2CRBDs['RBD'].isin(rbd_list) & B2CRBDs['TOTAL'].notna()]
+            if not tbf_rbds.empty:
+                tbf_rbds = tbf_rbds.sort_values(by='TOTAL').reset_index(drop=True)
+
         latest_allocations = {}
         desired_order = ['TL', 'TK', 'TJ', 'TI', 'TH', 'TG']
         default_values = {
-        'index': 'NA',
-        'min_other_diff': 0
-    }
+            'index': 'NA',
+            'min_other_diff': 0
+        }
     
-    # Create new dictionary with desired order
+        # Create new dictionary with desired order
         result = {}
-        if int(tbfFlag) == 1:
-            discounted_df=self.rmdatabasehelper.get_tbf_discount(month,sector)
-            for idx, alloc_row in alloc_df.iterrows():
-                jumping_price = alloc_row['price']
-                incremental = alloc_row['incremental']
-                
-                # Calculate differences with all TBF RBDs
-                differences = abs(tbf_rbds['TOTAL'] - jumping_price)
-                min_diff = differences.min()
-                nearest_idx = differences.idxmin()
-                nearest_rbd = tbf_rbds.loc[nearest_idx, 'RBD']
-                nearest_total = tbf_rbds.loc[nearest_idx, 'TOTAL']
-                
-                # Check if this jumping price has the closest match to any TBF RBD
-                # Compare with all other jumping prices
-                other_prices_diff = abs(alloc_df['price'] - nearest_total)
-                min_other_diff = other_prices_diff.min()
-                
-                # If this is the closest match for the TBF RBD
-                    # Update the latest allocation for this class_of_service
-                latest_allocations[nearest_rbd] = {
-                    'index': idx,
-                    'min_other_diff': min_other_diff
-                }
+        try:
+            is_tbf_active = int(tbfFlag) == 1
+        except (ValueError, TypeError):
+            is_tbf_active = False
 
-            if not discounted_df.empty:
-                # Get the first allocated RBD (will be one with lowest TOTAL based on sorting)
-                first_allocated_rbd = None
-                for rbd in desired_order:
-                    if rbd in latest_allocations and latest_allocations[rbd]['index'] != 'NA':
-                        first_allocated_rbd = rbd
-                        break
-                
-                if first_allocated_rbd:
-                    # Get discount for this RBD from discounted_df
-                    if first_allocated_rbd in discounted_df.columns:
-                        discount_amount = discounted_df[first_allocated_rbd].iloc[0]
+        if is_tbf_active:
+            if not tbf_rbds.empty and not alloc_df.empty and 'TOTAL' in tbf_rbds.columns and 'price' in alloc_df.columns and not tbf_rbds['TOTAL'].dropna().empty and not alloc_df['price'].dropna().empty:
+                discounted_df = self.rmdatabasehelper.get_tbf_discount(month, sector)
+                for idx, alloc_row in alloc_df.iterrows():
+                    jumping_price = alloc_row['price']
+                    incremental = alloc_row['incremental']
+                    
+                    # Calculate differences with all TBF RBDs
+                    differences = abs(tbf_rbds['TOTAL'] - jumping_price)
+                    if not differences.empty and differences.dropna().shape[0] > 0:
+                        min_diff = differences.min()
+                        nearest_idx = differences.idxmin()
+                        nearest_rbd = tbf_rbds.loc[nearest_idx, 'RBD']
+                        nearest_total = tbf_rbds.loc[nearest_idx, 'TOTAL']
                         
-                        # Get the original price
-                        idx = latest_allocations[first_allocated_rbd]['index']
-                        original_price = openingRBDPrice
-                        
-                        # Calculate new price after discount
-                        adjusted_price = original_price - discount_amount
-                        for _, row in tbf_rbds.iterrows():
-                            if row['TOTAL'] <= adjusted_price:
-                                latest_allocations[row['RBD']] = {
-                                    'index': None,
-                                    'min_other_diff': 0
-                                }
-                        # Find the next highest RBD based on the adjusted price
-                        next_rbd_differences = tbf_rbds['TOTAL'] - adjusted_price
-                        next_rbd_differences = next_rbd_differences[next_rbd_differences > 0]  # Only higher prices
-                        
-                        if not next_rbd_differences.empty:
-                            # Find all subsequent RBDs in sequence
-                            remaining_tbf = tbf_rbds.copy()
-                            current_price = adjusted_price
+                        # Check if this jumping price has the closest match to any TBF RBD
+                        # Compare with all other jumping prices
+                        other_prices_diff = abs(alloc_df['price'] - nearest_total)
+                        if not other_prices_diff.empty and other_prices_diff.dropna().shape[0] > 0:
+                            min_other_diff = other_prices_diff.min()
                             
-                            while not remaining_tbf.empty:
-                                # Find the next nearest RBD above current_price
-                                next_rbd_diffs = remaining_tbf['TOTAL'] - current_price
-                                next_rbd_diffs = next_rbd_diffs[next_rbd_diffs > 0]  # Only higher prices
-                                
-                                if not next_rbd_diffs.empty:
-                                    next_nearest_idx = next_rbd_diffs.idxmin()
-                                    next_nearest_rbd = remaining_tbf.loc[next_nearest_idx, 'RBD']
-                                    next_rbd_total = remaining_tbf.loc[next_nearest_idx, 'TOTAL']
-                                    
-                                    # Find the index in alloc_df that's closest to this next RBD's TOTAL
-                                    next_alloc_diff = abs(alloc_df['price'] - next_rbd_total)
-                                    next_alloc_idx = next_alloc_diff.idxmin()
-                                    
-                                    # Update the allocation for this RBD
-                                    latest_allocations[next_nearest_rbd] = {
-                                        'index': next_alloc_idx,
-                                        'min_other_diff': next_alloc_diff.min()
+                            # If this is the closest match for the TBF RBD
+                            # Update the latest allocation for this class_of_service
+                            latest_allocations[nearest_rbd] = {
+                                'index': idx,
+                                'min_other_diff': min_other_diff
+                            }
+
+                if discounted_df is not None and not discounted_df.empty:
+                    # Get the first allocated RBD (will be one with lowest TOTAL based on sorting)
+                    first_allocated_rbd = None
+                    for rbd in desired_order:
+                        if rbd in latest_allocations and latest_allocations[rbd]['index'] != 'NA':
+                            first_allocated_rbd = rbd
+                            break
+                    
+                    if first_allocated_rbd:
+                        # Get discount for this RBD from discounted_df
+                        if first_allocated_rbd in discounted_df.columns:
+                            discount_amount = discounted_df[first_allocated_rbd].iloc[0]
+                            
+                            # Get the original price
+                            idx = latest_allocations[first_allocated_rbd]['index']
+                            original_price = openingRBDPrice
+                            
+                            # Calculate new price after discount
+                            adjusted_price = original_price - discount_amount
+                            for _, row in tbf_rbds.iterrows():
+                                if row['TOTAL'] <= adjusted_price:
+                                    latest_allocations[row['RBD']] = {
+                                        'index': None,
+                                        'min_other_diff': 0
                                     }
+                            # Find the next highest RBD based on the adjusted price
+                            next_rbd_differences = tbf_rbds['TOTAL'] - adjusted_price
+                            next_rbd_differences = next_rbd_differences[next_rbd_differences > 0]  # Only higher prices
+                            
+                            if not next_rbd_differences.empty and next_rbd_differences.dropna().shape[0] > 0:
+                                # Find all subsequent RBDs in sequence
+                                remaining_tbf = tbf_rbds.copy()
+                                current_price = adjusted_price
+                                
+                                while not remaining_tbf.empty:
+                                    # Find the next nearest RBD above current_price
+                                    next_rbd_diffs = remaining_tbf['TOTAL'] - current_price
+                                    next_rbd_diffs = next_rbd_diffs[next_rbd_diffs > 0]  # Only higher prices
                                     
-                                    # Update current_price and remove this RBD from remaining_tbf
-                                    current_price = next_rbd_total
-                                    remaining_tbf = remaining_tbf[remaining_tbf['RBD'] != next_nearest_rbd]
-                                else:
-                                    # No more higher-priced RBDs
-                                    break
-                        else:
-                            latest_allocations={}    
+                                    if not next_rbd_diffs.empty and next_rbd_diffs.dropna().shape[0] > 0:
+                                        next_nearest_idx = next_rbd_diffs.idxmin()
+                                        next_nearest_rbd = remaining_tbf.loc[next_nearest_idx, 'RBD']
+                                        next_rbd_total = remaining_tbf.loc[next_nearest_idx, 'TOTAL']
+                                        
+                                        # Find the index in alloc_df that's closest to this next RBD's TOTAL
+                                        next_alloc_diff = abs(alloc_df['price'] - next_rbd_total)
+                                        if not next_alloc_diff.empty and next_alloc_diff.dropna().shape[0] > 0:
+                                            next_alloc_idx = next_alloc_diff.idxmin()
+                                            
+                                            # Update the allocation for this RBD
+                                            latest_allocations[next_nearest_rbd] = {
+                                                'index': next_alloc_idx,
+                                                'min_other_diff': next_alloc_diff.min()
+                                            }
+                                        
+                                        # Update current_price and remove this RBD from remaining_tbf
+                                        current_price = next_rbd_total
+                                        remaining_tbf = remaining_tbf[remaining_tbf['RBD'] != next_nearest_rbd]
+                                    else:
+                                        # No more higher-priced RBDs
+                                        break
+                            else:
+                                latest_allocations = {}
+
             for key in desired_order:
                 if key in latest_allocations:
                     result[key] = latest_allocations[key]
@@ -1165,33 +1204,38 @@ class RBDAllocations:
                 else:
                     # Update the last known non-'NA' index
                     last_index = value['index']
+
+            try:
+                tbf_open_seats = int(self.constantsutils.TBF_OPEN_SEATS)
+            except (ValueError, TypeError):
+                tbf_open_seats = 8
+            try:
+                curr_tbf_booked = float(currtbfBookedLoad) if currtbfBookedLoad is not None else 0.0
+            except (ValueError, TypeError):
+                curr_tbf_booked = 0.0
+
             for nearest_rbd, allocation in result.items():
-                idx=allocation['index']
+                idx = allocation.get('index')
                 currRec.set_class_attribute(brd_counter, 'class_of_service', nearest_rbd)
-                if idx is not None:
-                    incremental_value = int(alloc_df.loc[idx, 'incremental'])
-                
-                    # Check if difference between price and openingRBDPrice is less than 1000
-                    class_au = min(incremental_value, max_au)
-                    
+                incremental_value = 0
+                if idx is not None and idx != 'NA' and alloc_df is not None and not alloc_df.empty and idx in alloc_df.index:
+                    try:
+                        incremental_value = int(alloc_df.loc[idx, 'incremental'])
+                        # Check if difference between price and openingRBDPrice is less than 1000
+                        class_au = min(incremental_value, max_au)
+                    except Exception:
+                        incremental_value = 0
+                        class_au = 0
                 else:
                     class_au = 0
-                if str(tbfenhflag)=='1' and currtbfBookedLoad<=(blocked_seats-2):
-                    if nearest_rbd=="TF":
-                        open=currBookedLoad+self.constantsutils.TBF_OPEN_SEATS
-                        class_au = max(open,min(incremental_value, max_au))
+                if str(tbfenhflag) == '1' and curr_tbf_booked <= (blocked_seats_val - 2):
+                    if nearest_rbd in ["TF", "TL"]:
+                        open_seats = curr_booked + tbf_open_seats
+                        class_au = max(open_seats, min(incremental_value, max_au))
                     
                 currRec.set_class_attribute(brd_counter, 'class_au', class_au)
                 brd_counter += 1
-            # for _, tbf_row in tbf_rbds.iterrows():
-            #     rbd = tbf_row['RBD']
-            #     if rbd not in latest_allocations:
-            #         # Find the next available index in alloc_df
-            #         next_index = alloc_df.index[-1] + 1 if not alloc_df.empty else 0
-            #         currRec.set_class_attribute(brd_counter, 'class_of_service', rbd)
-            #         currRec.set_class_attribute(brd_counter, 'class_au', 0)
-            #         brd_counter += 1            
-                
+                 
         else:
             for RBDLabel in rbd_list:
                 currRec.set_class_attribute(brd_counter, 'class_of_service', RBDLabel)
