@@ -250,7 +250,7 @@ def lambda_handler(event, context):
 
     # --- cache status for every sector we might touch (active + donors) ---
     def _cached(s):
-        return force_backfill is False and refresh_spec is None and _sector_has_cache(s)
+        return force_backfill is False and refresh_spec is None and _sector_has_cache(s, cache_prefix)
 
     # --- routing ---
     # Dependents are NOT dispatched by prefetch. Their donor is dispatched with a
@@ -277,7 +277,7 @@ def lambda_handler(event, context):
     # (Glue emits a process message for them; that message carries no dependent
     #  list, so we also record their dependents on the Glue arguments below.)
     inactive_uncached_donors = [m for m in mapped_targets
-                                if m not in active_set and not _sector_has_cache(m)]
+                                if m not in active_set and not _sector_has_cache(m, cache_prefix)]
     glue_sectors.extend(inactive_uncached_donors)
 
     # sectors_expected must count EVERY sector that will write an audit stat:
