@@ -90,8 +90,13 @@ def _sector_has_cache(sector, cache_prefix):
 
 
 def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expected,
-                          mode, dependent_sectors=None, mapped_sector=None):
-    """Send one SQS message for a SINGLE sector to the process queue.
+                          mode, queue_url, dependent_sectors=None, mapped_sector=None,
+                          simulate_snapshot=None):
+    """Send one SQS message for a SINGLE sector to `queue_url` (the process queue).
+
+    `queue_url` is chosen by the caller: the PROD process queue on a normal run,
+    or the ADHOC queue in simulation — so the message reaches the matching
+    (adhoc vs prod) process Lambda.
 
     A donor sector may carry `dependent_sectors` (the sectors mapped to it). The
     worker processes the donor, then re-enqueues each dependent as its own
@@ -111,8 +116,11 @@ def _send_process_message(sector, run_id, batch_index, batch_total, sectors_expe
         overrides['dependent_sectors'] = list(dependent_sectors)
     if mapped_sector:
         overrides['mapped_sector'] = mapped_sector
+    # Carry the simulation snapshot so the process Lambda runs "as of" that date.
+    if simulate_snapshot:
+        overrides['simulate_snapshot'] = simulate_snapshot
     message = {'modules': {'additive_process': 1}, 'overrides': overrides}
-    sqs.send_message(QueueUrl=PROCESS_QUEUE_URL, MessageBody=json.dumps(message))
+    sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(message))
 
 
 def _load_mapped_sectors():
@@ -136,8 +144,13 @@ def _load_mapped_sectors():
 
 
 def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
-                      sectors_expected=0, mode='PROD', dependent_map=None):
+                      glue_job, process_queue_url, sectors_expected=0, mode='PROD',
+                      dependent_map=None, simulate_snapshot=None):
     """Start a Glue fetch-only job. Glue emits 1 SQS msg/sector after caching.
+
+    `glue_job` and `process_queue_url` are chosen by the caller (PROD vs ADHOC)
+    so a simulation seeds the test cache via the adhoc Glue job and Glue then
+    emits its process messages onto the adhoc queue.
 
     `dependent_map` ({donor: [dependents]}) covers the edge case where a donor is
     itself uncached and routed through Glue: Glue should stamp `dependent_sectors`
@@ -145,7 +158,7 @@ def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
     dependents. Passed as JSON on --DEPENDENT_MAP.
     """
     glue.start_job_run(
-        JobName=GLUE_FETCH_JOB,
+        JobName=glue_job,
         Arguments={
             '--SECTORS': ','.join(sectors),
             '--RUN_ID': run_id,
@@ -153,8 +166,9 @@ def _start_glue_fetch(sectors, run_id, force_backfill, refresh_spec,
             '--REFRESH_SPEC': str(refresh_spec) if refresh_spec else 'none',
             '--SECTORS_EXPECTED': str(sectors_expected),
             '--MODE': mode,
-            '--PROCESS_QUEUE_URL': PROCESS_QUEUE_URL,
+            '--PROCESS_QUEUE_URL': process_queue_url,
             '--DEPENDENT_MAP': json.dumps(dependent_map or {}),
+            '--SIMULATE_SNAPSHOT': str(simulate_snapshot) if simulate_snapshot else 'none',
             '--ENV': ENV,
         })
 
@@ -307,8 +321,10 @@ def lambda_handler(event, context):
     for batch in glue_batches:
         batch_dep_map = {d: donor_to_deps[d] for d in batch if d in donor_to_deps}
         _start_glue_fetch(batch, run_id, force_backfill, refresh_spec,
+                          active_glue_job, active_queue_url,
                           sectors_expected=sectors_expected, mode=mode,
-                          dependent_map=batch_dep_map)
+                          dependent_map=batch_dep_map,
+                          simulate_snapshot=simulate_snapshot)
         glue_units += 1
 
     # --- dispatch PROCESS messages (donors first with their dependent lists) ---
@@ -317,7 +333,9 @@ def lambda_handler(event, context):
     for idx, s in enumerate(process_sectors):
         _send_process_message(
             s, run_id, idx, batch_total, sectors_expected, mode,
-            dependent_sectors=donor_to_deps.get(s))   # None for a plain sector
+            active_queue_url,
+            dependent_sectors=donor_to_deps.get(s),   # None for a plain sector
+            simulate_snapshot=simulate_snapshot)
         lambda_units += 1
 
     logger.info(f"[prefetch] DONE — {lambda_units} SQS message(s) now "

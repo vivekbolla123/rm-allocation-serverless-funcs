@@ -118,6 +118,9 @@ class AdditivePickupModelProcessor:
         # which source table holds each forward flight (flown vs still-open bookings).
         self.actual_today = datetime.now()
         _sim = (overrides or {}).get('simulate_snapshot')
+        # Raw snapshot string, preserved verbatim so it can be propagated to
+        # re-enqueued dependents (which must run "as of" the SAME snapshot).
+        self.simulate_snapshot = str(_sim) if _sim else None
         if _sim:
             self.simulate = True
             self.today = pd.to_datetime(str(_sim), dayfirst=('-' in str(_sim)
@@ -1559,8 +1562,12 @@ class AdditivePickupModelProcessor:
 
         zero_df = pd.DataFrame(recs)
         # All NDO columns are zero (this flight picked up no remaining-RBD pax).
-        for c in pivot_ndo_cols:
-            zero_df[c] = 0
+        # Build every NDO column in one shot and concat once — assigning them one
+        # at a time fragments the frame (pandas PerformanceWarning) and is slow.
+        if pivot_ndo_cols:
+            ndo_zeros = pd.DataFrame(
+                0, index=zero_df.index, columns=list(pivot_ndo_cols))
+            zero_df = pd.concat([zero_df, ndo_zeros], axis=1)
         return zero_df
 
     def _distribute_remaining_rbd(self, future_df, pivot_ndo, flight_matches,
@@ -2226,28 +2233,35 @@ class AdditivePickupModelProcessor:
                         f"dependents {self.dependent_sectors} (donor {donor} cached).")
             return
 
-        queue_url = getattr(configsettings, 'ADDITIVE_SQS_URL', None)
+        # In simulation the dependents must land on the ADHOC queue (-> adhoc
+        # process Lambda), not the live prod queue. Pick the queue to match.
+        if self.simulate:
+            queue_attr = 'ADDITIVE_ADHOC_SQS_URL'
+        else:
+            queue_attr = 'ADDITIVE_SQS_URL'
+        queue_url = getattr(configsettings, queue_attr, None)
         if not queue_url:
-            logger.error("[MappedSectors] ADDITIVE_SQS_URL not configured — cannot "
+            logger.error(f"[MappedSectors] {queue_attr} not configured — cannot "
                          f"enqueue dependents {self.dependent_sectors}.")
             return
 
         sqs = boto3.client('sqs')
         sent = 0
         for dep in self.dependent_sectors:
-            msg = {
-                'modules': {'additive_process': 1},
-                'overrides': {
-                    'sectors': [dep],
-                    'mapped_sector': donor,
-                    'run_id': self.run_id,
-                    'batch_index': self.batch_index,
-                    'batch_total': self.batch_total,
-                    'sectors_expected': self.sectors_expected,
-                    'mode': self.mode,
-                    'analyst': self.analyst,
-                },
+            overrides = {
+                'sectors': [dep],
+                'mapped_sector': donor,
+                'run_id': self.run_id,
+                'batch_index': self.batch_index,
+                'batch_total': self.batch_total,
+                'sectors_expected': self.sectors_expected,
+                'mode': self.mode,
+                'analyst': self.analyst,
             }
+            # Propagate the snapshot so the dependent runs "as of" the same date.
+            if self.simulate and self.simulate_snapshot:
+                overrides['simulate_snapshot'] = self.simulate_snapshot
+            msg = {'modules': {'additive_process': 1}, 'overrides': overrides}
             try:
                 sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(msg))
                 sent += 1
