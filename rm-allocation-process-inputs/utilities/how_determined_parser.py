@@ -44,11 +44,17 @@ class HowDeterminedParser:
                 logic.append("Standard")
                 
         # 2. Fare Computation
+        # Forecast allocation formula: AllocationY_Band{band}_{trend}_{upsell_str}_{formula}
+        forecast_formula_match = re.search(r'AllocationY_Band\d+_[A-Za-z]+_Upsell[YN]_(.*?)(?:_last7bkgsAvg|_profileFare|_ToleranceHit|_harAnchorfare|_Auto_Tolerance_Hit|-Overbooking|_Discounted|$)', raw_str)
+        
         # New AVG[...] / MEDIAN[...] structured labels
         avg_match = re.search(r'AVG\[([^\]]+)\]', raw_str)
         median_match = re.search(r'MEDIAN\[([^\]]+)\]', raw_str)
         
-        if avg_match:
+        if forecast_formula_match:
+            formula_applied = forecast_formula_match.group(1).strip()
+            fare.append(f"Formula:{formula_applied}")
+        elif avg_match:
             components = avg_match.group(1)
             fare.append(f"Average of {components.replace(',', ' and ')}")
         elif median_match:
