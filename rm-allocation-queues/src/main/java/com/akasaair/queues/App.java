@@ -2957,7 +2957,7 @@ public class App implements CommandLineRunner {
                 .b2bFactor(record.get(CSV_HEADER_CONNECTIONS_B2BFACTOR))
                 .skippingFactor(record.get(CSV_HEADER_CONNECTIONS_SKIPPINGFACTOR))
                 .outboundStop(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDSTOP))
-                .outboundDuration(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION))
+                .additionalOutboundDuration(record.get(CSV_HEADER_CONNECTIONS_OUTBOUNDDURATION))
                 .currency(record.get(CSV_HEADER_CONNECTIONS_CURRENCY))
                 .fareAnchor(record.get(CSV_HEADER_CONNECTIONS_FAREANCHOR))
                 .offset(record.get(CSV_HEADER_CONNECTIONS_OFFSET))
