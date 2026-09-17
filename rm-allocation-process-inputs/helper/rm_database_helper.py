@@ -965,6 +965,12 @@ class RMDatabaseHelper:
     def get_imputed_forecast_band(self, imp_forecast):
         rounded_imp_fcst = round(imp_forecast, 2)
         try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                res = self.db.config_forecast_allocation_bands.find_one(
+                    {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
+                )
+                if res and "band" in res:
+                    return int(res["band"])
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
             )
@@ -983,6 +989,26 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return CONST_NA
+
+    def get_forecast_allocation_grid(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_grid"):
+                docs = list(self.db.config_forecast_allocation_grid.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_grid: {e}")
+        return pd.DataFrame()
+
+    def get_forecast_allocation_bands(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                docs = list(self.db.config_forecast_allocation_bands.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_bands: {e}")
+        return pd.DataFrame()
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
