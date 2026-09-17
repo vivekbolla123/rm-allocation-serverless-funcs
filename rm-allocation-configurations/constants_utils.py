@@ -160,6 +160,7 @@ class ConstantsUtils:
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
+        self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(AUTO_BACKSTOP_FORECAST_THRESHOLD)
 
         # --- Additive Pickup Model constants ---------------------------------
         # Structural / RBD sets and NDO range.
@@ -506,6 +507,8 @@ class ConstantsUtils:
                 self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == AUTO_BACKSTOP_FORECAST_THRESHOLD_KEY:
+                self.AUTO_BACKSTOP_FORECAST_THRESHOLD = float(parameter_value)
             elif parameter_key == PREDICTION_HORIZON_DAYS_KEY:
                 self.PREDICTION_HORIZON_DAYS = int(parameter_value)
             elif parameter_key == MIN_FLIGHT_MATCHES_KEY:
