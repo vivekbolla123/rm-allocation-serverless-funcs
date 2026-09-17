@@ -4149,7 +4149,7 @@ public class App implements CommandLineRunner {
                 .append("analystName", toIntOrKeepSame(e.getAnalystName()))
                 .append("UUID", toIntOrKeepSame(e.getUuid()))
                 .append("Outbound_stop", toIntOrKeepSame(e.getOutboundStop()))
-                .append("Outbound_duration", toIntOrKeepSame(e.getOutboundDuration()))
+                .append("additional_outbound_duration", toIntOrKeepSame(e.getAdditionalOutboundDuration()))
                 .append("carrierExclusionB2C", toIntOrKeepSame(e.getCarrierExclusionB2B()))
                 .append("carrierExclusionB2B", toIntOrKeepSame(e.getCarrierExclusionB2C()))
                 .append("Currency", toIntOrKeepSame(e.getCurrency()))
