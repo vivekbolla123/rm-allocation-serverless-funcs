@@ -1210,7 +1210,7 @@ class DetermineRBD:
         
         anchorFare, howDetermined = apply_strategy_and_hard_anchor_cap(anchorFare, howDetermined, strategyFare, plf)
         # ------        # Overbooking logic & Final Adjustments
-        anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
+        anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,False,False,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
         if "_Auto_Tolerance_Hit" not in howDetermined:

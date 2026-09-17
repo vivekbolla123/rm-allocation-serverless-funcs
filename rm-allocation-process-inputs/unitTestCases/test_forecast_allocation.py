@@ -300,6 +300,7 @@ class TestForecastAllocationLogic(unittest.TestCase):
         self.assertEqual(result["trend"], "Increasing")
         self.assertAlmostEqual(result["anchor_fare"], 4680.0, places=2)
         self.assertIn("AllocationY_Band4_Increasing_UpsellY", result["how_determined"])
+        self.assertIn("Max(Profile,LSF*1.04,Strategy)", result["how_determined"])
 
     def test_all_12_grid_combinations(self):
         """Verify each of the 12 combinations in Table 1.1 with explicit inputs."""
@@ -561,6 +562,12 @@ class TestDetermineRBDIntegration(unittest.TestCase):
         howDetermined = str(open_result['FareResult'][0])
         self.rmdb.getRDBTable.assert_called_once()
         self.assertIn("V_", howDetermined)
+
+    def test_how_determined_formula_in_parser(self):
+        from utilities.how_determined_parser import HowDeterminedParser
+        raw_hd = "F_4_4_AllocationY_Band4_Increasing_UpsellY_Max(Profile,LSF*1.04,Strategy)_Auto_Tolerance_Hit"
+        parsed = HowDeterminedParser.parse_and_format(raw_hd)
+        self.assertIn("Formula:Max(Profile,LSF*1.04,Strategy)", parsed)
 
 
 if __name__ == "__main__":

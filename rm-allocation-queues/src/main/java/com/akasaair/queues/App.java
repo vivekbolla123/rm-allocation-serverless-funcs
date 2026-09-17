@@ -6483,13 +6483,11 @@ public class App implements CommandLineRunner {
             int bandIdx = headers.indexOf("band");
             int startIdx = headers.indexOf("start");
             int endIdx = headers.indexOf("end");
-            int tolIdx = headers.indexOf("tolerance");
-            int b2bIdx = headers.indexOf("b2b_factor");
 
             List<Document> bandsDocuments = new ArrayList<>();
             for (int i = 1; i < csvData.size(); i++) {
                 List<String> row = csvData.get(i);
-                int maxIdx = Math.max(bandIdx, Math.max(startIdx, Math.max(endIdx, Math.max(tolIdx, b2bIdx))));
+                int maxIdx = Math.max(bandIdx, Math.max(startIdx, endIdx));
                 if (row.isEmpty() || row.size() <= maxIdx) {
                     continue;
                 }
@@ -6497,15 +6495,11 @@ public class App implements CommandLineRunner {
                 int band = Integer.parseInt(row.get(bandIdx).trim());
                 double start = Double.parseDouble(row.get(startIdx).trim());
                 double end = Double.parseDouble(row.get(endIdx).trim());
-                double tolerance = Double.parseDouble(row.get(tolIdx).trim());
-                double b2bFactor = Double.parseDouble(row.get(b2bIdx).trim());
 
                 Document doc = new Document();
                 doc.put("band", band);
                 doc.put("start", start);
                 doc.put("end", end);
-                doc.put("tolerance", tolerance);
-                doc.put("b2b_factor", b2bFactor);
                 bandsDocuments.add(doc);
             }
 

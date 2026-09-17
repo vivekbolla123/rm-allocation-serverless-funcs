@@ -27,10 +27,10 @@ DEFAULT_GRID_RULES = {
 }
 
 DEFAULT_BAND_THRESHOLDS = [
-    {"band": 4, "start": 95.01, "end": 9999.00, "tolerance": 0.0, "b2b_factor": 0.0},
-    {"band": 3, "start": 90.00, "end": 95.00, "tolerance": 0.0, "b2b_factor": 0.0},
-    {"band": 2, "start": 80.00, "end": 89.99, "tolerance": 15.0, "b2b_factor": 0.5},
-    {"band": 1, "start": -9999.00, "end": 79.99, "tolerance": 15.0, "b2b_factor": 0.5},
+    {"band": 4, "start": 95.01, "end": 9999.00},
+    {"band": 3, "start": 90.00, "end": 95.00},
+    {"band": 2, "start": 80.00, "end": 89.99},
+    {"band": 1, "start": -9999.00, "end": 79.99},
 ]
 
 
@@ -271,8 +271,6 @@ class ForecastAllocationLogic:
                             "band": int(row["band"]),
                             "start": float(row["start"]),
                             "end": float(row["end"]),
-                            "tolerance": float(row.get("tolerance", 0.0)),
-                            "b2b_factor": float(row.get("b2b_factor", 0.0)),
                         })
                     if loaded_bands:
                         bands = loaded_bands
@@ -489,7 +487,7 @@ class ForecastAllocationLogic:
         # Upsell indicator
         upsell_str = "UpsellY" if (has_bookings and band == 4 and trend in ("Increasing", "Stable")) else "UpsellN"
 
-        how_determined = f"AllocationY_Band{band}_{trend}_{upsell_str}"
+        how_determined = f"AllocationY_Band{band}_{trend}_{upsell_str}_{audit_eval}"
 
         return {
             "anchor_fare": anchor_fare,
