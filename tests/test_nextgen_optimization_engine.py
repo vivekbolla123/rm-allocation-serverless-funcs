@@ -195,3 +195,55 @@ class TestNextGenOptimizationEngine:
         np.testing.assert_allclose(final_df['Expected_Revenue'], filed['Expected_Revenue'], rtol=1e-3, atol=1e-2)
         np.testing.assert_allclose(pred_rev, sample['Predicted_Revenue'].iloc[0], rtol=1e-3)
         np.testing.assert_allclose(flown_rev, sample['Predicted_Flown_Revised'].iloc[0], rtol=1e-3)
+
+    def test_promo_inventory_flag_off(self, sample_flight_data):
+        """Verify that when PromoFlag_NG == 0, promo AU is 0 and no promo row is appended."""
+        capacity = 189
+        cb = 100
+        init_df, anchor_fare, promo_au = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb, promo_flag=0
+        )
+        assert promo_au == 0
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 500000.0,
+            curr_params={'promo_flag_NG': 0, 'nextgen_flag_NG': 1}
+        )
+        assert len(final_df) == len(sample_flight_data)
+        assert all(final_df['Promo_Flag'] == 0)
+
+    def test_promo_inventory_flag_on(self, sample_flight_data):
+        """Verify that when PromoFlag_NG == 1, promo AU is calculated, recalculated on comp response, and capped by PromoFirstRBD_NG."""
+        capacity = 189
+        cb = 74
+        promo_ratio = 0.80
+        promo_first_rbd = 10
+
+        init_df, anchor_fare, promo_au = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb, promo_flag=1, promo_ratio=promo_ratio
+        )
+        assert promo_au > 0
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 400000.0,
+            curr_params={
+                'promo_flag_NG': 1,
+                'PromoRBD_NG': 'W4',
+                'PromoFirstRBD_NG': promo_first_rbd,
+                'PromoRatio_NG': promo_ratio,
+                'nextgen_flag_NG': 1,
+                'competition_response_flag_NG': 1
+            }
+        )
+        # Verify Promo row exists as the last row
+        assert len(final_df) == len(sample_flight_data) + 1
+        promo_row = final_df.iloc[-1]
+        assert promo_row['FareBucket'] == 'Promo'
+        assert promo_row['Promo_Flag'] == 1
+        assert promo_row['AU'] == promo_au
+        # AU_Revised must be capped by PromoFirstRBD_NG (10)
+        assert promo_row['AU_Revised'] <= promo_first_rbd
+        # Opening fare must not be promo fare
+        assert summary['NG_Opening_fare'] != promo_row['fare']
+        assert summary['NG_Opening_fare'] in sample_flight_data['fare'].tolist()
+

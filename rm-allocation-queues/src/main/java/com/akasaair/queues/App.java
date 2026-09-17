@@ -3981,6 +3981,7 @@ public class App implements CommandLineRunner {
                     .append("CompetitionResponseGrid_NG", toIntOrKeepSame(marketListEntity.getCompetitionResponseGrid_NG()))
                     .append("nextgen_flag_NG", toIntOrKeepSame(marketListEntity.getNextgen_flag_NG()))
                     .append("competition_response_flag_NG", toIntOrKeepSame(marketListEntity.getCompetition_response_flag_NG()))
+                    .append("PromoFlag_NG", toIntOrKeepSame(marketListEntity.getPromoFlag_NG()))
                     .append("ProfileFareUpsell", toIntOrKeepSame(marketListEntity.getProfileFareUpsell()))
                     .append("Spoilage_Flag", toIntOrKeepSame(marketListEntity.getSpoilage_Flag()))
                     .append("CanAdjustedForecast", toIntOrKeepSame(marketListEntity.getCanAdjustedForecast()))
@@ -4088,6 +4089,7 @@ public class App implements CommandLineRunner {
                 .append("CompetitionResponseGrid_NG", toIntOrKeepSame(e.getCompetitionResponseGrid_NG()))
                 .append("nextgen_flag_NG", toIntOrKeepSame(e.getNextgen_flag_NG()))
                 .append("competition_response_flag_NG", toIntOrKeepSame(e.getCompetition_response_flag_NG()))
+                .append("PromoFlag_NG", toIntOrKeepSame(e.getPromoFlag_NG()))
                 .append("ProfileFareUpsell", toIntOrKeepSame(e.getProfileFareUpsell()))
                 .append("Spoilage_Flag", toIntOrKeepSame(e.getSpoilage_Flag()))
                 .append("CanAdjustedForecast", toIntOrKeepSame(e.getCanAdjustedForecast()))
@@ -4490,12 +4492,13 @@ public class App implements CommandLineRunner {
                 .forecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_FORECAST_ALLOC_FLAG)))
                 .afForecastAllocFlag(convertYNToBoolean(record.get(CSV_HEADER_AF_FORECAST_ALLOC_FLAG)))
                 .auto_tolerance_flag(convertYNToBoolean(record.get(CSV_HEADER_AUTO_TOLERANCE_FLAG)))
-                .buy_up_factor_NG(record.isSet(CSV_HEADER_BUY_UP_FACTOR_NG) ? record.get(CSV_HEADER_BUY_UP_FACTOR_NG) : "0.0")
-                .connection_fare_flag_NG(record.isSet(CSV_HEADER_CONNECTION_FARE_FLAG_NG) ? convertYNToBoolean(record.get(CSV_HEADER_CONNECTION_FARE_FLAG_NG)) : "0")
-                .additional_connection_duration_NG(record.isSet(CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG) ? record.get(CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG) : "4.0")
-                .CompetitionResponseGrid_NG(record.isSet(CSV_HEADER_COMPETITION_RESPONSE_GRID_NG) ? record.get(CSV_HEADER_COMPETITION_RESPONSE_GRID_NG) : "DEFAULT")
-                .nextgen_flag_NG(record.isSet(CSV_HEADER_NEXTGEN_FLAG_NG) ? convertYNToBoolean(record.get(CSV_HEADER_NEXTGEN_FLAG_NG)) : "0")
-                .competition_response_flag_NG(record.isSet(CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG) ? convertYNToBoolean(record.get(CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG)) : "1")
+                .buy_up_factor_NG(record.size() > CSV_HEADER_BUY_UP_FACTOR_NG ? record.get(CSV_HEADER_BUY_UP_FACTOR_NG) : "0.0")
+                .connection_fare_flag_NG(record.size() > CSV_HEADER_CONNECTION_FARE_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_CONNECTION_FARE_FLAG_NG)) : "0")
+                .additional_connection_duration_NG(record.size() > CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG ? record.get(CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG) : "4.0")
+                .CompetitionResponseGrid_NG(record.size() > CSV_HEADER_COMPETITION_RESPONSE_GRID_NG ? record.get(CSV_HEADER_COMPETITION_RESPONSE_GRID_NG) : "DEFAULT")
+                .nextgen_flag_NG(record.size() > CSV_HEADER_NEXTGEN_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_NEXTGEN_FLAG_NG)) : "0")
+                .competition_response_flag_NG(record.size() > CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG)) : "1")
+                .promoFlag_NG(record.size() > CSV_HEADER_PROMO_FLAG_NG ? convertYNToBoolean(record.get(CSV_HEADER_PROMO_FLAG_NG)) : "0")
                 .incrementedProfileFareFlag(convertYNToBoolean(record.get(CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG)))
                 .ProfileFareUpsell(record.get(CSV_HEADER_PROFILE_FARE_UPSELL))
                 .Spoilage_Flag(convertYNToBoolean(record.get(CSV_HEADER_SPOILAGE_FLAG)))
@@ -4506,7 +4509,8 @@ public class App implements CommandLineRunner {
     }
 
     private static String convertYNToBoolean(String value) {
-        return "Y".equalsIgnoreCase(value) ? "1" : "0";
+        if (value == null) return "0";
+        return ("Y".equalsIgnoreCase(value) || "1".equals(value) || "true".equalsIgnoreCase(value)) ? "1" : "0";
     }
 
     public List<Object> searchDistinctResults(String fieldName, String collectionName) {

@@ -62,6 +62,7 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_COMPETITION_RESPONSE_GRID_NG = 57;
     int CSV_HEADER_NEXTGEN_FLAG_NG = 58;
     int CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG = 59;
+    int CSV_HEADER_PROMO_FLAG_NG = 60;
 
 
 

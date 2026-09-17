@@ -161,6 +161,14 @@ class ConstantsUtils:
         self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
         self.PROMO_FARE_RATIO = float(PROMO_FARE_RATIO)
         self.PROMO_RBD = str(PROMO_RBD)
+        self.PROMO_FLAG_NG = int(DEFAULT_PROMO_FLAG_NG)
+        self.PROMO_RBD_NG = str(DEFAULT_PROMO_RBD_NG)
+        self.PROMO_FIRST_RBD_NG = float(DEFAULT_PROMO_FIRST_RBD_NG)
+        self.PROMO_RATIO_NG = float(DEFAULT_PROMO_RATIO_NG)
+        self.PromoFlag_NG = self.PROMO_FLAG_NG
+        self.PromoRBD_NG = self.PROMO_RBD_NG
+        self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+        self.PromoRatio_NG = self.PROMO_RATIO_NG
         self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
         self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
         # --- Additive Pickup Model constants ---------------------------------
@@ -502,6 +510,18 @@ class ConstantsUtils:
                 self.PROMO_FARE_RATIO = float(parameter_value)
             elif parameter_key == PROMO_RBD_KEY:
                 self.PROMO_RBD = str(parameter_value)
+            elif parameter_key in (PROMO_FLAG_NG_KEY, 'PROMO_FLAG_NG', 'PromoFlag_NG'):
+                self.PROMO_FLAG_NG = int(parameter_value)
+                self.PromoFlag_NG = self.PROMO_FLAG_NG
+            elif parameter_key in (PROMO_RBD_NG_KEY, 'PROMO_RBD_NG', 'PromoRBD_NG'):
+                self.PROMO_RBD_NG = str(parameter_value)
+                self.PromoRBD_NG = self.PROMO_RBD_NG
+            elif parameter_key in (PROMO_FIRST_RBD_NG_KEY, 'PROMO_FIRST_RBD_NG', 'PromoFirstRBD_NG', PROMO_FIRST_RBD_KEY):
+                self.PROMO_FIRST_RBD_NG = float(parameter_value)
+                self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+            elif parameter_key in (PROMO_RATIO_NG_KEY, 'PROMO_RATIO_NG', 'PromoRatio_NG'):
+                self.PROMO_RATIO_NG = float(parameter_value)
+                self.PromoRatio_NG = self.PROMO_RATIO_NG
             elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
                 self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
             elif parameter_key == BUY_UP_FACTOR_KEY:

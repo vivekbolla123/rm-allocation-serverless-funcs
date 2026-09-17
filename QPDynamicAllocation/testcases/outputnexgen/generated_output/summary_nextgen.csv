@@ -1,2 +1,2 @@
 Origin,Destin,FltNum,DepDate,Capacity,NG_FirstRBD,Predicted_Flown_Revised,MarketFare_Selected,MarketFare_Min,MarketFare_Max,Grid_Name,Rule_Applied,nextgen_flag,competition_response_flag,buy_up_factor,RunId,Id,NG_Historical_current_booked,NG_LF_Forecast,NG_AF_Forecast,NG_Opening_fare,Strategy_fare,Anchor_fare,analystName,status,allocationStatus
-BOM,DEL,1127,2023-08-01,189.0,20.0,83.8713,4751.0,4751.0,4756.0,DEFAULT,"Min (1.2A, 0.8C)",1,1,0.0,TestNextGen12345,NA,74.0,44.38,5478.04,4615.0,4615.0,4615.0,test,NA,NA
+BOM,DEL,1127,2023-08-01,189.0,20.0,83.8713,7900.0,7900.0,7900.0,DEFAULT,"Min (2A, 0.9C)",1,1,0.0,TestNextGen12345,NA,74.0,44.38,5654.95,6230.0,6230.0,4615.0,test,NA,NA

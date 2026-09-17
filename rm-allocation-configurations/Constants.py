@@ -19,7 +19,7 @@ CONNECTION_CARRIER_INCLUSION = '["6E","AI","IX","XY","FZ","GF","J9","KU","FD","S
 NAVODS_ALERT_SECTOR_LIST = '["BOMDEL1127", "BOMDEL1120", "DELBOM1719", "DELBOM1411", "BOMDBR1529", "DBRBOM1530", "CCUBOM1125", "CCUBOM1173"]'
 NAVODS_ALERT_MAX_NDO = 3
 
-DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0", "buy_up_factor_NG": "0.0", "connection_fare_flag_NG": "0", "additional_connection_duration_NG": "4.0", "CompetitionResponseGrid_NG": "DEFAULT", "nextgen_flag_NG": "0", "competition_response_flag_NG": "1"}'
+DEFAULT_MARKET_LIST = '{"Origin": "ABC","Destin": "XYZ","PerStart": "mm/dd/yyyy","PerEnd": "mm/dd/yyyy","FlightNumber": "1234","analystName": "System","DOW": "9999999","PerType": "D","TimeWindowStart": "17:00","TimeWindowEnd": "20:00","CurveID": "BOMDEL_C4","CarrExlusionB2C": "**","CarrExlusionB2B": "**","flightExclusionB2C": "","flightExclusionB2B": "","fareAnchor": "METRO_STG_MED1","hardAnchor": "","plfThreshold": "","fareOffset": "","FirstRBDAlloc": "-99","OtherRBDAlloc": "10","SkippingFactor": "5","B2BTolerance": "","B2CTolerance": "","B2BBackstop": "4300","B2CBackstop": "4500","B2BFactor": "0","obSeats": "","obFare": "","DaySpan": "0","AutoTimeRangeFlag": "0","openingFares": "1","OverBooking": "1","profileFares": "1","rbdPushFlag": "0","distressInventoryFlag": "0","seriesBlock": "0","autoGroup": "0","autoBackstopFlag": "1","tbfFlag": "1","CugFlag": "0","MktFareFlag": "1","directFlag": "1","TBFEnhFlag": "0", "UUID": "uuid", "defaultMlFlag": "1", "incrementedProfileFareFlag": "0", "ProfileFareUpsell": "0", "buy_up_factor_NG": "0.0", "connection_fare_flag_NG": "0", "additional_connection_duration_NG": "4.0", "CompetitionResponseGrid_NG": "DEFAULT", "nextgen_flag_NG": "0", "competition_response_flag_NG": "1", "PromoFlag_NG": "0"}'
 DEFAULT_MARKET_LIST_DAYS = 30
 
 TBF_RBD = "TF,TE,TD,TC,TB,TY"
@@ -300,6 +300,11 @@ MOVEMENT_CEIL_PCT_KEY = 'MOVEMENT_CEIL_PCT'
 EMSR_SIGMA_FACTOR_KEY = 'EMSR_SIGMA_FACTOR'
 PROMO_FARE_RATIO_KEY = 'PROMO_FARE_RATIO'
 PROMO_RBD_KEY = 'PROMO_RBD'
+PROMO_FLAG_NG_KEY = 'PromoFlag_NG'
+PROMO_RBD_NG_KEY = 'PromoRBD_NG'
+PROMO_FIRST_RBD_NG_KEY = 'PromoFirstRBD_NG'
+PROMO_RATIO_NG_KEY = 'PromoRatio_NG'
+PROMO_FIRST_RBD_KEY = 'PROMO_FIRST_RBD'
 OPEN_BUCKET_MIDPOINT_FACTOR_KEY = 'OPEN_BUCKET_MIDPOINT_FACTOR'
 BUY_UP_FACTOR_KEY = 'BUY_UP_FACTOR'
 LATEST_VERSION = '4.0.0'
@@ -413,6 +418,10 @@ DEFAULT_FORECAST_THRESHOLD_PROMO_AU = 95.0
 DEFAULT_COVERAGE_PARAMETER = 3.0
 DEFAULT_ADDITIONAL_CONNECTION_DURATION = 4.0
 DEFAULT_TIME_RANGE = 2.0
+DEFAULT_PROMO_FLAG_NG = 0
+DEFAULT_PROMO_RBD_NG = "W4"
+DEFAULT_PROMO_FIRST_RBD_NG = 10
+DEFAULT_PROMO_RATIO_NG = 0.80
 
 CONST_OUTPUT_SUMMARY_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
@@ -489,6 +498,10 @@ TESTING_LOGS = {
 TESTING_OUTPUT = {
     CONST_AU_GRID: FILE,
     CONST_SUMMARY_FILE: FILE
+}
+TESTING_NEXTGEN_OUTPUT = {
+    CONST_AU_GRID: SKIP,
+    CONST_SUMMARY_FILE: SKIP
 }
 SERVER_INPUT = {
     CONST_CURVES: DB,
@@ -652,6 +665,10 @@ PARQUET_ROW_THRESHOLD = 250_000
 EMSR_SIGMA_FACTOR = 0.25               # Cap Sigma_Bar at Factor * Mu_Bar (default 0.25)
 PROMO_FARE_RATIO = 0.80                # Promo fare is 80% of lowest filed fare
 PROMO_RBD = 'W'                        # RBD for promo fare
+PROMO_FLAG_NG = DEFAULT_PROMO_FLAG_NG
+PROMO_RBD_NG = DEFAULT_PROMO_RBD_NG
+PROMO_FIRST_RBD_NG = DEFAULT_PROMO_FIRST_RBD_NG
+PROMO_RATIO_NG = DEFAULT_PROMO_RATIO_NG
 OPEN_BUCKET_MIDPOINT_FACTOR = 1.10     # Midpoint factor for upper open-ended fare bucket (e.g. 25088+)
 # Buy-up factor (alpha) applied to the EMSR-b sell-up probability:
 #   Prob_j = (1 - f_(j+1) / F_j) * 1 / (1 - alpha)

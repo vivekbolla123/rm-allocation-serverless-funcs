@@ -68,7 +68,7 @@ def run_nextgen_test():
         "NAV_DOMAIN": None,
         Constants.CONST_INPUT_SOURCE: Constants.TESTING_INPUT,
         Constants.CONST_LOGS: Constants.TESTING_LOGS,
-        Constants.CONST_OUTPUT: Constants.TESTING_OUTPUT,
+        Constants.CONST_OUTPUT: Constants.TESTING_NEXTGEN_OUTPUT,
         "API_KEY": None,
         "API_URL": None,
         "latestCode": False,
@@ -117,6 +117,21 @@ def run_nextgen_test():
         print(f"\nSourced Bookload verification:")
         print(f"  Total_Bookings = {tb} (sourced directly from weighted forecast file)")
         print(f"  Predicted_Flown = {pf}")
+
+        promo_df = df_inv[df_inv['Promo_Flag'] == 1]
+        if not promo_df.empty:
+            p_fare = promo_df['fare'].iloc[0]
+            p_au = promo_df['AU'].iloc[0]
+            p_au2 = promo_df['AU_2'].iloc[0]
+            p_aurev = promo_df['AU_Revised'].iloc[0]
+            print(f"\nPromo Inventory verification:")
+            print(f"  Promo Fare = {p_fare}")
+            print(f"  Promo Initial AU = {p_au}")
+            print(f"  Promo AU_2 (Competition Response) = {p_au2}")
+            print(f"  Promo AU_Revised (Capped by PromoFirstRBD_NG) = {p_aurev}")
+            assert p_aurev <= 10, f"Promo AU_Revised {p_aurev} exceeds PromoFirstRBD_NG limit 10"
+        else:
+            print(f"\nPromo Inventory: PromoFlag_NG is off or no promo row generated.")
 
     print("\n" + "=" * 70)
     print("NextGen Optimization test completed successfully!")

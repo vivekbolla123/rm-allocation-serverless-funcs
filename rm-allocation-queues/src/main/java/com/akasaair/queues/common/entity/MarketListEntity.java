@@ -152,4 +152,6 @@ public class MarketListEntity {
     public String nextgen_flag_NG;
     @Column(name = "competition_response_flag_NG")
     public String competition_response_flag_NG;
+    @Column(name = "PromoFlag_NG")
+    public String promoFlag_NG;
 }

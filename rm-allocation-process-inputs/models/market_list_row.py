@@ -154,3 +154,6 @@ class MarketListRow:
         self.nextgen_flag = self.nextgen_flag_NG
         self.competition_response_flag_NG = parse_int_flag(currParams.get("competition_response_flag_NG", currParams.get("competition_response_flag", currParams.get("competitionResponseFlag", currParams.get("CompetitionResponseFlag", 1)))), 1)
         self.competition_response_flag = self.competition_response_flag_NG
+        # NextGen Promo Inventory Flag (only PromoFlag_NG comes from Market List; others come from constants)
+        self.promo_flag_NG = parse_int_flag(currParams.get("PromoFlag_NG", currParams.get("promo_flag_NG", currParams.get("promoFlag_NG", DEFAULT_PROMO_FLAG_NG))), DEFAULT_PROMO_FLAG_NG)
+        self.promo_flag = self.promo_flag_NG

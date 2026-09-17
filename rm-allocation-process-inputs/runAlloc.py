@@ -1780,9 +1780,19 @@ class DynAlloc:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
 						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
 
+						promo_flag = int(getattr(self.currParams, 'promo_flag_NG', getattr(self.currParams, 'PromoFlag_NG', DEFAULT_PROMO_FLAG_NG)))
+						promo_rbd = str(getattr(self.constantsUtils, 'PROMO_RBD_NG', getattr(self.constantsUtils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip()
+						promo_rows = ng_opt_df[ng_opt_df.get('Promo_Flag', 0) == 1]
+						promo_au_revised = int(promo_rows['AU_Revised'].iloc[0]) if not promo_rows.empty else 0
+
 						for slot_i in range(1, int(self.AU_COLUMN_LENGTH) + 1):
 							cos = getattr(currRec_fullalloc, f"class_of_service_{slot_i}", None)
 							c_type = getattr(currRec_fullalloc, f"class_type_{slot_i}", None)
+
+							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
+							if promo_flag == 1 and cos == promo_rbd:
+								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', int(promo_au_revised))
+								continue
 
 							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
 							is_b2c = (c_type == 'B2C') or (cos in b2c_rbd_set)
@@ -1797,6 +1807,8 @@ class DynAlloc:
 								if not rbd_match.empty:
 									rbd_fare = float(rbd_match.iloc[0].get('TOTAL', rbd_match.iloc[0].get('Total', 0.0)))
 									for _, b_row in ng_opt_df.iterrows():
+										if b_row.get('Promo_Flag', 0) == 1:
+											continue
 										b_low = b_row.get('FareBucket_Lower')
 										b_up = b_row.get('FareBucket_Upper')
 										if pd.notna(b_low):
@@ -2236,6 +2248,12 @@ class DynAlloc:
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")
 		# self.logger.info(self.allocResults)
+		output_dir = getattr(self, "output_dir", None)
+		au_grid_path = os.path.join(output_dir, "AUGrid.csv") if output_dir else CONST_AU_GRID_FILE_PATH
+		summary_path = os.path.join(output_dir, "summary.csv") if output_dir else CONST_SUMMARY_FILE_PATH
+		summary_nextgen_path = os.path.join(output_dir, "summary_nextgen.csv") if output_dir else CONST_SUMMARY_NEXTGEN_FILE_PATH
+		inventory_opt_path = os.path.join(output_dir, "inventory_optimization.csv") if output_dir else CONST_INVENTORY_OPTIMIZATION_FILE_PATH
+
 		if self.inputSource.output[CONST_AU_GRID] == FILE and len(self.AUFileData)!=0:
 			AUlist = ['Type', 'Flight', 'StartDate', 'EndDate', 'DayOfWeek', 'Aircraft Type', 'Aircraft Suffix', 'Lid', 'Capacity', 'Status']
 			length = self.AU_COLUMN_LENGTH
@@ -2250,8 +2268,8 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
-			os.makedirs(os.path.dirname(os.path.abspath(CONST_AU_GRID_FILE_PATH)), exist_ok=True)
-			AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			os.makedirs(os.path.dirname(os.path.abspath(au_grid_path)), exist_ok=True)
+			AUFrame.to_csv(au_grid_path, index=False)
 
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
@@ -2260,8 +2278,8 @@ class DynAlloc:
 			missing_cols = [col for col in df.columns if col not in final_order]
 			df = df[final_order + missing_cols]
 			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
-			os.makedirs(os.path.dirname(os.path.abspath(CONST_SUMMARY_FILE_PATH)), exist_ok=True)
-			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			os.makedirs(os.path.dirname(os.path.abspath(summary_path)), exist_ok=True)
+			df.to_csv(summary_path, index=False)
 
 		# Always write NextGen summary output if present
 		if len(self.nextgenSummaryResults) > 0:
@@ -2269,10 +2287,10 @@ class DynAlloc:
 				df_ng = pd.DataFrame([vars(row) for row in self.nextgenSummaryResults])
 				final_ng_order = [col for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if col in df_ng.columns]
 				df_ng = df_ng[final_ng_order]
-				os.makedirs(os.path.dirname(os.path.abspath(CONST_SUMMARY_NEXTGEN_FILE_PATH)), exist_ok=True)
-				df_ng.to_csv(CONST_SUMMARY_NEXTGEN_FILE_PATH, index=False)
+				os.makedirs(os.path.dirname(os.path.abspath(summary_nextgen_path)), exist_ok=True)
+				df_ng.to_csv(summary_nextgen_path, index=False)
 			except Exception as e:
-				self.logger.error(f"Error saving {CONST_SUMMARY_NEXTGEN_FILE_PATH}: {e}")
+				self.logger.error(f"Error saving {summary_nextgen_path}: {e}")
 
 		# Always write per-bucket inventory optimization dataset if present
 		if len(self.inventoryOptimizationResults) > 0:
@@ -2280,10 +2298,10 @@ class DynAlloc:
 				df_inv = pd.DataFrame(self.inventoryOptimizationResults)
 				final_inv_order = [col for col in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if col in df_inv.columns]
 				df_inv = df_inv[final_inv_order]
-				os.makedirs(os.path.dirname(os.path.abspath(CONST_INVENTORY_OPTIMIZATION_FILE_PATH)), exist_ok=True)
-				df_inv.to_csv(CONST_INVENTORY_OPTIMIZATION_FILE_PATH, index=False)
+				os.makedirs(os.path.dirname(os.path.abspath(inventory_opt_path)), exist_ok=True)
+				df_inv.to_csv(inventory_opt_path, index=False)
 			except Exception as e:
-				self.logger.error(f"Error saving {CONST_INVENTORY_OPTIMIZATION_FILE_PATH}: {e}")
+				self.logger.error(f"Error saving {inventory_opt_path}: {e}")
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}
@@ -2371,6 +2389,7 @@ class DynAlloc:
 		self.currParams = MarketListRow(currParams)
 		self.inputSource = InputSource(inputData)
 		self.debugMode = inputData["debugMode"]
+		self.output_dir = inputData.get("output_dir", getattr(self.currParams, "output_dir", None))
 		self.NavitaireUpdateMethod = self.currParams.navitaire_update_method
 		self.TABLE_MARKET_FARES = TABLE_MARKET_FARES
 		self.MARKET_LIST_QUEUE_URL = inputData["MARKET_LIST_QUEUE_URL"]
