@@ -1,6 +1,7 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from Constants import *
+from common.compute_utils import parse_int_flag
 import logging
 
 class MarketFareMongoDB:
@@ -88,8 +89,24 @@ class MarketFareMongoDB:
                 "channel": channel,
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
-                },
-                "outbound_stop": '0'
+                }
+            }
+
+            # Outbound stop filter — mirrors getMarketFareRangeConnections:
+            # allow records with outbound_stop <= configured value, handling
+            # both string and numeric storage of the field. Defaults to 0
+            # for empty / CONST_NA / non-int values via parse_int_flag.
+            outbound_stop_expr = {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_stop"}, "string"]},
+                            "then": {"$toInt": "$outbound_stop"},
+                            "else": "$outbound_stop"
+                        }
+                    },
+                    parse_int_flag(currParams.outboundstop, 0)
+                ]
             }
             
             if flt_exclusion_list:
@@ -116,7 +133,8 @@ class MarketFareMongoDB:
                 base_match_conditions["$expr"] = {
                     "$and": [
                         {"$gte": [{"$hour": "$outbound_departuretime"}, start_time_parts[0]]},
-                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]}
+                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]},
+                        outbound_stop_expr
                     ]
                 }
             else:
@@ -147,7 +165,8 @@ class MarketFareMongoDB:
                                 }},
                                 enddateTime
                             ]
-                        }
+                        },
+                        outbound_stop_expr
                     ]
                 }
  
