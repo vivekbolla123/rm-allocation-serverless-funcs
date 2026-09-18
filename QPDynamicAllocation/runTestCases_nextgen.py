@@ -101,15 +101,23 @@ def run_nextgen_test():
     print(f"\n[3/3] Validating Generated Outputs in {os.path.basename(os.path.dirname(output_dir))}...")
     summary_path = os.path.join(output_dir, "summary_nextgen.csv")
     inv_opt_path = os.path.join(output_dir, "inventory_optimization.csv")
+    au_grid_path = os.path.join(output_dir, "AUGrid.csv")
+    normal_summary_path = os.path.join(output_dir, "summary.csv")
 
     assert os.path.exists(summary_path), f"Expected summary_nextgen.csv at {summary_path}"
     assert os.path.exists(inv_opt_path), f"Expected inventory_optimization.csv at {inv_opt_path}"
+    assert os.path.exists(au_grid_path), f"Expected AUGrid.csv at {au_grid_path}"
+    assert os.path.exists(normal_summary_path), f"Expected summary.csv at {normal_summary_path}"
 
     df_summary = pd.read_csv(summary_path)
     df_inv = pd.read_csv(inv_opt_path)
+    df_au_grid = pd.read_csv(au_grid_path)
+    df_normal_summary = pd.read_csv(normal_summary_path)
 
     print(f"\n- summary_nextgen.csv rows: {len(df_summary)}, columns: {len(df_summary.columns)}")
     print(f"- inventory_optimization.csv rows: {len(df_inv)}, columns: {len(df_inv.columns)}")
+    print(f"- AUGrid.csv rows: {len(df_au_grid)}, columns: {len(df_au_grid.columns)}")
+    print(f"- summary.csv rows: {len(df_normal_summary)}, columns: {len(df_normal_summary.columns)}")
 
     if not df_inv.empty:
         tb = df_inv['Total_Bookings'].iloc[0]

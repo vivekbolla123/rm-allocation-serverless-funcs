@@ -1565,7 +1565,7 @@ class DynAlloc:
 
 							ladder_data.append({
 								'FareBucket': b_name,
-								'fare': round(f_val, 2),
+								'fare': float(f_val),
 								'mu': pax_val,
 								'sigma': std_val,
 								'FareBucket_Lower': b_lower if pd.notna(b_lower) else None,
@@ -1749,9 +1749,9 @@ class DynAlloc:
 						ng_opt_df['LF_Forecast_Revised'] = ng_summary.get('NG_LF_Forecast', 0.0)
 						ng_opt_df['AF_Forecast'] = ng_summary.get('NG_AF_Forecast', 0.0)
 						ng_opt_df['Distance'] = dist_val
-						ng_opt_df['ASKM'] = round(final_totalCapacity * dist_val, 2)
-						ng_opt_df['RPKM'] = round(ng_summary.get('Predicted_Flown_Revised', 0.0) * dist_val, 2)
-						ng_opt_df['RASK_Forecast'] = round(ng_summary.get('Predicted_Revenue', 0.0) / (final_totalCapacity * dist_val), 4) if (final_totalCapacity * dist_val) > 0 else 0.0
+						ng_opt_df['ASKM'] = float(final_totalCapacity * dist_val)
+						ng_opt_df['RPKM'] = float(ng_summary.get('Predicted_Flown_Revised', 0.0) * dist_val)
+						ng_opt_df['RASK_Forecast'] = float(ng_summary.get('Predicted_Revenue', 0.0) / (final_totalCapacity * dist_val)) if (final_totalCapacity * dist_val) > 0 else 0.0
 						ng_opt_df['Capped_Predicted_Flown_Revised'] = min(final_totalCapacity, ng_summary.get('Predicted_Flown_Revised', 0.0))
 						ng_opt_df['Denominator'] = ng_opt_df['Capped_Predicted_Flown_Revised']
 						ng_opt_df['Current_Revenue'] = curr_rev
@@ -1767,11 +1767,45 @@ class DynAlloc:
 						ng_opt_df['DepDate'] = dateFormatted_yyyymmdd
 						ng_opt_df['RunId'] = self.runId
 
-						# Strictly include only the configured columns without extra columns
-						inv_ordered_cols = [c for c in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if c in ng_opt_df.columns]
-						ng_opt_df = ng_opt_df[inv_ordered_cols]
+						# Build ordered list of bucket intervals for mapping RBDs to NextGen AU ladder
+						bucket_intervals = []
+						for _, b_row in ng_opt_df.iterrows():
+							if b_row.get('Promo_Flag', 0) == 1:
+								continue
+							b_name = str(b_row.get('FareBucket', ''))
+							b_low = b_row.get('FareBucket_Lower')
+							b_up = b_row.get('FareBucket_Upper')
 
-						inv_records = ng_opt_df.to_dict(orient='records')
+							if pd.notna(b_low):
+								low_val = float(b_low)
+							elif '+' in b_name:
+								low_val = float(b_name.replace('+', '').strip())
+							elif '-' in b_name:
+								low_val = float(b_name.split('-')[0].strip())
+							else:
+								low_val = float(b_row.get('fare', 0.0))
+
+							if pd.notna(b_up) and str(b_up).strip().lower() not in ['nan', 'null', 'none']:
+								up_val = float(b_up)
+							elif '+' in b_name:
+								up_val = float('inf')
+							elif '-' in b_name:
+								up_val = float(b_name.split('-')[1].strip())
+							else:
+								up_val = float('inf') if '+' in b_name else float(b_row.get('fare', 0.0))
+
+							bucket_intervals.append({
+								'name': b_name,
+								'low': low_val,
+								'up': up_val,
+								'au': b_row.get('AU_Revised', 0.0)
+							})
+
+						# Strictly include only the configured columns without extra columns for saving
+						inv_ordered_cols = [c for c in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if c in ng_opt_df.columns]
+						ng_opt_df_to_save = ng_opt_df[inv_ordered_cols]
+
+						inv_records = ng_opt_df_to_save.to_dict(orient='records')
 						self.inventoryOptimizationResults.extend(inv_records)
 						self.rmdatabasehelper.insertInventoryOptimization(inv_records)
 
@@ -1783,7 +1817,7 @@ class DynAlloc:
 						promo_flag = int(getattr(self.currParams, 'promo_flag_NG', getattr(self.currParams, 'PromoFlag_NG', DEFAULT_PROMO_FLAG_NG)))
 						promo_rbd = str(getattr(self.constantsUtils, 'PROMO_RBD_NG', getattr(self.constantsUtils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip()
 						promo_rows = ng_opt_df[ng_opt_df.get('Promo_Flag', 0) == 1]
-						promo_au_revised = int(promo_rows['AU_Revised'].iloc[0]) if not promo_rows.empty else 0
+						promo_au_revised = float(promo_rows['AU_Revised'].iloc[0]) if not promo_rows.empty else 0.0
 
 						for slot_i in range(1, int(self.AU_COLUMN_LENGTH) + 1):
 							cos = getattr(currRec_fullalloc, f"class_of_service_{slot_i}", None)
@@ -1791,7 +1825,7 @@ class DynAlloc:
 
 							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
 							if promo_flag == 1 and cos == promo_rbd:
-								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', int(promo_au_revised))
+								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', promo_au_revised)
 								continue
 
 							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
@@ -1799,30 +1833,18 @@ class DynAlloc:
 							if not is_b2c:
 								continue
 
-							assigned_au = 0
+							assigned_au = 0.0
 							if cos in rbd_to_au:
-								assigned_au = int(rbd_to_au[cos])
+								assigned_au = rbd_to_au[cos]
 							elif cos and not B2CRBDs_ladder.empty:
 								rbd_match = B2CRBDs_ladder[B2CRBDs_ladder['RBD'] == cos]
 								if not rbd_match.empty:
 									rbd_fare = float(rbd_match.iloc[0].get('TOTAL', rbd_match.iloc[0].get('Total', 0.0)))
-									for _, b_row in ng_opt_df.iterrows():
-										if b_row.get('Promo_Flag', 0) == 1:
-											continue
-										b_low = b_row.get('FareBucket_Lower')
-										b_up = b_row.get('FareBucket_Upper')
-										if pd.notna(b_low):
-											low_val = float(b_low)
-											if pd.notna(b_up) and str(b_up).strip().lower() not in ['nan', 'null', 'none']:
-												up_val = float(b_up)
-												if low_val <= rbd_fare <= up_val:
-													assigned_au = int(b_row.get('AU_Revised', 0))
-													break
-											else:
-												if rbd_fare >= low_val:
-													assigned_au = int(b_row.get('AU_Revised', 0))
-													break
-							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', int(assigned_au))
+									for b in bucket_intervals:
+										if b['low'] <= rbd_fare <= b['up'] or (b['up'] == float('inf') and rbd_fare >= b['low']):
+											assigned_au = b['au']
+											break
+							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', assigned_au)
 			except Exception as e:
 				self.logger.error(f"Error in NextGen AU Optimization: {e}")
 

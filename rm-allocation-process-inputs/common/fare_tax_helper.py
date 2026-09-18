@@ -280,7 +280,7 @@ class FareTaxHelper:
             other_taxes = 0.0
 
         airline_comp = (gross - other_taxes) / (1.0 + gst_rate)
-        return max(0.0, round(airline_comp, 2))
+        return max(0.0, float(airline_comp))
 
     def airline_component_to_allin(self, airline_comp, origin, destination, route=None):
         """
@@ -308,7 +308,7 @@ class FareTaxHelper:
             other_taxes = 0.0
 
         allin = (comp * (1.0 + gst_rate)) + other_taxes
-        return max(0.0, round(allin, 2))
+        return max(0.0, float(allin))
 
     def fares_to_airline_component(self, fares_df, fare_col='TOTAL'):
         """
@@ -378,6 +378,6 @@ class FareTaxHelper:
 
         res = df.copy()
         numeric_gross = pd.to_numeric(res[gross_col], errors='coerce')
-        res[dest_col] = ((numeric_gross - other_taxes) / (1.0 + gst_rate)).round(2)
+        res[dest_col] = (numeric_gross - other_taxes) / (1.0 + gst_rate)
         res[dest_col] = res[dest_col].clip(lower=0.0)
         return res

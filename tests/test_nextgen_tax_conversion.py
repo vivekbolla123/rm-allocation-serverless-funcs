@@ -92,18 +92,22 @@ def test_nextgen_market_fare_tax_conversion():
         tax_helper=tax_helper
     )
 
-    # 1. Output summary MarketFare must be ALL-IN
-    assert summary['MarketFare_Min'] == 5000.0
-    assert summary['MarketFare_Max'] == 5750.0  # Median of 5000 and 6500
-    assert summary['MarketFare_Selected'] == 5000.0
+    # 1. Output summary MarketFare converted to Airline Component before calculation
+    assert np.isclose(summary['MarketFare_Min'], 4330.476, rtol=1e-3)
+    assert np.isclose(summary['MarketFare_Selected'], 4330.476, rtol=1e-3)
+    assert np.isclose(summary['MarketFare_Max'], 5044.762, rtol=1e-3)
+    assert summary['MarketFare_Min_AllIn'] == 5000.0
+    assert summary['MarketFare_Max_AllIn'] == 5750.0
 
     # 2. Output summary Anchor_fare, Strategy_fare, NG_Opening_fare must be NORMAL (airline component)
     assert summary['Anchor_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
     assert summary['Strategy_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
     assert summary['NG_Opening_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
 
-    # 3. Final DF fare column is normal airline component
+    # 3. Final DF fare column is normal airline component and AU is unrounded
     assert (final_df['fare'].isin([2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0])).all()
+    assert pd.api.types.is_float_dtype(final_df['AU'])
+    assert pd.api.types.is_float_dtype(final_df['AU_Revised'])
 
 
 def test_nextgen_without_tax_helper_graceful_fallback():
