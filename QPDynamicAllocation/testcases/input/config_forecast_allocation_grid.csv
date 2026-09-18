@@ -1,0 +1,13 @@
+band,trend,formula,description
+4,Increasing,"Max(Profile, LSF*1.04, Strategy)","Band 4 Increasing"
+4,Stable,"Max(LSF*1.02, Average(Highest, Middle))","Band 4 Stable"
+4,Decreasing,"Min(LSF, 0.80*LSF + 0.20*Middle)","Band 4 Decreasing"
+3,Increasing,"Max(LSF, 0.70*Highest + 0.30*Middle)","Band 3 Increasing"
+3,Stable,"Max(LSF, 0.30*Highest + 0.70*Middle)","Band 3 Stable"
+3,Decreasing,"Min(LSF, 0.60*LSF + 0.40*Middle)","Band 3 Decreasing"
+2,Increasing,"Max(LSF, 0.70*LSF + 0.30*Highest)","Band 2 Increasing"
+2,Stable,"Min(LSF, 0.80*LSF + 0.20*Lowest)","Band 2 Stable"
+2,Decreasing,"Min(0.95*LSF, 0.60*LSF + 0.40*Lowest)","Band 2 Decreasing"
+1,Increasing,"Min(Strategy, LSF)","Band 1 Increasing"
+1,Stable,"Min(Strategy, LSF*0.98)","Band 1 Stable"
+1,Decreasing,"Min(Strategy, Profile, LSF*0.95)","Band 1 Decreasing"

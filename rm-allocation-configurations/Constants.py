@@ -189,6 +189,9 @@ OVERBOOKING_MANUAL_LF_KEY = 'OVERBOOKING_MANUAL_LF'
 OVERBOOKING_MAX_COUNT_KEY = 'OVERBOOKING_MAX_COUNT'
 OVERBOOKING_CAP_KEY = 'OVERBOOKING_CAP'
 CUG_DISCOUNT_KEY = 'CUG_DISCOUNT'
+SPOILAGE_REDUCTION_PLF_THRESHOLD_KEY = 'SPOILAGE_REDUCTION_PLF_THRESHOLD'
+SPOILAGE_REDUCTION_TRIGGER_BANDS_KEY = 'SPOILAGE_REDUCTION_TRIGGER_BANDS'
+SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS_KEY = 'SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS'
 IMP_FORECAST_DEDUCTION_ML_KEY = 'IMP_FORECAST_DEDUCTION_ML'
 IMP_FORECAST_DEDUCTION_LB_KEY = 'IMP_FORECAST_DEDUCTION_LB'
 IMP_FORECAST_DEDUCTION_KEY = 'IMP_FORECAST_DEDUCTION'
@@ -282,6 +285,7 @@ DEFAULT_ML_CONFIG_KEY = "DEFAULT_ML_CONFIG"
 DEFAULT_ML_CALC_CONFIG_KEY = "DEFAULT_ML_CALC_CONFIG"
 PLF_CHANGE_PER_KEY = "plf_change_per"
 PLF_CHANGE_N_RUNS_KEY = "plf_change_n_runs"
+LSF_FALLBACK_N_RUNS_KEY = "lsf_fallback_n_runs"
 GDS_RBD_VALUES_KEY = "GDS_RBD_VALUES"
 GRACE_PERIOD_MINUTES_KEY = "GRACE_PERIOD_MINUTES"
 WINDOW_MINUTES_KEY = "WINDOW_MINUTES"
@@ -351,6 +355,10 @@ MAXO_FARE_ANCHOR = "MAXO"
 OWNF_FARE_ANCHOR = "OWNF"
 MINC_FARE_ANCHOR = "MINC"
 MINOC_FARE_ANCHOR = "MINOC"
+MIN2_FARE_ANCHOR = "MIN2"
+MIN2C_FARE_ANCHOR = "MIN2C"
+MED_FARE_ANCHOR = "MED"
+MEDC_FARE_ANCHOR = "MEDC"
 
 YES_FLAG = 'Y'
 NO_FLAG = 'N'
@@ -512,6 +520,19 @@ DOMESTIC_PLF_THRESHOLD = 95.0
 INTERNATIONAL_PLF_THRESHOLD = 80.0
 CUG_DISCOUNT = 5
 
+# --- D-0 Spoilage Reduction ---------------------------------------------------
+# PLF (%) above which spoilage reduction is skipped to avoid dilution.
+SPOILAGE_REDUCTION_PLF_THRESHOLD = 100
+# Departure-time bands (inclusive, HH:MM) mapped to the number of hours before
+# departure at which the D-0 spoilage reduction becomes active.
+# Current policy:
+#   Departures 00:01 - 11:00 -> 16 hours before departure
+#   Departures 11:01 - 23:59 -> 10 hours before departure
+# A band may wrap past midnight by setting startTime > endTime.
+SPOILAGE_REDUCTION_TRIGGER_BANDS = '[{"startTime": "00:01", "endTime": "11:00", "triggerHours": 16}, {"startTime": "11:01", "endTime": "23:59", "triggerHours": 10}]'
+# Used when a departure time falls outside every configured band (e.g. 00:00).
+SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS = 12
+
 IMP_FORECAST_DEDUCTION_LB = 0
 IMP_FORECAST_DEDUCTION_ML = 0
 IMP_FORECAST_DEDUCTION = 0
@@ -547,6 +568,10 @@ GDS_RBD_VALUES = "Y,B,C,D,E,F,H,I,J,K,M,N2,O2,P2,Q2,R2,T2,U2,V2,Z4,W6,L,X,A"
 
 EQT_RECIPIENTS = "FlightAnalyst@akasaair.com,rmsupport@akasaair.com,closed.rm.it@akasaair.com"
 EQT_RECIPIENTS_KEY = "EQT_RECIPIENTS"
+
+# Payload restriction (RM support LID / adjusted-capacity update) recipients
+PAYLOAD_RESTRICTION_RECIPIENTS = "rmsupport@akasaair.com,closed.rm.it@akasaair.com"
+PAYLOAD_RESTRICTION_RECIPIENTS_KEY = "PAYLOAD_RESTRICTION_RECIPIENTS"
 GROUP_SCALING_FACTOR = 0.7
 GROUP_AU_BATCH = 5
 GROUP_IMP_FORECAST_REDUCTION = 95
@@ -554,6 +579,12 @@ DEFAULT_ML_CONFIG = '{ "top_rbd_count": { "B2C": 8, "B2B": 3 }, "top_gp_factor":
 DEFAULT_ML_CALC_CONFIG = '{ "backstop_distance_multiplier": 6, "q_fare_level": "10" }'
 PLF_CHANGE_PER = 2.0
 PLF_CHANGE_N_RUNS = 4
+LSF_FALLBACK_N_RUNS = 4
+CONFIG_FORECAST_ALLOCATION_GRID_COLLECTION = "config_forecast_allocation_grid"
+CONFIG_FORECAST_ALLOCATION_BANDS_COLLECTION = "config_forecast_allocation_bands"
+
+STRATEGY_OFFSET_GUARDRAILS = '{"min_shift": 100, "max_shift": 2000}'
+STRATEGY_OFFSET_GUARDRAILS_KEY = "strategy_offset_guardrails"
 
 #HOLD_BOOKING_EMAIL_SUBJECT = "Hold Booking Alert"
 #HOLD_BOOKING_EMAIL_RECIPIENTS = "jashubhai.chaudhary@akasaair.com"
@@ -592,9 +623,55 @@ SECTOR_BATCH_SIZE = 6
 NDO_RANGE = list(range(181))           # 0..180
 PREDICTION_HORIZON_DAYS = 180
 MIN_FLIGHT_MATCHES = 13
-WEIGHT_ALPHA = 0.99                     # recency decay for the weighted branch
+# Upper bound on matched historical flights kept per future flight (Step 9).
+# Coarse matching-ladder levels (Sector-all-taggings) can return the whole
+# sector history; Step 10 then explodes to (future x buckets x matches x 181
+# NDO cols) — the OOM source. Keeping the closest-STD / most-recent N caps that
+# product with negligible effect on the averaged prediction. 0 disables the cap.
+MAX_FLIGHT_MATCHES = 60
+WEIGHT_ALPHA = 0.99                     # recency decay for FLOWN matches (weighted branch)
+WEIGHT_ALPHA_FUTURE = 0                 # recency decay for FUTURE/unflown matches:
+                                        # 0 -> future matches get weight 0 (excluded);
+                                        # set to 0.99 to restore the original decayed weight.
 WEIGHT_FUTURE_X = 1                     # full weight when snapshot < departure
 PARQUET_ROW_THRESHOLD = 250_000
+# Steps 10+11 are processed this many future-flight keys at a time so the
+# exploded (future x buckets x matches x NDO) frame is never fully materialized.
+# Purely a memory knob — output is identical for any value (every reduction is
+# per-future-key). Lower it if a heavy sector still approaches the memory limit.
+PREDICT_CHUNK_KEYS = 300
+# Audit: max number of unmatched future-flight keys stored per sector in
+# sector_stats.<SECTOR>.unmatched_keys. The exact count is always recorded
+# (unmatched_count); this only caps the stored key list so a data-starved sector
+# cannot bloat the single per-run audit document (Mongo 16 MB limit). 0 = no cap.
+AUDIT_UNMATCHED_KEYS_CAP = 500
+
+# --- Additive-model LOGIC constants (subject to tuning) -----------------------
+# Geometric-progression fare-bucket count. GP generates this many boundary
+# points; consecutive duplicates collapse, so a sector may end with FEWER
+# buckets than this when actual fares are clustered.
+GP_FARE_BUCKET_POINTS = 19
+# Lowest fare bucket's lower bound is reduced by this factor to catch fares
+# just under the boundary (0.8 => -20%).
+FARE_BUCKET_LOWER_FACTOR = 0.8
+# Future-tagging ladder: a grouping level with fewer than this many rows is
+# dropped so the fill falls through to a coarser, better-supported level.
+FUTURE_TAG_MIN_ENTRIES = 12
+# Flight matching: +-N hour band applied on the DOW-Tagging ladder levels.
+TIME_BAND_HOURS = 2
+
+# --- Additive-model parameter KEYS (DB overrides via rm_parameter_values) -----
+PREDICTION_HORIZON_DAYS_KEY = "PREDICTION_HORIZON_DAYS"
+MIN_FLIGHT_MATCHES_KEY = "MIN_FLIGHT_MATCHES"
+MAX_FLIGHT_MATCHES_KEY = "MAX_FLIGHT_MATCHES"
+WEIGHT_ALPHA_KEY = "WEIGHT_ALPHA"
+WEIGHT_ALPHA_FUTURE_KEY = "WEIGHT_ALPHA_FUTURE"
+WEIGHT_FUTURE_X_KEY = "WEIGHT_FUTURE_X"
+PARQUET_ROW_THRESHOLD_KEY = "PARQUET_ROW_THRESHOLD"
+GP_FARE_BUCKET_POINTS_KEY = "GP_FARE_BUCKET_POINTS"
+FARE_BUCKET_LOWER_FACTOR_KEY = "FARE_BUCKET_LOWER_FACTOR"
+FUTURE_TAG_MIN_ENTRIES_KEY = "FUTURE_TAG_MIN_ENTRIES"
+TIME_BAND_HOURS_KEY = "TIME_BAND_HOURS"
 
 REQUIRED_RBDS = [
     'B', 'C', 'D', 'E', 'F', 'H', 'I', 'J', 'K',

@@ -585,11 +585,29 @@ def execute_dw_query_with_retry(query, engine):
 def get_forecast(min_date, max_date):
     query = f"""
         SELECT
-            ROUND(fr.forecastPLF, 1) AS forecastPLF, ROUND(fr_ml.forecastPLF, 1) AS forecastPLF_ml, fr.Variance AS forecast_variance, ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF, ROUND(fr_ml.AdjustedForecastPLF, 1) AS adjustedPLF_ml, fr.PLF AS forecast_run_plf, fr.Origin, fr.Destination, fr.FlightNumber, fr.DepartureDate, fr.ALLIN_AF, fr.ForecastAF_Allin, fr.ALLIN_AF_NB_LM, fr.ALLIN_AF_NB_LY, fr.Adjustment_Factor, fr.Expected_PLF, fr.Flown_Target_Load
+            ROUND(fr.forecastPLF, 1) AS forecastPLF,
+            ROUND(COALESCE(fr_ml.forecastPLF, fr_ml_intl.forecastPLF), 1) AS forecastPLF_ml,
+            fr.Variance AS forecast_variance,
+            ROUND(fr.AdjustedForecastPLF, 1) AS adjustedPLF,
+            ROUND(COALESCE(fr_ml.AdjustedForecastPLF, fr_ml_intl.AdjustedForecastPLF), 1) AS adjustedPLF_ml,
+            fr.PLF AS forecast_run_plf,
+            fr.Origin,
+            fr.Destination,
+            fr.FlightNumber,
+            fr.DepartureDate,
+            fr.ALLIN_AF,
+            fr.ForecastAF_Allin,
+            fr.ALLIN_AF_NB_LM,
+            fr.ALLIN_AF_NB_LY,
+            fr.Adjustment_Factor,
+            fr.Expected_PLF,
+            fr.Flown_Target_Load
         FROM RM_DW_DATA.forecast_results fr
 
         LEFT JOIN RM_DW_DATA.forecast_results_ml fr_ml
             ON fr.Origin = fr_ml.Origin AND fr.Destination = fr_ml.Destination AND fr.FlightNumber = fr_ml.FlightNumber AND fr.DepartureDate = fr_ml.DepartureDate
+        LEFT JOIN RM_DW_DATA.forecast_results_ml_international fr_ml_intl
+            ON fr.Origin = fr_ml_intl.Origin AND fr.Destination = fr_ml_intl.Destination AND fr.FlightNumber = fr_ml_intl.FlightNumber AND fr.DepartureDate = fr_ml_intl.DepartureDate
         WHERE fr.DepartureDate BETWEEN '{min_date}' AND '{max_date}'
     """
     return query
@@ -624,7 +642,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
       2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
       3. Append sibling rows, free intermediate memory, move to next window
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change", "Payload_Restriction"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
@@ -872,8 +890,60 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
     conn_df['FlightNumber2'] = conn_df['FlightNumber2'].astype(str).str.strip()
     conn_df['Sector1'] = conn_df['Sector1'].astype(str).str.strip()
     conn_df['Sector2'] = conn_df['Sector2'].astype(str).str.strip()
+    # STD1/STA1/STD2/STA2 are HH:mm strings from the stored proc; keep them trimmed
+    for time_col in ('STD1', 'STA1', 'STD2', 'STA2'):
+        if time_col in conn_df.columns:
+            conn_df[time_col] = conn_df[time_col].astype(str).str.strip()
     logger.info(f"Fetched {len(conn_df)} connection rows from ActiveJourneyView (Connecting + Through)")
     return conn_df
+
+
+def _compute_total_flight_minutes(dep_date1, std1, arr_date2, sta2):
+    """Vectorized total connection flight time, in whole minutes.
+
+    Total duration = (second flight arrival datetime) - (first flight departure datetime),
+    where the first flight departs on ``dep_date1`` at ``std1`` (HH:mm) and the second
+    flight arrives on ``arr_date2`` at ``sta2`` (HH:mm).
+
+    All four arguments are array-likes (aligned by position). Returns an Int64
+    Series of total minutes with ``pd.NA`` only where a component is
+    missing/unparseable. Overnight connections — where the arrival clock time
+    is earlier than the departure clock time on the same stamped date (e.g.
+    depart 18:10, arrive 01:40) — are rolled forward one day so the elapsed
+    time stays positive.
+    """
+    dep_date = pd.to_datetime(pd.Series(dep_date1).reset_index(drop=True), errors='coerce').dt.normalize()
+    arr_date = pd.to_datetime(pd.Series(arr_date2).reset_index(drop=True), errors='coerce').dt.normalize()
+
+    # HH:mm strings -> minutes-of-day (NaN when blank/unparseable)
+    std_td = pd.to_timedelta(
+        pd.Series(std1).reset_index(drop=True).astype(str).str.strip() + ':00', errors='coerce'
+    )
+    sta_td = pd.to_timedelta(
+        pd.Series(sta2).reset_index(drop=True).astype(str).str.strip() + ':00', errors='coerce'
+    )
+
+    start_dt = dep_date + std_td
+    end_dt = arr_date + sta_td
+
+    # Overnight arrival: arrival datetime lands before departure because the
+    # arrival date wasn't advanced past midnight. Add a day so elapsed > 0.
+    end_dt = end_dt.mask(end_dt < start_dt, end_dt + pd.Timedelta(days=1))
+
+    total_minutes = (end_dt - start_dt).dt.total_seconds() / 60.0
+    return total_minutes.round().astype('Int64')
+
+
+def _minutes_to_hhmm(total_minutes):
+    """Convert an Int64 minutes Series to an HH:mm string Series ('' when NA)."""
+    hours = (total_minutes // 60)
+    minutes = (total_minutes % 60)
+    hhmm = (
+        hours.astype('Int64').astype(str).str.zfill(2)
+        + ':'
+        + minutes.astype('Int64').astype(str).str.zfill(2)
+    )
+    return hhmm.where(total_minutes.notna(), '')
 
 
 def quick_optimize(mkt_list, nav_helper):
@@ -892,9 +962,23 @@ def quick_optimize(mkt_list, nav_helper):
     conn_df['DepartureDate'] = pd.to_datetime(conn_df['DepartureDate1']).dt.date
     conn_df['SecondFlightDepartureDate'] = pd.to_datetime(conn_df['DepartureDate2']).dt.date
 
+    # Compute total flight duration from first flight departure to second flight arrival,
+    # vectorized. Uses DepartureDate1 + STD1 as the start and DepartureDate2 + STA2 as the end.
+    for time_col in ('STD1', 'STA1', 'STD2', 'STA2'):
+        if time_col not in conn_df.columns:
+            conn_df[time_col] = ''
+    total_minutes = _compute_total_flight_minutes(
+        conn_df['DepartureDate'], conn_df['STD1'],
+        conn_df['SecondFlightDepartureDate'], conn_df['STA2']
+    )
+    # HH:mm string (kept for compatibility) + decimal hours (used for Outbound_duration)
+    conn_df['TotalFlightDuration'] = _minutes_to_hhmm(total_minutes).values
+    conn_df['TotalFlightDurationHours'] = (total_minutes / 60.0).round(2).astype('Float64').values
+
     # Deduplicate — keep first match per key
     lookup = conn_df.drop_duplicates(subset=['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate'])
-    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate', 'SecondFlightDepartureDate']]
+    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate',
+                     'SecondFlightDepartureDate', 'TotalFlightDuration', 'TotalFlightDurationHours']]
 
     mkt_list['Flight1'] = mkt_list['Flight1'].astype('int64')
     mkt_list['Flight2'] = mkt_list['Flight2'].astype('int64')
@@ -907,6 +991,7 @@ def quick_optimize(mkt_list, nav_helper):
 
     # Fill missing with empty string to match old API behavior
     mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].fillna('')
+    mkt_list['TotalFlightDuration'] = mkt_list['TotalFlightDuration'].fillna('')
 
     print(f"Matched {(mkt_list['SecondFlightDepartureDate'] != '').sum()} / {len(mkt_list)} connections")
     return mkt_list
@@ -1127,7 +1212,7 @@ def _process_market_list_docs(base_ml_df, date_df, query_type):
     connection_cols = [
         'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
         'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
-        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
+        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','additional_outbound_duration','Currency',
         'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
     ]
 
@@ -1406,7 +1491,8 @@ def get_sector_forecast_model_map():
 
 def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
                              booked_pax_col='bookedPax', capacity_col='capacity',
-                             forecast_model_col=None, lb_forecast_col=None):
+                             forecast_model_col=None, lb_forecast_col=None,
+                             adjusted_capacity_col=None):
     """BRD: if the sector uses ML model and the ML forecastPLF is below the current
     booked PLF, switch forecast to LB — i.e. revert forecastPLF to the original
     LB value (fr.forecastPLF).
@@ -1416,6 +1502,8 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
     Args:
         lb_forecast_col: Column containing the original LB forecastPLF (before ML substitution).
                          When switch triggers, forecastPLF is reverted to this value.
+        adjusted_capacity_col: Optional column for adjusted capacity. If present and > 0,
+                               it is used instead of raw capacity for booked PLF.
 
     Must run AFTER left_join_forecast (so forecastPLF is model-resolved)
     AND after booked_loads is merged (so booked PLF is available)."""
@@ -1426,6 +1514,13 @@ def apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF',
         return mkt_list, 0
 
     cap = pd.to_numeric(mkt_list[capacity_col], errors='coerce')
+    if adjusted_capacity_col and adjusted_capacity_col in mkt_list.columns:
+        adj_cap = pd.to_numeric(mkt_list[adjusted_capacity_col], errors='coerce')
+        cap = np.where((adj_cap.notna()) & (adj_cap > 0), adj_cap, cap)
+    elif 'adjustedCapacity' in mkt_list.columns and capacity_col == 'capacity':
+        adj_cap = pd.to_numeric(mkt_list['adjustedCapacity'], errors='coerce')
+        cap = np.where((adj_cap.notna()) & (adj_cap > 0), adj_cap, cap)
+
     pax = pd.to_numeric(mkt_list[booked_pax_col], errors='coerce')
     fc  = pd.to_numeric(mkt_list[forecast_col], errors='coerce')
 
@@ -1533,7 +1628,7 @@ def lambda_handler(event, context):
         type = data[run_type_key]
     if region_key in data:
         region = data[region_key]
-    if type not in ("Adhoc", "Equipment_Change"):
+    if type not in ("Adhoc", "Equipment_Change", "Payload_Restriction"):
         is_connections_required = '1'
     if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]
@@ -1726,7 +1821,23 @@ def lambda_handler(event, context):
         mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
         filtered_count = len(mkt_list)
         logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
-        
+
+        # Final effective outbound duration (decimal hours), computed here so the
+        # allocation lambda can consume it directly. The market fare tables store
+        # outbound_duration as decimal hours and filter competitor fares with
+        # outbound_duration <= this value.
+        #   Outbound_duration = total connection flight time (TotalFlightDurationHours)
+        #                       + additional buffer (additional_outbound_duration, decimal hours)
+        if 'additional_outbound_duration' not in mkt_list.columns:
+            mkt_list['additional_outbound_duration'] = 0.0
+        total_hours = pd.to_numeric(
+            mkt_list.get('TotalFlightDurationHours'), errors='coerce'
+        ).fillna(0.0)
+        additional_hours = pd.to_numeric(
+            mkt_list['additional_outbound_duration'], errors='coerce'
+        ).fillna(0.0)
+        mkt_list['Outbound_duration'] = (total_hours + additional_hours).round(2)
+
         if not mkt_list.empty:
             mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
             all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
@@ -1837,12 +1948,12 @@ def lambda_handler(event, context):
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity', 'adjustedCapacity']],
             how='left',
             left_on=['DepartureDate', 'Flight1', 'Sector1Origin', 'Sector1Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Lid1'}).drop(
+        ).rename(columns={'capacity': 'Lid1', 'adjustedCapacity': 'AdjustedCapacity1'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         mkt_list = mkt_list.merge(
@@ -1855,12 +1966,12 @@ def lambda_handler(event, context):
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
         
         mkt_list = mkt_list.merge(
-            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity']],
+            booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'capacity', 'adjustedCapacity']],
             how='left',
             left_on=['SecondFlightDepartureDate', 'Flight2', 'Sector2Origin', 'Sector2Dest'],
             right_on=['DepartureDate', 'FlightNumber', 'Origin', 'Destination'],
             suffixes=('', '_drop')
-        ).rename(columns={'capacity': 'Lid2'}).drop(
+        ).rename(columns={'capacity': 'Lid2', 'adjustedCapacity': 'AdjustedCapacity2'}).drop(
             columns=['Origin', 'Destination', 'FlightNumber', 'DepartureDate_drop'], errors='ignore')
 
         # BRD: Apply LB switch per sector for connections
@@ -1868,11 +1979,13 @@ def lambda_handler(event, context):
         mkt_list, lb_count1 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF1',
                                                         booked_pax_col='BookedPax1', capacity_col='Lid1',
                                                         forecast_model_col='forecast_model1',
-                                                        lb_forecast_col='forecastPLF_lb1')
+                                                        lb_forecast_col='forecastPLF_lb1',
+                                                        adjusted_capacity_col='AdjustedCapacity1')
         mkt_list, lb_count2 = apply_lb_forecast_switch(mkt_list, forecast_col='forecastPLF2',
                                                         booked_pax_col='BookedPax2', capacity_col='Lid2',
                                                         forecast_model_col='forecast_model2',
-                                                        lb_forecast_col='forecastPLF_lb2')
+                                                        lb_forecast_col='forecastPLF_lb2',
+                                                        adjusted_capacity_col='AdjustedCapacity2')
         logger.info(f"Connections LB switch: sector1={lb_count1}, sector2={lb_count2}")
 
         mkt_list = mkt_list.merge(
@@ -1922,11 +2035,12 @@ def lambda_handler(event, context):
         # We'll merge to get direct flight data for each connection
         
         # Get direct flight bookloads for connection OD
-        direct_flight_bookloads = booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax', 'capacity', 'DepartureTime']].copy()
+        direct_flight_bookloads = booked_loads[['DepartureDate', 'FlightNumber', 'Origin', 'Destination', 'bookedPax', 'capacity', 'adjustedCapacity', 'DepartureTime']].copy()
         direct_flight_bookloads = direct_flight_bookloads.rename(columns={
             'FlightNumber': 'DirectFlightNumber',
             'bookedPax': 'DirectFlightBookedPax',
             'capacity': 'DirectFlightLid',
+            'adjustedCapacity': 'DirectFlightAdjustedCapacity',
             'DepartureTime': 'DirectFlightDepTime'
         })
         
@@ -1959,10 +2073,17 @@ def lambda_handler(event, context):
             how='left'
         )
         
-        # Calculate PLF for direct flights
-        direct_flights_data['DirectFlightPLF'] = (
-            direct_flights_data['DirectFlightBookedPax'] / direct_flights_data['DirectFlightLid'] * 100
-        ).fillna(0)
+        # Calculate PLF for direct flights (using adjustedCapacity if available)
+        direct_eff_cap = np.where(
+            (direct_flights_data['DirectFlightAdjustedCapacity'].notna()) & (pd.to_numeric(direct_flights_data['DirectFlightAdjustedCapacity'], errors='coerce') > 0),
+            pd.to_numeric(direct_flights_data['DirectFlightAdjustedCapacity'], errors='coerce'),
+            pd.to_numeric(direct_flights_data['DirectFlightLid'], errors='coerce')
+        )
+        direct_flights_data['DirectFlightPLF'] = np.where(
+            direct_eff_cap > 0,
+            (pd.to_numeric(direct_flights_data['DirectFlightBookedPax'], errors='coerce') / direct_eff_cap) * 100,
+            0
+        )
         
         direct_flights_data['DirectFlightForecast'] = direct_flights_data['DirectFlightForecast'].fillna(0)
         
@@ -2036,7 +2157,7 @@ def lambda_handler(event, context):
             mkt_list = mkt_list.merge(
                 best_direct_flights[[
                     'merge_key',
-                    'DirectFlightNumber', 'DirectFlightBookedPax', 'DirectFlightLid',
+                    'DirectFlightNumber', 'DirectFlightBookedPax', 'DirectFlightLid', 'DirectFlightAdjustedCapacity',
                     'DirectFlightForecast', 'DirectFlightPLF', 'DirectFlightDepTime',
                     'DirectFlightOpeningRBDB2B', 'DirectFlightOpeningRBDB2C'
                 ]],
@@ -2049,6 +2170,7 @@ def lambda_handler(event, context):
             mkt_list['DirectFlightNumber'] = None
             mkt_list['DirectFlightBookedPax'] = None
             mkt_list['DirectFlightLid'] = None
+            mkt_list['DirectFlightAdjustedCapacity'] = None
             mkt_list['DirectFlightForecast'] = None
             mkt_list['DirectFlightPLF'] = None
             mkt_list['DirectFlightDepTime'] = None
@@ -2056,7 +2178,7 @@ def lambda_handler(event, context):
             mkt_list['DirectFlightOpeningRBDB2C'] = None
         
         # Drop helper columns
-        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest', 'merge_key'], errors='ignore')
+        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest', 'merge_key', 'TotalFlightDurationHours'], errors='ignore')
         
         logger.info(f"Added direct flight data for {mkt_list['DirectFlightNumber'].notna().sum()} connections (filtered within +/-6 hours of first flight time)")
         

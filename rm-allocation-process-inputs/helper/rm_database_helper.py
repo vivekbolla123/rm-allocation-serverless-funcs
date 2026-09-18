@@ -1,12 +1,14 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
 import pandas as pd
 import pytz
 from ownlogger import OwnLogger
 from Constants import *
 from utilities.time_utils import TimeUtils 
+from utilities.offset_utils import offset_snap_direction
 from helper.redis_helper import RedisHelper
 from constants_utils import ConstantsUtils
+from common.compute_utils import parse_int_flag
 
 class RMDatabaseHelper:
     def __init__(self, mongo_db, dwconn, runId, inputSource, debugmode, cache_client, currParams):
@@ -620,6 +622,7 @@ class RMDatabaseHelper:
                         # bookload 1
                         "BookedPax1": {"$arrayElemAt": ["$bookload1.bookedPax", 0]},
                         "Lid1": {"$arrayElemAt": ["$bookload1.Lid", 0]},
+                        "AdjustedCapacity1": {"$arrayElemAt": ["$bookload1.adjustedCapacity", 0]},
                         
                         # Forecast 1
                         "forecastPLF1": {"$arrayElemAt": ["$forecast1.ForecastPLF", 0]},
@@ -628,6 +631,7 @@ class RMDatabaseHelper:
                         # bookload 2
                         "BookedPax2": {"$arrayElemAt": ["$bookload2.bookedPax", 0]},
                         "Lid2": {"$arrayElemAt": ["$bookload2.Lid", 0]},
+                        "AdjustedCapacity2": {"$arrayElemAt": ["$bookload2.adjustedCapacity", 0]},
                         
                         # Forecast 2
                         "forecastPLF2": {"$arrayElemAt": ["$forecast2.ForecastPLF", 0]},
@@ -646,6 +650,7 @@ class RMDatabaseHelper:
                         "DirectFlightNumber": "$connections_details.DirectFlightNumber",
                         "DirectFlightBookedPax": "$connections_details.DirectFlightBookedPax",
                         "DirectFlightLid": "$connections_details.DirectFlightLid",
+                        "DirectFlightAdjustedCapacity": "$connections_details.DirectFlightAdjustedCapacity",
                         "DirectFlightForecast": "$connections_details.DirectFlightForecast",
                         "DirectFlightPLF": "$connections_details.DirectFlightPLF",
                         "DirectFlightDepTime": "$connections_details.DirectFlightDepTime",
@@ -960,6 +965,12 @@ class RMDatabaseHelper:
     def get_imputed_forecast_band(self, imp_forecast):
         rounded_imp_fcst = round(imp_forecast, 2)
         try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                res = self.db.config_forecast_allocation_bands.find_one(
+                    {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
+                )
+                if res and "band" in res:
+                    return int(res["band"])
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
             )
@@ -978,6 +989,26 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return CONST_NA
+
+    def get_forecast_allocation_grid(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_grid"):
+                docs = list(self.db.config_forecast_allocation_grid.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_grid: {e}")
+        return pd.DataFrame()
+
+    def get_forecast_allocation_bands(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                docs = list(self.db.config_forecast_allocation_bands.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_bands: {e}")
+        return pd.DataFrame()
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
@@ -1165,8 +1196,23 @@ class RMDatabaseHelper:
                 "channel": channel,
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
-                },
-                "outbound_stop": '0'
+                }
+            }
+
+            # Outbound stop filter — mirrors getMarketFareRangeConnections:
+            # allow records with outbound_stop <= configured value, handling
+            # both string and numeric storage of the field.
+            outbound_stop_expr = {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_stop"}, "string"]},
+                            "then": {"$toInt": "$outbound_stop"},
+                            "else": "$outbound_stop"
+                        }
+                    },
+                    parse_int_flag(currParams.outboundstop, 0)
+                ]
             }
             
             if flight_exclusion_list:
@@ -1193,7 +1239,8 @@ class RMDatabaseHelper:
                 base_match_conditions["$expr"] = {
                     "$and": [
                         {"$gte": [{"$hour": "$outbound_departuretime"}, start_time_parts[0]]},
-                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]}
+                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]},
+                        outbound_stop_expr
                     ]
                 }
             else:
@@ -1224,7 +1271,8 @@ class RMDatabaseHelper:
                                 }},
                                 enddateTime
                             ]
-                        }
+                        },
+                        outbound_stop_expr
                     ]
                 }
  
@@ -1616,7 +1664,14 @@ class RMDatabaseHelper:
         return include_rbd_list
 
     def getValueWithOffset(self, origin, destin, anchorFare, offset, channel, openResult, route, strategy_criteria = None):
-        self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset))
+        # Offsets reach here in either format. Only the direction of travel matters for
+        # building the ladder query below, so derive it via the shared helper instead of
+        # coercing multiplier ('X') offsets to 0 — that discarded the direction and made
+        # every downward multiplier query upward.
+        offsetDirection = offset_snap_direction(offset)
+
+        # self.logger.info("Anchor Fare is " + str(anchorFare) + " with an offset of " + str(offset)
+        #                  + " (direction " + str(offsetDirection) + ")")
 
         if (not anchorFare) or anchorFare == CONST_NA or pd.isna(anchorFare) or anchorFare == 0:
             self.logger.info('Strategy Fare not available.')
@@ -1653,8 +1708,8 @@ class RMDatabaseHelper:
         sortorder = -1  # desc
         use_pipeline = False
 
-        if int(offset) < 0:
-            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+        if offsetDirection < 0:
+            if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR or strategy_criteria == MIN2C_FARE_ANCHOR or strategy_criteria == MEDC_FARE_ANCHOR):
                 pipeline = [
                     {"$match": query},
                     {
@@ -1685,10 +1740,10 @@ class RMDatabaseHelper:
                 query["TOTAL"] = {"$lt": int(anchorFare), "$ne": 1}
             sortorder = -1
 
-        if int(offset) >= 0:
+        if offsetDirection >= 0:
             anchorFare = float(anchorFare)
             if anchorFare > 0:
-                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR):
+                if strategy_criteria and (strategy_criteria == MINC_FARE_ANCHOR or strategy_criteria == MINOC_FARE_ANCHOR or strategy_criteria == MIN2C_FARE_ANCHOR or strategy_criteria == MEDC_FARE_ANCHOR):
                     pipeline = [
                         {"$match": query},
                         {
@@ -1755,8 +1810,13 @@ class RMDatabaseHelper:
         # else:  # B2B
         #     query["$and"].append({"RBD": {"$regex": "^Z"}})
 
+        try:
+            backstop_val = float(backstop) if backstop not in (None, '', 'NA', 'None', CONST_NA) else 0.0
+        except (ValueError, TypeError):
+            backstop_val = 0.0
+
         # Add TOTAL/backstop and sort order
-        query["TOTAL"] = {"$gte": float(backstop), "$ne": 1}
+        query["TOTAL"] = {"$gte": backstop_val, "$ne": 1}
         sortorder = 1 if type == 'LOW' else -1
 
         try:
@@ -2492,8 +2552,22 @@ class RMDatabaseHelper:
 
     def get_curveids(self, sector1, sector2, fltno1, fltno2, dep1, dep2):
         try:
-            dep1 = datetime.strptime(dep1, "%Y-%m-%d")  # Converts "2025-01-15" to datetime
-            dep2 = datetime.strptime(dep2, "%Y-%m-%d")
+            if isinstance(dep1, str):
+                try:
+                    dep1 = datetime.strptime(dep1, "%Y-%m-%d")
+                except ValueError:
+                    dep1 = datetime.strptime(dep1, "%m/%d/%Y")
+            elif isinstance(dep1, date) and not isinstance(dep1, datetime):
+                dep1 = datetime.combine(dep1, datetime.min.time())
+
+            if isinstance(dep2, str):
+                try:
+                    dep2 = datetime.strptime(dep2, "%Y-%m-%d")
+                except ValueError:
+                    dep2 = datetime.strptime(dep2, "%m/%d/%Y")
+            elif isinstance(dep2, date) and not isinstance(dep2, datetime):
+                dep2 = datetime.combine(dep2, datetime.min.time())
+
             # Query both market_list and market_list_international
             query1 = {
     "$or": [

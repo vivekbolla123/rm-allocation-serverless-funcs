@@ -68,6 +68,10 @@ class LadderGen:
         if not self.sector_configs:
             raise ValueError(f"No matching ladder codes found in '{collection_name}'")
 
+        # Full market list retained so the bidirectional default-ladder comparison can look
+        # up the reverse sector even when it was not dispatched in this batch.
+        self.all_sector_configs = all_configs
+
         # sector_configs is keyed by LadderCode
         self.ladder_codes = list(self.sector_configs.keys())
         self.sectors = [self.sector_configs[lc].sector for lc in self.ladder_codes]
@@ -1568,65 +1572,325 @@ class LadderGen:
             self.failure_reason = f"B2B buffer fare calculation failed: {str(e)}"
             raise
        
+    def _get_sector_distance(self, sector):
+        """Distance for a sector, falling back to the reverse row.
+
+        Navitaire CityPair is queried for the forward direction only, but physical
+        distance is symmetric, so the reverse direction reuses the same value.
+        """
+        if not sector or len(sector) != 6:
+            return 0
+        origin, destination = sector[:3], sector[3:]
+        distance = self._get_distance(origin, destination)
+        if distance == 0:
+            distance = self._get_distance(destination, origin)
+        return distance
+
+    def _mirror_city_pair_distance(self):
+        """Make distance lookups resolve for both directions of the current sector.
+
+        Navitaire CityPair is queried for the forward direction only, but the default
+        ladder converts fares for both directions and the domestic tax math derives YQ
+        from `_get_distance`. Without the mirrored row the reverse direction silently
+        gets YQ=0 and its base fares come out too high. Distance is symmetric, so the
+        forward ActualDistance is reused. Scoped to the default flow.
+        """
+        df = self.city_pair_data
+        if df is None or df.empty:
+            return
+
+        origin, destination = self.sector[:3], self.sector[3:]
+        reverse_exists = not df[(df['DepartureStation'] == destination) &
+                                (df['ArrivalStation'] == origin)].empty
+        if reverse_exists:
+            return
+
+        forward = df[(df['DepartureStation'] == origin) & (df['ArrivalStation'] == destination)]
+        if forward.empty:
+            return
+
+        mirrored = forward.iloc[[0]].copy()
+        mirrored['DepartureStation'] = destination
+        mirrored['ArrivalStation'] = origin
+        self.city_pair_data = pd.concat([df, mirrored], ignore_index=True)
+        self.logger.info(f"Mirrored CityPair distance for {destination}{origin} "
+                         f"({float(mirrored.iloc[0]['ActualDistance'])} km) so both directions resolve")
+
+    def _tax_data_available(self, origin, destination):
+        """Whether a tax master row exists for this direction.
+
+        Without it the gross<->base conversions silently return 0 (INTL) or the input
+        unchanged (DOM), so callers must check before relying on a base fare.
+        """
+        try:
+            if self.route == 'D':
+                df = self.tax_master_dom_data
+                if df is None or df.empty:
+                    return False
+                return not df[df['Code'] == origin].empty
+
+            df = self.tax_master_intl_data
+            if df is None or df.empty:
+                return False
+            return not df[df['Sectors'] == f"{origin}{destination}"].empty
+        except Exception as e:
+            self.logger.warning(f"Tax data availability check failed for {origin}{destination}: {str(e)}")
+            return False
+
+    def _revise_min_threshold_for_yield(self, min_allin, origin, destination, channel_label):
+        """Raise the default ladder's min all-in threshold if its base fare under-yields.
+
+        Strips taxes off the ML min threshold, and if base/distance falls below
+        MARKET_FARE_MIN_YIELD, rebuilds the base min as
+        `yield_threshold * 1.01 * distance` and adds taxes back on.
+
+        Applied to both channels. Returns the (possibly revised) all-in min threshold,
+        or None with failure_reason set if it cannot be computed.
+        """
+        distance = self._get_sector_distance(f"{origin}{destination}")
+        if distance <= 0:
+            self.failure_reason = (f"Default ladder: no CityPair distance for {origin}{destination}, "
+                                   f"cannot yield-check the {channel_label} min threshold")
+            self.logger.error(self.failure_reason)
+            return None
+
+        if not self._tax_data_available(origin, destination):
+            self.failure_reason = (f"Default ladder: no tax master row for {origin}{destination}, "
+                                   f"cannot yield-check the {channel_label} min threshold")
+            self.logger.error(self.failure_reason)
+            return None
+
+        base_min = self._calculate_base_xqp_fare(min_allin, origin, destination)
+        if base_min is None or not math.isfinite(base_min) or base_min <= 0:
+            self.failure_reason = (f"Default ladder: {channel_label} min threshold {min_allin} for "
+                                   f"{origin}{destination} did not convert to a usable base fare "
+                                   f"(got {base_min})")
+            self.logger.error(self.failure_reason)
+            return None
+
+        yield_value = base_min / distance
+        if yield_value >= self.MARKET_FARE_MIN_YIELD:
+            self.logger.info(f"  {channel_label} {origin}{destination}: min threshold all-in={min_allin:.2f} -> "
+                             f"base={base_min:.2f}, yield={yield_value:.4f} >= {self.MARKET_FARE_MIN_YIELD}, no revision")
+            return min_allin
+
+        revised_base = self.MARKET_FARE_MIN_YIELD * 1.01 * distance
+        revised_allin = self.calculate_all_in_fare(revised_base, origin, destination, ftype="current")
+        self.logger.info(f"  {channel_label} {origin}{destination}: min threshold revised for yield — "
+                         f"base {base_min:.2f} (yield {yield_value:.4f}) -> {revised_base:.2f} "
+                         f"(yield {self.MARKET_FARE_MIN_YIELD} * 1.01), "
+                         f"all-in {min_allin:.2f} -> {revised_allin:.2f}")
+        return revised_allin
+
+    def _allin_to_base_ladder(self, allin_ladder, origin, destination):
+        """Convert an all-in ladder to base fares for one direction.
+
+        Returns None with failure_reason set when the result can't be trusted (missing
+        tax master row, a non-positive fare, or a break in monotonicity).
+        """
+        if not allin_ladder:
+            self.failure_reason = f"Default ladder: empty all-in ladder for {origin}{destination}"
+            self.logger.error(self.failure_reason)
+            return None
+
+        if not self._tax_data_available(origin, destination):
+            self.failure_reason = (f"Default ladder: no tax master row for {origin}{destination}, "
+                                   f"base fare ladder not derivable")
+            self.logger.error(self.failure_reason)
+            return None
+
+        base_ladder = []
+        for fare in allin_ladder:
+            base_fare = self._calculate_base_xqp_fare(fare, origin, destination)
+            if base_fare is None or not math.isfinite(base_fare) or base_fare <= 0:
+                self.failure_reason = (f"Default ladder: all-in fare {fare} for {origin}{destination} "
+                                       f"did not convert to a usable base fare (got {base_fare})")
+                self.logger.error(self.failure_reason)
+                return None
+            base_ladder.append(round(base_fare, 2))
+
+        for i in range(len(base_ladder) - 1):
+            if base_ladder[i] >= base_ladder[i + 1]:
+                self.failure_reason = (f"Default ladder: base fare ladder for {origin}{destination} is not "
+                                       f"strictly increasing at f{i + 1} ({base_ladder[i]:.2f}) -> "
+                                       f"f{i + 2} ({base_ladder[i + 1]:.2f})")
+                self.logger.error(self.failure_reason)
+                return None
+
+        return base_ladder
+
+    def _base_to_allin_ladder(self, base_ladder, origin, destination):
+        """Add taxes back onto a base ladder for one direction."""
+        return [round(self.calculate_all_in_fare(fare, origin, destination, ftype="current"), 2)
+                for fare in base_ladder]
+
+    def _find_bidirectional_default_pair(self):
+        """Find the reverse-sector market list row eligible for default ladder alignment.
+
+        Eligible only when the O&D pair maps to exactly one row per direction, the
+        reverse row also has DefaultFlag='Y', and all four min/max thresholds match
+        exactly. Any ambiguity or mismatch returns None (plain per-sector default).
+        """
+        reverse_sector = self._get_reverse_sector(self.sector)
+        if not reverse_sector:
+            return None
+
+        cfg = self.sector_configs[self.ladder_code]
+        forward_rows = [c for c in self.all_sector_configs.values() if c.sector == self.sector]
+        reverse_rows = [c for c in self.all_sector_configs.values() if c.sector == reverse_sector]
+
+        if len(forward_rows) != 1 or len(reverse_rows) != 1:
+            self.logger.info(f"Bidirectional default pairing skipped for {self.sector}: "
+                             f"{len(forward_rows)} row(s) for {self.sector}, "
+                             f"{len(reverse_rows)} row(s) for {reverse_sector} (need exactly 1 each)")
+            return None
+
+        reverse_cfg = reverse_rows[0]
+        if reverse_cfg.default_flag != 'Y':
+            self.logger.info(f"Bidirectional default pairing skipped for {self.sector}: "
+                             f"{reverse_sector} has DefaultFlag={reverse_cfg.default_flag}")
+            return None
+
+        for attr in ('min_threshold_b2c', 'max_threshold_b2c',
+                     'min_threshold_b2b', 'max_threshold_b2b'):
+            if float(getattr(cfg, attr)) != float(getattr(reverse_cfg, attr)):
+                self.logger.info(f"Bidirectional default pairing skipped for {self.sector}: "
+                                 f"{attr} differs ({getattr(cfg, attr)} vs {getattr(reverse_cfg, attr)})")
+                return None
+
+        # Reverse tax master row is an eligibility condition: without it the reverse base
+        # ladder can't be derived, so the pair is dropped and the plain default is used.
+        if not self._tax_data_available(reverse_sector[:3], reverse_sector[3:]):
+            self.logger.info(f"Bidirectional default pairing skipped for {self.sector}: "
+                             f"no tax master row for {reverse_sector}")
+            return None
+
+        return reverse_cfg
+
+    def _build_default_allin_ladder(self, channel_label, min_allin, max_allin, n, origin, destination):
+        """Revise the min threshold for yield, then build the all-in GP ladder.
+
+        Returns [] with failure_reason set on failure.
+        """
+        self.logger.info(f"  {channel_label} {origin}{destination}: Min={min_allin}, Max={max_allin}, n={n}")
+        revised_min = self._revise_min_threshold_for_yield(min_allin, origin, destination, channel_label)
+        if revised_min is None:
+            return []
+        return self._generate_gp_ladder(revised_min, max_allin, n, channel_label)
+
+    def _build_reverse_default_base_ladder(self, channel_label, min_allin, max_allin, n,
+                                           rev_origin, rev_destination):
+        """Build the reverse direction's base ladder for the bidirectional comparison.
+
+        Pairing eligibility already confirmed the reverse tax master row exists, so any
+        failure here is a real data problem: returns None with failure_reason set and the
+        sector fails rather than silently falling back to the forward-only ladder.
+        """
+        allin_ladder = self._build_default_allin_ladder(
+            channel_label, min_allin, max_allin, n, rev_origin, rev_destination)
+        if not allin_ladder:
+            return None
+        return self._allin_to_base_ladder(allin_ladder, rev_origin, rev_destination)
+
     def generate_default_ladder(self, channel=None):
-        """Generate a default GP-based ladder when data is insufficient or default_flag is 'Y'.
-        
-        Uses min and max fare thresholds from ML as base fares.
-        Intermediate fares are calculated using Geometric Progression:
-            R = (Max/Min) ^ [1/(n-1)]
-            F1 = Min, F2 = F1*R, F3 = F2*R, ... up to the 2nd last RBD
-            Last RBD fare = Max
-        
-        The same ladder is used for both directions (bidirectional).
-        
+        """Generate a default GP-based ladder when default_flag is 'Y'.
+
+        ML min/max thresholds are all-in values, so the GP ladder is built in all-in
+        space and then converted to base fares. Both ladders are returned.
+
+        Min threshold is first yield-checked: if its base fare yields below
+        Yield_Threshold, the base min becomes `Yield_Threshold * 1.01 * distance` and
+        is converted back to all-in before the GP ladder is built.
+
+        When the O&D pair has exactly one market list row per direction, both with
+        DefaultFlag='Y' and identical min/max thresholds, both directions' base
+        ladders are built and the lower one (by lowest fare) is used for both. The
+        all-in ladder is then re-derived from the winning base ladder using this
+        sector's own taxes. The winner is chosen independently per channel.
+
         Args:
             channel: None for both channels, 'B2C' or 'B2B' for a single channel.
-        
+
         Returns:
-            dict with ladder results for the requested channel(s), or None on failure.
+            dict with base + all-in ladders for the requested channel(s), or None on failure.
         """
         try:
             generate_b2c = channel is None or channel == self.B2C_CHANNEL
             generate_b2b = channel is None or channel == self.B2B_CHANNEL
 
-            # Number of active RBDs determines n
-            n_b2c = self.TOTAL_B2C_FARES
-            n_b2b = self.TOTAL_B2B_FARES
+            origin = self.sector[:3]
+            destination = self.sector[3:]
 
             self.logger.info(f"Generating DEFAULT GP ladder for {self.sector} (channel={channel or 'BOTH'})")
 
-            allin_ladder_b2c = None
-            allin_ladder_b2b = None
-            origin = self.sector[:3]
-            destination = self.sector[3:]
+            self._mirror_city_pair_distance()
+
+            reverse_cfg = self._find_bidirectional_default_pair()
+            rev_origin = rev_destination = None
+            if reverse_cfg:
+                rev_origin = reverse_cfg.sector[:3]
+                rev_destination = reverse_cfg.sector[3:]
+                self.logger.info(f"Bidirectional default pairing eligible: "
+                                 f"{self.sector} <-> {reverse_cfg.sector}")
+
+            channels = []
             if generate_b2c:
-                min_b2c = self.MIN_MARKETFARES_THRESHOLD_B2C
-                max_b2c = self.MAX_MARKETFARES_THRESHOLD_B2C
-                self.logger.info(f"  B2C: Min={min_b2c}, Max={max_b2c}, n={n_b2c}")
-
-                allin_ladder_b2c = self._generate_gp_ladder(min_b2c, max_b2c, n_b2c, "B2C")
-                if not allin_ladder_b2c:
-                    return None
-
-                # Convert to local currency for international routes
-                if self.conversion_rate != 1.0:
-                    allin_ladder_b2c = [fare * self.conversion_rate for fare in allin_ladder_b2c]
-
+                channels.append((self.B2C_CHANNEL,
+                                 self.MIN_MARKETFARES_THRESHOLD_B2C,
+                                 self.MAX_MARKETFARES_THRESHOLD_B2C,
+                                 self.TOTAL_B2C_FARES))
             if generate_b2b:
-                min_b2b = self.MIN_MARKETFARES_THRESHOLD_B2B
-                max_b2b = self.MAX_MARKETFARES_THRESHOLD_B2B
-                self.logger.info(f"  B2B: Min={min_b2b}, Max={max_b2b}, n={n_b2b}")
+                channels.append((self.B2B_CHANNEL,
+                                 self.MIN_MARKETFARES_THRESHOLD_B2B,
+                                 self.MAX_MARKETFARES_THRESHOLD_B2B,
+                                 self.TOTAL_B2B_FARES))
 
-                allin_ladder_b2b = self._generate_gp_ladder(min_b2b, max_b2b, n_b2b, "B2B")
-                if not allin_ladder_b2b:
+            ladders = {}  # channel -> {'base': [...], 'allin': [...]}
+
+            for channel_label, min_allin, max_allin, n in channels:
+                allin_ladder = self._build_default_allin_ladder(
+                    channel_label, min_allin, max_allin, n, origin, destination)
+                if not allin_ladder:
                     return None
 
-                # Convert to local currency for international routes
-                if self.conversion_rate != 1.0:
-                    allin_ladder_b2b = [fare * self.conversion_rate for fare in allin_ladder_b2b]
+                base_ladder = self._allin_to_base_ladder(allin_ladder, origin, destination)
+                if base_ladder is None:
+                    return None
 
+                if reverse_cfg:
+                    reverse_base = self._build_reverse_default_base_ladder(
+                        channel_label, min_allin, max_allin, n, rev_origin, rev_destination)
+                    if reverse_base is None:
+                        return None
+
+                    self.logger.info(f"  {channel_label} bidirectional comparison: "
+                                     f"{self.sector} lowest={base_ladder[0]:.2f}, "
+                                     f"{reverse_cfg.sector} lowest={reverse_base[0]:.2f}")
+                    # List comparison decides on the lowest fare, then falls through to the
+                    # next fare on a tie. Deterministic, so both directions' runs
+                    # independently converge on the same winner.
+                    if reverse_base < base_ladder:
+                        base_ladder = reverse_base
+                        allin_ladder = self._base_to_allin_ladder(base_ladder, origin, destination)
+                        self.logger.info(f"  {channel_label}: adopted {reverse_cfg.sector} base ladder "
+                                         f"for {self.sector}, all-in re-derived with {self.sector} taxes "
+                                         f"(range {allin_ladder[0]:.2f} - {allin_ladder[-1]:.2f})")
+                    else:
+                        self.logger.info(f"  {channel_label}: kept {self.sector} base ladder (already lower)")
+
+                ladders[channel_label] = {'base': base_ladder, 'allin': allin_ladder}
+
+            # Convert to local currency for international routes
             if self.conversion_rate != 1.0:
-                self.logger.info(f"Converted default ladder from INR to {self.sector_currency} (rate: {self.conversion_rate})")
+                for channel_label in ladders:
+                    ladders[channel_label] = {
+                        'base': [fare * self.conversion_rate for fare in ladders[channel_label]['base']],
+                        'allin': [fare * self.conversion_rate for fare in ladders[channel_label]['allin']],
+                    }
+                self.logger.info(f"Converted default ladder from INR to {self.sector_currency} "
+                                 f"(rate: {self.conversion_rate})")
+
+            distance = self._get_sector_distance(self.sector)
 
             result = {
                 'ladder_code': self.ladder_code,
@@ -1637,15 +1901,19 @@ class LadderGen:
                 'generation_timestamp': datetime.now()
             }
 
-            if allin_ladder_b2c is not None:
-                result['ladder_fares_b2c'] = allin_ladder_b2c
+            if self.B2C_CHANNEL in ladders:
+                base_b2c = ladders[self.B2C_CHANNEL]['base']
+                result['ladder_fares_b2c'] = base_b2c
+                result['allin_ladder_fares_b2c'] = ladders[self.B2C_CHANNEL]['allin']
                 result['data_period_b2c'] = 'Default'
                 result['total_booking_records_b2c'] = 0
                 result['distinct_fares_count_b2c'] = 0
                 result['outliers_removed_b2c'] = 0
+                result['lowest_fare_yield'] = round(min(base_b2c) / distance, 4) if distance > 0 else 0
 
-            if allin_ladder_b2b is not None:
-                result['ladder_fares_b2b'] = allin_ladder_b2b
+            if self.B2B_CHANNEL in ladders:
+                result['ladder_fares_b2b'] = ladders[self.B2B_CHANNEL]['base']
+                result['allin_ladder_fares_b2b'] = ladders[self.B2B_CHANNEL]['allin']
                 result['data_period_b2b'] = 'Default'
                 result['total_booking_records_b2b'] = 0
                 result['distinct_fares_count_b2b'] = 0
@@ -1694,7 +1962,7 @@ class LadderGen:
             top_n = int(cfg_top_n.get(channel_label, cfg_top_n.get('B2C', 8)))
         else:
             top_n = int(cfg_top_n)
-        top_f = float(self.default_ml_config.get('top_gp_factor', 1.2))
+        top_f = float(self.default_ml_config.get('top_gp_factor', 1))
         # need >=2 fares in the top segment and >=1 fare below it
         top_n = max(2, min(top_n, n - 1))
         if top_f <= 0:
@@ -2049,17 +2317,41 @@ class LadderGen:
             if self.default_flag == 'Y':
                 self.logger.info(f"DefaultFlag=Y for {self.ladder_code}, using GP-based default ladder generation")
                 
-                # Collect tax master data (needed for all-in fare calculation in save)
+                # Tax master and CityPair are hard prerequisites for the default ladder:
+                # taxes drive the all-in <-> base conversion, distance drives the
+                # min-threshold yield check. Missing either means the sector fails.
+                prep_failure = None
                 try:
-                    self.tax_master_dom_data, self.tax_master_intl_data, _ = self.pa_helper.collect_tax_master_data()
+                    self.tax_master_dom_data, self.tax_master_intl_data, prep_failure = \
+                        self.pa_helper.collect_tax_master_data()
                 except Exception as e:
-                    self.logger.warning(f"Tax master data collection failed: {str(e)}")
+                    self.tax_master_dom_data = None
+                    self.tax_master_intl_data = None
+                    prep_failure = f"Tax master data collection failed: {str(e)}"
                 
-                # Collect city pair data (needed for distance-based tax calculations)
-                try:
-                    self.city_pair_data = self.nav_helper.collect_city_pair_data(self.sector)
-                except Exception as e:
-                    self.logger.warning(f"City pair data collection failed: {str(e)}")
+                if not prep_failure:
+                    try:
+                        self.city_pair_data = self.nav_helper.collect_city_pair_data(self.sector)
+                    except Exception as e:
+                        self.city_pair_data = None
+                        prep_failure = f"City pair data collection failed: {str(e)}"
+                    
+                    if not prep_failure and (self.city_pair_data is None or self.city_pair_data.empty):
+                        prep_failure = f"No CityPair distance data for sector {self.sector}"
+                
+                if prep_failure:
+                    self.failure_reason = prep_failure
+                    self.logger.error(f"Default ladder prerequisites missing for {self.ladder_code} "
+                                      f"({self.sector}): {prep_failure}")
+                    return {
+                        'ladder_result': None,
+                        'file_path': None,
+                        'run_id': run_id,
+                        'ladder_code': self.ladder_code,
+                        'sector': self.sector,
+                        'status': 'FAILED',
+                        'reason': self.failure_reason
+                    }
                 
                 default_channel = None if self.b2b_flag == 'Y' else self.B2C_CHANNEL
                 ladder_result = self.generate_default_ladder(channel=default_channel)

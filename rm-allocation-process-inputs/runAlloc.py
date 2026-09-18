@@ -34,6 +34,7 @@ from helper.portfolio_aggregator import compute_portfolio_aggregates
 from utilities.utils import Utils
 from utilities.math_utils import MathUtils
 from utilities.time_utils import TimeUtils
+from utilities.offset_utils import is_multiplier_offset
 from constants_utils import ConstantsUtils
 from common.compute_utils import *
 
@@ -744,7 +745,7 @@ class DynAlloc:
 		# Populate summary row fields specific to full allocation
 		self.outputSummaryRow_b2c.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
 		self.outputSummaryRow_b2b.currentTgtLoad = round(sod_tgtAtCurrentHour_abs,2)
-		currentLoadFactor_val = (sod_tgtAtCurrentHour_abs / final_totalCapacity) * 100 if final_totalCapacity > 0 else 0.0
+		currentLoadFactor_val = (sod_tgtAtCurrentHour_abs / eff_capacity_for_variance) * 100 if eff_capacity_for_variance > 0 else 0.0
 		self.outputSummaryRow_b2c.currentLoadFactor = round(currentLoadFactor_val,2)
 		self.outputSummaryRow_b2b.currentLoadFactor = round(currentLoadFactor_val,2)
 		self.outputSummaryRow_b2c.bookingToday = sod_bookingToday
@@ -980,7 +981,7 @@ class DynAlloc:
 		last_seven_avg_val = state.last_seven_avg_val
 
 		is_spoilage_reduction_active = False
-		if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
+		if ndocounter <= 2 and int(self.currParams.Spoilage_Flag)==1:
 			self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
 			try:
 				# 1. Check for last seven sold fare availability
@@ -1004,16 +1005,17 @@ class DynAlloc:
 
 							hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
 
-							trigger_hours = 0
-							time_8am = time(8, 0)
-							time_12pm = time(12, 0)
-
-							if time_8am <= departure_time_obj < time_12pm:
-								# For flights departing between 8 AM and 12 PM
-								trigger_hours = 12
-							else:
-								# For flights departing between 12 PM and 8 AM (next day)
-								trigger_hours = 12
+							# Trigger window is configured per departure-time band
+							# (SPOILAGE_REDUCTION_TRIGGER_BANDS in Constants.py /
+							# rm_parameter_values).
+							spoilage_bands = parse_spoilage_trigger_bands(
+								self.constantsUtils.SPOILAGE_REDUCTION_TRIGGER_BANDS
+							)
+							trigger_hours = get_spoilage_trigger_hours(
+								spoilage_bands,
+								departure_time_obj,
+								self.constantsUtils.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS,
+							)
 
 							if hours_to_departure <= trigger_hours:
 								self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
@@ -1127,7 +1129,7 @@ class DynAlloc:
 			if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 				self.outputSummaryRow_b2c.mktFile = himktFileb2c
-			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
+			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR, MIN2_FARE_ANCHOR, MIN2C_FARE_ANCHOR, MED_FARE_ANCHOR, MEDC_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 				self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 
@@ -1153,7 +1155,7 @@ class DynAlloc:
 						is_profile_anchor = True
 
 			if is_last7avg_anchor or is_profile_anchor:
-				self.outputSummaryRow_b2c.fareOffset = 0  # No offset if L7D avg is anchor
+				self.outputSummaryRow_b2c.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2c.fareOffset) else 0  # No offset if L7D avg is anchor
 
 			# determineRBDToOpen needs YYYY-MM-DD date
 			openDataB2C_details, self.outputSummaryRow_b2c.lastSellingFare, self.outputSummaryRow_b2c.strategyFare, \
@@ -1231,11 +1233,11 @@ class DynAlloc:
 						b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 						if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 							b2b_anchor_source = "B2CDiscounted"
-							self.outputSummaryRow_b2b.fareOffset = 0
+							self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				else:
 					self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min  # Fallback
 				if offset_flag:
-					self.outputSummaryRow_b2b.fareOffset=0
+					self.outputSummaryRow_b2b.fareOffset="X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				self.outputSummaryRow_b2b.strategyFare=self.outputSummaryRow_b2b.anchorFare
 				openDataB2B_details, self.outputSummaryRow_b2b.lastSellingFare, self.outputSummaryRow_b2b.strategyFare, \
 				self.outputSummaryRow_b2b.profileFare, self.outputSummaryRow_b2b.hardAnchorFare, self.outputSummaryRow_b2b.upsell, _ ,hard_anchor_flag, self.outputSummaryRow_b2b.toleranceValue, self.outputSummaryRow_b2b.T_prime = \
@@ -1388,7 +1390,14 @@ class DynAlloc:
 			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
 			b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
 
-			if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
+			b2b_backstop_val = 0.0
+			try:
+				if b2b_backstop_final not in (None, '', 'NA', 'None', CONST_NA) and pd.notna(b2b_backstop_final):
+					b2b_backstop_val = float(b2b_backstop_final)
+			except (ValueError, TypeError):
+				b2b_backstop_val = 0.0
+
+			if b2b_backstop_val > 0 and float(b2b_Z0_fare) < b2b_backstop_val:
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 			param_b2b_factor = getattr(self.currParams, 'b2b_factor', -1) # Default if not present
@@ -2362,7 +2371,7 @@ class DynAlloc:
 			if self.outputSummaryRow_b2c.criteria in [MAX_FARE_ANCHOR, MAXO_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Max
 				self.outputSummaryRow_b2c.mktFile = himktFileb2c
-			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR]:
+			elif self.outputSummaryRow_b2c.criteria in [MIN_FARE_ANCHOR, MINO_FARE_ANCHOR, MINC_FARE_ANCHOR, MINOC_FARE_ANCHOR, MIN2_FARE_ANCHOR, MIN2C_FARE_ANCHOR, MED_FARE_ANCHOR, MEDC_FARE_ANCHOR]:
 				self.outputSummaryRow_b2c.anchorFare = self.outputSummaryRow_b2c.MktFare_Min
 				self.outputSummaryRow_b2c.mktFile = lowmktFileb2c
 
@@ -2384,7 +2393,7 @@ class DynAlloc:
 						is_profile_anchor = True
 
 			if is_last7avg_anchor or is_profile_anchor:
-				self.outputSummaryRow_b2c.fareOffset = 0
+				self.outputSummaryRow_b2c.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2c.fareOffset) else 0
 
 		state.profileFare = profileFare
 		state.profileFaresData = profileFaresData
@@ -2587,11 +2596,11 @@ class DynAlloc:
 						b2c_discounted_val = B2C_opening_price_val - current_discount_amount
 						if abs(float(self.outputSummaryRow_b2b.anchorFare) - b2c_discounted_val) < 0.01:
 							b2b_anchor_source = "B2CDiscounted"
-							self.outputSummaryRow_b2b.fareOffset = 0
+							self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				else:
 					self.outputSummaryRow_b2b.anchorFare = self.outputSummaryRow_b2b.MktFare_Min
 				if offset_flag:
-					self.outputSummaryRow_b2b.fareOffset = 0
+					self.outputSummaryRow_b2b.fareOffset = "X0" if is_multiplier_offset(self.outputSummaryRow_b2b.fareOffset) else 0
 				self.outputSummaryRow_b2b.strategyFare = self.outputSummaryRow_b2b.anchorFare
 
 				anchorResult_b2b = self.determinerbd.computeFinalAnchor(
@@ -3690,8 +3699,8 @@ class DynAlloc:
 			month_str_for_profile=payload.get("month_str", ""),
 			dow_str_for_profile=payload.get("dow_str", ""),
 			deptTime_str_hhmm=payload.get("deptTime_hhmm", ""),
-			b2c_backstop_final=payload.get("b2c_backstop_final"),
-			b2b_backstop_final=payload.get("b2b_backstop_final"),
+			b2c_backstop_final=safe_float(payload.get("b2c_backstop_final"), CONST_NA),
+			b2b_backstop_final=safe_float(payload.get("b2b_backstop_final"), CONST_NA),
 			auto_b2c_backstop_str=payload.get("auto_b2c_backstop_str", "NA"),
 			auto_b2b_backstop_str=payload.get("auto_b2b_backstop_str", "NA"),
 			lastSoldFareb2c_val=payload.get("lastSoldFareb2c"),
