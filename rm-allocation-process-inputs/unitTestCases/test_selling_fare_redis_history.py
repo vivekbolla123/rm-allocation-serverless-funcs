@@ -201,6 +201,72 @@ class TestSellingFareRedisHistory(unittest.TestCase):
         updated = json.loads(call_args[2])
         self.assertEqual(updated[0]["selling_fare"], 5296.0)
 
+    def test_update_selling_fare_recovers_per_start_from_dep_date_fallback(self):
+        """Verify _update_selling_fare_in_history recovers per_start from DepDate if currParams.per_start is NA."""
+        from runAlloc import DynAlloc
+
+        dyn = DynAlloc.__new__(DynAlloc)
+        dyn.logger = MagicMock()
+        dyn.rmdatabasehelper = MagicMock()
+        dyn.rmdatabasehelper.runId = 102
+
+        curr_params = MagicMock()
+        curr_params.origin = "BOM"
+        curr_params.destin = "DEL"
+        curr_params.flight_number = "1109"
+        curr_params.per_start = "NA"  # Simulating lost PerStart in pass 2
+        curr_params.portfolio_only = "0"
+        dyn.currParams = curr_params
+
+        existing_history = [
+            {"run_id": 102, "run_count": 1, "T": 500.0}
+        ]
+
+        mock_redis = MagicMock()
+        mock_redis.hget.return_value = json.dumps(existing_history)
+        dyn.cache_client = mock_redis
+
+        dyn.outputSummaryRow_b2c = MagicMock()
+        dyn.outputSummaryRow_b2c.SellingFare = "4968.0"
+        dyn.outputSummaryRow_b2c.DepDate = "09/25/2026"
+        dyn.outputSummaryRow_b2c.FltNum = "1109"
+        dyn.outputSummaryRow_b2c.Origin = "BOM"
+        dyn.outputSummaryRow_b2c.Destin = "DEL"
+
+        state = MagicMock()
+        state.currFltDate = "09/25/2026"
+        state.currFlt = "1109"
+        dyn._update_selling_fare_in_history(state)
+
+        self.assertTrue(mock_redis.hset.called)
+        call_args = mock_redis.hset.call_args[0]
+        # Should construct correct key with "09/25/2026", NOT "NA"
+        self.assertEqual(call_args[0], "run_history:BOM_DEL_1109_09/25/2026")
+        self.assertEqual(call_args[1], "autotolerance_history")
+        updated = json.loads(call_args[2])
+        self.assertEqual(updated[0]["selling_fare"], 4968.0)
+
+    def test_serialisable_market_list_row_preserves_per_start(self):
+        """Verify _serialisableMarketListRow includes PerStart so it is not dropped during two-pass execution."""
+        from models.market_list_row import MarketListRow
+        from runAlloc import DynAlloc
+
+        dyn = DynAlloc.__new__(DynAlloc)
+        data = {
+            "Origin": "BOM",
+            "Destin": "DEL",
+            "FlightNumber": 1109,
+            "PerStart": "09/25/2026",
+            "PerEnd": "09/25/2026",
+            "portfolio_count": 1,
+            "portfolio_only": 0,
+            "mkt_fare_flag": 1
+        }
+        dyn.currParams = MarketListRow(data)
+        serialized = dyn._serialisableMarketListRow()
+        self.assertIn("PerStart", serialized)
+        self.assertEqual(serialized["PerStart"], "09/25/2026")
+
 
 if __name__ == "__main__":
     unittest.main()
