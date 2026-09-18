@@ -1679,6 +1679,81 @@ class DynAlloc:
 		if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
 		else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
 
+		self._update_selling_fare_in_history(state)
+
+	def _update_selling_fare_in_history(self, state):
+		"""Update selling_fare in Redis autotolerance_history at the end of the run
+		using the actual B2C ladder-opened price (self.outputSummaryRow_b2c.SellingFare).
+		"""
+		try:
+			is_portfolio_only = str(getattr(self.currParams, 'portfolio_only', '0')) == '1'
+			if is_portfolio_only:
+				return
+
+			b2c_fare = getattr(self.outputSummaryRow_b2c, 'SellingFare', CONST_NA)
+			if b2c_fare in (CONST_NA, None, '', 'NA', 'None', 'nan'):
+				return
+
+			try:
+				selling_fare_numeric = float(b2c_fare)
+			except (ValueError, TypeError):
+				return
+
+			origin = str(getattr(self.currParams, 'origin', '')).strip()
+			destin = str(getattr(self.currParams, 'destin', '')).strip()
+			flight_number = str(getattr(self.currParams, 'flight_number', '')).strip()
+			per_start = str(getattr(self.currParams, 'per_start', '')).strip()
+
+			if not (origin and destin and flight_number and per_start):
+				return
+
+			redis_key = f"run_history:{origin}_{destin}_{flight_number}_{per_start}"
+			hash_field = "autotolerance_history"
+
+			history = []
+			if self.redishelper:
+				state_str = self.redishelper.hget(redis_key, hash_field)
+				if state_str:
+					try:
+						history = json.loads(state_str)
+					except Exception:
+						history = []
+
+			if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+				try:
+					mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+					if mongo_state and "autotolerance_history" in mongo_state:
+						h_val = mongo_state["autotolerance_history"]
+						if isinstance(h_val, str):
+							try:
+								h_val = json.loads(h_val)
+							except Exception:
+								h_val = []
+						history = h_val
+				except Exception:
+					pass
+
+			if history and isinstance(history, list):
+				history[-1]["selling_fare"] = selling_fare_numeric
+
+				if self.redishelper:
+					try:
+						self.redishelper.hset(redis_key, hash_field, json.dumps(history))
+					except Exception as e:
+						self.logger.error(f"REDIS HSET ERROR updating selling_fare for {redis_key}: {e}")
+
+				if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+					try:
+						mongo_doc = {
+							"redis_key": redis_key,
+							"autotolerance_history": history
+						}
+						self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+					except Exception:
+						pass
+		except Exception as e:
+			self.logger.error(f"Error updating selling_fare in autotolerance_history: {e}")
+
 	def w_rbd_allocation(self, currRec, brd_counter):
 		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
 		# default_ml_flag = int(getattr(self.currParams, 'defaultMlFlag', 0))
