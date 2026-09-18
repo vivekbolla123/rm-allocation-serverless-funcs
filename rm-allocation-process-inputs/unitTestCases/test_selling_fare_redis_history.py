@@ -161,5 +161,46 @@ class TestSellingFareRedisHistory(unittest.TestCase):
         self.assertFalse(mock_redis.hset.called)
 
 
+    def test_update_selling_fare_with_real_redis_helper_wrapper(self):
+        """Verify _update_selling_fare_in_history works when redishelper is a RedisHelper wrapper."""
+        from runAlloc import DynAlloc
+        from helper.redis_helper import RedisHelper
+
+        dyn = DynAlloc.__new__(DynAlloc)
+        dyn.logger = MagicMock()
+        dyn.rmdatabasehelper = MagicMock()
+        dyn.rmdatabasehelper.runId = 101
+
+        curr_params = MagicMock()
+        curr_params.origin = "DEL"
+        curr_params.destin = "BOM"
+        curr_params.flight_number = "101"
+        curr_params.per_start = "10"
+        curr_params.portfolio_only = "0"
+        dyn.currParams = curr_params
+
+        existing_history = [
+            {"run_id": 101, "run_count": 1, "T": 400.0}
+        ]
+
+        mock_raw_cache_client = MagicMock()
+        mock_raw_cache_client.hget.return_value = json.dumps(existing_history).encode('utf-8')
+        dyn.cache_client = mock_raw_cache_client
+        dyn.redishelper = RedisHelper("run_101", mock_raw_cache_client, MagicMock())
+
+        dyn.outputSummaryRow_b2c = MagicMock()
+        dyn.outputSummaryRow_b2c.SellingFare = "5296.0"
+
+        state = MagicMock()
+        dyn._update_selling_fare_in_history(state)
+
+        self.assertTrue(mock_raw_cache_client.hset.called)
+        call_args = mock_raw_cache_client.hset.call_args[0]
+        self.assertEqual(call_args[0], "run_history:DEL_BOM_101_10")
+        self.assertEqual(call_args[1], "autotolerance_history")
+        updated = json.loads(call_args[2])
+        self.assertEqual(updated[0]["selling_fare"], 5296.0)
+
+
 if __name__ == "__main__":
     unittest.main()

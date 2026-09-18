@@ -1710,11 +1710,17 @@ class DynAlloc:
 			redis_key = f"run_history:{origin}_{destin}_{flight_number}_{per_start}"
 			hash_field = "autotolerance_history"
 
+			redis_client = getattr(self, 'cache_client', None)
+			if redis_client is None or not hasattr(redis_client, 'hget'):
+				redis_client = getattr(self, 'redishelper', None)
+
 			history = []
-			if self.redishelper:
-				state_str = self.redishelper.hget(redis_key, hash_field)
+			if redis_client and hasattr(redis_client, 'hget'):
+				state_str = redis_client.hget(redis_key, hash_field)
 				if state_str:
 					try:
+						if isinstance(state_str, bytes):
+							state_str = state_str.decode('utf-8')
 						history = json.loads(state_str)
 					except Exception:
 						history = []
@@ -1736,9 +1742,9 @@ class DynAlloc:
 			if history and isinstance(history, list):
 				history[-1]["selling_fare"] = selling_fare_numeric
 
-				if self.redishelper:
+				if redis_client and hasattr(redis_client, 'hset'):
 					try:
-						self.redishelper.hset(redis_key, hash_field, json.dumps(history))
+						redis_client.hset(redis_key, hash_field, json.dumps(history))
 					except Exception as e:
 						self.logger.error(f"REDIS HSET ERROR updating selling_fare for {redis_key}: {e}")
 
