@@ -65,6 +65,63 @@ class DetermineRBD:
                 
         return history
 
+    def check_tolerance_not_hit_last_3_runs(self, history):
+        """Check if tolerance was not hit in the last 3 runs of history."""
+        if not history or len(history) < 3:
+            return False
+        for r in history[-3:]:
+            if not isinstance(r, dict):
+                continue
+            if "tolerance_hit" in r:
+                if bool(r["tolerance_hit"]):
+                    return False
+            elif "selling_fare" in r and "T_V" in r:
+                try:
+                    if float(r["selling_fare"]) <= float(r["T_V"]):
+                        return False
+                except (ValueError, TypeError):
+                    pass
+        return True
+
+    def get_current_scenario_grid_value(self, target_band_id, delta_variance, imp_forecast=None, is_forecast=False, ndoc_val=999):
+        """Look up g_value from auto_tolerance_grid_values for the current scenario."""
+        if not self.auto_tolerance_config:
+            return 0.0
+            
+        delta_df = self.auto_tolerance_config.get("delta_bands")
+        delta_band_id = None
+        if delta_df is not None and not delta_df.empty:
+            match = delta_df[(delta_df['min_value'] <= delta_variance) & (delta_df['max_value'] >= delta_variance)]
+            if not match.empty:
+                delta_band_id = match.iloc[0]['id']
+                
+        grid_df = self.auto_tolerance_config.get("grid_values")
+        if grid_df is None or grid_df.empty or delta_band_id is None:
+            return 0.0
+            
+        band_id = str(target_band_id)
+        if is_forecast and ndoc_val <= 30 and imp_forecast is not None and imp_forecast != CONST_NA:
+            if 'forecast_band_name' in grid_df.columns:
+                for _, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
+                    b_name = str(row['forecast_band_name'])
+                    try:
+                        parts = b_name.replace('(', '').replace(')', '').split(',')
+                        if len(parts) == 2:
+                            min_v, max_v = float(parts[0]), float(parts[1])
+                            if min_v <= float(imp_forecast) <= max_v:
+                                band_id = str(row['band_id'])
+                                break
+                    except Exception:
+                        continue
+                        
+        match = grid_df[(grid_df['band_id'].astype(str) == str(band_id)) & (grid_df['delta_band_id'].astype(str) == str(delta_band_id))]
+        if not match.empty:
+            try:
+                return float(match.iloc[0]['g_value'])
+            except (ValueError, TypeError):
+                return 0.0
+        return 0.0
+
     def _format_thresh(self, val):
         if not val:
             return ""
@@ -900,10 +957,35 @@ class DetermineRBD:
                     else:
                         final_T = t_val
 
-                if flag_val in (1, '1') and is_execution_run and target_record is not None:
-                    forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                    is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+                forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
+                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
 
+                check_hist = history[:-1] if is_duplicate_run else history
+                tolerance_not_hit_3_runs = self.check_tolerance_not_hit_last_3_runs(check_hist)
+
+                # Determine current scenario grid value
+                curr_metric = current_imp_forecast if is_forecast else current_dplf
+                prev_metric_rec = target_record if target_record is not None else (check_hist[-1] if check_hist else None)
+                prev_metric = prev_metric_rec.get("actual_imp_forecast", 0) if (prev_metric_rec and is_forecast) else (prev_metric_rec.get("actual_dplf", 0) if prev_metric_rec else 0)
+                curr_scenario_delta_variance = curr_metric - prev_metric
+
+                current_grid_val = self.get_current_scenario_grid_value(
+                    target_band_id=str(imp_forecast_band),
+                    delta_variance=curr_scenario_delta_variance,
+                    imp_forecast=imp_forecast,
+                    is_forecast=is_forecast,
+                    ndoc_val=ndoc_val
+                )
+
+                if flag_val in (1, '1') and current_grid_val > 0 and tolerance_not_hit_3_runs:
+                    base_tol = float(tolerance_fare) if has_tol else (0.10 * float(strategyFare))
+                    new_T = 0.8 * abs(float(anchor_fare) - (float(strategyFare) - base_tol))
+                    new_T = max(100.0, min(float(strategyFare), new_T))
+                    T = new_T
+                    t_val = new_T
+                    t_prime_val = new_T
+                    final_T = new_T
+                elif flag_val in (1, '1') and is_execution_run and target_record is not None:
                     target_t_prime = target_record.get("T_prime")
                     target_t = target_record.get("T")
                     
@@ -980,6 +1062,7 @@ class DetermineRBD:
                     except:
                         pass
 
+                is_tolerance_hit = float(anchor_fare) <= float(strategyFare) - float(final_T)
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
@@ -990,6 +1073,7 @@ class DetermineRBD:
                     "actual_imp_forecast": float(current_imp_forecast),
                     "b2c_tolerance": current_b2c_tol_str,
                     "selling_fare": float(anchor_fare) if anchor_fare is not None else float(strategyFare),
+                    "tolerance_hit": is_tolerance_hit,
                 }
                 if not is_duplicate_run:
                     history.append(new_record)
@@ -1402,9 +1486,36 @@ class DetermineRBD:
                         final_T = t_val
 
                 # T_prime calculation only when auto_tolerance_flag is enabled
-                if flag_val in (1, '1') and is_execution_run and target_record is not None:
-                    forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                    is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+                forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
+                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+
+                check_hist = history[:-1] if is_duplicate_run else history
+                tolerance_not_hit_3_runs = self.check_tolerance_not_hit_last_3_runs(check_hist)
+
+                # Determine current scenario grid value
+                curr_metric = current_imp_forecast if is_forecast else current_dplf
+                prev_metric_rec = target_record if target_record is not None else (check_hist[-1] if check_hist else None)
+                prev_metric = prev_metric_rec.get("actual_imp_forecast", 0) if (prev_metric_rec and is_forecast) else (prev_metric_rec.get("actual_dplf", 0) if prev_metric_rec else 0)
+                curr_scenario_delta_variance = curr_metric - prev_metric
+
+                current_grid_val = self.get_current_scenario_grid_value(
+                    target_band_id=str(dplfBand),
+                    delta_variance=curr_scenario_delta_variance,
+                    imp_forecast=imp_forecast,
+                    is_forecast=is_forecast,
+                    ndoc_val=ndoc_val
+                )
+
+                if flag_val in (1, '1') and current_grid_val > 0 and tolerance_not_hit_3_runs:
+                    base_tol = float(toleranceFare) if has_tol else (0.10 * float(strategyFare))
+                    anchor_val_for_tol = pre_tolerance_anchor if pre_tolerance_anchor is not None else strategyFare
+                    new_T = 0.8 * abs(float(anchor_val_for_tol) - (float(strategyFare) - base_tol))
+                    new_T = max(100.0, min(float(strategyFare), new_T))
+                    T = new_T
+                    t_val = new_T
+                    t_prime_val = new_T
+                    final_T = new_T
+                elif flag_val in (1, '1') and is_execution_run and target_record is not None:
                     target_t_prime = target_record.get("T_prime")
                     target_t = target_record.get("T")
                     
@@ -1481,6 +1592,7 @@ class DetermineRBD:
                     except:
                         pass
 
+                is_tolerance_hit = (float(pre_tolerance_anchor) <= float(strategyFare) - float(final_T)) if pre_tolerance_anchor is not None else False
                 new_record = {
                     "run_id": self.rmdatabasehelper.runId,
                     "run_count": int(run_count),
@@ -1489,7 +1601,9 @@ class DetermineRBD:
                     "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
-                    "b2c_tolerance": current_b2c_tol_str
+                    "b2c_tolerance": current_b2c_tol_str,
+                    "selling_fare": float(pre_tolerance_anchor) if pre_tolerance_anchor is not None else float(strategyFare),
+                    "tolerance_hit": is_tolerance_hit,
                 }
                 if not is_duplicate_run:
                     history.append(new_record)
