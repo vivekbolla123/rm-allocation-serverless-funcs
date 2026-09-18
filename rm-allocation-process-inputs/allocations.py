@@ -764,7 +764,7 @@ class RBDAllocations:
 
         return isUpsellFlag, brd_counter
     
-    def group_quote_alloc(self, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, b2c_backstop_final, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
+    def group_quote_alloc(self, brd_counter, currRec, autoGroup, adjustedCapacity, upsell, B2CRBDs, openingRBDPrice, groupbookload, currBookedLoad, month, sector, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare, b2c_backstop_final, forecastAllocFlag, ndocounter=0, imp_forecast=None, sod_tgtAtCurrentHour_abs=0, sod_startOfDayBookLoad_factor=0, sod_startOfDayTgtBookedLoad_abs=0, departure_year=None):
         """
         Group quotation allocation using iterative fare anchor approach.
         
@@ -814,7 +814,7 @@ class RBDAllocations:
                 max_group_fare = group_alloc_df['TOTAL'].max()
 
                 # Determine whether to use forecast or dplf(variance) for band calculation
-                use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast) and ndocounter <= 30)
+                use_forecast = (imp_forecast is not None and imp_forecast != CONST_NA and not pd.isna(imp_forecast) and forecastAllocFlag == 1)
 
                 # Build month string for group_profile_fare_increments: "April_H1_May_H2" format
                 # Based on current date, take last 2 halves

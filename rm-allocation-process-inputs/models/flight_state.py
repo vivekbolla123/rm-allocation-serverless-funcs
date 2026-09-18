@@ -69,6 +69,8 @@ class FlightState:
 	forecast_plf: Any = None
 	forecastBand: Any = None
 	imp_forecast: Any = None
+	# Imputed forecast computed WITHOUT the NDO<=30 cap.
+	imp_forecast_uncapped: Any = None
 	imp_forecast_band: Any = None
 	af_forecast_band: Any = None
 	Af_Nb_Allin: Any = None

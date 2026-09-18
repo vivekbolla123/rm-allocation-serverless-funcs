@@ -704,6 +704,19 @@ class DynAlloc:
 			imp_forecast = getParsedImputedForecast(
 				self, forecast_plf, currBookedLoad, sod_tgtAtCurrentHour_abs, eff_capacity_for_variance
 			)
+
+		# Imputed forecast computed IRRESPECTIVE of NDO — so consumers that
+		# need the forecast past NDO 30 (currently group allocation).
+		imp_forecast_uncapped = imp_forecast
+		if imp_forecast_uncapped == CONST_NA:
+			forecast_plf_uncapped = forecast_plf
+			if forecast_plf_uncapped == CONST_NA or pd.isna(forecast_plf_uncapped):
+				forecast_plf_uncapped = getParsedForecast(self)
+			if forecast_plf_uncapped != CONST_NA and not pd.isna(forecast_plf_uncapped):
+				imp_forecast_uncapped = getParsedImputedForecast(
+					self, forecast_plf_uncapped, currBookedLoad, sod_tgtAtCurrentHour_abs, eff_capacity_for_variance
+				)
+
 		if imp_forecast != CONST_NA:
 			Af_Nb_Allin = calculateAfNbAllin(self, ndocounter, min(imp_forecast, self.constantsUtils.AF_PLF_FORECAST_CAP), str(round(final_plf,2)), sod_tgtAtCurrentHour_abs, eff_capacity_for_variance)
 			PLF_Gain = ((imp_forecast) - round(final_plf,2))
@@ -785,6 +798,7 @@ class DynAlloc:
 
 		state.variance_full = variance_full
 		state.imp_forecast = imp_forecast
+		state.imp_forecast_uncapped = imp_forecast_uncapped
 		state.PLF_Gain = PLF_Gain
 		state.Af_Nb_Allin = Af_Nb_Allin
 		state.ndoBand_full = ndoBand_full
@@ -1312,6 +1326,7 @@ class DynAlloc:
 		ndoBand_full = state.ndoBand_full
 		variance_full = state.variance_full
 		imp_forecast = state.imp_forecast
+		imp_forecast_uncapped = state.imp_forecast_uncapped
 		overBookingCount = state.overBookingCount
 		determined_overBookingFare = state.determined_overBookingFare
 		is_spoilage_reduction_active = state.is_spoilage_reduction_active
@@ -1444,11 +1459,12 @@ class DynAlloc:
 			group_bookings=self.currParams.group_bookings# Default
 			# For group allocation: always use ML profileFareUpsell
 			group_upsell = self.currParams.profileFareUpsell
+			forecastAllocFlag = int(getattr(self.currParams, 'forecastAllocFlag', 0))
 			current_brd_counter, state.grp_adj_profile_fare, state.grp_adj_bookload, state.grp_fare_anchor = self.allocations.group_quote_alloc(
 				current_brd_counter, currRec_fullalloc, param_autoGroup,
 				base_adjustedCapacity, group_upsell, B2CRBDs_df_for_cug_gq_tbf, b2c_opening_price_val,group_bookings,float(currBookedLoad),month_str_for_profile, sector_full, deptTime_str_hhmm, dow_str_for_profile, final_totalCapacity, variance_full, b2c_selling_fare,
-				b2c_backstop_final,
-				ndocounter=ndocounter, imp_forecast=imp_forecast,
+				b2c_backstop_final, forecastAllocFlag,
+				ndocounter=ndocounter, imp_forecast=imp_forecast_uncapped,
 				sod_tgtAtCurrentHour_abs=sod_tgtAtCurrentHour_abs,
 				sod_startOfDayBookLoad_factor=sod_startOfDayBookLoad_factor,
 				sod_startOfDayTgtBookedLoad_abs=sod_startOfDayTgtBookedLoad_abs,
@@ -3341,6 +3357,7 @@ class DynAlloc:
 		entry["forecast_plf"] = state.forecast_plf
 		entry["forecastBand"] = state.forecastBand
 		entry["imp_forecast"] = state.imp_forecast
+		entry["imp_forecast_uncapped"] = state.imp_forecast_uncapped
 		entry["imp_forecast_band"] = state.imp_forecast_band
 		entry["af_forecast_band"] = state.af_forecast_band
 		entry["Af_Nb_Allin"] = state.Af_Nb_Allin
@@ -3685,6 +3702,7 @@ class DynAlloc:
 			forecast_plf=payload.get("forecast_plf"),
 			forecastBand=payload.get("forecastBand"),
 			imp_forecast=payload.get("imp_forecast"),
+			imp_forecast_uncapped=payload.get("imp_forecast_uncapped"),
 			imp_forecast_band=payload.get("imp_forecast_band"),
 			af_forecast_band=payload.get("af_forecast_band"),
 			Af_Nb_Allin=payload.get("Af_Nb_Allin"),
