@@ -31,11 +31,12 @@ def test_inventory_optimization_exact_columns_and_order():
         'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
         'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
         'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
-        'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Current_Revenue',
+        'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
+        'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
         'SnapshotDate', 'Tagging', 'FareBucket'
     ]
     assert CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER == expected_inv_opt_cols
-    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 32
+    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 38
 
 
 def _resolve_input_path(filename):

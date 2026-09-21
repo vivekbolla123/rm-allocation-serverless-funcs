@@ -272,12 +272,15 @@ def compute_flight_inventory_ng(
     # Predictions & Forecasts
     pred_pickup = np.sum(mu_arr)
     pred_flown = tot_bookings + pred_pickup
-    pred_pickup_rev = np.sum(mu_2)
+    # For LF_Forecast_Revised, sum mu from anchor fare and above
+    anchor_mask = fare_arr >= (anchor_fare - 1e-5)
+    pred_pickup_rev = float(np.sum(mu_arr[anchor_mask]))
     pred_flown_rev = tot_bookings + pred_pickup_rev
 
-    lf_rev = pred_flown_rev / cap if cap > 0 else 0.0
-    exp_rev = np.sum(mu_2 * fare_arr)
-    pred_rev = curr_rev + exp_rev
+    lf_rev = ((pred_flown_rev / cap) * 100.0) if cap > 0 else 0.0
+    exp_rev_buckets = mu_2 * fare_arr
+    tot_exp_rev = float(np.sum(exp_rev_buckets))
+    pred_rev = curr_rev + tot_exp_rev
     af_rev = pred_rev / pred_flown_rev if pred_flown_rev > 0 else (fare_arr[-1] if k > 0 else 0.0)
     rpkm = pred_flown_rev * dist
     askm = cap * dist
@@ -318,8 +321,8 @@ def compute_flight_inventory_ng(
     res['Capped_Predicted_Flown_Revised'] = min(cap, pred_flown_rev)
     res['A_cap'] = cap
     res['Current_Revenue'] = round(curr_rev, 2)
-    res['Expected_Revenue'] = round(exp_rev, 2)
-    res['Total_Expected_Revenue'] = round(pred_rev, 2)
+    res['Expected_Revenue'] = np.round(exp_rev_buckets, 2)
+    res['Total_Expected_Revenue'] = round(tot_exp_rev, 2)
     res['Predicted_Revenue'] = round(pred_rev, 2)
     res['SnapshotDate'] = snap_date
     res['Tagging'] = tagging_val

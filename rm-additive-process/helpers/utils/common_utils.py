@@ -714,7 +714,7 @@ def compute_flight_inventory_ng(
         P_eq_list = [np.nan] * n
         mu_bar_2_list = mu_bar_list
         mu_2_list = mu
-        sigma_2_list = [sig_fact * m for m in mu_2_list]
+        sigma_2_list = sigma if sigma else [sig_fact * m for m in mu_2_list]
         sigma_3_list = sigma_2_list
         sigma_bar_3_list = sig_bar_list
         y_2_list = y_list
@@ -772,7 +772,13 @@ def compute_flight_inventory_ng(
             else:
                 mu_2_list.append(max(0.0, mu_bar_2_list[i] - mu_bar_2_list[i-1]))
 
-        sigma_2_list = [sig_fact * m for m in mu_2_list]
+        if sigma:
+            sigma_2_list = [
+                float(sigma[i]) * (mu_2_list[i] / float(mu[i])) if float(mu[i]) > 0 else (sig_fact * mu_2_list[i])
+                for i in range(n)
+            ]
+        else:
+            sigma_2_list = [sig_fact * m for m in mu_2_list]
         sigma_3_list = sigma_2_list
         sigma_bar_3_list = [sig_fact * sum(mu_2_list[:j+1]) for j in range(n)]
 
@@ -838,13 +844,19 @@ def compute_flight_inventory_ng(
             pass
 
     # Phase 4: Closed-Form Revenue Forecasting
-    A_hat = [0.0] * n
+    A_cap = [0.0] * n
     ER = [0.0] * n
     Ai_list = [0.0] * n
 
     for i in reversed(range(n)):
-        sum_lower = sum(A_hat[i+1:])
-        Ai = max(0.0, float(au_revised[i]) - cb - sum_lower)
+        if fares[i] < (anchor_fare - 1e-5):
+            Ai_list[i] = 0.0
+            A_cap[i] = 0.0
+            ER[i] = 0.0
+            continue
+
+        sum_lower = sum(A_cap[i+1:])
+        Ai = max(0.0, float(au_2_list[i]) - cb - sum_lower)
         Ai_list[i] = Ai
         m_i = float(mu_2_list[i])
         s_i = float(sigma_2_list[i])
@@ -857,14 +869,15 @@ def compute_flight_inventory_ng(
         else:
             A_hat_i = min(m_i, Ai)
 
-        A_hat[i] = max(0.0, A_hat_i)
-        ER[i] = fares[i] * A_hat[i]
+        A_cap[i] = max(0.0, A_hat_i)
+        ER[i] = fares[i] * A_cap[i]
 
     total_expected_revenue = float(sum(ER))
     predicted_revenue = curr_rev + total_expected_revenue
     pred_pickup_init = float(sum(mu))
     pred_flown_init = cb + pred_pickup_init
-    pred_pickup_rev = float(sum(mu_2_list))
+    # For LF_Forecast_Revised, sum mu from anchor fare and above
+    pred_pickup_rev = float(sum(m for f, m in zip(fares, mu) if f >= anchor_fare - 1e-5))
     pred_flown_rev = cb + pred_pickup_rev
 
     denom = min(cap, pred_flown_rev) if pred_flown_rev > 0 else cap
@@ -910,7 +923,7 @@ def compute_flight_inventory_ng(
         'RPKM': [rpkm] * n,
         'ASKM': [askm] * n,
         'Capped_Predicted_Flown_Revised': [capped_pred_flown_rev] * n,
-        'A_cap': Ai_list,
+        'A_cap': A_cap,
         'Current_Revenue': [curr_rev] * n,
         'Expected_Revenue': ER,
         'Total_Expected_Revenue': [total_expected_revenue] * n,

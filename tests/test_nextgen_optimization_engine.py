@@ -297,4 +297,133 @@ class TestNextGenOptimizationEngine:
         row_5252 = redist_df_fallback[redist_df_fallback['fare'] == 5252.0].iloc[0]
         assert np.isclose(row_5252['P_eq'], 5252.0)
 
+    def test_revised_pickup_and_load_factor_forecast_from_anchor_fare(self, sample_flight_data):
+        """Verify that Predicted_pickup_Revised sums mu only from anchor fare and above,
+        giving Predicted_Flown_Revised = cb + Predicted_pickup_Revised and LF_Forecast_Revised = (flown / cap) * 100.
+        """
+        capacity = 189
+        cb = 147  # At cb=147, anchor fare is 2914.0 (all 16 classes)
+        curr_rev = 500000.0
+
+        # Run with cb = 147 where anchor fare is lowest class
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, curr_rev
+        )
+        anchor_fare = summary['Anchor_fare']
+        expected_pickup_all = float(sample_flight_data[sample_flight_data['fare'] >= (anchor_fare - 1e-5)]['mu'].sum())
+        assert np.isclose(summary['Predicted_Pickup_Revised'], expected_pickup_all)
+        assert np.isclose(summary['Predicted_Flown_Revised'], cb + expected_pickup_all)
+        assert np.isclose(summary['NG_LF_Forecast'], ((cb + expected_pickup_all) / capacity) * 100.0)
+
+        # Now test with higher cb where anchor_fare is higher up the ladder (closing lower classes)
+        # Using a custom ladder where lower buckets have significant mu
+        custom_ladder = pd.DataFrame({
+            'FareBucket': ['Y', 'B', 'M', 'Q'],
+            'fare': [10000.0, 7000.0, 5000.0, 3000.0],
+            'mu': [2.0, 5.0, 10.0, 20.0],
+            'sigma': [0.5, 1.25, 2.5, 5.0]
+        })
+        # If capacity=100 and cb=80, AU will close the lowest bucket(s)
+        final_df2, summary2 = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            custom_ladder, 100, 80, 400000.0
+        )
+        anchor2 = summary2['Anchor_fare']
+        expected_pickup_anchor_above = float(custom_ladder[custom_ladder['fare'] >= (anchor2 - 1e-5)]['mu'].sum())
+        total_mu = float(custom_ladder['mu'].sum())
+
+        # Verify revised pickup sums only from anchor fare and above
+        assert np.isclose(summary2['Predicted_Pickup_Revised'], expected_pickup_anchor_above)
+        assert np.isclose(summary2['Predicted_Flown_Revised'], 80 + expected_pickup_anchor_above)
+        assert np.isclose(summary2['NG_LF_Forecast'], ((80 + expected_pickup_anchor_above) / 100.0) * 100.0)
+
+        # If anchor2 > 3000, verify that the 3000 bucket's mu is excluded
+        if anchor2 > 3000.0:
+            assert summary2['Predicted_Pickup_Revised'] < total_mu
+
+    def test_revenue_forecasting_columns(self, sample_flight_data):
+        """Verify Expected_Revenue, Total_Expected_Revenue, and Predicted_Revenue are correctly populated in output."""
+        capacity = 189
+        cb = 74
+        curr_rev = 450000.0
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, curr_rev,
+            curr_params={'promo_flag_NG': 1, 'PromoRatio_NG': 0.8}
+        )
+
+        assert 'Expected_Revenue' in final_df.columns
+        assert 'Total_Expected_Revenue' in final_df.columns
+        assert 'Predicted_Revenue' in final_df.columns
+
+        # Verify sum of Expected_Revenue equals Total_Expected_Revenue
+        filed_rows = final_df[final_df['Promo_Flag'] == 0]
+        sum_er = float(filed_rows['Expected_Revenue'].sum())
+        assert np.isclose(sum_er, summary['Total_Expected_Revenue'], rtol=1e-5)
+        assert np.isclose(final_df['Total_Expected_Revenue'].iloc[0], summary['Total_Expected_Revenue'])
+
+        # Verify Predicted_Revenue = Current_Revenue + Total_Expected_Revenue
+        assert np.isclose(summary['Predicted_Revenue'], curr_rev + summary['Total_Expected_Revenue'])
+        assert np.isclose(final_df['Predicted_Revenue'].iloc[0], curr_rev + summary['Total_Expected_Revenue'])
+
+        # Verify Promo row has 0 Expected_Revenue and flight-level total revenues
+        promo_rows = final_df[final_df['Promo_Flag'] == 1]
+        assert not promo_rows.empty
+        assert promo_rows['Expected_Revenue'].iloc[0] == 0.0
+        assert np.isclose(promo_rows['Total_Expected_Revenue'].iloc[0], summary['Total_Expected_Revenue'])
+        assert np.isclose(promo_rows['Predicted_Revenue'].iloc[0], summary['Predicted_Revenue'])
+
+    def test_auoptlocal_flight_1109_reference_match(self):
+        """Verify NextGen optimization against the reference AUOptlocal.xlsx for Flight 1109."""
+        excel_path = os.path.abspath("AUOptlocal.xlsx")
+        if not os.path.exists(excel_path):
+            pytest.skip("AUOptlocal.xlsx not found")
+
+        excel_df = pd.read_excel(excel_path)
+        ladder_df = pd.DataFrame({
+            'FareBucket': excel_df['FareBucket'],
+            'fare': excel_df['fare'],
+            'mu': excel_df['mu'],
+            'sigma': excel_df['sigma']
+        })
+
+        capacity = int(excel_df['capacity'].iloc[0])
+        cb = float(excel_df['Total_Bookings'].iloc[0])
+        curr_rev = float(excel_df['Current_Revenue'].iloc[0])
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df,
+            capacity=capacity,
+            current_bookings=cb,
+            current_revenue=curr_rev,
+            curr_params={
+                'buy_up_factor': 0.0,
+                'sigma_factor': 0.25,
+                'first_rbd_alloc': 20,
+                'promo_flag_NG': 0,
+                'competition_response_flag': 0
+            }
+        )
+
+        # Flight-level forecast columns
+        assert np.isclose(summary['Total_Expected_Revenue'], excel_df['Total_Expected_Revenue'].iloc[0], atol=1e-2)
+        assert np.isclose(summary['Predicted_Revenue'], excel_df['Predicted_Revenue'].iloc[0], atol=1e-2)
+        assert np.isclose(summary['NG_AF_Forecast'], excel_df['AF_Forecast'].iloc[0], atol=1e-2)
+        assert np.isclose(summary['Predicted_Pickup_Revised'], excel_df['Predicted_pickup_Revised'].iloc[0], atol=1e-2)
+        assert np.isclose(summary['Predicted_Flown_Revised'], excel_df['Predicted_Flown_Revised'].iloc[0], atol=1e-2)
+        assert np.isclose(summary['NG_LF_Forecast'], excel_df['LF_Forecast_Revised'].iloc[0] * 100.0, atol=1e-2)
+
+        # Helper columns: A, A_cap, and Expected_Revenue per bucket
+        assert np.allclose(final_df['A'].values, excel_df['A'].values, atol=1e-4)
+        assert np.allclose(final_df['A_cap'].values, excel_df['A_cap'].values, atol=1e-4)
+        assert np.allclose(final_df['Expected_Revenue'].values, excel_df['Expected_Revenue'].values, atol=1e-2)
+
+        # Bucket below anchor fare (4901 < 5301) must have 0 bookings and 0 revenue
+        below_anchor = final_df[final_df['fare'] < 5301]
+        assert not below_anchor.empty
+        assert (below_anchor['A'] == 0.0).all()
+        assert (below_anchor['A_cap'] == 0.0).all()
+        assert (below_anchor['Expected_Revenue'] == 0.0).all()
+
+
+
 

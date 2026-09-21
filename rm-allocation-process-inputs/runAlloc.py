@@ -1739,6 +1739,10 @@ class DynAlloc:
 					ng_row.NG_Opening_fare = ng_summary.get('NG_Opening_fare')
 					ng_row.Strategy_fare = ng_summary.get('Strategy_fare')
 					ng_row.Anchor_fare = ng_summary.get('Anchor_fare')
+					ng_row.Current_Revenue = curr_rev
+					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
+					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
+					ng_row.Predicted_Pickup_Revised = ng_summary.get('Predicted_Pickup_Revised')
 					ng_row.analystName = getattr(self.currParams, 'analyst_name', CONST_NA)
 					ng_row.status = getattr(self.currParams, 'status', getattr(self, 'status', CONST_NA))
 					ng_row.allocationStatus = getattr(self.currParams, 'allocationStatus', getattr(self, 'allocationStatus', CONST_NA))
@@ -1787,6 +1791,8 @@ class DynAlloc:
 						ng_opt_df['Capped_Predicted_Flown_Revised'] = min(final_totalCapacity, ng_summary.get('Predicted_Flown_Revised', 0.0))
 						ng_opt_df['Denominator'] = ng_opt_df['Capped_Predicted_Flown_Revised']
 						ng_opt_df['Current_Revenue'] = curr_rev
+						if 'Expected_Revenue' not in ng_opt_df.columns:
+							ng_opt_df['Expected_Revenue'] = 0.0
 						ng_opt_df['Total_Expected_Revenue'] = ng_summary.get('Total_Expected_Revenue', 0.0)
 						ng_opt_df['Predicted_Revenue'] = ng_summary.get('Predicted_Revenue', 0.0)
 						ng_opt_df['SnapshotDate'] = getattr(self.currParams, 'currDate', datetime.now().strftime('%Y-%m-%d'))

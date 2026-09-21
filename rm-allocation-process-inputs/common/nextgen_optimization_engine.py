@@ -483,8 +483,12 @@ class NextGenOptimizationEngine:
             df['P_eq'] = np.nan
             df['mu_bar_2'] = df['mu_bar']
             df['mu_2'] = df['mu']
-            df['sigma_2'] = sig_fact * df['mu_2']
-            df['sigma_3'] = df['sigma_2']
+            if 'sigma' in df.columns:
+                df['sigma_2'] = df['sigma'].copy()
+                df['sigma_3'] = df['sigma'].copy()
+            else:
+                df['sigma_2'] = sig_fact * df['mu_2']
+                df['sigma_3'] = df['sigma_2']
             df['sigma_bar_3'] = df['sigma_bar']
             df['ProtectionLimit_3'] = df['ProtectionLimit']
             df['AU_2'] = df['AU']
@@ -536,6 +540,7 @@ class NextGenOptimizationEngine:
                 'AU_Revised': float(au_revised_promo),
                 'fare': f_promo_init
             }
+            df.attrs['anchor_fare'] = float(A)
             return df
 
         # --- A < C: Demand Redistribution Triggers ---
@@ -610,7 +615,15 @@ class NextGenOptimizationEngine:
             else:
                 mu_2_list.append(max(0.0, mu_bar_2_list[i] - mu_bar_2_list[i-1]))
 
-        sigma_2_list = [sig_fact * m for m in mu_2_list]
+        if 'sigma' in df.columns:
+            orig_mu = df['mu'].tolist()
+            sigma_2_list = [
+                float(df['sigma'].iloc[i]) * (mu_2_list[i] / float(orig_mu[i])) if float(orig_mu[i]) > 0 else (sig_fact * mu_2_list[i])
+                for i in range(n)
+            ]
+        else:
+            sigma_2_list = [sig_fact * m for m in mu_2_list]
+
         df['P_eq'] = P_eq_list
         df['mu_bar_2'] = mu_bar_2_list
         df['mu_2'] = mu_2_list
@@ -729,6 +742,7 @@ class NextGenOptimizationEngine:
             'AU_Revised': float(au_revised_promo),
             'fare': f_promo_comp
         }
+        df.attrs['anchor_fare'] = float(A)
         return df
 
     @classmethod
@@ -741,7 +755,8 @@ class NextGenOptimizationEngine:
         fare_col='fare',
         mu_col='mu_2',
         sigma_col='sigma_2',
-        au_col='AU_Revised'
+        au_col='AU_2',
+        anchor_fare=None
     ):
         """
         Phase 4: Closed-Form Revenue Forecasting using standard normal distribution integrals.
@@ -755,24 +770,54 @@ class NextGenOptimizationEngine:
 
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
         fares = df[fare_col].tolist()
-        mu_2 = df[mu_col].tolist()
-        sigma_2 = df[sigma_col].tolist()
-        au_rev = df[au_col].tolist()
+        mu_2 = df[mu_col].tolist() if mu_col in df.columns else (df['mu'].tolist() if 'mu' in df.columns else [0.0] * len(df))
+        if sigma_col in df.columns:
+            sigma_2 = df[sigma_col].tolist()
+        elif 'sigma' in df.columns:
+            sigma_2 = df['sigma'].tolist()
+        else:
+            sigma_2 = [0.25 * m for m in mu_2]
+
+        au_col_to_use = au_col if au_col in df.columns else ('AU_2' if 'AU_2' in df.columns else ('AU_Revised' if 'AU_Revised' in df.columns else 'AU'))
+        au_vals = df[au_col_to_use].tolist() if au_col_to_use in df.columns else [float(capacity or 189)] * len(df)
         n = len(df)
 
         cap = int(capacity) if capacity and capacity > 0 else 189
         cb = float(current_bookings) if current_bookings is not None else 0.0
         curr_rev = float(current_revenue) if current_revenue is not None else 0.0
 
-        A_hat = [0.0] * n
-        ER = [0.0] * n
-        Ai_list = [0.0] * n
+        # Resolve anchor fare if not provided
+        if anchor_fare is None:
+            if 'anchor_fare' in df.attrs:
+                anchor_fare = float(df.attrs['anchor_fare'])
+            elif 'anchor_fare' in df.columns and pd.notna(df['anchor_fare'].iloc[0]):
+                anchor_fare = float(df['anchor_fare'].iloc[0])
+            elif 'AU' in df.columns:
+                open_classes = df[df['AU'] > cb]
+                anchor_fare = float(open_classes[fare_col].iloc[-1]) if not open_classes.empty else float(df[fare_col].iloc[0])
+            elif au_col_to_use in df.columns:
+                open_classes = df[df[au_col_to_use] > cb]
+                anchor_fare = float(open_classes[fare_col].iloc[-1]) if not open_classes.empty else float(df[fare_col].iloc[0])
+            else:
+                anchor_fare = float(fares[-1]) if fares else 0.0
+
+        anchor_val = float(anchor_fare) if anchor_fare is not None else 0.0
+
+        A_cap = [0.0] * n   # Capped expected bookings per bucket (A_hat)
+        ER = [0.0] * n      # Expected revenue per bucket
+        A_list = [0.0] * n  # Available capacity limit (helper column A)
 
         # Process bottom-up from lowest fare to highest fare
         for i in reversed(range(n)):
-            sum_lower = sum(A_hat[i+1:])
-            Ai = max(0.0, float(au_rev[i]) - cb - sum_lower)
-            Ai_list[i] = Ai
+            if fares[i] < (anchor_val - 1e-5):
+                A_list[i] = 0.0
+                A_cap[i] = 0.0
+                ER[i] = 0.0
+                continue
+
+            sum_lower = sum(A_cap[i+1:])
+            Ai = max(0.0, float(au_vals[i]) - cb - sum_lower)
+            A_list[i] = Ai
             m_i = float(mu_2[i])
             s_i = float(sigma_2[i])
 
@@ -784,17 +829,24 @@ class NextGenOptimizationEngine:
             else:
                 A_hat_i = min(m_i, Ai)
 
-            A_hat[i] = max(0.0, A_hat_i)
-            ER[i] = fares[i] * A_hat[i]
-
-        df['A_cap'] = Ai_list
-        df['A'] = A_hat
-        df['Expected_Bookings'] = A_hat
-        df['Expected_Revenue'] = ER
+            A_cap[i] = max(0.0, A_hat_i)
+            ER[i] = fares[i] * A_cap[i]
 
         total_expected_revenue = float(sum(ER))
         predicted_revenue = curr_rev + total_expected_revenue
-        pred_pickup_rev = float(sum(mu_2))
+
+        df['A'] = A_list
+        df['A_cap'] = A_cap
+        df['Expected_Bookings'] = A_cap
+        df['Expected_Revenue'] = ER
+        df['Total_Expected_Revenue'] = total_expected_revenue
+        df['Predicted_Revenue'] = predicted_revenue
+
+        # For LF_Forecast_Revised, sum mu from anchor fare and above
+        mu_for_pickup = df['mu'] if 'mu' in df.columns else df[mu_col]
+        anchor_mask = df[fare_col] >= (anchor_val - 1e-5)
+        pred_pickup_rev = float(mu_for_pickup[anchor_mask].sum())
+
         pred_flown_rev = cb + pred_pickup_rev
 
         denom = min(cap, pred_flown_rev) if pred_flown_rev > 0 else cap
@@ -990,7 +1042,9 @@ class NextGenOptimizationEngine:
 
         # Step 4: Closed-Form Revenue Forecasting
         pred_rev, tot_er, pickup_rev, flown_rev, af_fc, lf_fc_rev, final_df = cls.compute_closed_form_revenue_forecast(
-            redistrib_df, capacity, current_bookings, current_revenue
+            redistrib_df, capacity, current_bookings, current_revenue,
+            au_col='AU_2',
+            anchor_fare=anchor_fare
         )
 
         # Find opening fare & seats on opening fare (in airline component) - strictly ignoring Promo
@@ -1021,6 +1075,8 @@ class NextGenOptimizationEngine:
             promo_row['P_eq'] = np.nan
             promo_row['Expected_Bookings'] = 0.0
             promo_row['Expected_Revenue'] = 0.0
+            promo_row['Total_Expected_Revenue'] = float(tot_er)
+            promo_row['Predicted_Revenue'] = float(pred_rev)
             promo_row['A'] = 0.0
             promo_row['A_cap'] = 0.0
             final_df = pd.concat([final_df, pd.DataFrame([promo_row])], ignore_index=True)

@@ -458,6 +458,7 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
+    'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
     'SnapshotDate', 'Tagging', 'FareBucket'
 ]
 
