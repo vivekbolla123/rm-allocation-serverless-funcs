@@ -988,8 +988,7 @@ class DetermineRBD:
                     "T_V": float(strategyFare) - float(final_T),
                     "actual_dplf": float(current_dplf),
                     "actual_imp_forecast": float(current_imp_forecast),
-                    "b2c_tolerance": current_b2c_tol_str,
-                    "selling_fare": float(anchor_fare) if anchor_fare is not None else float(strategyFare),
+                    "b2c_tolerance": current_b2c_tol_str
                 }
                 if not is_duplicate_run:
                     history.append(new_record)

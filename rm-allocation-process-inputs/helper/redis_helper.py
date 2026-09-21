@@ -94,6 +94,16 @@ class RedisHelper:
         self.cache_client.set(KEY_B2B_READY_COUNT + self.runId, b2bPendingCount)
         self.cache_client.set(KEY_B2C_READY_COUNT + self.runId, b2cPendingCount)
 
+    def hget(self, key, field):
+        if self.cache_client:
+            return self.cache_client.hget(key, field)
+        return None
+
+    def hset(self, key, field, value):
+        if self.cache_client:
+            return self.cache_client.hset(key, field, value)
+        return None
+
     # ------------------------------------------------------------------
     # Portfolio coordination (R3)
     # ------------------------------------------------------------------
