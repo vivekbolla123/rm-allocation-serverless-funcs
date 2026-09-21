@@ -247,3 +247,54 @@ class TestNextGenOptimizationEngine:
         assert summary['NG_Opening_fare'] != promo_row['fare']
         assert summary['NG_Opening_fare'] in sample_flight_data['fare'].tolist()
 
+    def test_pmin_old_demand_redistribution_intermediate_fares(self, sample_flight_data):
+        """
+        Verify Pmin_old logic:
+        1. When cum_mu >= threshold (pmin_threshold_factor * cap), Pmin_old is the crossing fare.
+        2. When cum_mu < threshold even at C, Pmin_old is C itself.
+        3. P_eq for C is Anchor fare, P_eq for P_max is P_max, intermediate fares follow Pmin_old formula.
+        """
+        capacity = 189
+        cb = 147
+        init_df, anchor_fare, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+        assert anchor_fare == 2914.0
+
+        # Scenario A: Strategy Fare = 9272.0, threshold factor = 0.01 (threshold = 1.89)
+        # Sum of mu from 2914 up to 9272:
+        # 2914: 0.0
+        # 3526: 0.02714
+        # 4279: 0.48787  (cum = 0.51501)
+        # 5252: 0.943086 (cum = 1.458096)
+        # 6409: 2.142497 (cum = 3.600593 >= 1.89) -> crosses at 6409.0!
+        redist_df_cross = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 9272.0, capacity, cb,
+            pmin_threshold_factor=0.01
+        )
+        assert redist_df_cross.attrs['p_min_old'] == 6409.0
+
+        # Boundary checks
+        c_row = redist_df_cross[redist_df_cross['fare'] == 9272.0].iloc[0]
+        max_row = redist_df_cross[redist_df_cross['fare'] == 94338.0].iloc[0]
+        assert np.isclose(c_row['P_eq'], anchor_fare)  # P_eq(C) == Anchor fare
+        assert np.isclose(max_row['P_eq'], 94338.0)    # P_eq(P_max) == P_max
+
+        # Intermediate fare check: fare = 11352.0
+        # P_eq = Pmin_old + (p - C) / (P_max - C) * (P_max - Pmin_old)
+        expected_peq_11352 = 6409.0 + ((11352.0 - 9272.0) / (94338.0 - 9272.0)) * (94338.0 - 6409.0)
+        row_11352 = redist_df_cross[redist_df_cross['fare'] == 11352.0].iloc[0]
+        assert np.isclose(row_11352['P_eq'], expected_peq_11352)
+
+        # Scenario B: Default threshold factor = 0.1 (threshold = 18.9)
+        # Sum of mu up to 4279 is 0.51501 < 18.9 -> does not cross even at C -> Pmin_old = 4279.0
+        redist_df_fallback = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 4279.0, capacity, cb,
+            pmin_threshold_factor=0.1
+        )
+        assert redist_df_fallback.attrs['p_min_old'] == 4279.0
+        # When Pmin_old == C, intermediate fares have P_eq == p
+        row_5252 = redist_df_fallback[redist_df_fallback['fare'] == 5252.0].iloc[0]
+        assert np.isclose(row_5252['P_eq'], 5252.0)
+
+

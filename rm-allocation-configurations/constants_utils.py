@@ -169,6 +169,8 @@ class ConstantsUtils:
         self.PromoRBD_NG = self.PROMO_RBD_NG
         self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
         self.PromoRatio_NG = self.PROMO_RATIO_NG
+        self.PMIN_THRESHOLD_FACTOR_NG = float(DEFAULT_PMIN_THRESHOLD_FACTOR_NG)
+        self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
         self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
         self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
         # --- Additive Pickup Model constants ---------------------------------

@@ -448,6 +448,7 @@ class NextGenOptimizationEngine:
         promo_flag=0,
         promo_first_rbd=10,
         promo_threshold=95.0,
+        pmin_threshold_factor=0.1,
         fare_col='fare'
     ):
         """
@@ -478,6 +479,7 @@ class NextGenOptimizationEngine:
 
         # If Anchor >= Strategy or Comp missing, no demand redistribution
         if A >= C or strategy_fare is None or pd.isna(strategy_fare):
+            df.attrs['p_min_old'] = A
             df['P_eq'] = np.nan
             df['mu_bar_2'] = df['mu_bar']
             df['mu_2'] = df['mu']
@@ -542,6 +544,25 @@ class NextGenOptimizationEngine:
         C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
         strat_idx = fares.index(C_ladder)
 
+        anchor_candidates = [f for f in fares if f <= A]
+        a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
+        a_idx = fares.index(a_ladder)
+
+        # Calculate Pmin_old by taking sum of mu in original demand distribution
+        # from anchor fare till Strategy Fare (C). The fare at which this sum crosses
+        # the threshold of pmin_threshold_factor * Capacity (default 0.1) is Pmin_Old.
+        # If it doesn't cross the threshold even at C then C itself will be Pmin_old.
+        cum_mu = 0.0
+        p_min_old = C_ladder
+        threshold = float(pmin_threshold_factor if pmin_threshold_factor is not None else 0.1) * float(cap)
+        for idx in range(a_idx, strat_idx - 1, -1):
+            cum_mu += float(df['mu'].iloc[idx])
+            if cum_mu >= threshold:
+                p_min_old = float(fares[idx])
+                break
+
+        df.attrs['p_min_old'] = p_min_old
+
         orig_mu_bars = df['mu_bar'].tolist()
         P_eq_list = []
         mu_bar_2_list = []
@@ -551,17 +572,17 @@ class NextGenOptimizationEngine:
                 peq = 0.0
                 m_bar_2 = 0.0
             elif p == C_ladder:
+                # P_eq for C remains Anchor fare
                 peq = A
-                anchor_candidates = [f for f in fares if f <= A]
-                a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
-                a_idx = fares.index(a_ladder)
                 m_bar_2 = orig_mu_bars[a_idx]
             elif p >= P_max:
+                # P_eq for max fare remains max fare
                 peq = P_max
                 m_bar_2 = orig_mu_bars[0]
             else:
+                # Intermediate fares (C_ladder < p < P_max) use Pmin_old
                 denom = (P_max - C_ladder)
-                peq = A + ((p - C_ladder) / denom) * (P_max - A) if denom > 0 else A
+                peq = p_min_old + ((p - C_ladder) / denom) * (P_max - p_min_old) if denom > 0 else p_min_old
 
                 # Piecewise uniform interpolation of mu_bar
                 if peq >= fares[0]:
@@ -946,6 +967,12 @@ class NextGenOptimizationEngine:
             strategy_fare = anchor_fare
 
         # Step 3: Demand Redistribution & Revised AU
+        pmin_thresh_factor = _get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1)
+        try:
+            pmin_thresh_factor = float(pmin_thresh_factor)
+        except (ValueError, TypeError):
+            pmin_thresh_factor = 0.1
+
         redistrib_df = cls.redistribute_demand_and_compute_revised_au(
             init_df, anchor_fare, strategy_fare, capacity, current_bookings,
             buy_up_factor=buy_up,
@@ -957,7 +984,8 @@ class NextGenOptimizationEngine:
             promo_au=promo_au,
             promo_flag=promo_flag,
             promo_first_rbd=promo_first_rbd,
-            promo_threshold=promo_threshold
+            promo_threshold=promo_threshold,
+            pmin_threshold_factor=pmin_thresh_factor
         )
 
         # Step 4: Closed-Form Revenue Forecasting
@@ -1005,6 +1033,7 @@ class NextGenOptimizationEngine:
             'NG_FirstRBD': float(seats_on_opening),
             'Strategy_fare': float(strategy_fare),
             'Anchor_fare': float(anchor_fare),
+            'Pmin_Old': float(redistrib_df.attrs.get('p_min_old', anchor_fare)),
             'Current_Revenue': float(current_revenue),
             'Total_Expected_Revenue': float(tot_er),
             'Predicted_Revenue': float(pred_rev),

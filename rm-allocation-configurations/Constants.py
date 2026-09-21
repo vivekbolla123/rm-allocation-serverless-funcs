@@ -422,6 +422,7 @@ DEFAULT_PROMO_FLAG_NG = 0
 DEFAULT_PROMO_RBD_NG = "W4"
 DEFAULT_PROMO_FIRST_RBD_NG = 10
 DEFAULT_PROMO_RATIO_NG = 0.80
+DEFAULT_PMIN_THRESHOLD_FACTOR_NG = 0.1
 
 CONST_OUTPUT_SUMMARY_ORDER = [
     'Origin', 'Destin', 'FltNum', 'DepDate', 'BookedLoad', 'analystName', 'Day',
@@ -456,7 +457,7 @@ CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
-    'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Current_Revenue',
+    'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
     'SnapshotDate', 'Tagging', 'FareBucket'
 ]
 
@@ -669,6 +670,7 @@ PROMO_FLAG_NG = DEFAULT_PROMO_FLAG_NG
 PROMO_RBD_NG = DEFAULT_PROMO_RBD_NG
 PROMO_FIRST_RBD_NG = DEFAULT_PROMO_FIRST_RBD_NG
 PROMO_RATIO_NG = DEFAULT_PROMO_RATIO_NG
+PMIN_THRESHOLD_FACTOR_NG = DEFAULT_PMIN_THRESHOLD_FACTOR_NG
 OPEN_BUCKET_MIDPOINT_FACTOR = 1.10     # Midpoint factor for upper open-ended fare bucket (e.g. 25088+)
 # Buy-up factor (alpha) applied to the EMSR-b sell-up probability:
 #   Prob_j = (1 - f_(j+1) / F_j) * 1 / (1 - alpha)

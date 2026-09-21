@@ -53,8 +53,8 @@ def run_nextgen_test():
     inputData = {
         "debugMode": False,
         "isUpdateNavitaire": False,
-        "currDate": datetime.date(2023, 8, 1),
-        "currDateTime": datetime.datetime(2023, 8, 1, 12, 12, 12),
+        "currDate": datetime.date(2026, 9, 21),
+        "currDateTime": datetime.datetime(2026, 9, 21, 12, 12, 12),
         "MARKET_LIST_QUEUE_URL": None,
         "RBD_QUEUE_URL": None,
         "NAV_DB_NAME": None,

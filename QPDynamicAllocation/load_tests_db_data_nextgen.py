@@ -55,6 +55,7 @@ class SchemaNextGen:
         self.load_generic_collection("active_sectors", "active_sectors.csv")
         self.load_generic_collection("tax_mast_dom", "tax_mast_dom.csv")
         self.load_generic_collection("tax_mast_intl", "tax_mast_intl.csv")
+        self.load_generic_collection("city_pair", "city_pair.csv")
 
         # 2. NextGen AU Optimization & Competition Response Collections
         self.load_generic_collection("comp_response_plf_bands", "comp_response_plf_bands.csv")
