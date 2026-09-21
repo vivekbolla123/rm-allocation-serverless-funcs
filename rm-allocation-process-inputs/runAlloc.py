@@ -1014,7 +1014,7 @@ class DynAlloc:
 		last_seven_avg_val = state.last_seven_avg_val
 
 		is_spoilage_reduction_active = False
-		if ndocounter == 0 and int(self.currParams.Spoilage_Flag)==1:
+		if ndocounter <= 2 and int(self.currParams.Spoilage_Flag)==1:
 			self.logger.info("D-0 flight detected. Checking for spoilage reduction conditions.")
 			try:
 				# 1. Check for last seven sold fare availability
@@ -1044,16 +1044,17 @@ class DynAlloc:
 
 							hours_to_departure = (departure_datetime - current_datetime).total_seconds() / 3600
 
-							trigger_hours = 0
-							time_8am = time(8, 0)
-							time_12pm = time(12, 0)
-
-							if time_8am <= departure_time_obj < time_12pm:
-								# For flights departing between 8 AM and 12 PM
-								trigger_hours = 12
-							else:
-								# For flights departing between 12 PM and 8 AM (next day)
-								trigger_hours = 12
+							# Trigger window is configured per departure-time band
+							# (SPOILAGE_REDUCTION_TRIGGER_BANDS in Constants.py /
+							# rm_parameter_values).
+							spoilage_bands = parse_spoilage_trigger_bands(
+								self.constantsUtils.SPOILAGE_REDUCTION_TRIGGER_BANDS
+							)
+							trigger_hours = get_spoilage_trigger_hours(
+								spoilage_bands,
+								departure_time_obj,
+								self.constantsUtils.SPOILAGE_REDUCTION_DEFAULT_TRIGGER_HOURS,
+							)
 
 							if hours_to_departure <= trigger_hours:
 								self.logger.info(f"Spoilage Reduction ACTIVE. Hours to departure: {hours_to_departure:.2f} <= Trigger: {trigger_hours}hrs. PLF: {final_plf:.2f}%")
@@ -1428,7 +1429,14 @@ class DynAlloc:
 			b2b_Z0_rbds_df = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2B_CHANNEL, 'Z0', 'L')
 			b2b_Z0_fare = b2b_Z0_rbds_df['Total'].iloc[0] if not b2b_Z0_rbds_df.empty and 'Total' in b2b_Z0_rbds_df.columns else float('inf')
 
-			if pd.notna(b2b_backstop_final) and b2b_backstop_final != CONST_NA and float(b2b_Z0_fare) < float(b2b_backstop_final):
+			b2b_backstop_val = 0.0
+			try:
+				if b2b_backstop_final not in (None, '', 'NA', 'None', CONST_NA) and pd.notna(b2b_backstop_final):
+					b2b_backstop_val = float(b2b_backstop_final)
+			except (ValueError, TypeError):
+				b2b_backstop_val = 0.0
+
+			if b2b_backstop_val > 0 and float(b2b_Z0_fare) < b2b_backstop_val:
 				openDataB2B_details = {'RBD': [CONST_NA], 'Fare': [CONST_NA], 'FareResult': ['B2B: Z0 fare < B2B backstop'], 'anchorFare': [CONST_NA], 'statusInd': [1], 'allocationStatus': [1]}
 
 			param_b2b_factor = getattr(self.currParams, 'b2b_factor', -1) # Default if not present
@@ -2068,6 +2076,104 @@ class DynAlloc:
 		# Database insert
 		if hasattr(self.rmdatabasehelper, 'insertSummaryRows'): self.rmdatabasehelper.insertSummaryRows(new_summary_rows_fullalloc)
 		else: self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2c]); self.rmdatabasehelper.insertSummaryRow([self.outputSummaryRow_b2b])
+
+		self._update_selling_fare_in_history(state)
+
+	def _update_selling_fare_in_history(self, state):
+		"""Update selling_fare in Redis autotolerance_history at the end of the run
+		using the actual B2C ladder-opened price (self.outputSummaryRow_b2c.SellingFare).
+		"""
+		try:
+			is_portfolio_only = str(getattr(self.currParams, 'portfolio_only', '0')) == '1'
+			if is_portfolio_only:
+				return
+
+			b2c_fare = getattr(self.outputSummaryRow_b2c, 'SellingFare', CONST_NA)
+			if b2c_fare in (CONST_NA, None, '', 'NA', 'None', 'nan'):
+				return
+
+			try:
+				selling_fare_numeric = float(b2c_fare)
+			except (ValueError, TypeError):
+				return
+
+			origin = str(getattr(self.currParams, 'origin', '') or getattr(getattr(self, 'outputSummaryRow_b2c', None), 'Origin', '')).strip()
+			destin = str(getattr(self.currParams, 'destin', '') or getattr(getattr(self, 'outputSummaryRow_b2c', None), 'Destin', '')).strip()
+			
+			flight_number = str(getattr(self.currParams, 'flight_number', '')).strip()
+			if flight_number in ('', 'NA', 'None', CONST_NA) and hasattr(self, 'outputSummaryRow_b2c'):
+				flight_number = str(getattr(self.outputSummaryRow_b2c, 'FltNum', '')).strip()
+			if flight_number in ('', 'NA', 'None', CONST_NA) and hasattr(state, 'currFlt'):
+				flight_number = str(state.currFlt).strip()
+
+			per_start = str(getattr(self.currParams, 'per_start', '')).strip()
+			if per_start in ('', 'NA', 'None', CONST_NA) and hasattr(self, 'outputSummaryRow_b2c'):
+				per_start = str(getattr(self.outputSummaryRow_b2c, 'DepDate', '')).strip()
+			if per_start in ('', 'NA', 'None', CONST_NA) and hasattr(state, 'currFltDate'):
+				per_start = str(state.currFltDate).strip()
+
+			if not (origin and destin and flight_number and per_start and per_start not in ('NA', 'None', CONST_NA)):
+				self.logger.warning(f"Skipping autotolerance selling_fare update: missing key components (origin={origin}, destin={destin}, flight_number={flight_number}, per_start={per_start})")
+				return
+
+			redis_key = f"run_history:{origin}_{destin}_{flight_number}_{per_start}"
+			hash_field = "autotolerance_history"
+
+			self.logger.info(f"Attempting autotolerance_history selling_fare update for {redis_key} with selling_fare={selling_fare_numeric}")
+
+			redis_client = getattr(self, 'cache_client', None)
+			if redis_client is None or not hasattr(redis_client, 'hget'):
+				redis_client = getattr(self, 'redishelper', None)
+
+			history = []
+			state_str = None
+			if redis_client and hasattr(redis_client, 'hget'):
+				state_str = redis_client.hget(redis_key, hash_field)
+				if state_str:
+					try:
+						if isinstance(state_str, bytes):
+							state_str = state_str.decode('utf-8')
+						history = json.loads(state_str)
+					except Exception:
+						history = []
+
+			if not history and os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+				try:
+					mongo_state = self.rmdatabasehelper.getAutoToleranceState(redis_key)
+					if mongo_state and "autotolerance_history" in mongo_state:
+						h_val = mongo_state["autotolerance_history"]
+						if isinstance(h_val, str):
+							try:
+								h_val = json.loads(h_val)
+							except Exception:
+								h_val = []
+						history = h_val
+				except Exception:
+					pass
+
+			if history and isinstance(history, list):
+				history[-1]["selling_fare"] = selling_fare_numeric
+
+				if redis_client and hasattr(redis_client, 'hset'):
+					try:
+						redis_client.hset(redis_key, hash_field, json.dumps(history))
+						self.logger.info(f"Successfully updated selling_fare={selling_fare_numeric} in Redis for {redis_key}")
+					except Exception as e:
+						self.logger.error(f"REDIS HSET ERROR updating selling_fare for {redis_key}: {e}")
+
+				if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+					try:
+						mongo_doc = {
+							"redis_key": redis_key,
+							"autotolerance_history": history
+						}
+						self.rmdatabasehelper.setAutoToleranceState(redis_key, mongo_doc)
+					except Exception:
+						pass
+			else:
+				self.logger.warning(f"No autotolerance_history found in Redis to update selling_fare for {redis_key} (raw state_str: {state_str})")
+		except Exception as e:
+			self.logger.error(f"Error updating selling_fare in autotolerance_history: {e}")
 
 	def w_rbd_allocation(self, currRec, brd_counter):
 		rbds = json.loads(self.constantsUtils.SOFTBLOCK_RBDS)
@@ -3972,7 +4078,7 @@ class DynAlloc:
 			"B2BTolerance", "seriesBlock", "autoBackstopFlag", "Outbound_Stop", "Marketfare_Upsell",
 			"saleflag", "bookedPax", "total_series_seats", "NextFlight", "BookingsInHour", "BookingsCount",
 			"BookingToday", "WA_bookings", "WB_bookings", "WC_bookings", "WD_bookings", "WE_bookings",
-			"TimeWindowStart", "TimeWindowEnd", "PerStart", "PerEnd",
+			"TimeWindowStart", "TimeWindowEnd",
 		}
 
 		_DROPPED = {
@@ -4069,6 +4175,10 @@ class DynAlloc:
 		# raw market-list field names).  ``_serialisableMarketListRow``
 		# already wrote them under those names, so ``MarketListRow``
 		# can rebuild from ``merged`` without changes.
+		if ("PerStart" not in merged or str(merged.get("PerStart", "")).strip() in ("", "NA", "None", CONST_NA)) and "currFltDate" in merged:
+			merged["PerStart"] = merged["currFltDate"]
+		if ("FlightNumber" not in merged or str(merged.get("FlightNumber", "")).strip() in ("", "NA", "None", CONST_NA)) and "currFlt" in merged:
+			merged["FlightNumber"] = merged["currFlt"]
 		if "B2BFactor" not in merged and merged.get("b2b_factor_resolved") is not None:
 			merged["B2BFactor"] = merged["b2b_factor_resolved"]
 		self.currParams = MarketListRow(merged)
@@ -4143,8 +4253,8 @@ class DynAlloc:
 			month_str_for_profile=payload.get("month_str", ""),
 			dow_str_for_profile=payload.get("dow_str", ""),
 			deptTime_str_hhmm=payload.get("deptTime_hhmm", ""),
-			b2c_backstop_final=payload.get("b2c_backstop_final"),
-			b2b_backstop_final=payload.get("b2b_backstop_final"),
+			b2c_backstop_final=safe_float(payload.get("b2c_backstop_final"), CONST_NA),
+			b2b_backstop_final=safe_float(payload.get("b2b_backstop_final"), CONST_NA),
 			auto_b2c_backstop_str=payload.get("auto_b2c_backstop_str", "NA"),
 			auto_b2b_backstop_str=payload.get("auto_b2b_backstop_str", "NA"),
 			lastSoldFareb2c_val=payload.get("lastSoldFareb2c"),

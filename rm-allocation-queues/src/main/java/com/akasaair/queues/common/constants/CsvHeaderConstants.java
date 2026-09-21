@@ -116,4 +116,8 @@ public interface CsvHeaderConstants {
     public static final String CSV_HEADER_VALUE = "value";
 
     public static final String CSV_HEADER_SI_RBD_SEATS = "seats"; public static final String CSV_HEADER_SI_RBD_TYPE = "type"; // RBD columns like W7, W6 will be identified by their position/header name in the CSV
+
+    public static final String CSV_HEADER_FORECAST_ALLOC_GRID = "band,trend,formula,description";
+    public static final String CSV_HEADER_FORECAST_ALLOC_BANDS = "band,start,end,tolerance,b2b_factor";
 }
+

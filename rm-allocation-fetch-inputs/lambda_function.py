@@ -642,7 +642,7 @@ def enrich_with_portfolio_siblings(mkt_list, start_period, end_period, region, r
       2. Filter to only (Origin, Destin, PerStart) tuples that exist in the adhoc list
       3. Append sibling rows, free intermediate memory, move to next window
     """
-    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change"] or route_type != "direct" or salesinv == "1":
+    if run_type not in ["Scheduled_Thirty", "Adhoc", "Equipment_Change", "Payload_Restriction"] or route_type != "direct" or salesinv == "1":
         mkt_list['portfolio_only'] = 0
         return mkt_list
 
@@ -890,8 +890,60 @@ def get_connection_departure_dates(nav_helper, min_date, max_date):
     conn_df['FlightNumber2'] = conn_df['FlightNumber2'].astype(str).str.strip()
     conn_df['Sector1'] = conn_df['Sector1'].astype(str).str.strip()
     conn_df['Sector2'] = conn_df['Sector2'].astype(str).str.strip()
+    # STD1/STA1/STD2/STA2 are HH:mm strings from the stored proc; keep them trimmed
+    for time_col in ('STD1', 'STA1', 'STD2', 'STA2'):
+        if time_col in conn_df.columns:
+            conn_df[time_col] = conn_df[time_col].astype(str).str.strip()
     logger.info(f"Fetched {len(conn_df)} connection rows from ActiveJourneyView (Connecting + Through)")
     return conn_df
+
+
+def _compute_total_flight_minutes(dep_date1, std1, arr_date2, sta2):
+    """Vectorized total connection flight time, in whole minutes.
+
+    Total duration = (second flight arrival datetime) - (first flight departure datetime),
+    where the first flight departs on ``dep_date1`` at ``std1`` (HH:mm) and the second
+    flight arrives on ``arr_date2`` at ``sta2`` (HH:mm).
+
+    All four arguments are array-likes (aligned by position). Returns an Int64
+    Series of total minutes with ``pd.NA`` only where a component is
+    missing/unparseable. Overnight connections — where the arrival clock time
+    is earlier than the departure clock time on the same stamped date (e.g.
+    depart 18:10, arrive 01:40) — are rolled forward one day so the elapsed
+    time stays positive.
+    """
+    dep_date = pd.to_datetime(pd.Series(dep_date1).reset_index(drop=True), errors='coerce').dt.normalize()
+    arr_date = pd.to_datetime(pd.Series(arr_date2).reset_index(drop=True), errors='coerce').dt.normalize()
+
+    # HH:mm strings -> minutes-of-day (NaN when blank/unparseable)
+    std_td = pd.to_timedelta(
+        pd.Series(std1).reset_index(drop=True).astype(str).str.strip() + ':00', errors='coerce'
+    )
+    sta_td = pd.to_timedelta(
+        pd.Series(sta2).reset_index(drop=True).astype(str).str.strip() + ':00', errors='coerce'
+    )
+
+    start_dt = dep_date + std_td
+    end_dt = arr_date + sta_td
+
+    # Overnight arrival: arrival datetime lands before departure because the
+    # arrival date wasn't advanced past midnight. Add a day so elapsed > 0.
+    end_dt = end_dt.mask(end_dt < start_dt, end_dt + pd.Timedelta(days=1))
+
+    total_minutes = (end_dt - start_dt).dt.total_seconds() / 60.0
+    return total_minutes.round().astype('Int64')
+
+
+def _minutes_to_hhmm(total_minutes):
+    """Convert an Int64 minutes Series to an HH:mm string Series ('' when NA)."""
+    hours = (total_minutes // 60)
+    minutes = (total_minutes % 60)
+    hhmm = (
+        hours.astype('Int64').astype(str).str.zfill(2)
+        + ':'
+        + minutes.astype('Int64').astype(str).str.zfill(2)
+    )
+    return hhmm.where(total_minutes.notna(), '')
 
 
 def quick_optimize(mkt_list, nav_helper):
@@ -910,9 +962,23 @@ def quick_optimize(mkt_list, nav_helper):
     conn_df['DepartureDate'] = pd.to_datetime(conn_df['DepartureDate1']).dt.date
     conn_df['SecondFlightDepartureDate'] = pd.to_datetime(conn_df['DepartureDate2']).dt.date
 
+    # Compute total flight duration from first flight departure to second flight arrival,
+    # vectorized. Uses DepartureDate1 + STD1 as the start and DepartureDate2 + STA2 as the end.
+    for time_col in ('STD1', 'STA1', 'STD2', 'STA2'):
+        if time_col not in conn_df.columns:
+            conn_df[time_col] = ''
+    total_minutes = _compute_total_flight_minutes(
+        conn_df['DepartureDate'], conn_df['STD1'],
+        conn_df['SecondFlightDepartureDate'], conn_df['STA2']
+    )
+    # HH:mm string (kept for compatibility) + decimal hours (used for Outbound_duration)
+    conn_df['TotalFlightDuration'] = _minutes_to_hhmm(total_minutes).values
+    conn_df['TotalFlightDurationHours'] = (total_minutes / 60.0).round(2).astype('Float64').values
+
     # Deduplicate — keep first match per key
     lookup = conn_df.drop_duplicates(subset=['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate'])
-    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate', 'SecondFlightDepartureDate']]
+    lookup = lookup[['Flight1', 'Flight2', 'Sector1', 'Sector2', 'DepartureDate',
+                     'SecondFlightDepartureDate', 'TotalFlightDuration', 'TotalFlightDurationHours']]
 
     mkt_list['Flight1'] = mkt_list['Flight1'].astype('int64')
     mkt_list['Flight2'] = mkt_list['Flight2'].astype('int64')
@@ -925,6 +991,7 @@ def quick_optimize(mkt_list, nav_helper):
 
     # Fill missing with empty string to match old API behavior
     mkt_list['SecondFlightDepartureDate'] = mkt_list['SecondFlightDepartureDate'].fillna('')
+    mkt_list['TotalFlightDuration'] = mkt_list['TotalFlightDuration'].fillna('')
 
     print(f"Matched {(mkt_list['SecondFlightDepartureDate'] != '').sum()} / {len(mkt_list)} connections")
     return mkt_list
@@ -1145,7 +1212,7 @@ def _process_market_list_docs(base_ml_df, date_df, query_type):
     connection_cols = [
         'Sector1','Flight1','Sector2','Flight2','Outbound_stop','PerType','DOW','Price_Strategy',
         'Discount_Value','carrierExclusionB2C','carrierExclusionB2B','FirstRBDAlloc','OtherRBDAlloc',
-        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','Outbound_duration','Currency',
+        'B2BBackstop','B2CBackstop','B2BFactor','SkippingFactor','additional_outbound_duration','Currency',
         'fareAnchor','Offset','DiscountFlag','sosFlag','analystName'
     ]
 
@@ -1561,7 +1628,7 @@ def lambda_handler(event, context):
         type = data[run_type_key]
     if region_key in data:
         region = data[region_key]
-    if type not in ("Adhoc", "Equipment_Change"):
+    if type not in ("Adhoc", "Equipment_Change", "Payload_Restriction"):
         is_connections_required = '1'
     if is_connections_required_key in data:
         is_connections_required = data[is_connections_required_key]
@@ -1754,7 +1821,23 @@ def lambda_handler(event, context):
         mkt_list = mkt_list[mkt_list['SecondFlightDepartureDate'] != ""]
         filtered_count = len(mkt_list)
         logger.info(f"Filtered connections: {original_count} -> {filtered_count} (removed {original_count - filtered_count} invalid connections)")
-        
+
+        # Final effective outbound duration (decimal hours), computed here so the
+        # allocation lambda can consume it directly. The market fare tables store
+        # outbound_duration as decimal hours and filter competitor fares with
+        # outbound_duration <= this value.
+        #   Outbound_duration = total connection flight time (TotalFlightDurationHours)
+        #                       + additional buffer (additional_outbound_duration, decimal hours)
+        if 'additional_outbound_duration' not in mkt_list.columns:
+            mkt_list['additional_outbound_duration'] = 0.0
+        total_hours = pd.to_numeric(
+            mkt_list.get('TotalFlightDurationHours'), errors='coerce'
+        ).fillna(0.0)
+        additional_hours = pd.to_numeric(
+            mkt_list['additional_outbound_duration'], errors='coerce'
+        ).fillna(0.0)
+        mkt_list['Outbound_duration'] = (total_hours + additional_hours).round(2)
+
         if not mkt_list.empty:
             mkt_list['SecondFlightDepartureDate'] = pd.to_datetime(mkt_list['SecondFlightDepartureDate']).dt.date
             all_dates = pd.concat([mkt_list['DepartureDate'], mkt_list['SecondFlightDepartureDate']])
@@ -2095,7 +2178,7 @@ def lambda_handler(event, context):
             mkt_list['DirectFlightOpeningRBDB2C'] = None
         
         # Drop helper columns
-        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest', 'merge_key'], errors='ignore')
+        mkt_list = mkt_list.drop(columns=['ConnectionOrigin', 'ConnectionDest', 'merge_key', 'TotalFlightDurationHours'], errors='ignore')
         
         logger.info(f"Added direct flight data for {mkt_list['DirectFlightNumber'].notna().sum()} connections (filtered within +/-6 hours of first flight time)")
         

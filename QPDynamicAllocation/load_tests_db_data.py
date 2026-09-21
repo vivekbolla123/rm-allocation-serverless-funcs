@@ -83,7 +83,11 @@ class Schema:
         self.load_generic_collection("auto_tolerance_delta_bands", "auto_tolerance_delta_bands.csv")
         self.load_generic_collection("auto_tolerance_grid_values", "auto_tolerance_grid_values.csv")
         self.load_generic_collection("auto_tolerance_redis_state", "auto_tolerance_redis_state.csv")
-
+        
+        # Load Forecast Allocation Config Tables
+        self.load_generic_collection("config_forecast_allocation_grid", "config_forecast_allocation_grid.csv")
+        self.load_generic_collection("config_forecast_allocation_bands", "config_forecast_allocation_bands.csv")
+        
         self.transformCollections()
 
     def load_generic_collection(self, collectionName, dataFile, use_dw=False):

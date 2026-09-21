@@ -140,6 +140,7 @@ The model's logic constants live in `Constants.py` and are mirrored into `Consta
 | Constant | Default | Cast | Used in |
 |----------|:-------:|:----:|---------|
 | `MIN_FLIGHT_MATCHES` | 13 | `int` | Step 9 — flown-pool match threshold |
+| `MAX_FLIGHT_MATCHES` | 60 | `int` | Step 9 — cap on matches kept per future flight (closest-STD, then most-recent); bounds the Step 10 explosion. `0` disables the cap |
 | `WEIGHT_ALPHA` | 0.99 | `float` | Steps 11/12 — recency decay |
 | `WEIGHT_FUTURE_X` | 1 | `int` | Steps 11/12 — weight exponent for not-yet-departed history |
 | `GP_FARE_BUCKET_POINTS` | 19 | `int` | Step 1 — GP boundary points (upper bound on bucket count) |
@@ -653,6 +654,16 @@ Matched historical: 18 flights → each contributes its NDO row for FareBasis `3
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-08-02 | 1234 | 2 | 1 | 3 | ... | 0 |
 | BOMDEL | 2026-08-15 | 1234 | 3000-4000 | 2025-07-26 | 1234 | 4 | 3 | 2 | ... | 0 |
 
+> **Memory note (chunked execution).** Steps 10 and 11 are fused and run in
+> chunks of `PREDICT_CHUNK_KEYS` future-flight keys at a time (`_build_and_predict_chunked`).
+> The exploded matched frame (future × buckets × matches × 181 NDO cols) is only
+> ever held for one chunk before it is reduced to the per-bucket prediction rows.
+> Every Step-11 reduction groups by the full future-flight identity, so keys never
+> interact across chunks — the concatenated result is **numerically identical** to
+> processing all keys at once, and **no match is excluded**. This is purely a
+> memory bound (the earlier all-at-once path OOM'd once coarse ladder levels
+> pulled in whole-sector match sets).
+
 ---
 
 ### Step 11: Calculate Predictions
@@ -983,6 +994,7 @@ For fare class `j` (where class 1 is highest fare, up to class `n` lowest filed 
 | 16 | Datetime/object dtype mismatch on merge keys | `_derive_future_flights` coerces `DepartureDate` to `datetime64` and `STD` (time objects) to string before the schedule↔bookings merge — pandas 1.x can silently change dtypes during `groupby(dropna=False)` |
 | 17 | Sparse future-tagging group (< 12 rows) | `FUTURE_TAG_MIN_ENTRIES` drops any level-group below the floor so the fill falls through to a coarser, better-supported level rather than emitting a low-confidence tag |
 | 18 | Data-rich mapped (dependent) sector | Own history clears the threshold at levels 1–7, so the donor is **never consulted** — output is identical to a standalone run. Donor is reached only on genuine own-data starvation |
+| 19 | Unflown matched flight in `Matched_Current_Bookings` | Its bookings live in `forward_raw_df`, not `hist_raw_df`. `_matched_current_bookings` reads the UNION of both so an unflown match contributes its real NDO-aligned bookings (closed window `NDO_future < NDO`), not a fake zero. Before this, the flight-matching split had left the metric reading flown-only, collapsing the weighted value near departure |
 | 19 | Dependent with no mapped donor | If a message declares `mapped_sector` but no donor resolves, the sector is **failed fast** — never silently run as a no-donor standalone |
 | 20 | Donor-won match, Sector join mismatch | Donor rows keep `Sector=donor` through matching; they are relabelled to the dependent **per winning key** just before the Step 10/12 `Sector` joins (`_donor_won`), so join keys align without erasing own-data provenance |
 | 21 | Donor fares in a different range than dependent buckets | Donor history is bucketed with the **dependent's** ranges (inverted `{donor: dependent}` map) in Steps 6/7, so a donor fare outside the dependent's outer bounds still lands in the nearest open/edge bucket rather than being dropped |

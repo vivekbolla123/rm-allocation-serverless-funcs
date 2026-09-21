@@ -178,136 +178,136 @@ class RBDAllocations:
             incremental_list.append(incremental)
             rbdlabel_list.append(RBDLabel)
             price_list.append(price)
-        if hard_anchor_fare !="" and  pd.notna(hard_anchor_fare) and hard_anchor_fare!=0 and hard_anchor_fare !="NA" :
-            self.logger.info("Hard Anchor Fare detected. Skipping Spoilage Reduction override.")
-            try:
-                plfthreshold = int(plfthreshold)
-                # 1. Find the RBD closest to the last seven sold average fare
-                B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(hard_anchor_fare)
-                higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] >= 0]
-                target_rbd_df_index = higher_fares['FareDiff'].idxmin()
+        # if hard_anchor_fare !="" and  pd.notna(hard_anchor_fare) and hard_anchor_fare!=0 and hard_anchor_fare !="NA" :
+        #     self.logger.info("Hard Anchor Fare detected. Skipping Spoilage Reduction override.")
+        #     try:
+        #         plfthreshold = int(plfthreshold)
+        #         # 1. Find the RBD closest to the last seven sold average fare
+        #         B2CRBDs['FareDiff'] = B2CRBDs['TOTAL'] - float(hard_anchor_fare)
+        #         higher_fares  = B2CRBDs[B2CRBDs['FareDiff'] >= 0]
+        #         target_rbd_df_index = higher_fares['FareDiff'].idxmin()
                 
-                opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
+        #         opening_rbd_df_index = B2CRBDs.loc[B2CRBDs['RBD'] == openingRBD].index[0]
 
-                # Ensure the system isn't already opening at a price point higher than the target
-                if opening_rbd_df_index == target_rbd_df_index and bookedload<plfthreshold:
-                    self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
+        #         # Ensure the system isn't already opening at a price point higher than the target
+        #         if opening_rbd_df_index == target_rbd_df_index and bookedload<plfthreshold:
+        #             self.logger.info("Spoilage Reduction: System opening RBD is higher than Last 7 Sold RBD. Applying 97% allocation at target RBD.")
             
-                    # Calculate 97% of total capacity for the target RBD
-                    ninety_seven_percent_seats = max(round(totalCapacity * (plfthreshold/100)), currBookedLoad+first_rbd_alloc)
-                    remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
+        #             # Calculate 97% of total capacity for the target RBD
+        #             ninety_seven_percent_seats = max(round(totalCapacity * (plfthreshold/100)), currBookedLoad+first_rbd_alloc)
+        #             remaining_three_percent_seats = totalCapacity - ninety_seven_percent_seats
                     
-                    # Find the next level RBD (one level higher in price than target)
-                    next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
+        #             # Find the next level RBD (one level higher in price than target)
+        #             next_level_rbd_df_index = target_rbd_df_index + 1 if target_rbd_df_index + 1 < B2CRBDs.shape[0] else target_rbd_df_index
                     
-                    # Override allocations in currRec
-                    status = "D-0 Spoilage Reduction - 97% at Target RBD"
-                    au_at_next_rbds = ninety_seven_percent_seats
-                    # Initialize jumping price for subsequent allocations
-                    target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
-                    jumping_price = target_price + (target_price * (jumpPercent / 100))
+        #             # Override allocations in currRec
+        #             status = "D-0 Spoilage Reduction - 97% at Target RBD"
+        #             au_at_next_rbds = ninety_seven_percent_seats
+        #             # Initialize jumping price for subsequent allocations
+        #             target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
+        #             jumping_price = target_price + (target_price * (jumpPercent / 100))
                     
-                    # Set allocations for all RBDs
-                    for i in range(B2CRBDs.shape[0]):
-                        au_class_index_to_update = i + 1
-                        current_price = B2CRBDs['TOTAL'].iloc[i]
-                        next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
+        #             # Set allocations for all RBDs
+        #             for i in range(B2CRBDs.shape[0]):
+        #                 au_class_index_to_update = i + 1
+        #                 current_price = B2CRBDs['TOTAL'].iloc[i]
+        #                 next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
                         
-                        if i < target_rbd_df_index:
-                            # For RBDs below target: set to current booked load (restrictive)
-                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
-                        elif i == target_rbd_df_index:
-                            # At target RBD: allocate plfthreshold% of total capacity
-                            currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
-                        else:
-                            # Apply jumping logic - only increment allocation when price meets jumping threshold
-                            next_price_diff = abs(next_price - jumping_price)
-                            curr_price_diff = abs(current_price - jumping_price)
+        #                 if i < target_rbd_df_index:
+        #                     # For RBDs below target: set to current booked load (restrictive)
+        #                     currRec.set_class_attribute(au_class_index_to_update, 'class_au', 0)
+        #                 elif i == target_rbd_df_index:
+        #                     # At target RBD: allocate plfthreshold% of total capacity
+        #                     currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(ninety_seven_percent_seats))
+        #                 else:
+        #                     # Apply jumping logic - only increment allocation when price meets jumping threshold
+        #                     next_price_diff = abs(next_price - jumping_price)
+        #                     curr_price_diff = abs(current_price - jumping_price)
                             
-                            if jumping_price >= next_price:
-                                # Jumping price is higher than next RBD, skip allocation increment
-                                pass
-                            elif curr_price_diff <= next_price_diff:
-                                # Current price is closer to jumping price, allocate and update jumping price
-                                au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
-                                jumping_price = current_price + (current_price * (jumpPercent / 100))
-                            # else: skip allocation increment for this RBD
+        #                     if jumping_price >= next_price:
+        #                         # Jumping price is higher than next RBD, skip allocation increment
+        #                         pass
+        #                     elif curr_price_diff <= next_price_diff:
+        #                         # Current price is closer to jumping price, allocate and update jumping price
+        #                         au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
+        #                         jumping_price = current_price + (current_price * (jumpPercent / 100))
+        #                     # else: skip allocation increment for this RBD
                             
-                            # For the final RBD, allocate all remaining seats
-                            if i == B2CRBDs.shape[0] - 1:
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
-                            else:
-                                # Set the current AU level for this RBD
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
+        #                     # For the final RBD, allocate all remaining seats
+        #                     if i == B2CRBDs.shape[0] - 1:
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+        #                     else:
+        #                         # Set the current AU level for this RBD
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
                         
                     
-                elif opening_rbd_df_index < target_rbd_df_index and bookedload<plfthreshold:
-                    # 2. Determine the number of seats allocated normally *before* the target RBD
-                    allocated_seats_before_target = 0
-                    if target_rbd_df_index > 0:
-                        # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
-                        au_index_before_target = target_rbd_df_index 
-                        allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
-                        # If the value is None (should not happen but good practice), default to current booked load
-                        if allocated_seats_before_target is None:
-                            allocated_seats_before_target = currBookedLoad
-                    else:
-                        # If the target RBD is the first one, the base is simply the current booked load
-                        allocated_seats_before_target = currBookedLoad
+        #         elif opening_rbd_df_index < target_rbd_df_index and bookedload<plfthreshold:
+        #             # 2. Determine the number of seats allocated normally *before* the target RBD
+        #             allocated_seats_before_target = 0
+        #             if target_rbd_df_index > 0:
+        #                 # The AU index in currRec is the DataFrame index + 1. We need the one *before* our target.
+        #                 au_index_before_target = target_rbd_df_index 
+        #                 allocated_seats_before_target = currRec.get_class_attribute(au_index_before_target, 'class_au')
+        #                 # If the value is None (should not happen but good practice), default to current booked load
+        #                 if allocated_seats_before_target is None:
+        #                     allocated_seats_before_target = currBookedLoad
+        #             else:
+        #                 # If the target RBD is the first one, the base is simply the current booked load
+        #                 allocated_seats_before_target = currBookedLoad
 
-                    # 3. Calculate the pool of seats to be distributed from this point forward
-                    seats_to_distribute = totalCapacity 
+        #             # 3. Calculate the pool of seats to be distributed from this point forward
+        #             seats_to_distribute = totalCapacity 
 
-                    if seats_to_distribute > 0:
-                        # 4. Calculate the 97% split based on this *correct* pool of seats
-                        ninety_seven_percent_seats = round(seats_to_distribute * (plfthreshold/100))
+        #             if seats_to_distribute > 0:
+        #                 # 4. Calculate the 97% split based on this *correct* pool of seats
+        #                 ninety_seven_percent_seats = round(seats_to_distribute * (plfthreshold/100))
                         
-                        # The new AU values are cumulative, built upon the allocation of the previous class
-                        au_at_target_rbd=max(ninety_seven_percent_seats,allocated_seats_before_target+other_rbd_alloc_value)
-                        # The rest will open up fully
+        #                 # The new AU values are cumulative, built upon the allocation of the previous class
+        #                 au_at_target_rbd=max(ninety_seven_percent_seats,allocated_seats_before_target+other_rbd_alloc_value)
+        #                 # The rest will open up fully
 
-                        # 5. Override allocations in currRec from the target RBD onwards
-                        status = "D-0 Spoilage Reduction" # Update the status message
-                        au_at_next_rbds = au_at_target_rbd
-                        # Initialize jumping price for subsequent allocations
-                        target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
-                        jumping_price = target_price + (target_price * (jumpPercent / 100))
+        #                 # 5. Override allocations in currRec from the target RBD onwards
+        #                 status = "D-0 Spoilage Reduction" # Update the status message
+        #                 au_at_next_rbds = au_at_target_rbd
+        #                 # Initialize jumping price for subsequent allocations
+        #                 target_price = B2CRBDs['TOTAL'].iloc[target_rbd_df_index]
+        #                 jumping_price = target_price + (target_price * (jumpPercent / 100))
                         
-                        # Iterate through the DataFrame from the target index to the end
-                        for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
+        #                 # Iterate through the DataFrame from the target index to the end
+        #                 for i in range(target_rbd_df_index, B2CRBDs.shape[0]):
                             
-                            au_class_index_to_update = i + 1
-                            current_price = B2CRBDs['TOTAL'].iloc[i]
-                            next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
+        #                     au_class_index_to_update = i + 1
+        #                     current_price = B2CRBDs['TOTAL'].iloc[i]
+        #                     next_price = B2CRBDs['TOTAL'].iloc[i + 1] if i + 1 < B2CRBDs.shape[0] else current_price
                             
-                            if i == target_rbd_df_index:
-                                # At the target RBD, dump plfthreshold% of the remaining seats
-                                currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_target_rbd, totalCapacity)))
-                            else:
-                                # Apply jumping logic - only increment allocation when price meets jumping threshold
-                                next_price_diff = abs(next_price - jumping_price)
-                                curr_price_diff = abs(current_price - jumping_price)
+        #                     if i == target_rbd_df_index:
+        #                         # At the target RBD, dump plfthreshold% of the remaining seats
+        #                         currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_target_rbd, totalCapacity)))
+        #                     else:
+        #                         # Apply jumping logic - only increment allocation when price meets jumping threshold
+        #                         next_price_diff = abs(next_price - jumping_price)
+        #                         curr_price_diff = abs(current_price - jumping_price)
                                 
-                                if jumping_price >= next_price:
-                                    # Jumping price is higher than next RBD, skip allocation increment
-                                    pass
-                                elif curr_price_diff <= next_price_diff:
-                                    # Current price is closer to jumping price, allocate and update jumping price
-                                    au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
-                                    jumping_price = current_price + (current_price * (jumpPercent / 100))
-                                # else: skip allocation increment for this RBD
+        #                         if jumping_price >= next_price:
+        #                             # Jumping price is higher than next RBD, skip allocation increment
+        #                             pass
+        #                         elif curr_price_diff <= next_price_diff:
+        #                             # Current price is closer to jumping price, allocate and update jumping price
+        #                             au_at_next_rbds = au_at_next_rbds + other_rbd_alloc_value
+        #                             jumping_price = current_price + (current_price * (jumpPercent / 100))
+        #                         # else: skip allocation increment for this RBD
                                 
-                                # For the final RBD, allocate all remaining seats
-                                if i == B2CRBDs.shape[0] - 1:
-                                    currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
-                                else:
-                                    # For all subsequent (more expensive) RBDs, set the current AU level
-                                    currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
-                    else:
-                        self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
+        #                         # For the final RBD, allocate all remaining seats
+        #                         if i == B2CRBDs.shape[0] - 1:
+        #                             currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(totalCapacity))
+        #                         else:
+        #                             # For all subsequent (more expensive) RBDs, set the current AU level
+        #                             currRec.set_class_attribute(au_class_index_to_update, 'class_au', int(min(au_at_next_rbds, totalCapacity)))
+        #             else:
+        #                 self.logger.info("Spoilage Reduction: No remaining seats to distribute from the target RBD onwards.")
 
-            except Exception as e:
-                self.logger.error(f"Error during spoilage reduction override: {e}")
+        #     except Exception as e:
+        #         self.logger.error(f"Error during spoilage reduction override: {e}")
         
         if is_spoilage_reduction_active and pd.notna(last_seven_avg_fare):
             self.logger.info("Applying D-0 Spoilage Reduction override.")
@@ -849,6 +849,13 @@ class RBDAllocations:
                 except (ValueError, TypeError):
                     b2c_fare_numeric = 0.0
 
+                b2c_backstop_val = 0.0
+                try:
+                    if b2c_backstop_final is not None and b2c_backstop_final != CONST_NA and str(b2c_backstop_final).strip() != '':
+                        b2c_backstop_val = float(b2c_backstop_final)
+                except (ValueError, TypeError):
+                    b2c_backstop_val = 0.0
+
                 # Pre-fetch all group forecast bands once to avoid repeated MongoDB calls
                 all_forecast_bands = self.rmdatabasehelper.get_all_group_forecast_bands()
 
@@ -954,8 +961,8 @@ class RBDAllocations:
                         # Fare anchor crossed GA, stop iteration
                         break
 
-                    if fare_anchor < b2c_backstop_final:
-                        fare_anchor = b2c_backstop_final
+                    if b2c_backstop_val > 0 and fare_anchor < b2c_backstop_val:
+                        fare_anchor = b2c_backstop_val
 
                     # --- Step 7: Find nearest higher group RBD and assign seats ---
                     # Find the nearest RBD with fare >= fare_anchor
