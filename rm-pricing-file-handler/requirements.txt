@@ -4,6 +4,6 @@ numpy==2.2.4
 pandas==2.3.2
 SQLAlchemy==2.0.40
 PyMySQL==1.1.1
-pymongo
+pymongo==4.8.0
 ddtrace
 cryptography
