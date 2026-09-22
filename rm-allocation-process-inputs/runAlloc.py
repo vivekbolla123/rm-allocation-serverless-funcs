@@ -1624,39 +1624,20 @@ class DynAlloc:
 						if 'STD' in s3_bucket_df.columns and pd.notna(s3_bucket_df['STD'].iloc[0]):
 							flight_std_val = str(s3_bucket_df['STD'].iloc[0])[:5]
 
-					# For local testing, if oal_b2c_min is present in s3_bucket_df, use it for market fares
+					# Sourced exclusively from market fares service / database
 					mkt_fares = None
-					if s3_bucket_df is not None and not s3_bucket_df.empty and 'oal_b2c_min' in s3_bucket_df.columns:
-						oal_val = s3_bucket_df['oal_b2c_min'].iloc[0]
-						if pd.notna(oal_val):
-							try:
-								f_oal = float(oal_val)
-								if f_oal > 0:
-									std_time = flight_std_val or getattr(state, 'currFltTime', '10:00')
-									mkt_fares = pd.DataFrame([{
-										'gross_fare': f_oal,
-										'outbound_airline_code': 'OAL',
-										'outbound_flight': '',
-										'outbound_departuretime': str(std_time)[:5],
-										'outbound_stops': 0
-									}])
-							except (ValueError, TypeError):
-								pass
-
-					# If not sourced from weighted file, fetch real market fares from database helper / market fares service
-					if mkt_fares is None or mkt_fares.empty:
-						try:
-							day_span = getattr(state, 'DaySpan_full', getattr(self.currParams, 'day_span', 0))
-							flt_date = getattr(state, 'currFltDate', dateFormatted_yyyymmdd)
-							mkt_fares = self.marketfaresservice.fetchMarketFareRange(
-								B2C_CHANNEL, flt_date, self.currParams, day_span,
-								getattr(self.outputSummaryRow_b2c, 'startTime', '00:00'),
-								getattr(self.outputSummaryRow_b2c, 'endTime', '23:59'),
-								self.currParams.origin, self.currParams.destin, includeWeekend=False
-							)
-						except Exception as mkt_err:
-							self.logger.warning(f"Error fetching market fares from service: {mkt_err}")
-							mkt_fares = None
+					try:
+						day_span = getattr(state, 'DaySpan_full', getattr(self.currParams, 'day_span', 0))
+						flt_date = getattr(state, 'currFltDate', dateFormatted_yyyymmdd)
+						mkt_fares = self.marketfaresservice.fetchMarketFareRange(
+							B2C_CHANNEL, flt_date, self.currParams, day_span,
+							getattr(self.outputSummaryRow_b2c, 'startTime', '00:00'),
+							getattr(self.outputSummaryRow_b2c, 'endTime', '23:59'),
+							self.currParams.origin, self.currParams.destin, includeWeekend=False
+						)
+					except Exception as mkt_err:
+						self.logger.warning(f"Error fetching market fares from service: {mkt_err}")
+						mkt_fares = None
 
 					# If connection_fare_flag == 1, also fetch connecting competitor fares
 					if int(getattr(self.currParams, 'connection_fare_flag_NG', getattr(self.currParams, 'connection_fare_flag', 0))) == 1:
@@ -1670,33 +1651,6 @@ class DynAlloc:
 								mkt_fares = pd.concat([mkt_fares, mkt_conn], ignore_index=True) if (mkt_fares is not None and not mkt_fares.empty) else mkt_conn
 						except Exception as conn_err:
 							self.logger.warning(f"Error fetching connecting market fares: {conn_err}")
-
-					# Fallback to summary min/max if mkt_fares is still empty
-					if mkt_fares is None or (isinstance(mkt_fares, pd.DataFrame) and mkt_fares.empty):
-						mkt_min_val = getattr(self.outputSummaryRow_b2c, 'MktFare_Min', None)
-						mkt_max_val = getattr(self.outputSummaryRow_b2c, 'MktFare_Max', None)
-						if mkt_min_val is not None and mkt_min_val != CONST_NA and str(mkt_min_val).strip():
-							try:
-								f_min = float(mkt_min_val)
-								f_max = float(mkt_max_val) if (mkt_max_val is not None and mkt_max_val != CONST_NA and str(mkt_max_val).strip()) else f_min
-								mkt_fares = pd.DataFrame([
-									{
-										'gross_fare': f_min,
-										'outbound_airline_code': getattr(self.outputSummaryRow_b2c, 'AirlineCode_Min', '6E'),
-										'outbound_flight': getattr(self.outputSummaryRow_b2c, 'FlightNumber_Min', ''),
-										'outbound_departuretime': getattr(self.outputSummaryRow_b2c, 'startTime', '10:30'),
-										'outbound_stops': 0
-									},
-									{
-										'gross_fare': f_max,
-										'outbound_airline_code': getattr(self.outputSummaryRow_b2c, 'AirlineCode_Max', '6E'),
-										'outbound_flight': getattr(self.outputSummaryRow_b2c, 'FlightNumber_Max', ''),
-										'outbound_departuretime': getattr(self.outputSummaryRow_b2c, 'endTime', '10:30'),
-										'outbound_stops': 0
-									}
-								])
-							except (ValueError, TypeError):
-								mkt_fares = None
 
 					recal_dict = self.rmdatabasehelper.getCompFareRecalibration(f"{self.currParams.origin}{self.currParams.destin}")
 

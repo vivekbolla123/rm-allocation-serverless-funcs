@@ -144,6 +144,16 @@ class SchemaNextGen:
                 rawdata["departure_date"] = pd.to_datetime(
                     rawdata["departure_date"], errors="coerce", format="%Y-%m-%d"
                 )
+            if "outbound_departuretime" in rawdata.columns:
+                def format_time_str(t):
+                    if pd.isna(t) or t is None:
+                        return None
+                    t_str = str(t).strip()
+                    parts = t_str.split(':')
+                    if len(parts) >= 2:
+                        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                    return t_str
+                rawdata["outbound_departuretime"] = rawdata["outbound_departuretime"].apply(format_time_str)
             if "outbound_stop" in rawdata.columns:
                 rawdata["outbound_stop"] = rawdata["outbound_stop"].apply(
                     lambda t: str(t).strip() if pd.notna(t) else None

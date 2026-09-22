@@ -414,11 +414,37 @@ class NextGenOptimizationEngine:
     @classmethod
     def determine_strategy_fare(cls, response_fare, ladder_df=None, fare_col='fare'):
         """
-        Strategy Fare C is the response fare from competition response evaluation.
+        Strategy Fare C is the highest ladder fare lower than (or equal to) the response fare.
+        Ensures strategy fare is always chosen among the discrete filed ladder fares.
         """
         if response_fare is None or pd.isna(response_fare):
             return None
-        return float(response_fare)
+
+        if ladder_df is None:
+            return float(response_fare)
+
+        if isinstance(ladder_df, (list, tuple)):
+            fares = sorted([float(x) for x in ladder_df if pd.notna(x)], reverse=True)
+        elif isinstance(ladder_df, pd.Series):
+            fares = pd.to_numeric(ladder_df, errors='coerce').dropna().sort_values(ascending=False).tolist()
+        elif isinstance(ladder_df, pd.DataFrame):
+            if ladder_df.empty:
+                return float(response_fare)
+            if fare_col not in ladder_df.columns:
+                fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in ladder_df.columns), None)
+                if not fare_col:
+                    return float(response_fare)
+            fares = pd.to_numeric(ladder_df[fare_col], errors='coerce').dropna().sort_values(ascending=False).tolist()
+        else:
+            return float(response_fare)
+
+        if not fares:
+            return float(response_fare)
+
+        valid = [f for f in fares if f <= float(response_fare)]
+        if valid:
+            return float(valid[0])
+        return float(fares[-1])
 
     @classmethod
     def redistribute_demand_and_compute_revised_au(

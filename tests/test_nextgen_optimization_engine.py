@@ -477,6 +477,38 @@ class TestNextGenOptimizationEngine:
         assert np.allclose(final_df['A_cap'].values, f1120['A_cap'].values, atol=1e-4)
         assert np.allclose(final_df['Expected_Revenue'].values, f1120['Expected_Revenue'].values, atol=1.0)
 
+    def test_determine_strategy_fare_mapped_to_ladder(self, sample_flight_data):
+        """
+        Verify that determine_strategy_fare always maps continuous response fares
+        to one of the discrete fares in ladder_df['fare'].
+        """
+        ladder_fares = sample_flight_data['fare'].tolist()
+
+        # Between two ladder classes: 4279.0 and 5252.0
+        # If response fare is 5000.0, highest ladder fare <= 5000 is 4279.0
+        s_fare = NextGenOptimizationEngine.determine_strategy_fare(5000.0, sample_flight_data)
+        assert s_fare == 4279.0
+        assert s_fare in ladder_fares
+
+        # If response fare is exactly equal to a ladder fare
+        s_fare_exact = NextGenOptimizationEngine.determine_strategy_fare(6409.0, sample_flight_data)
+        assert s_fare_exact == 6409.0
+        assert s_fare_exact in ladder_fares
+
+        # If response fare is lower than all ladder fares (< 2914.0)
+        s_fare_low = NextGenOptimizationEngine.determine_strategy_fare(2000.0, sample_flight_data)
+        assert s_fare_low == 2914.0
+        assert s_fare_low in ladder_fares
+
+        # If response fare is higher than all ladder fares (> 94338.0)
+        s_fare_high = NextGenOptimizationEngine.determine_strategy_fare(100000.0, sample_flight_data)
+        assert s_fare_high == 94338.0
+        assert s_fare_high in ladder_fares
+
+        # If response fare is None
+        assert NextGenOptimizationEngine.determine_strategy_fare(None, sample_flight_data) is None
+
+
 
 
 
