@@ -275,3 +275,92 @@ class TestNextGenLocalIntegration:
 
         for col in expected_columns:
             assert col in opt_df.columns, f"Missing required column in inventory_optimization: {col}"
+
+    def test_db_helper_insert_summary_and_inventory_optimization(self):
+        """Verify insertSummaryRowNextGen and insertInventoryOptimization handle DB operations cleanly."""
+        from helper.rm_database_helper import RMDatabaseHelper
+        from Constants import CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER, CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER
+
+        mock_db = MagicMock()
+        inserted_summary = []
+        inserted_run_summary = []
+        inserted_inv = []
+
+        def mock_insert_one_summary(doc):
+            doc['_id'] = 'mock_obj_id_1'
+            inserted_summary.append(doc.copy())
+
+        def mock_insert_one_run(doc):
+            # If doc already has _id from previous insert, it could collide unless popped
+            inserted_run_summary.append(doc.copy())
+
+        def mock_insert_many_inv(docs):
+            inserted_inv.extend([d.copy() for d in docs])
+
+        mock_db.summary_nextgen.insert_one.side_effect = mock_insert_one_summary
+        mock_db.run_summary_nextgen.insert_one.side_effect = mock_insert_one_run
+        mock_db.inventory_optimization.insert_many.side_effect = mock_insert_many_inv
+
+        db_helper = RMDatabaseHelper(mock_db, None, "run_123", MagicMock(), False, None, MagicMock())
+
+        # Test insertSummaryRowNextGen
+        test_summary_row = {col: f"val_{col}" for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER}
+        test_summary_row['extra_dummy_col'] = 'should_be_filtered'
+        test_summary_row['nextgen_flag'] = 'Y'
+        test_summary_row['competition_response_flag'] = 'Y'
+
+        db_helper.insertSummaryRowNextGen([test_summary_row])
+
+        assert len(inserted_summary) == 1
+        assert len(inserted_run_summary) == 1
+        assert 'extra_dummy_col' not in inserted_summary[0]
+        assert inserted_summary[0]['nextgen_flag'] == 'Y'
+        # Ensure run_summary_nextgen insert didn't fail due to retained _id
+        assert '_id' not in inserted_run_summary[0] or inserted_run_summary[0]['_id'] != 'mock_obj_id_1'
+
+        # Test insertInventoryOptimization
+        test_inv_row = {col: f"inv_{col}" for col in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER}
+        test_inv_row['unwanted_col'] = 'strip_me'
+        db_helper.insertInventoryOptimization([test_inv_row])
+
+        assert len(inserted_inv) == 1
+        assert 'unwanted_col' not in inserted_inv[0]
+        assert inserted_inv[0]['sector'] == 'inv_sector'
+
+    def test_robust_type_coercion_edge_cases(self):
+        """Verify to_float, to_int, and is_flag_enabled against problematic strings."""
+        from common.nextgen_optimization_engine import to_float, to_int, is_flag_enabled
+
+        # to_float edge cases
+        assert to_float('', 0.0) == 0.0
+        assert to_float('   ', 5.5) == 5.5
+        assert to_float('NA', None) is None
+        assert to_float('nan', 0.0) == 0.0
+        assert to_float('None', 10.0) == 10.0
+        assert to_float('null', 0.0) == 0.0
+        assert to_float('123.45', 0.0) == 123.45
+        assert to_float(None, -1.0) == -1.0
+
+        # to_int edge cases
+        assert to_int('', 0) == 0
+        assert to_int('NA', 5) == 5
+        assert to_int('Y', 0) == 1
+        assert to_int('YES', 0) == 1
+        assert to_int('true', 0) == 1
+        assert to_int('N', 1) == 0
+        assert to_int('no', 1) == 0
+        assert to_int('false', 1) == 0
+        assert to_int('42', 0) == 42
+        assert to_int(None, 99) == 99
+
+        # is_flag_enabled edge cases
+        assert is_flag_enabled('Y') is True
+        assert is_flag_enabled('yes') is True
+        assert is_flag_enabled('1') is True
+        assert is_flag_enabled(1) is True
+        assert is_flag_enabled('N') is False
+        assert is_flag_enabled('0') is False
+        assert is_flag_enabled(0) is False
+        assert is_flag_enabled('') is False
+        assert is_flag_enabled('NA') is False
+        assert is_flag_enabled(None) is False

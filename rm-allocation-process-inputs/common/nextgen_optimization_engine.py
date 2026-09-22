@@ -50,6 +50,38 @@ from Constants import (
 logger = logging.getLogger(__name__)
 
 
+def to_float(val, default=0.0):
+    if val is None:
+        return default
+    s = str(val).strip().upper()
+    if s in ['', 'NA', 'NAN', 'NONE', 'NULL']:
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+def to_int(val, default=0):
+    if val is None:
+        return default
+    s = str(val).strip().upper()
+    if s in ['Y', 'YES', 'TRUE', 'T']:
+        return 1
+    if s in ['N', 'NO', 'FALSE', 'F']:
+        return 0
+    if s in ['', 'NA', 'NAN', 'NONE', 'NULL']:
+        return default
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return default
+
+
+def is_flag_enabled(val):
+    return to_int(val, 0) == 1
+
+
 class NextGenOptimizationEngine:
     """
     Core algorithmic engine for NextGen AU Optimization, Competition Response,
@@ -62,6 +94,9 @@ class NextGenOptimizationEngine:
     - Grid rule expressions are evaluated dynamically via a safe mathematical expression parser.
     - All operational thresholds and factors are sourced dynamically from parameters/DB.
     """
+    to_float = staticmethod(to_float)
+    to_int = staticmethod(to_int)
+    is_flag_enabled = staticmethod(is_flag_enabled)
 
     @classmethod
     def get_plf_band(cls, plf_pct, db_helper=None):
@@ -69,7 +104,7 @@ class NextGenOptimizationEngine:
         Dynamically determines the PLF band for a given PLF percentage.
         Queries comp_response_plf_bands via db_helper if available, or matches range.
         """
-        val = float(plf_pct) if plf_pct is not None else 0.0
+        val = to_float(plf_pct, 0.0)
         if 0.0 < val <= 1.5:
             val = val * 100.0
 
@@ -107,7 +142,7 @@ class NextGenOptimizationEngine:
         Dynamically determines the NDO band for a given NDO.
         Queries ndo_bands via db_helper using (start, end] interval convention.
         """
-        n = int(ndo) if ndo is not None else 0
+        n = to_int(ndo, 0)
         if n <= 0:
             return 0
         elif n == 1:
@@ -176,20 +211,22 @@ class NextGenOptimizationEngine:
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
 
         n = len(df)
-        cap = int(capacity) if capacity and capacity > 0 else 189
-        cb = float(current_bookings) if current_bookings is not None else 0.0
+        cap = to_int(capacity, 189)
+        if cap <= 0:
+            cap = 189
+        cb = to_float(current_bookings, 0.0)
 
         mu = pd.to_numeric(df.get(pax_col, 0.0), errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
         sigma = pd.to_numeric(df.get(std_col, 0.0), errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
-        fares = df[fare_col].tolist()
+        fares = [to_float(f, 0.0) for f in df[fare_col].tolist()]
 
         f_lowest = fares[-1] if n > 0 else 0.0
-        f_promo = float(promo_ratio) * f_lowest
+        f_promo = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * f_lowest
 
-        alpha = float(buy_up_factor or 0.0)
+        alpha = to_float(buy_up_factor, 0.0)
         alpha = float(np.clip(alpha, 0.0, 0.99))
         buy_up_mult = 1.0 / (1.0 - alpha)
-        sig_fact = float(sigma_factor) if sigma_factor is not None else 0.25
+        sig_fact = to_float(sigma_factor, 0.25)
 
         mu_bar_list = []
         sig_bar_list = []
@@ -204,7 +241,7 @@ class NextGenOptimizationEngine:
 
             if j < n - 1:
                 f_next = fares[j+1]
-            elif int(promo_flag) == 1:
+            elif is_flag_enabled(promo_flag):
                 f_next = f_promo
             else:
                 f_next = None
@@ -233,11 +270,12 @@ class NextGenOptimizationEngine:
             au_list.append(max(0.0, float(cap) - y_list[j-1]))
 
         # Promo AU (only calculated when promo_flag == 1)
-        if int(promo_flag) == 1:
+        if is_flag_enabled(promo_flag):
             au_promo_calc = max(0.0, float(cap) - y_list[-1]) if n > 0 else float(cap)
             pred_pickup_initial = sum(mu)
             lf_forecast_initial = ((cb + pred_pickup_initial) / cap) * 100.0 if cap > 0 else 0.0
-            au_promo = 0.0 if (promo_threshold is not None and lf_forecast_initial >= float(promo_threshold)) else au_promo_calc
+            promo_th = to_float(promo_threshold, 95.0)
+            au_promo = 0.0 if (promo_threshold is not None and lf_forecast_initial >= promo_th) else au_promo_calc
         else:
             au_promo = 0.0
 
@@ -253,9 +291,9 @@ class NextGenOptimizationEngine:
         # Anchor Fare A: lowest filed fare where AU > current_bookings
         open_classes = df[df['AU'] > cb]
         if not open_classes.empty:
-            anchor_fare = float(open_classes[fare_col].iloc[-1])
+            anchor_fare = to_float(open_classes[fare_col].iloc[-1], 0.0)
         else:
-            anchor_fare = float(df[fare_col].iloc[0])
+            anchor_fare = to_float(df[fare_col].iloc[0], 0.0)
 
         return df, anchor_fare, au_promo
 
@@ -314,14 +352,14 @@ class NextGenOptimizationEngine:
 
         if stops_col and stops_col in df_mkt.columns:
             stops_series = pd.to_numeric(df_mkt[stops_col], errors='coerce').fillna(0)
-            if int(connection_fare_flag or 0) == 0:
+            if not is_flag_enabled(connection_fare_flag):
                 # Direct flights only
                 df_mkt = df_mkt[stops_series == 0]
             else:
                 # Include direct flights AND connecting flights with duration <= (direct_duration + additional_duration)
                 if dur_col and direct_duration_mins:
-                    direct_mins = float(direct_duration_mins)
-                    add_mins = float(additional_connection_hours or 4.0) * 60.0
+                    direct_mins = to_float(direct_duration_mins, 0.0)
+                    add_mins = to_float(additional_connection_hours, 4.0) * 60.0
                     max_allowed_duration = direct_mins + add_mins
 
                     def parse_duration_to_mins(v):
@@ -330,8 +368,8 @@ class NextGenOptimizationEngine:
                             v_str = str(v).strip()
                             if ':' in v_str:
                                 parts = v_str.split(':')
-                                return float(parts[0]) * 60.0 + float(parts[1])
-                            return float(v_str)
+                                return to_float(parts[0], 0.0) * 60.0 + to_float(parts[1], 0.0)
+                            return to_float(v_str, direct_mins)
                         except Exception:
                             return direct_mins
 
@@ -350,12 +388,12 @@ class NextGenOptimizationEngine:
                     s = str(t_str).strip()
                     if len(s) >= 5:
                         parts = s[:5].split(':')
-                        return int(parts[0]) * 60 + int(parts[1])
+                        return to_int(parts[0], 0) * 60 + to_int(parts[1], 0)
                     return None
 
                 target_mins = parse_std_time(flight_std)
                 if target_mins is not None:
-                    window_mins = float(time_range_hours) * 60.0
+                    window_mins = to_float(time_range_hours, 2.0) * 60.0
                     mkt_mins = df_mkt[time_col].apply(parse_std_time)
                     valid_time = mkt_mins.notna() & (abs(mkt_mins - target_mins) <= window_mins)
                     if valid_time.any():
@@ -378,7 +416,7 @@ class NextGenOptimizationEngine:
             return None, None
 
         # 5. Outlier removal via Modified Z-score (MAD)
-        cov_p = float(coverage_param) if coverage_param is not None else 3.0
+        cov_p = to_float(coverage_param, 3.0)
         med = float(np.median(fares))
         abs_dev = [abs(f - med) for f in fares]
         mad = float(np.median(abs_dev))
@@ -406,9 +444,9 @@ class NextGenOptimizationEngine:
           - 'Min (1.2A, 0.8C)', 'Min (1.3A, 0.9C)', 'Min (1.5A, C)', 'Min (2A, C)', 'Min (xA, yC)'
           - 'Max (xA, yC)', 'C', '0.95C', 'A', '1.1A', etc.
         """
-        A = float(anchor_fare)
-        C = float(comp_min_fare)
-        med_C = float(comp_med_fare) if comp_med_fare is not None else C
+        A = to_float(anchor_fare, 0.0)
+        C = to_float(comp_min_fare, 0.0)
+        med_C = to_float(comp_med_fare, C) if comp_med_fare is not None else C
 
         rule = str(grid_rule_str).strip()
         if not rule or rule == CONST_NA:
@@ -451,31 +489,33 @@ class NextGenOptimizationEngine:
         Strategy Fare C is the highest ladder fare lower than (or equal to) the response fare.
         Ensures strategy fare is always chosen among the discrete filed ladder fares.
         """
-        if response_fare is None or pd.isna(response_fare):
+        if response_fare is None or pd.isna(response_fare) or str(response_fare).strip().upper() in ['', 'NA', 'NAN']:
             return None
 
+        resp_f = to_float(response_fare, 0.0)
+
         if ladder_df is None:
-            return float(response_fare)
+            return resp_f
 
         if isinstance(ladder_df, (list, tuple)):
-            fares = sorted([float(x) for x in ladder_df if pd.notna(x)], reverse=True)
+            fares = sorted([to_float(x, 0.0) for x in ladder_df if pd.notna(x) and str(x).strip().upper() not in ['', 'NA', 'NAN']], reverse=True)
         elif isinstance(ladder_df, pd.Series):
             fares = pd.to_numeric(ladder_df, errors='coerce').dropna().sort_values(ascending=False).tolist()
         elif isinstance(ladder_df, pd.DataFrame):
             if ladder_df.empty:
-                return float(response_fare)
+                return resp_f
             if fare_col not in ladder_df.columns:
                 fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in ladder_df.columns), None)
                 if not fare_col:
-                    return float(response_fare)
+                    return resp_f
             fares = pd.to_numeric(ladder_df[fare_col], errors='coerce').dropna().sort_values(ascending=False).tolist()
         else:
-            return float(response_fare)
+            return resp_f
 
         if not fares:
-            return float(response_fare)
+            return resp_f
 
-        valid = [f for f in fares if f <= float(response_fare)]
+        valid = [f for f in fares if f <= resp_f]
         if valid:
             return float(valid[0])
         return float(fares[-1])
@@ -517,15 +557,17 @@ class NextGenOptimizationEngine:
 
         df[fare_col] = pd.to_numeric(df[fare_col], errors='coerce').fillna(0.0)
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
-        fares = df[fare_col].tolist()
+        fares = [to_float(f, 0.0) for f in df[fare_col].tolist()]
         n = len(df)
 
-        cap = int(capacity) if capacity and capacity > 0 else 189
-        cb = float(current_bookings) if current_bookings is not None else 0.0
-        A = float(anchor_fare)
-        C = float(strategy_fare) if strategy_fare is not None else A
-        sig_fact = float(sigma_factor) if sigma_factor is not None else 0.25
-        first_rbd_seats = float(first_rbd) if first_rbd is not None else 20.0
+        cap = to_int(capacity, 189)
+        if cap <= 0:
+            cap = 189
+        cb = to_float(current_bookings, 0.0)
+        A = to_float(anchor_fare, 0.0)
+        C = to_float(strategy_fare, A)
+        sig_fact = to_float(sigma_factor, 0.25)
+        first_rbd_seats = to_float(first_rbd, 20.0)
 
         strat_candidates = [f for f in fares if f <= C]
         C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
@@ -554,44 +596,34 @@ class NextGenOptimizationEngine:
             au_rev[strat_idx] = min(au_rev[strat_idx], cb + first_rbd_seats)
 
             # Apply backstop floor
-            if backstop is not None and pd.notna(backstop) and str(backstop) != CONST_NA:
-                try:
-                    b_val = float(backstop)
-                    for i, f in enumerate(fares):
-                        if f < b_val:
-                            au_rev[i] = 0
-                except ValueError:
-                    pass
+            b_val = to_float(backstop, None)
+            if b_val is not None:
+                for i, f in enumerate(fares):
+                    if f < b_val:
+                        au_rev[i] = 0.0
 
             # Apply hardanchor cap
-            if hardanchor is not None and pd.notna(hardanchor) and str(hardanchor) != CONST_NA:
-                try:
-                    h_val = float(hardanchor)
-                    for i, f in enumerate(fares):
-                        if f >= h_val:
-                            au_rev[i] = cap
-                except ValueError:
-                    pass
+            h_val = to_float(hardanchor, None)
+            if h_val is not None:
+                for i, f in enumerate(fares):
+                    if f >= h_val:
+                        au_rev[i] = float(cap)
 
             df['AU_Revised'] = au_rev
 
             f_lowest = fares[-1] if n > 0 else 0.0
-            f_promo_init = float(promo_ratio) * f_lowest
-            if int(promo_flag) == 1:
-                au_2_promo = float(promo_au)
-                au_revised_promo = min(float(au_2_promo), float(promo_first_rbd))
-                if backstop is not None and pd.notna(backstop) and str(backstop) != CONST_NA:
-                    try:
-                        if f_promo_init < float(backstop):
-                            au_revised_promo = 0.0
-                    except ValueError:
-                        pass
+            f_promo_init = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * f_lowest
+            if is_flag_enabled(promo_flag):
+                au_2_promo = to_float(promo_au, 0.0)
+                au_revised_promo = min(float(au_2_promo), to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+                if b_val is not None and f_promo_init < b_val:
+                    au_revised_promo = 0.0
             else:
                 au_2_promo = 0.0
                 au_revised_promo = 0.0
 
             df.attrs['promo_info'] = {
-                'AU': float(promo_au) if int(promo_flag) == 1 else 0.0,
+                'AU': to_float(promo_au, 0.0) if is_flag_enabled(promo_flag) else 0.0,
                 'AU_2': float(au_2_promo),
                 'AU_Revised': float(au_revised_promo),
                 'fare': f_promo_init
@@ -610,9 +642,9 @@ class NextGenOptimizationEngine:
         # If it doesn't cross the threshold even at C then C itself will be Pmin_old.
         cum_mu = 0.0
         p_min_old = C_ladder
-        threshold = float(pmin_threshold_factor if pmin_threshold_factor is not None else 0.1) * float(cap)
+        threshold = to_float(pmin_threshold_factor, 0.1) * float(cap)
         for idx in range(a_idx, strat_idx - 1, -1):
-            cum_mu += float(df['mu'].iloc[idx])
+            cum_mu += to_float(df['mu'].iloc[idx], 0.0)
             if cum_mu >= threshold:
                 p_min_old = float(fares[idx])
                 break
@@ -677,8 +709,8 @@ class NextGenOptimizationEngine:
         df['sigma_bar_3'] = [sig_fact * sum(mu_2_list[:j+1]) for j in range(n)]
 
         # Recompute EMSR-b on mu_2, sigma_2
-        f_promo = float(promo_ratio) * fares[-1]
-        alpha = float(buy_up_factor or 0.0)
+        f_promo = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * fares[-1]
+        alpha = to_float(buy_up_factor, 0.0)
         buy_up_mult = 1.0 / (1.0 - np.clip(alpha, 0.0, 0.99))
 
         y_2_list = []
@@ -729,30 +761,24 @@ class NextGenOptimizationEngine:
         au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
 
         # Backstop
-        if backstop is not None and pd.notna(backstop) and str(backstop) != CONST_NA:
-            try:
-                b_val = float(backstop)
-                for i, f in enumerate(fares):
-                    if f < b_val:
-                        au_revised[i] = 0.0
-            except ValueError:
-                pass
+        b_val = to_float(backstop, None)
+        if b_val is not None:
+            for i, f in enumerate(fares):
+                if f < b_val:
+                    au_revised[i] = 0.0
 
         # Hardanchor
-        if hardanchor is not None and pd.notna(hardanchor) and str(hardanchor) != CONST_NA:
-            try:
-                h_val = float(hardanchor)
-                for i, f in enumerate(fares):
-                    if f >= h_val:
-                        au_revised[i] = float(cap)
-            except ValueError:
-                pass
+        h_val = to_float(hardanchor, None)
+        if h_val is not None:
+            for i, f in enumerate(fares):
+                if f >= h_val:
+                    au_revised[i] = float(cap)
 
         df['AU_Revised'] = au_revised
 
         # During competition response, Promo inventory calculation is done again using strategy fare and 80% of strategy fare
-        f_promo_comp = float(promo_ratio) * float(fares[strat_idx])
-        if int(promo_flag) == 1:
+        f_promo_comp = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * float(fares[strat_idx])
+        if is_flag_enabled(promo_flag):
             m_bar_strat = sum(mu_2_list[:strat_idx + 1])
             s_bar_strat = sig_fact * m_bar_strat
             F_strat = (sum(mu_2_list[i] * fares[i] for i in range(strat_idx + 1)) / m_bar_strat) if m_bar_strat > 0 else fares[strat_idx]
@@ -766,23 +792,20 @@ class NextGenOptimizationEngine:
             au_2_promo = max(0.0, float(cap) - y_promo_comp)
             pred_flown_2 = cb + sum(mu_2_list)
             lf_fc_2 = (pred_flown_2 / cap) * 100.0 if cap > 0 else 0.0
-            if promo_threshold is not None and lf_fc_2 >= float(promo_threshold):
+            promo_th = to_float(promo_threshold, 95.0)
+            if promo_threshold is not None and lf_fc_2 >= promo_th:
                 au_2_promo = 0.0
 
             # The maximum seats to be allocated to promo RBD will be defined using the parameter PromoFirstRBD_NG (default 10)
-            au_revised_promo = min(float(au_2_promo), float(promo_first_rbd))
-            if backstop is not None and pd.notna(backstop) and str(backstop) != CONST_NA:
-                try:
-                    if f_promo_comp < float(backstop):
-                        au_revised_promo = 0.0
-                except ValueError:
-                    pass
+            au_revised_promo = min(float(au_2_promo), to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+            if b_val is not None and f_promo_comp < b_val:
+                au_revised_promo = 0.0
         else:
             au_2_promo = 0.0
             au_revised_promo = 0.0
 
         df.attrs['promo_info'] = {
-            'AU': float(promo_au) if int(promo_flag) == 1 else 0.0,
+            'AU': to_float(promo_au, 0.0) if is_flag_enabled(promo_flag) else 0.0,
             'AU_2': float(au_2_promo),
             'AU_Revised': float(au_revised_promo),
             'fare': f_promo_comp
@@ -814,39 +837,43 @@ class NextGenOptimizationEngine:
             fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in df.columns), 'fare')
 
         df = df.sort_values(fare_col, ascending=False).reset_index(drop=True)
-        fares = df[fare_col].tolist()
-        mu_2 = df[mu_col].tolist() if mu_col in df.columns else (df['mu'].tolist() if 'mu' in df.columns else [0.0] * len(df))
+        fares = [to_float(f, 0.0) for f in df[fare_col].tolist()]
+        mu_raw = df[mu_col].tolist() if mu_col in df.columns else (df['mu'].tolist() if 'mu' in df.columns else [0.0] * len(df))
+        mu_2 = [to_float(m, 0.0) for m in mu_raw]
         if sigma_col in df.columns:
-            sigma_2 = df[sigma_col].tolist()
+            sigma_2 = [to_float(s, 0.0) for s in df[sigma_col].tolist()]
         elif 'sigma' in df.columns:
-            sigma_2 = df['sigma'].tolist()
+            sigma_2 = [to_float(s, 0.0) for s in df['sigma'].tolist()]
         else:
             sigma_2 = [0.25 * m for m in mu_2]
 
-        au_col_to_use = au_col if au_col in df.columns else ('AU_2' if 'AU_2' in df.columns else ('AU_Revised' if 'AU_Revised' in df.columns else 'AU'))
-        au_vals = df[au_col_to_use].tolist() if au_col_to_use in df.columns else [float(capacity or 189)] * len(df)
-        n = len(df)
+        cap = to_int(capacity, 189)
+        if cap <= 0:
+            cap = 189
+        cb = to_float(current_bookings, 0.0)
+        curr_rev = to_float(current_revenue, 0.0)
 
-        cap = int(capacity) if capacity and capacity > 0 else 189
-        cb = float(current_bookings) if current_bookings is not None else 0.0
-        curr_rev = float(current_revenue) if current_revenue is not None else 0.0
+        au_col_to_use = au_col if au_col in df.columns else ('AU_2' if 'AU_2' in df.columns else ('AU_Revised' if 'AU_Revised' in df.columns else 'AU'))
+        au_raw = df[au_col_to_use].tolist() if au_col_to_use in df.columns else [float(cap)] * len(df)
+        au_vals = [to_float(a, float(cap)) for a in au_raw]
+        n = len(df)
 
         # Resolve anchor fare if not provided
         if anchor_fare is None:
             if 'anchor_fare' in df.attrs:
-                anchor_fare = float(df.attrs['anchor_fare'])
+                anchor_fare = to_float(df.attrs['anchor_fare'], 0.0)
             elif 'anchor_fare' in df.columns and pd.notna(df['anchor_fare'].iloc[0]):
-                anchor_fare = float(df['anchor_fare'].iloc[0])
+                anchor_fare = to_float(df['anchor_fare'].iloc[0], 0.0)
             elif 'AU' in df.columns:
                 open_classes = df[df['AU'] > cb]
-                anchor_fare = float(open_classes[fare_col].iloc[-1]) if not open_classes.empty else float(df[fare_col].iloc[0])
+                anchor_fare = to_float(open_classes[fare_col].iloc[-1], 0.0) if not open_classes.empty else to_float(df[fare_col].iloc[0], 0.0)
             elif au_col_to_use in df.columns:
                 open_classes = df[df[au_col_to_use] > cb]
-                anchor_fare = float(open_classes[fare_col].iloc[-1]) if not open_classes.empty else float(df[fare_col].iloc[0])
+                anchor_fare = to_float(open_classes[fare_col].iloc[-1], 0.0) if not open_classes.empty else to_float(df[fare_col].iloc[0], 0.0)
             else:
-                anchor_fare = float(fares[-1]) if fares else 0.0
+                anchor_fare = to_float(fares[-1], 0.0) if fares else 0.0
 
-        anchor_val = float(anchor_fare) if anchor_fare is not None else 0.0
+        anchor_val = to_float(anchor_fare, 0.0)
 
         A_cap = [0.0] * n   # Capped expected bookings per bucket (A_hat)
         ER = [0.0] * n      # Expected revenue per bucket
@@ -927,12 +954,16 @@ class NextGenOptimizationEngine:
             for k in keys:
                 if hasattr(obj, k):
                     v = getattr(obj, k)
-                    if type(v).__name__ != 'MagicMock' and v is not None and v != CONST_NA:
-                        return v
+                    if type(v).__name__ != 'MagicMock' and v is not None:
+                        s = str(v).strip().upper()
+                        if s not in ['', 'NA', 'NAN', 'NONE', 'NULL']:
+                            return v
                 elif isinstance(obj, dict) and k in obj:
                     v = obj[k]
-                    if v is not None and v != CONST_NA:
-                        return v
+                    if v is not None:
+                        s = str(v).strip().upper()
+                        if s not in ['', 'NA', 'NAN', 'NONE', 'NULL']:
+                            return v
             return default
 
         origin = _get_val(curr_params, 'origin', 'Origin', default=None)
@@ -943,33 +974,38 @@ class NextGenOptimizationEngine:
         if tax_helper is None:
             tax_helper = _get_val(curr_params, 'tax_helper', default=getattr(db_helper, 'tax_helper', None))
 
-        buy_up = _get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0)
-        comp_flag = _get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=1)
-        time_range = _get_val(curr_params, 'time_range', default=2.0)
+        buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
+        comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=1)) else 0
+        time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
         backstop = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
         hardanchor = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
-        ndo = _get_val(curr_params, 'ndocounter', 'NDO', default=0)
-        first_rbd = _get_val(curr_params, 'first_rbd_alloc', default=20)
-        promo_threshold = _get_val(curr_params, 'plfthreshold', default=95.0)
-        sigma_factor = _get_val(curr_params, 'sigma_factor', default=0.25)
+        ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
+        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', default=20), 20.0)
+        promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
+        sigma_factor = to_float(_get_val(curr_params, 'sigma_factor', default=0.25), 0.25)
         # Promo inventory parameters: PromoFlag_NG from Market List; others come from constants (ConstantsUtils / DB / Constants.py)
         const_utils = getattr(db_helper, 'constants_utils', getattr(db_helper, 'constantsUtils', None))
         promo_ratio_const = getattr(const_utils, 'PROMO_RATIO_NG', getattr(const_utils, 'PromoRatio_NG', DEFAULT_PROMO_RATIO_NG))
         promo_rbd_const = str(getattr(const_utils, 'PROMO_RBD_NG', getattr(const_utils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip() or DEFAULT_PROMO_RBD_NG
         promo_first_rbd_const = getattr(const_utils, 'PROMO_FIRST_RBD_NG', getattr(const_utils, 'PromoFirstRBD_NG', DEFAULT_PROMO_FIRST_RBD_NG))
 
-        promo_flag = _get_val(curr_params, 'promo_flag_NG', 'promo_flag', 'PromoFlag_NG', default=DEFAULT_PROMO_FLAG_NG)
-        promo_flag = int(promo_flag) if promo_flag is not None else 0
-        promo_ratio = _get_val(curr_params, 'promo_ratio_NG', 'promo_ratio', 'PromoRatio_NG', 'promo_fare_factor', default=promo_ratio_const)
+        promo_flag = 1 if is_flag_enabled(_get_val(curr_params, 'promo_flag_NG', 'promo_flag', 'PromoFlag_NG', default=DEFAULT_PROMO_FLAG_NG)) else 0
+        promo_ratio = to_float(_get_val(curr_params, 'promo_ratio_NG', 'promo_ratio', 'PromoRatio_NG', 'promo_fare_factor', default=promo_ratio_const), to_float(promo_ratio_const, DEFAULT_PROMO_RATIO_NG))
         promo_rbd = str(_get_val(curr_params, 'promo_rbd_NG', 'promo_rbd', 'PromoRBD_NG', default=promo_rbd_const)).strip() or promo_rbd_const
-        promo_first_rbd = _get_val(curr_params, 'promo_first_rbd_NG', 'promo_first_rbd', 'PromoFirstRBD_NG', default=promo_first_rbd_const)
-        cov_param = _get_val(curr_params, 'coverage_parameter', default=3.0)
+        promo_first_rbd = to_float(_get_val(curr_params, 'promo_first_rbd_NG', 'promo_first_rbd', 'PromoFirstRBD_NG', default=promo_first_rbd_const), to_float(promo_first_rbd_const, DEFAULT_PROMO_FIRST_RBD_NG))
+        cov_param = to_float(_get_val(curr_params, 'coverage_parameter', default=3.0), 3.0)
+
+        cap_val = to_int(capacity, 189)
+        if cap_val <= 0:
+            cap_val = 189
+        cb_val = to_float(current_bookings, 0.0)
+        curr_rev_val = to_float(current_revenue, 0.0)
 
         # Step 1: Initial EMSR-b
         init_df, anchor_fare, promo_au = cls.compute_initial_emsr_b(
-            flight_ladder_df, capacity, current_bookings,
+            flight_ladder_df, cap_val, cb_val,
             buy_up_factor=buy_up,
             sigma_factor=sigma_factor,
             promo_ratio=promo_ratio,
@@ -978,8 +1014,8 @@ class NextGenOptimizationEngine:
         )
 
         # Step 2: Competition Response & Strategy Fare
-        conn_fare_flag = _get_val(curr_params, 'connection_fare_flag_NG', 'connection_fare_flag', default=0)
-        add_conn_dur = _get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=4.0)
+        conn_fare_flag = 1 if is_flag_enabled(_get_val(curr_params, 'connection_fare_flag_NG', 'connection_fare_flag', default=0)) else 0
+        add_conn_dur = to_float(_get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=4.0), 4.0)
         dir_dur = getattr(curr_params, 'flight_duration', getattr(curr_params, 'outbound_duration', None)) if curr_params else None
 
         # Convert market fares to AIRLINE COMPONENT before calculation
@@ -1041,7 +1077,7 @@ class NextGenOptimizationEngine:
         if comp_flag == 1 and c_min_comp is not None:
             # Dynamic Band Lookups from DB
             pred_pickup_init = sum(init_df['mu'])
-            plf_pct = ((float(current_bookings) + pred_pickup_init) / float(capacity)) * 100.0 if capacity > 0 else 0.0
+            plf_pct = ((cb_val + pred_pickup_init) / float(cap_val)) * 100.0 if cap_val > 0 else 0.0
 
             ndo_band = cls.get_ndo_band(ndo, db_helper=db_helper)
             plf_band = cls.get_plf_band(plf_pct, db_helper=db_helper)
@@ -1064,14 +1100,10 @@ class NextGenOptimizationEngine:
             strategy_fare = anchor_fare
 
         # Step 3: Demand Redistribution & Revised AU
-        pmin_thresh_factor = _get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1)
-        try:
-            pmin_thresh_factor = float(pmin_thresh_factor)
-        except (ValueError, TypeError):
-            pmin_thresh_factor = 0.1
+        pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
 
         redistrib_df = cls.redistribute_demand_and_compute_revised_au(
-            init_df, anchor_fare, strategy_fare, capacity, current_bookings,
+            init_df, anchor_fare, strategy_fare, cap_val, cb_val,
             buy_up_factor=buy_up,
             sigma_factor=sigma_factor,
             first_rbd=first_rbd,
@@ -1087,21 +1119,21 @@ class NextGenOptimizationEngine:
 
         # Step 4: Closed-Form Revenue Forecasting
         pred_rev, tot_er, pickup_rev, flown_rev, af_fc, lf_fc_rev, final_df = cls.compute_closed_form_revenue_forecast(
-            redistrib_df, capacity, current_bookings, current_revenue,
+            redistrib_df, cap_val, cb_val, curr_rev_val,
             au_col='AU_2',
             anchor_fare=anchor_fare
         )
 
         # Find opening fare & seats on opening fare (in airline component) - strictly ignoring Promo
-        open_classes = final_df[(final_df['AU_Revised'] > float(current_bookings)) & (final_df.get('Promo_Flag', 0) == 0)]
+        open_classes = final_df[(final_df['AU_Revised'] > cb_val) & (final_df.get('Promo_Flag', 0) == 0)]
         if not open_classes.empty:
-            opening_fare = float(open_classes['fare'].iloc[-1])
-            opening_au = float(open_classes['AU_Revised'].iloc[-1])
-            seats_on_opening = max(0.0, opening_au - float(current_bookings))
+            opening_fare = to_float(open_classes['fare'].iloc[-1], 0.0)
+            opening_au = to_float(open_classes['AU_Revised'].iloc[-1], 0.0)
+            seats_on_opening = max(0.0, opening_au - cb_val)
         else:
             filed_classes = final_df[final_df.get('Promo_Flag', 0) == 0]
-            opening_fare = float(filed_classes['fare'].iloc[0]) if not filed_classes.empty else float(final_df['fare'].iloc[0])
-            seats_on_opening = max(0.0, float(filed_classes['AU_Revised'].iloc[0]) - float(current_bookings)) if not filed_classes.empty else 0.0
+            opening_fare = to_float(filed_classes['fare'].iloc[0], 0.0) if not filed_classes.empty else to_float(final_df['fare'].iloc[0], 0.0)
+            seats_on_opening = max(0.0, to_float(filed_classes['AU_Revised'].iloc[0], 0.0) - cb_val) if not filed_classes.empty else 0.0
 
         # When promo_flag == 1, append Promo row to final_df
         if promo_flag == 1:
@@ -1109,46 +1141,46 @@ class NextGenOptimizationEngine:
             promo_row = final_df.iloc[-1].to_dict()
             promo_row['FareBucket'] = 'Promo'
             promo_row['Promo_Flag'] = 1
-            promo_row['fare'] = promo_info.get('fare', float(promo_ratio) * float(strategy_fare))
+            promo_row['fare'] = to_float(promo_info.get('fare'), to_float(promo_ratio) * to_float(strategy_fare))
             promo_row['mu'] = 0.0
             promo_row['mu_2'] = 0.0
             promo_row['mu_bar_orig'] = 0.0
             promo_row['mu_bar_2'] = 0.0
-            promo_row['AU'] = float(promo_info.get('AU', 0.0))
-            promo_row['AU_2'] = float(promo_info.get('AU_2', 0.0))
-            promo_row['AU_Revised'] = float(promo_info.get('AU_Revised', 0.0))
+            promo_row['AU'] = to_float(promo_info.get('AU', 0.0), 0.0)
+            promo_row['AU_2'] = to_float(promo_info.get('AU_2', 0.0), 0.0)
+            promo_row['AU_Revised'] = to_float(promo_info.get('AU_Revised', 0.0), 0.0)
             promo_row['P_eq'] = np.nan
             promo_row['Expected_Bookings'] = 0.0
             promo_row['Expected_Revenue'] = 0.0
-            promo_row['Total_Expected_Revenue'] = float(tot_er)
-            promo_row['Predicted_Revenue'] = float(pred_rev)
+            promo_row['Total_Expected_Revenue'] = to_float(tot_er, 0.0)
+            promo_row['Predicted_Revenue'] = to_float(pred_rev, 0.0)
             promo_row['A'] = 0.0
             promo_row['A_cap'] = 0.0
             final_df = pd.concat([final_df, pd.DataFrame([promo_row])], ignore_index=True)
 
         summary = {
-            'NG_Historical_current_booked': float(current_bookings),
-            'NG_LF_Forecast': float(lf_fc_rev * 100.0),
-            'NG_AF_Forecast': float(af_fc),
-            'NG_Opening_fare': float(opening_fare),
-            'NG_FirstRBD': float(seats_on_opening),
-            'Strategy_fare': float(strategy_fare),
-            'Anchor_fare': float(anchor_fare),
-            'Pmin_Old': float(redistrib_df.attrs.get('p_min_old', anchor_fare)),
-            'Current_Revenue': float(current_revenue),
-            'Total_Expected_Revenue': float(tot_er),
-            'Predicted_Revenue': float(pred_rev),
-            'Predicted_Pickup_Revised': float(pickup_rev),
-            'Predicted_Flown_Revised': float(flown_rev),
-            'MarketFare_Selected': float(c_min_comp) if c_min_comp is not None else None,
-            'MarketFare_Min': float(c_min_comp) if c_min_comp is not None else None,
-            'MarketFare_Max': float(c_med_comp) if c_med_comp is not None else None,
-            'MarketFare_Min_AllIn': float(c_min_allin) if c_min_allin is not None else None,
-            'MarketFare_Max_AllIn': float(c_med_allin) if c_med_allin is not None else None,
+            'NG_Historical_current_booked': cb_val,
+            'NG_LF_Forecast': to_float(lf_fc_rev * 100.0, 0.0),
+            'NG_AF_Forecast': to_float(af_fc, 0.0),
+            'NG_Opening_fare': to_float(opening_fare, 0.0),
+            'NG_FirstRBD': to_float(seats_on_opening, 0.0),
+            'Strategy_fare': to_float(strategy_fare, 0.0),
+            'Anchor_fare': to_float(anchor_fare, 0.0),
+            'Pmin_Old': to_float(redistrib_df.attrs.get('p_min_old', anchor_fare), 0.0),
+            'Current_Revenue': curr_rev_val,
+            'Total_Expected_Revenue': to_float(tot_er, 0.0),
+            'Predicted_Revenue': to_float(pred_rev, 0.0),
+            'Predicted_Pickup_Revised': to_float(pickup_rev, 0.0),
+            'Predicted_Flown_Revised': to_float(flown_rev, 0.0),
+            'MarketFare_Selected': to_float(c_min_comp, None) if c_min_comp is not None else None,
+            'MarketFare_Min': to_float(c_min_comp, None) if c_min_comp is not None else None,
+            'MarketFare_Max': to_float(c_med_comp, None) if c_med_comp is not None else None,
+            'MarketFare_Min_AllIn': to_float(c_min_allin, None) if c_min_allin is not None else None,
+            'MarketFare_Max_AllIn': to_float(c_med_allin, None) if c_med_allin is not None else None,
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
-            'nextgen_flag': _get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0),
-            'competition_response_flag': comp_flag,
+            'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,
+            'competition_response_flag': 1 if is_flag_enabled(comp_flag) else 0,
             'buy_up_factor': buy_up
         }
 
