@@ -270,6 +270,7 @@ class TestNextGenLocalIntegration:
         opt_df['Predicted_Revenue'] = summary.get('Predicted_Revenue', 0.0)
         opt_df['SnapshotDate'] = getattr(curr_params, 'currDate', '2026-08-16')
         opt_df['Tagging'] = getattr(curr_params, 'tagging', 'Shoulder')
+        opt_df['RunId'] = 'test_run_123'
         opt_df['STD_future'] = std_str
         opt_df['STD_dt'] = f"{dateFormatted_yyyymmdd} {std_str}"
 
@@ -326,6 +327,8 @@ class TestNextGenLocalIntegration:
         assert len(inserted_inv) == 1
         assert 'unwanted_col' not in inserted_inv[0]
         assert inserted_inv[0]['sector'] == 'inv_sector'
+        assert inserted_inv[0]['RunId'] == 'inv_RunId'
+        assert inserted_inv[0]['runid'] == 'inv_RunId'
 
     def test_robust_type_coercion_edge_cases(self):
         """Verify to_float, to_int, and is_flag_enabled against problematic strings."""

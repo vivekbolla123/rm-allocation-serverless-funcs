@@ -949,7 +949,13 @@ class RMDatabaseHelper:
                 for r in opt_rows:
                     d = vars(r) if not isinstance(r, dict) else r.copy()
                     d.pop('_id', None)
+                    run_id_val = d.get('RunId') or d.get('runid') or getattr(self, 'runId', None)
+                    if run_id_val is not None:
+                        d['RunId'] = run_id_val
+                        d['runid'] = run_id_val
                     clean_d = {k: (None if pd.isna(d.get(k)) else d.get(k)) for k in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if k in d}
+                    if 'RunId' in clean_d and 'runid' not in clean_d:
+                        clean_d['runid'] = clean_d['RunId']
                     docs.append(clean_d)
                 if docs and hasattr(self.db, 'inventory_optimization'):
                     self.db.inventory_optimization.insert_many(docs)

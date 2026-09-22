@@ -33,10 +33,10 @@ def test_inventory_optimization_exact_columns_and_order():
         'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
         'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
         'Expected_Revenue', 'Total_Expected_Revenue', 'Predicted_Revenue',
-        'SnapshotDate', 'Tagging', 'FareBucket'
+        'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
     ]
     assert CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER == expected_inv_opt_cols
-    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 38
+    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 39
 
 
 def _resolve_input_path(filename):

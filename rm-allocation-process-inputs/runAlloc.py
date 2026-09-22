@@ -1788,6 +1788,7 @@ class DynAlloc:
 						ng_opt_df['FltNum'] = self.currParams.flight_number
 						ng_opt_df['DepDate'] = dateFormatted_yyyymmdd
 						ng_opt_df['RunId'] = self.runId
+						ng_opt_df['runid'] = self.runId
 
 						# Build ordered list of bucket intervals for mapping RBDs to NextGen AU ladder
 						bucket_intervals = []
