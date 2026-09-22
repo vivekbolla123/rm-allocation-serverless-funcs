@@ -710,7 +710,15 @@ def compute_flight_inventory_ng(
     A = anchor_fare
     C = strategy_fare
 
-    if A >= C or strategy_fare is None or pd.isna(strategy_fare):
+    strat_candidates = [f for f in fares if f <= C]
+    C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
+    strat_idx = fares.index(C_ladder)
+
+    anchor_candidates = [f for f in fares if f <= A]
+    a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
+    a_idx = fares.index(a_ladder)
+
+    if C_ladder <= a_ladder or strategy_fare is None or pd.isna(strategy_fare):
         P_eq_list = [np.nan] * n
         mu_bar_2_list = mu_bar_list
         mu_2_list = mu
@@ -720,13 +728,9 @@ def compute_flight_inventory_ng(
         y_2_list = y_list
         au_2_list = au_list
         au_revised = [float(x) for x in au_2_list]
-        strat_idx = next((i for i, f in enumerate(fares) if f <= C), 0)
         au_revised[strat_idx] = min(au_revised[strat_idx], cb + first_rbd_seats)
     else:
         P_max = fares[0]
-        strat_candidates = [f for f in fares if f <= C]
-        C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
-        strat_idx = fares.index(C_ladder)
 
         P_eq_list = []
         mu_bar_2_list = []
@@ -772,13 +776,8 @@ def compute_flight_inventory_ng(
             else:
                 mu_2_list.append(max(0.0, mu_bar_2_list[i] - mu_bar_2_list[i-1]))
 
-        if sigma:
-            sigma_2_list = [
-                float(sigma[i]) * (mu_2_list[i] / float(mu[i])) if float(mu[i]) > 0 else (sig_fact * mu_2_list[i])
-                for i in range(n)
-            ]
-        else:
-            sigma_2_list = [sig_fact * m for m in mu_2_list]
+        # For redistributed demand, standard deviation is parameterized by sig_fact * mu_2
+        sigma_2_list = [sig_fact * m for m in mu_2_list]
         sigma_3_list = sigma_2_list
         sigma_bar_3_list = [sig_fact * sum(mu_2_list[:j+1]) for j in range(n)]
 

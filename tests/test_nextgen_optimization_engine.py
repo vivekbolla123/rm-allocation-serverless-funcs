@@ -424,6 +424,60 @@ class TestNextGenOptimizationEngine:
         assert (below_anchor['A_cap'] == 0.0).all()
         assert (below_anchor['Expected_Revenue'] == 0.0).all()
 
+    def test_excel_local_sheet_competition_response_flight_1120(self):
+        """
+        Verify that NextGen revenue calculation matches the local sheet in
+        AUOptTestoutput2 (1).xlsx for flight 1120 where competition response triggers demand redistribution.
+        Verifies helper column A_cap and Expected_Revenue = fare * A_cap.
+        """
+        excel_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "AUOptTestoutput2 (1).xlsx")
+        if not os.path.exists(excel_path):
+            pytest.skip("AUOptTestoutput2 (1).xlsx not found for integration test")
+
+        df_local = pd.read_excel(excel_path, sheet_name='local')
+        f1120 = df_local[(df_local['flight'] == 1120) & (df_local['date'] == '2026-10-01')].copy().reset_index(drop=True)
+
+        ladder_df = pd.DataFrame({
+            'FareBucket': f1120['FareBucket'],
+            'fare': f1120['fare'],
+            'mu': f1120['mu_LOCAL'],
+            'sigma': f1120['sigma']
+        })
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df,
+            capacity=int(f1120['capacity'].iloc[0]),
+            current_bookings=float(f1120['Total_Bookings'].iloc[0]),
+            current_revenue=float(f1120['Current_Revenue'].iloc[0]),
+            market_fares=[{
+                'gross_fare': 7463.81,
+                'outbound_airline_code': '6E',
+                'outbound_flight': '',
+                'outbound_departuretime': '19:00',
+                'outbound_stops': 0
+            }],
+            flight_std='19:00',
+            curr_params={
+                'origin': 'BOM',
+                'destin': 'DEL',
+                'route': 'BOMDEL',
+                'flight_number': 1120,
+                'ndocounter': 10,
+                'buy_up_factor_NG': 0.0,
+                'competition_response_flag_NG': 1,
+                'CompetitionResponseGrid_NG': 'DEFAULT',
+                'promo_flag_NG': 0,
+                'pmin_threshold_factor_NG': 0.1
+            }
+        )
+
+        assert np.isclose(summary['Total_Expected_Revenue'], f1120['Total_Expected_Revenue'].iloc[0], atol=1.0)
+        assert np.isclose(summary['Predicted_Revenue'], f1120['Predicted_Revenue'].iloc[0], atol=1.0)
+        assert np.isclose(summary['NG_AF_Forecast'], f1120['AF_Forecast_LOCAL'].iloc[0], atol=1e-2)
+        assert np.allclose(final_df['A_cap'].values, f1120['A_cap'].values, atol=1e-4)
+        assert np.allclose(final_df['Expected_Revenue'].values, f1120['Expected_Revenue'].values, atol=1.0)
+
+
 
 
 

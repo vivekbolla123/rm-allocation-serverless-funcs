@@ -71,17 +71,17 @@ class NextGenOptimizationEngine:
     def get_ndo_band(cls, ndo, db_helper=None):
         """
         Dynamically determines the NDO band for a given NDO.
-        Queries ndo_bands via db_helper.
+        Queries ndo_bands via db_helper using (start, end] interval convention.
         """
         n = int(ndo) if ndo is not None else 0
-        if db_helper and hasattr(db_helper, 'getNdoBand'):
-            band = db_helper.getNdoBand(n)
-            if band is not None:
-                return band
+        if n <= 0:
+            return 0
+        elif n == 1:
+            return 1
 
         if hasattr(db_helper, 'db') and hasattr(db_helper.db, 'ndo_bands'):
             try:
-                rec = db_helper.db.ndo_bands.find_one({"start": {"$lte": n}, "end": {"$gt": n}})
+                rec = db_helper.db.ndo_bands.find_one({"start": {"$lt": n}, "end": {"$gte": n}})
                 if rec:
                     return rec.get("ndo_band", rec.get("id"))
             except Exception as e:
@@ -412,23 +412,13 @@ class NextGenOptimizationEngine:
             return C_val
 
     @classmethod
-    def determine_strategy_fare(cls, response_fare, ladder_df, fare_col='fare'):
+    def determine_strategy_fare(cls, response_fare, ladder_df=None, fare_col='fare'):
         """
-        Strategy Fare C is the highest ladder fare lower than (or equal to) the response fare.
+        Strategy Fare C is the response fare from competition response evaluation.
         """
         if response_fare is None or pd.isna(response_fare):
             return None
-
-        if fare_col not in ladder_df.columns:
-            fare_col = next((c for c in ['fare', 'FareBucket_Lower', 'FareMidpoint', 'TOTAL', 'Total'] if c in ladder_df.columns), None)
-            if not fare_col:
-                return float(response_fare)
-
-        fares = pd.to_numeric(ladder_df[fare_col], errors='coerce').dropna().sort_values(ascending=False).tolist()
-        valid = [f for f in fares if f <= float(response_fare)]
-        if valid:
-            return float(valid[0])
-        return float(fares[-1]) if fares else float(response_fare)
+        return float(response_fare)
 
     @classmethod
     def redistribute_demand_and_compute_revised_au(
@@ -477,8 +467,14 @@ class NextGenOptimizationEngine:
         sig_fact = float(sigma_factor) if sigma_factor is not None else 0.25
         first_rbd_seats = float(first_rbd) if first_rbd is not None else 20.0
 
-        # If Anchor >= Strategy or Comp missing, no demand redistribution
-        if A >= C or strategy_fare is None or pd.isna(strategy_fare):
+        strat_candidates = [f for f in fares if f <= C]
+        C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
+
+        anchor_candidates = [f for f in fares if f <= A]
+        a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
+
+        # If C_ladder <= a_ladder or Comp missing, no demand redistribution
+        if C_ladder <= a_ladder or strategy_fare is None or pd.isna(strategy_fare):
             df.attrs['p_min_old'] = A
             df['P_eq'] = np.nan
             df['mu_bar_2'] = df['mu_bar']
@@ -494,7 +490,7 @@ class NextGenOptimizationEngine:
             df['AU_2'] = df['AU']
             
             au_rev = df['AU_2'].copy().tolist()
-            strat_idx = next((i for i, f in enumerate(fares) if f <= C), 0)
+            strat_idx = fares.index(C_ladder)
             au_rev[strat_idx] = min(au_rev[strat_idx], cb + first_rbd_seats)
 
             # Apply backstop floor
@@ -543,14 +539,9 @@ class NextGenOptimizationEngine:
             df.attrs['anchor_fare'] = float(A)
             return df
 
-        # --- A < C: Demand Redistribution Triggers ---
+        # --- C_ladder > a_ladder: Demand Redistribution Triggers ---
         P_max = fares[0]
-        strat_candidates = [f for f in fares if f <= C]
-        C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
         strat_idx = fares.index(C_ladder)
-
-        anchor_candidates = [f for f in fares if f <= A]
-        a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
         a_idx = fares.index(a_ladder)
 
         # Calculate Pmin_old by taking sum of mu in original demand distribution
@@ -615,14 +606,8 @@ class NextGenOptimizationEngine:
             else:
                 mu_2_list.append(max(0.0, mu_bar_2_list[i] - mu_bar_2_list[i-1]))
 
-        if 'sigma' in df.columns:
-            orig_mu = df['mu'].tolist()
-            sigma_2_list = [
-                float(df['sigma'].iloc[i]) * (mu_2_list[i] / float(orig_mu[i])) if float(orig_mu[i]) > 0 else (sig_fact * mu_2_list[i])
-                for i in range(n)
-            ]
-        else:
-            sigma_2_list = [sig_fact * m for m in mu_2_list]
+        # For redistributed demand, standard deviation is parameterized by sig_fact * mu_2
+        sigma_2_list = [sig_fact * m for m in mu_2_list]
 
         df['P_eq'] = P_eq_list
         df['mu_bar_2'] = mu_bar_2_list

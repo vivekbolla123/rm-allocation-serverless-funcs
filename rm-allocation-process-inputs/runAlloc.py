@@ -1712,6 +1712,15 @@ class DynAlloc:
 							pass
 					curr_rev = weighted_rev if weighted_rev is not None else (float(currBookedLoad) * float(avg_fare_val))
 
+					ndo_val = int(getattr(state, 'ndocounter', 0))
+					if s3_bucket_df is not None and not s3_bucket_df.empty:
+						if 'future_flight_NDO' in s3_bucket_df.columns and pd.notna(s3_bucket_df['future_flight_NDO'].iloc[0]):
+							try:
+								ndo_val = int(s3_bucket_df['future_flight_NDO'].iloc[0])
+							except (ValueError, TypeError):
+								pass
+					self.currParams.ndocounter = ndo_val
+
 					ng_opt_df, ng_summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
 						ladder_df, final_totalCapacity, currBookedLoad, curr_rev,
 						market_fares=mkt_fares,
@@ -1731,9 +1740,9 @@ class DynAlloc:
 					ng_row.Capacity = final_totalCapacity
 					ng_row.NG_FirstRBD = ng_summary.get('NG_FirstRBD')
 					ng_row.Predicted_Flown_Revised = ng_summary.get('Predicted_Flown_Revised')
-					ng_row.MarketFare_Selected = ng_summary.get('MarketFare_Min_AllIn', ng_summary.get('MarketFare_Selected'))
-					ng_row.MarketFare_Min = ng_summary.get('MarketFare_Min_AllIn', ng_summary.get('MarketFare_Min'))
-					ng_row.MarketFare_Max = ng_summary.get('MarketFare_Max_AllIn', ng_summary.get('MarketFare_Max'))
+					ng_row.MarketFare_Selected = ng_summary.get('MarketFare_Selected', ng_summary.get('MarketFare_Min'))
+					ng_row.MarketFare_Min = ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn'))
+					ng_row.MarketFare_Max = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn'))
 					ng_row.Grid_Name = ng_summary.get('Grid_Name')
 					ng_row.Rule_Applied = ng_summary.get('Rule_Applied')
 					ng_row.nextgen_flag = getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))
@@ -1776,12 +1785,12 @@ class DynAlloc:
 						ng_opt_df['DOW'] = dep_dow
 						ng_opt_df['STD'] = std_str
 						ng_opt_df['flight'] = self.currParams.flight_number
-						ng_opt_df['NDO'] = int(getattr(self.currParams, 'ndocounter', 0))
+						ng_opt_df['NDO'] = ndo_val
 						ng_opt_df['capacity'] = final_totalCapacity
 						ng_opt_df['Total_Bookings'] = currBookedLoad
 						ng_opt_df['fare'] = ng_opt_df.get('fare', 0.0)
-						ng_opt_df['oal_b2c_min'] = ng_summary.get('MarketFare_Min_AllIn', ng_summary.get('MarketFare_Min', 0.0))
-						ng_opt_df['oal_b2c_max'] = ng_summary.get('MarketFare_Max_AllIn', ng_summary.get('MarketFare_Max', 0.0))
+						ng_opt_df['oal_b2c_min'] = ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn', 0.0))
+						ng_opt_df['oal_b2c_max'] = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn', 0.0))
 						ng_opt_df['qp_b2c_min'] = min(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
 						ng_opt_df['qp_b2c_max'] = max(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
 						ng_opt_df['anchor_fare'] = ng_summary.get('Anchor_fare', 0.0)
@@ -1800,9 +1809,13 @@ class DynAlloc:
 						ng_opt_df['Denominator'] = ng_opt_df['Capped_Predicted_Flown_Revised']
 						ng_opt_df['Current_Revenue'] = curr_rev
 						if 'Expected_Revenue' not in ng_opt_df.columns:
-							ng_opt_df['Expected_Revenue'] = 0.0
-						ng_opt_df['Total_Expected_Revenue'] = ng_summary.get('Total_Expected_Revenue', 0.0)
-						ng_opt_df['Predicted_Revenue'] = ng_summary.get('Predicted_Revenue', 0.0)
+							if 'A_cap' in ng_opt_df.columns and 'fare' in ng_opt_df.columns:
+								ng_opt_df['Expected_Revenue'] = ng_opt_df['fare'] * ng_opt_df['A_cap']
+							else:
+								ng_opt_df['Expected_Revenue'] = 0.0
+						tot_exp_rev = float(ng_opt_df['Expected_Revenue'].sum()) if 'Expected_Revenue' in ng_opt_df.columns else ng_summary.get('Total_Expected_Revenue', 0.0)
+						ng_opt_df['Total_Expected_Revenue'] = tot_exp_rev
+						ng_opt_df['Predicted_Revenue'] = curr_rev + tot_exp_rev
 						ng_opt_df['SnapshotDate'] = getattr(self.currParams, 'currDate', datetime.now().strftime('%Y-%m-%d'))
 						ng_opt_df['Tagging'] = getattr(self.currParams, 'tagging', 'Shoulder')
 						ng_opt_df['STD_future'] = std_str
