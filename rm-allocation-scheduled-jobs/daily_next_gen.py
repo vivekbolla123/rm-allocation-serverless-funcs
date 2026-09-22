@@ -31,38 +31,39 @@ from concurrent.futures import ThreadPoolExecutor
 import boto3
 import pandas as pd
 import numpy as np
+import math
+from statistics import NormalDist
+
+class _NormAdapter:
+    @staticmethod
+    def ppf(p):
+        if isinstance(p, (np.ndarray, list)):
+            p = np.clip(p, 1e-12, 1.0 - 1e-12)
+            return np.vectorize(lambda val: NormalDist().inv_cdf(float(val)))(p)
+        p_clipped = float(np.clip(p, 1e-12, 1.0 - 1e-12))
+        return NormalDist().inv_cdf(p_clipped)
+
+    @staticmethod
+    def pdf(x):
+        if isinstance(x, (np.ndarray, list)):
+            x = np.array(x, dtype=float)
+            return (1.0 / math.sqrt(2.0 * math.pi)) * np.exp(-0.5 * x * x)
+        x = float(x)
+        return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
+
+    @staticmethod
+    def cdf(x):
+        if isinstance(x, (np.ndarray, list)):
+            x = np.array(x, dtype=float)
+            return 0.5 * (1.0 + np.vectorize(math.erf)(x / math.sqrt(2.0)))
+        x = float(x)
+        return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
 try:
     from scipy.stats import norm
 except (ImportError, ModuleNotFoundError):
-    import math
-    from statistics import NormalDist
-
-    class _NormAdapter:
-        @staticmethod
-        def ppf(p):
-            if isinstance(p, (np.ndarray, list)):
-                p = np.clip(p, 1e-12, 1.0 - 1e-12)
-                return np.vectorize(lambda val: NormalDist().inv_cdf(float(val)))(p)
-            p_clipped = float(np.clip(p, 1e-12, 1.0 - 1e-12))
-            return NormalDist().inv_cdf(p_clipped)
-
-        @staticmethod
-        def pdf(x):
-            if isinstance(x, (np.ndarray, list)):
-                x = np.array(x, dtype=float)
-                return (1.0 / math.sqrt(2.0 * math.pi)) * np.exp(-0.5 * x * x)
-            x = float(x)
-            return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
-
-        @staticmethod
-        def cdf(x):
-            if isinstance(x, (np.ndarray, list)):
-                x = np.array(x, dtype=float)
-                return 0.5 * (1.0 + np.vectorize(math.erf)(x / math.sqrt(2.0)))
-            x = float(x)
-            return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-
     norm = _NormAdapter()
+
 from pymongo import MongoClient
 
 try:
@@ -153,7 +154,15 @@ def compute_flight_inventory_ng(
     dow = str(df['DOW'].iloc[0]) if 'DOW' in df.columns else (pd.to_datetime(raw_date).day_name() if pd.notna(raw_date) else '')
     std_str = str(df['STD'].iloc[0]) if 'STD' in df.columns else str(df.get('STD_future', pd.Series([''])).iloc[0])
     flt_col_val = df['FlightNumber'].iloc[0] if 'FlightNumber' in df.columns else (df.get('FlightNumber_future', df.get('flight', pd.Series([0]))).iloc[0])
-    flt_num = int(flt_col_val) if pd.notna(flt_col_val) else 0
+    try:
+        flt_num = int(float(flt_col_val)) if pd.notna(flt_col_val) else 0
+    except (ValueError, TypeError):
+        raw_str = str(flt_col_val).strip()
+        m = re.search(r'(\d+(?:\.\d+)?)', raw_str)
+        try:
+            flt_num = int(float(m.group(1))) if m else 0
+        except (ValueError, TypeError):
+            flt_num = 0
 
     cap_val = capacity if capacity is not None else (df['Capacity'].iloc[0] if 'Capacity' in df.columns and pd.notna(df['Capacity'].iloc[0]) else df.get('capacity', pd.Series([189.0])).iloc[0])
     cap = float(cap_val) if pd.notna(cap_val) and float(cap_val) > 0 else 189.0
@@ -169,16 +178,32 @@ def compute_flight_inventory_ng(
 
     snap_date = df['SnapshotDate'].iloc[0] if 'SnapshotDate' in df.columns else (df.get('snapshot_date', pd.Series([datetime.today().strftime('%Y-%m-%d')])).iloc[0])
     tagging_val = df['Tagging'].iloc[0] if 'Tagging' in df.columns else df.get('tagging', pd.Series(['Normal'])).iloc[0]
-    ndo_val = int(df['future_flight_NDO'].iloc[0]) if 'future_flight_NDO' in df.columns and pd.notna(df['future_flight_NDO'].iloc[0]) else (int(df.get('NDO', pd.Series([0])).iloc[0]) if 'NDO' in df.columns else 0)
+    raw_ndo = df['future_flight_NDO'].iloc[0] if 'future_flight_NDO' in df.columns and pd.notna(df['future_flight_NDO'].iloc[0]) else (df.get('NDO', pd.Series([0])).iloc[0] if 'NDO' in df.columns else 0)
+    try:
+        ndo_val = int(float(raw_ndo)) if pd.notna(raw_ndo) else 0
+    except (ValueError, TypeError):
+        ndo_val = 0
 
     # Resolve FareBucket bounds and fare
-    b_col = 'FareBucket' if 'FareBucket' in df.columns else ('FareBasis' if 'FareBasis' in df.columns else 'fare_bucket')
+    b_candidates = ['FareBucket', 'FareBasis', 'fare_bucket', 'Fare_Bucket', 'RBD']
+    b_col = next((c for c in b_candidates if c in df.columns), None)
     if 'FareBucket_Lower' not in df.columns:
-        df['FareBucket_Lower'] = df[b_col].astype(str).str.replace('+', '', regex=False).str.split('-').str[0].astype(float)
+        if b_col:
+            df['FareBucket_Lower'] = pd.to_numeric(
+                df[b_col].astype(str).str.replace('+', '', regex=False).str.split('-').str[0],
+                errors='coerce'
+            ).fillna(0.0)
+        else:
+            df['FareBucket_Lower'] = 0.0
     if 'FareBucket_Upper' not in df.columns:
-        df['FareBucket_Upper'] = pd.to_numeric(df[b_col].astype(str).str.split('-').str[1], errors='coerce')
+        if b_col:
+            df['FareBucket_Upper'] = pd.to_numeric(
+                df[b_col].astype(str).str.split('-').str[1], errors='coerce'
+            )
+        else:
+            df['FareBucket_Upper'] = np.nan
 
-    df['fare'] = df['FareBucket_Lower'].astype(float)
+    df['fare'] = pd.to_numeric(df['FareBucket_Lower'], errors='coerce').fillna(0.0)
     df = df.sort_values('fare', ascending=False).reset_index(drop=True)
 
     if pax_col not in df.columns:
@@ -289,7 +314,7 @@ def compute_flight_inventory_ng(
     res['Predicted_Revenue'] = round(pred_rev, 2)
     res['SnapshotDate'] = snap_date
     res['Tagging'] = tagging_val
-    res['FareBucket'] = df[b_col].values
+    res['FareBucket'] = df[b_col].values if b_col else 'Y'
     res['sigma'] = sigma_arr
     res['STD_future'] = std_str
     res['qp_b2c_min'] = anchor_fare
@@ -309,12 +334,21 @@ def compute_inventory_ng_df(df, pax_col='Final_pax_count', std_col='weighted_pax
     if df is None or df.empty:
         return pd.DataFrame(columns=INVENTORY_NG_COLUMNS)
 
-    sec_col = 'Sector' if 'Sector' in df.columns else 'sector'
-    dep_col = 'DepartureDate' if 'DepartureDate' in df.columns else ('DepartureDate_future' if 'DepartureDate_future' in df.columns else 'date')
-    flt_col = 'FlightNumber' if 'FlightNumber' in df.columns else ('FlightNumber_future' if 'FlightNumber_future' in df.columns else 'flight')
+    sec_candidates = ['Sector', 'sector', 'Origin_Destination']
+    dep_candidates = ['DepartureDate', 'DepartureDate_future', 'date', 'DepDate']
+    flt_candidates = ['FlightNumber', 'FlightNumber_future', 'flight', 'FltNum']
+
+    sec_col = next((c for c in sec_candidates if c in df.columns), None)
+    dep_col = next((c for c in dep_candidates if c in df.columns), None)
+    flt_col = next((c for c in flt_candidates if c in df.columns), None)
+
+    group_cols = [c for c in [sec_col, dep_col, flt_col] if c is not None]
+    if not group_cols:
+        res = compute_flight_inventory_ng(df, pax_col=pax_col, std_col=std_col)
+        return res if not res.empty else pd.DataFrame(columns=INVENTORY_NG_COLUMNS)
 
     results = []
-    for _, grp in df.groupby([sec_col, dep_col, flt_col], sort=False):
+    for _, grp in df.groupby(group_cols, sort=False):
         res = compute_flight_inventory_ng(grp, pax_col=pax_col, std_col=std_col)
         if not res.empty:
             results.append(res)
@@ -343,16 +377,16 @@ class DailyNextGen:
 
         # 1. Resolve environment configuration
         default_env = getattr(configsettings, 'env', 'prod') if configsettings else 'prod'
-        self.env = str(self.overrides.get('ENV', default_env)).lower()
+        self.env = str(self._get_override('ENV', default_env)).lower()
         self.is_prod = (self.env == 'prod')
 
-        self.mongo_env = str(self.overrides.get('MONGO_ENV', '')).lower() or self.env
+        self.mongo_env = str(self._get_override('MONGO_ENV', '')).lower() or self.env
         self.is_mongo_prod = (self.mongo_env == 'prod')
 
-        self.snapshot_date_arg = str(self.overrides.get('SNAPSHOT_DATE', 'latest')).strip()
+        self.snapshot_date_arg = str(self._get_override('SNAPSHOT_DATE', 'latest')).strip()
 
         # Handle sectors filter (list or comma-separated string)
-        raw_sectors = self.overrides.get('SECTORS', '')
+        raw_sectors = self._get_override('SECTORS', '')
         if isinstance(raw_sectors, list):
             self.sectors_filter = [str(s).strip().upper() for s in raw_sectors if str(s).strip()]
         elif isinstance(raw_sectors, str):
@@ -360,16 +394,17 @@ class DailyNextGen:
         else:
             self.sectors_filter = []
 
-        self.write_mongo = self._to_bool(self.overrides.get('WRITE_MONGO', True))
-        self.write_s3_snapshots = self._to_bool(self.overrides.get('WRITE_S3_SNAPSHOTS', True))
-        self.compute_inventory_ng = self._to_bool(self.overrides.get('COMPUTE_INVENTORY_NG', True))
+        self.write_mongo = self._to_bool(self._get_override('WRITE_MONGO', True))
+        self.write_s3_snapshots = self._to_bool(self._get_override('WRITE_S3_SNAPSHOTS', True))
+        self.compute_inventory_ng = self._to_bool(self._get_override('COMPUTE_INVENTORY_NG', True))
 
         # 2. S3 configuration
-        s3_bucket_override = self.overrides.get('S3_BUCKET')
+        s3_bucket_override = self._get_override('S3_BUCKET')
         if s3_bucket_override:
             self.s3_bucket = s3_bucket_override
         else:
-            self.s3_bucket = 'qp-s3-fs' if self.is_prod else 'uat-qp-s3-fs'
+            default_bucket = getattr(configsettings, 'ADDITIVE_MODEL_BUCKET', 'qp-s3-fs' if self.is_prod else 'uat-qp-s3-fs') if configsettings else ('qp-s3-fs' if self.is_prod else 'uat-qp-s3-fs')
+            self.s3_bucket = default_bucket
 
         self.s3_env_prefix = 'prod' if self.is_prod else 'uat'
         self.s3_datasets_prefix = f"{self.s3_env_prefix}/additive_model/datasets"
@@ -379,8 +414,19 @@ class DailyNextGen:
         self.s3_client = self.params.get('s3') or boto3.client('s3', region_name='ap-south-1')
 
         # 3. MongoDB configuration
-        self.mongo_db_name = self.overrides.get('MONGO_DB', os.environ.get('MONGO_DB', 'qp_dw_rmalloc'))
+        self.mongo_db_name = self._get_override('MONGO_DB', os.environ.get('MONGO_DB', 'qp_dw_rmalloc'))
         self._mongo_client = self.params.get('mongoconn')
+
+    def _get_override(self, key, default=None):
+        if not self.overrides:
+            return default
+        if key in self.overrides:
+            return self.overrides[key]
+        if key.lower() in self.overrides:
+            return self.overrides[key.lower()]
+        if key.upper() in self.overrides:
+            return self.overrides[key.upper()]
+        return default
 
     @staticmethod
     def _to_bool(val):
@@ -394,17 +440,17 @@ class DailyNextGen:
             return self._mongo_client[self.mongo_db_name]
 
         if self.is_mongo_prod:
-            mongo_url = os.environ.get('MONGO_URL', os.environ.get('MONGO_HOST', "10.16.6.179"))
-            mongo_port = int(os.environ.get('MONGO_PORT', 27017))
-            mongo_username = os.environ.get('MONGO_USERNAME', os.environ.get('MONGO_USER', "rmuser"))
-            mongo_password = os.environ.get('MONGO_PASSWORD') or get_ssm_parameter('/rm/prod/rm-allocation/RM_MONGO_PASSWORD', logger=self.logger) or ''
-            mongo_auth_source = os.environ.get('MONGO_AUTH_SOURCE', "admin")
+            mongo_url = os.environ.get('MONGO_URL', getattr(configsettings, 'MONGO_URL', os.environ.get('MONGO_HOST', "10.16.6.179")) if configsettings else os.environ.get('MONGO_HOST', "10.16.6.179"))
+            mongo_port = int(os.environ.get('MONGO_PORT', getattr(configsettings, 'MONGO_PORT', 27017) if configsettings else 27017))
+            mongo_username = os.environ.get('MONGO_USERNAME', getattr(configsettings, 'MONGO_USERNAME', os.environ.get('MONGO_USER', "rmuser")) if configsettings else os.environ.get('MONGO_USER', "rmuser"))
+            mongo_password = os.environ.get('MONGO_PASSWORD') or (getattr(configsettings, 'MONGO_PASSWORD', None) if configsettings else None) or get_ssm_parameter('/rm/prod/rm-allocation/RM_MONGO_PASSWORD', logger=self.logger) or ''
+            mongo_auth_source = os.environ.get('MONGO_AUTH_SOURCE', getattr(configsettings, 'MONGO_AUTH_SOURCE', "admin") if configsettings else "admin")
         else:
-            mongo_url = os.environ.get('MONGO_URL', os.environ.get('MONGO_HOST', "172.24.72.35"))
-            mongo_port = int(os.environ.get('MONGO_PORT', 27017))
-            mongo_username = os.environ.get('MONGO_USERNAME', os.environ.get('MONGO_USER', "testuser"))
-            mongo_password = os.environ.get('MONGO_PASSWORD') or get_ssm_parameter('/rm/uat/rm-allocation/RM_MONGO_PASSWORD', logger=self.logger) or 'testpassword'
-            mongo_auth_source = os.environ.get('MONGO_AUTH_SOURCE', "admin")
+            mongo_url = os.environ.get('MONGO_URL', getattr(configsettings, 'MONGO_URL', os.environ.get('MONGO_HOST', "172.24.72.35")) if configsettings else os.environ.get('MONGO_HOST', "172.24.72.35"))
+            mongo_port = int(os.environ.get('MONGO_PORT', getattr(configsettings, 'MONGO_PORT', 27017) if configsettings else 27017))
+            mongo_username = os.environ.get('MONGO_USERNAME', getattr(configsettings, 'MONGO_USERNAME', os.environ.get('MONGO_USER', "testuser")) if configsettings else os.environ.get('MONGO_USER', "testuser"))
+            mongo_password = os.environ.get('MONGO_PASSWORD') or (getattr(configsettings, 'MONGO_PASSWORD', None) if configsettings else None) or get_ssm_parameter('/rm/uat/rm-allocation/RM_MONGO_PASSWORD', logger=self.logger) or 'testpassword'
+            mongo_auth_source = os.environ.get('MONGO_AUTH_SOURCE', getattr(configsettings, 'MONGO_AUTH_SOURCE', "admin") if configsettings else "admin")
 
         kwargs = {
             'host': mongo_url,
@@ -460,12 +506,26 @@ class DailyNextGen:
                 if not key.endswith('.parquet'):
                     continue
 
-                sec_match = re.search(r'sector=([A-Za-z0-9_]+)', key)
+                sec_match = re.search(r'sector=([A-Za-z0-9_\-\.]+)', key, re.IGNORECASE)
                 sector_val = sec_match.group(1) if sec_match else ''
                 if sectors_filter and sector_val.upper() not in sectors_filter:
                     continue
 
                 keys_to_fetch.append((key, sector_val))
+
+        # Fallback to uppercase SnapshotDate if lowercase yielded nothing
+        if not keys_to_fetch:
+            alt_prefix = f"{self.s3_datasets_prefix}/{dataset_name}/SnapshotDate={snapshot_date}/"
+            for page in paginator.paginate(Bucket=self.s3_bucket, Prefix=alt_prefix):
+                for obj in page.get('Contents', []):
+                    key = obj['Key']
+                    if not key.endswith('.parquet'):
+                        continue
+                    sec_match = re.search(r'sector=([A-Za-z0-9_\-\.]+)', key, re.IGNORECASE)
+                    sector_val = sec_match.group(1) if sec_match else ''
+                    if sectors_filter and sector_val.upper() not in sectors_filter:
+                        continue
+                    keys_to_fetch.append((key, sector_val))
 
         dfs = []
         def _read_single_s3_parquet(item):
@@ -578,7 +638,11 @@ class DailyNextGen:
                 if total_records > 0:
                     for i in range(0, total_records, chunksize):
                         chunk = clean_df.iloc[i:i + chunksize].to_dict('records')
-                        col.insert_many(chunk, ordered=False)
+                        cleaned_chunk = [
+                            {k: (None if (v is pd.NA or (isinstance(v, float) and np.isnan(v))) else v) for k, v in doc.items()}
+                            for doc in chunk
+                        ]
+                        col.insert_many(cleaned_chunk, ordered=False)
                     try:
                         cols = set(clean_df.columns)
                         if {'Sector', 'DepartureDate', 'FlightNumber'}.issubset(cols):
@@ -608,94 +672,107 @@ class DailyNextGen:
         run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         start_time = time.time()
 
-        self.logger.info("=" * 80)
-        self.logger.info("Daily NextGen Additive Model Sync & Inventory Optimization")
-        self.logger.info(f"  Environment:            {self.env.upper()} (is_prod={self.is_prod})")
-        self.logger.info(f"  Mongo Environment:      {self.mongo_env.upper()} (is_mongo_prod={self.is_mongo_prod})")
-        self.logger.info(f"  Snapshot Date:          {self.snapshot_date_arg}")
-        self.logger.info(f"  Sectors Filter:         {self.sectors_filter if self.sectors_filter else '(All sectors)'}")
-        self.logger.info(f"  Write to Mongo:         {self.write_mongo}")
-        self.logger.info(f"  Write S3 Snapshots:     {self.write_s3_snapshots}")
-        self.logger.info(f"  Compute Inventory NG:   {self.compute_inventory_ng}")
-        self.logger.info("=" * 80)
+        try:
+            self.logger.info("=" * 80)
+            self.logger.info("Daily NextGen Additive Model Sync & Inventory Optimization")
+            self.logger.info(f"  Environment:            {self.env.upper()} (is_prod={self.is_prod})")
+            self.logger.info(f"  Mongo Environment:      {self.mongo_env.upper()} (is_mongo_prod={self.is_mongo_prod})")
+            self.logger.info(f"  Snapshot Date:          {self.snapshot_date_arg}")
+            self.logger.info(f"  Sectors Filter:         {self.sectors_filter if self.sectors_filter else '(All sectors)'}")
+            self.logger.info(f"  Write to Mongo:         {self.write_mongo}")
+            self.logger.info(f"  Write S3 Snapshots:     {self.write_s3_snapshots}")
+            self.logger.info(f"  Compute Inventory NG:   {self.compute_inventory_ng}")
+            self.logger.info("=" * 80)
 
-        # 1. Resolve Snapshot Date
-        target_snapshot_date = self.snapshot_date_arg
-        if target_snapshot_date.lower() == 'latest':
-            target_snapshot_date = self.discover_latest_snapshot_date('fare_bucket_weighted')
+            # 1. Resolve Snapshot Date
+            target_snapshot_date = self.snapshot_date_arg
+            if target_snapshot_date.lower() == 'latest':
+                target_snapshot_date = self.discover_latest_snapshot_date('fare_bucket_weighted')
 
-        self.logger.info(f"Starting additive model sync pipeline for SnapshotDate: {target_snapshot_date}")
+            self.logger.info(f"Starting additive model sync pipeline for SnapshotDate: {target_snapshot_date}")
 
-        # 2. Ingest S3 Parquet: fare_bucket_weighted
-        fare_bucket_df = self.read_partitioned_parquet('fare_bucket_weighted', target_snapshot_date, self.sectors_filter)
-        if fare_bucket_df.empty:
-            self.logger.error(f"No fare_bucket_weighted data found for {target_snapshot_date}! Aborting.")
+            # 2. Ingest S3 Parquet: fare_bucket_weighted
+            fare_bucket_df = self.read_partitioned_parquet('fare_bucket_weighted', target_snapshot_date, self.sectors_filter)
+            if fare_bucket_df.empty:
+                self.logger.error(f"No fare_bucket_weighted data found for {target_snapshot_date}! Aborting.")
+                return {
+                    "status": "failed",
+                    "error": f"No fare_bucket_weighted data found for {target_snapshot_date}",
+                    "snapshot_date": target_snapshot_date
+                }
+
+            # 3. Ensure bucket bounds are present for rm-allocation-process-inputs
+            if 'FareBucket_Lower' not in fare_bucket_df.columns:
+                b_col = 'FareBucket' if 'FareBucket' in fare_bucket_df.columns else ('FareBasis' if 'FareBasis' in fare_bucket_df.columns else None)
+                if b_col and b_col in fare_bucket_df.columns:
+                    fare_bucket_df['FareBucket_Lower'] = pd.to_numeric(
+                        fare_bucket_df[b_col].astype(str).str.replace('+', '', regex=False)
+                        .str.split('-').str[0], errors='coerce'
+                    ).fillna(0.0)
+                    fare_bucket_df['FareBucket_Upper'] = pd.to_numeric(
+                        fare_bucket_df[b_col].astype(str).str.split('-').str[1], errors='coerce'
+                    )
+
+            # 4. Ingest flight_level_weighted (if present)
+            flight_df = self.read_partitioned_parquet('flight_level_weighted', target_snapshot_date, self.sectors_filter)
+
+            # 5. Compute NextGen Inventory Optimization (inventory_ng) if requested
+            inventory_ng_df = None
+            if self.compute_inventory_ng:
+                self.logger.info("Executing NextGen Inventory Optimization (50 columns, EMSR-b AU ladder)...")
+                t_ng0 = time.time()
+                inventory_ng_df = compute_inventory_ng_df(fare_bucket_df)
+                self.logger.info(f"Inventory NG calculation complete in {time.time()-t_ng0:.2f}s ({len(inventory_ng_df)} rows).")
+
+            # 6. S3 Daily Snapshot Archival
+            if self.write_s3_snapshots:
+                self.logger.info("Archiving daily snapshots to S3...")
+                self.upload_snapshot_to_s3(fare_bucket_df, 'add_model_fare_bucket_level_weighted', target_snapshot_date, run_timestamp)
+                if inventory_ng_df is not None and not inventory_ng_df.empty:
+                    self.upload_snapshot_to_s3(inventory_ng_df, 'add_model_inventory_ng', target_snapshot_date, run_timestamp)
+                if flight_df is not None and not flight_df.empty:
+                    self.upload_snapshot_to_s3(flight_df, 'add_model_flight_level_weighted', target_snapshot_date, run_timestamp)
+
+            # 7. Persistence: MongoDB (weighted file & NextGen outputs)
+            if self.write_mongo:
+                self.logger.info("Storing datasets into MongoDB...")
+                # A. Weighted file (add_model_fare_bucket_level_weighted) -> MongoDB
+                self.write_to_mongo_collection(fare_bucket_df, 'add_model_fare_bucket_level_weighted')
+
+                # B. NextGen Inventory Optimization output (add_model_inventory_ng) -> MongoDB
+                if inventory_ng_df is not None and not inventory_ng_df.empty:
+                    self.logger.info("Storing NextGen inventory optimization into MongoDB collection 'add_model_inventory_ng'...")
+                    self.write_to_mongo_collection(inventory_ng_df, 'add_model_inventory_ng')
+
+                # C. Flight-level weighted output (add_model_flight_level_weighted) -> MongoDB
+                if flight_df is not None and not flight_df.empty:
+                    self.logger.info("Storing flight-level weighted into MongoDB collection 'add_model_flight_level_weighted'...")
+                    self.write_to_mongo_collection(flight_df, 'add_model_flight_level_weighted')
+
+            elapsed = round(time.time() - start_time, 2)
+            self.logger.info(f"DailyNextGen pipeline finished successfully in {elapsed}s.")
+
             return {
-                "status": "failed",
-                "error": f"No fare_bucket_weighted data found for {target_snapshot_date}",
-                "snapshot_date": target_snapshot_date
+                "status": "success",
+                "snapshot_date": target_snapshot_date,
+                "fare_bucket_rows": len(fare_bucket_df),
+                "inventory_ng_rows": len(inventory_ng_df) if inventory_ng_df is not None else 0,
+                "flight_level_rows": len(flight_df) if flight_df is not None else 0,
+                "elapsed_seconds": elapsed,
+                "run_timestamp": run_timestamp
             }
 
-        # 3. Ensure bucket bounds are present for rm-allocation-process-inputs
-        if 'FareBucket_Lower' not in fare_bucket_df.columns:
-            b_col = 'FareBucket' if 'FareBucket' in fare_bucket_df.columns else 'FareBasis'
-            if b_col in fare_bucket_df.columns:
-                fare_bucket_df['FareBucket_Lower'] = (
-                    fare_bucket_df[b_col].astype(str).str.replace('+', '', regex=False)
-                    .str.split('-').str[0].astype(float)
-                )
-                fare_bucket_df['FareBucket_Upper'] = pd.to_numeric(
-                    fare_bucket_df[b_col].astype(str).str.split('-').str[1], errors='coerce'
-                )
-
-        # 4. Ingest flight_level_weighted (if present)
-        flight_df = self.read_partitioned_parquet('flight_level_weighted', target_snapshot_date, self.sectors_filter)
-
-        # 5. Compute NextGen Inventory Optimization (inventory_ng) if requested
-        inventory_ng_df = None
-        if self.compute_inventory_ng:
-            self.logger.info("Executing NextGen Inventory Optimization (50 columns, EMSR-b AU ladder)...")
-            t_ng0 = time.time()
-            inventory_ng_df = compute_inventory_ng_df(fare_bucket_df)
-            self.logger.info(f"Inventory NG calculation complete in {time.time()-t_ng0:.2f}s ({len(inventory_ng_df)} rows).")
-
-        # 6. S3 Daily Snapshot Archival
-        if self.write_s3_snapshots:
-            self.logger.info("Archiving daily snapshots to S3...")
-            self.upload_snapshot_to_s3(fare_bucket_df, 'add_model_fare_bucket_level_weighted', target_snapshot_date, run_timestamp)
-            if inventory_ng_df is not None and not inventory_ng_df.empty:
-                self.upload_snapshot_to_s3(inventory_ng_df, 'add_model_inventory_ng', target_snapshot_date, run_timestamp)
-            if flight_df is not None and not flight_df.empty:
-                self.upload_snapshot_to_s3(flight_df, 'add_model_flight_level_weighted', target_snapshot_date, run_timestamp)
-
-        # 7. Persistence: MongoDB (weighted file & NextGen outputs)
-        if self.write_mongo:
-            self.logger.info("Storing datasets into MongoDB...")
-            # A. Weighted file (add_model_fare_bucket_level_weighted) -> MongoDB
-            self.write_to_mongo_collection(fare_bucket_df, 'add_model_fare_bucket_level_weighted')
-
-            # B. NextGen Inventory Optimization output (add_model_inventory_ng) -> MongoDB
-            if inventory_ng_df is not None and not inventory_ng_df.empty:
-                self.logger.info("Storing NextGen inventory optimization into MongoDB collection 'add_model_inventory_ng'...")
-                self.write_to_mongo_collection(inventory_ng_df, 'add_model_inventory_ng')
-
-            # C. Flight-level weighted output (add_model_flight_level_weighted) -> MongoDB
-            if flight_df is not None and not flight_df.empty:
-                self.logger.info("Storing flight-level weighted into MongoDB collection 'add_model_flight_level_weighted'...")
-                self.write_to_mongo_collection(flight_df, 'add_model_flight_level_weighted')
-
-        elapsed = round(time.time() - start_time, 2)
-        self.logger.info(f"DailyNextGen pipeline finished successfully in {elapsed}s.")
-
-        return {
-            "status": "success",
-            "snapshot_date": target_snapshot_date,
-            "fare_bucket_rows": len(fare_bucket_df),
-            "inventory_ng_rows": len(inventory_ng_df) if inventory_ng_df is not None else 0,
-            "flight_level_rows": len(flight_df) if flight_df is not None else 0,
-            "elapsed_seconds": elapsed,
-            "run_timestamp": run_timestamp
-        }
+        except Exception as e:
+            elapsed = round(time.time() - start_time, 2)
+            self.logger.error(f"DailyNextGen run encountered critical error: {e}")
+            self.logger.error(traceback.format_exc())
+            return {
+                "status": "failed",
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+                "elapsed_seconds": elapsed,
+                "run_timestamp": run_timestamp
+            }
 
 
 # =============================================================================
