@@ -29,7 +29,38 @@ from datetime import datetime, timedelta
 import boto3
 import pandas as pd
 import numpy as np
-from scipy.stats import norm
+try:
+    from scipy.stats import norm
+except (ImportError, ModuleNotFoundError):
+    import math
+    from statistics import NormalDist
+
+    class _NormAdapter:
+        @staticmethod
+        def ppf(p):
+            if isinstance(p, (np.ndarray, list)):
+                p = np.clip(p, 1e-12, 1.0 - 1e-12)
+                return np.vectorize(lambda val: NormalDist().inv_cdf(float(val)))(p)
+            p_clipped = float(np.clip(p, 1e-12, 1.0 - 1e-12))
+            return NormalDist().inv_cdf(p_clipped)
+
+        @staticmethod
+        def pdf(x):
+            if isinstance(x, (np.ndarray, list)):
+                x = np.array(x, dtype=float)
+                return (1.0 / math.sqrt(2.0 * math.pi)) * np.exp(-0.5 * x * x)
+            x = float(x)
+            return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
+
+        @staticmethod
+        def cdf(x):
+            if isinstance(x, (np.ndarray, list)):
+                x = np.array(x, dtype=float)
+                return 0.5 * (1.0 + np.vectorize(math.erf)(x / math.sqrt(2.0)))
+            x = float(x)
+            return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    norm = _NormAdapter()
 from pymongo import MongoClient
 
 # =============================================================================

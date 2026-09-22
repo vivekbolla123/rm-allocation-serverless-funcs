@@ -44,7 +44,6 @@ from sqlalchemy import text
 import logging
 import os
 import concurrent.futures
-from scipy.stats import norm
 
 import configsettings
 from Constants import *

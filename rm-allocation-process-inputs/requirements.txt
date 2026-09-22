@@ -10,3 +10,4 @@ mysql-connector-python
 pymysql
 datadog-lambda
 cryptography
+scipy>=1.10.0

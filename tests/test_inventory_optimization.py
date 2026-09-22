@@ -20,7 +20,18 @@ import sys
 import pytest
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+try:
+    from scipy.stats import norm
+except (ImportError, ModuleNotFoundError):
+    from statistics import NormalDist
+
+    class _NormAdapter:
+        @staticmethod
+        def ppf(p):
+            p_clipped = float(np.clip(p, 1e-12, 1.0 - 1e-12))
+            return NormalDist().inv_cdf(p_clipped)
+
+    norm = _NormAdapter()
 
 # Add required paths
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -2,7 +2,41 @@ import math
 import re
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
+try:
+    from scipy.stats import norm
+except (ImportError, ModuleNotFoundError):
+    from statistics import NormalDist
+
+    class _NormAdapter:
+        """
+        Pure Python standard-library drop-in replacement for scipy.stats.norm
+        (avoids heavy scipy dependency in AWS Lambda environments).
+        """
+        @staticmethod
+        def ppf(p):
+            if isinstance(p, (np.ndarray, list)):
+                p = np.clip(p, 1e-12, 1.0 - 1e-12)
+                return np.vectorize(lambda val: NormalDist().inv_cdf(float(val)))(p)
+            p_clipped = float(np.clip(p, 1e-12, 1.0 - 1e-12))
+            return NormalDist().inv_cdf(p_clipped)
+
+        @staticmethod
+        def pdf(x):
+            if isinstance(x, (np.ndarray, list)):
+                x = np.array(x, dtype=float)
+                return (1.0 / math.sqrt(2.0 * math.pi)) * np.exp(-0.5 * x * x)
+            x = float(x)
+            return (1.0 / math.sqrt(2.0 * math.pi)) * math.exp(-0.5 * x * x)
+
+        @staticmethod
+        def cdf(x):
+            if isinstance(x, (np.ndarray, list)):
+                x = np.array(x, dtype=float)
+                return 0.5 * (1.0 + np.vectorize(math.erf)(x / math.sqrt(2.0)))
+            x = float(x)
+            return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+    norm = _NormAdapter()
 import logging
 
 from Constants import (
