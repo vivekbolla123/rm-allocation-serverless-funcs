@@ -977,7 +977,10 @@ class RMDatabaseHelper:
                     "end": {"$gt": float(plf)}
                 })
                 if result:
-                    return result.get("plf_band")
+                    val = result.get("plf_band")
+                    if val is None:
+                        val = result.get("id")
+                    return int(val) if val is not None else None
             return None
         except Exception as e:
             self.logger.error(f"Error querying comp_response_plf_bands: {e}")
