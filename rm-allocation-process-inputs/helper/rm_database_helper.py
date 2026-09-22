@@ -918,15 +918,19 @@ class RMDatabaseHelper:
         should_log = True
         if self.inputSource and hasattr(self.inputSource, 'logs') and isinstance(self.inputSource.logs, dict):
             should_log = (self.inputSource.logs.get(CONST_RUN_SUMMARY) == DB)
-        if should_log and hasattr(self, 'db') and hasattr(self.db, 'run_summary_nextgen'):
+        if should_log and hasattr(self, 'db') and self.db is not None:
             latest_row = nextgen_results[-1]
             doc = vars(latest_row) if not isinstance(latest_row, dict) else latest_row.copy()
             doc.pop('_id', None)
             clean_doc = {k: (None if pd.isna(doc.get(k)) else doc.get(k)) for k in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if k in doc}
             try:
-                self.db.run_summary_nextgen.insert_one(clean_doc)
+                self.db.summary_nextgen.insert_one(clean_doc)
             except Exception as e:
-                self.logger.error(f"Error inserting run_summary_nextgen: {e}")
+                self.logger.error(f"Error inserting summary_nextgen: {e}")
+            try:
+                self.db.run_summary_nextgen.insert_one(clean_doc.copy())
+            except Exception as e:
+                pass
 
     def insertInventoryOptimization(self, opt_rows):
         """Persists detailed per-bucket inventory optimization rows to DB if configured."""
