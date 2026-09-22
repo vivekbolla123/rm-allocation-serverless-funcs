@@ -46,6 +46,14 @@ var defaultPlfBands = [
 if (db.comp_response_plf_bands.countDocuments({}) === 0) {
     db.comp_response_plf_bands.insertMany(defaultPlfBands);
     print("Seeded default rows for comp_response_plf_bands");
+} else {
+    // Ensure both id and plf_band exist on existing documents
+    db.comp_response_plf_bands.find({ id: { $exists: false }, plf_band: { $exists: true } }).forEach(function(doc) {
+        db.comp_response_plf_bands.updateOne({ _id: doc._id }, { $set: { id: doc.plf_band } });
+    });
+    db.comp_response_plf_bands.find({ plf_band: { $exists: false }, id: { $exists: true } }).forEach(function(doc) {
+        db.comp_response_plf_bands.updateOne({ _id: doc._id }, { $set: { plf_band: doc.id } });
+    });
 }
 
 // ==========================================
