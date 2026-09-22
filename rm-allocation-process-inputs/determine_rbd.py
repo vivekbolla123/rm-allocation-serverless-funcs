@@ -761,7 +761,7 @@ class DetermineRBD:
             nonlocal toleranceValue
             nonlocal anchorFareBeforeTolerance
             nonlocal T_prime
-            if anchorFareBeforeTolerance == CONST_NA and anchor_fare is not None:
+            if anchorFareBeforeTolerance == CONST_NA and anchor_fare not in (None, CONST_NA, 'NA', ''):
                 anchorFareBeforeTolerance = anchor_fare
 
             has_tol = has_tolerance(tolerance_fare)
@@ -779,7 +779,7 @@ class DetermineRBD:
 
             auto_tolerance_applied = False
             
-            if anchor_fare is not None:
+            if anchor_fare not in (None, CONST_NA, 'NA', ''):
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -916,7 +916,10 @@ class DetermineRBD:
                         
                     if target_tolerance is not None:
                         floor_fare = float(strategyFare) - float(target_tolerance)
-                        x = floor_fare - float(anchor_fare)
+                        try:
+                            x = floor_fare - float(anchor_fare)
+                        except (ValueError, TypeError):
+                            x = 0
                     else:
                         x = 0
                     
@@ -1031,7 +1034,10 @@ class DetermineRBD:
                 return anchor_fare, how_determined
             if tolerance_limit == 0 and not auto_tolerance_applied:
                 return anchor_fare, how_determined
-            anchor_fare = max(tolerance_limit, anchor_fare)
+            try:
+                anchor_fare = max(tolerance_limit, float(anchor_fare))
+            except (ValueError, TypeError):
+                pass
             if (anchor_fare == tolerance_limit):
                 how_determined += '_ToleranceHit'
             
@@ -1262,7 +1268,7 @@ class DetermineRBD:
             nonlocal auto_tolerance_applied
             nonlocal anchorFareBeforeTolerance
             nonlocal T_prime
-            if anchorFareBeforeTolerance == CONST_NA and pre_tolerance_anchor is not None:
+            if anchorFareBeforeTolerance == CONST_NA and pre_tolerance_anchor not in (None, CONST_NA, 'NA', ''):
                 anchorFareBeforeTolerance = pre_tolerance_anchor
 
             has_tol = has_tolerance_fare()
@@ -1279,7 +1285,7 @@ class DetermineRBD:
                 tolerance_limit = 0
 
             # Auto-tolerance history — always maintain history regardless of flag
-            if pre_tolerance_anchor is not None:
+            if pre_tolerance_anchor not in (None, CONST_NA, 'NA', ''):
                 redis_key = f"run_history:{currParams.origin}_{currParams.destin}_{currParams.flight_number}_{currParams.per_start}"
                 hash_field = "autotolerance_history"
                 
@@ -1416,7 +1422,10 @@ class DetermineRBD:
                         
                     if target_tolerance is not None:
                         floor_fare = float(strategyFare) - float(target_tolerance)
-                        x = floor_fare - float(pre_tolerance_anchor)
+                        try:
+                            x = floor_fare - float(pre_tolerance_anchor)
+                        except (ValueError, TypeError):
+                            x = 0
                     else:
                         x = 0
                     
@@ -1772,11 +1781,15 @@ class DetermineRBD:
             howDetermined = 'AllocationN'
             anchorFare = 0
         
+        # Ensure anchorFareBeforeTolerance captures the pre-overbooking anchor fare if not already set
+        if anchorFareBeforeTolerance == CONST_NA and anchorFare not in (0, CONST_NA, 'NA', None):
+            anchorFareBeforeTolerance = anchorFare
+
         # Overbooking logic & Final Adjustments
         anchorFare, howDetermined, upsell, overBookingFare = self.calculate_overbooking_fare_and_status(plf,overBookingCount,lastSoldFare,strategyFare,obfare,ndocounter,last7avg,isProfileAnchor,b2b_discount_fare,anchorFare,anchorFareDiscounted,upsell,howDetermined
         )
         
-        if toleranceValue == CONST_NA:
+        if toleranceValue == CONST_NA and value != 'C':
             calculate_tolerance_value(anchorFareBeforeTolerance)
 
         if auto_tolerance_applied and "_Auto_Tolerance_Hit" not in howDetermined:
