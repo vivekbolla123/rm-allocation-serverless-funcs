@@ -229,7 +229,7 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"run_count": 4, "actual_imp_forecast": 88.0},
         ]
         # current = 91.0, 4th previous is run 1 (85.0). Delta = 91.0 - 85.0 = 6.0 > 2.0 -> Increasing
-        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4, threshold=2.0)
+        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4)
         self.assertEqual(trend, "Increasing")
         self.assertAlmostEqual(delta, 6.0)
 
@@ -240,8 +240,8 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"run_count": 3, "actual_imp_forecast": 90.0},
             {"run_count": 4, "actual_imp_forecast": 89.0},
         ]
-        # current = 88.0, 4th previous is 92.0. Delta = 88.0 - 92.0 = -4.0 < -2.0 -> Decreasing
-        trend, delta, prev = self.logic.resolve_trend(88.0, history, n_runs=4, threshold=2.0)
+        # current = 88.0, 4th previous is 92.0. Delta = 88.0 - 92.0 = -4.0 < -1.0 -> Decreasing
+        trend, delta, prev = self.logic.resolve_trend(88.0, history, n_runs=4)
         self.assertEqual(trend, "Decreasing")
         self.assertAlmostEqual(delta, -4.0)
 
@@ -253,7 +253,7 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"run_count": 4, "actual_imp_forecast": 90.8},
         ]
         # current = 91.0, 4th previous is 90.0. Delta = +1.0 within [-1, +2] -> Stable
-        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4, threshold=2.0)
+        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4)
         self.assertEqual(trend, "Stable")
         self.assertAlmostEqual(delta, 1.0)
 
@@ -300,9 +300,48 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"run_count": 1, "actual_imp_forecast": 90.0},
         ]
         # Only 1 record, need 4 -> defaults to Stable
-        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4, threshold=2.0)
+        trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4)
         self.assertEqual(trend, "Stable")
         self.assertIsNone(delta)
+
+    def test_resolve_trend_reads_from_constantsutils(self):
+        # Configure mock_constants with custom thresholds and runs
+        self.mock_constants.plf_change_upper_per = 3.0
+        self.mock_constants.plf_change_lower_per = -0.5
+        self.mock_constants.plf_change_n_runs = 2
+        history = [
+            {"run_count": 1, "actual_imp_forecast": 90.0},
+            {"run_count": 2, "actual_imp_forecast": 90.0},
+        ]
+        # 2nd previous is 90.0, current is 92.5 -> delta = +2.5. Since upper is 3.0, it is Stable.
+        trend, delta, _ = self.logic.resolve_trend(92.5, history)
+        self.assertEqual(trend, "Stable")
+        self.assertAlmostEqual(delta, 2.5)
+
+        # Current 93.5 -> delta = 3.5 > 3.0 -> Increasing
+        trend, delta, _ = self.logic.resolve_trend(93.5, history)
+        self.assertEqual(trend, "Increasing")
+
+        # Current 89.4 -> delta = -0.6 < -0.5 -> Decreasing
+        trend, delta, _ = self.logic.resolve_trend(89.4, history)
+        self.assertEqual(trend, "Decreasing")
+
+    def test_resolve_trend_without_constantsutils(self):
+        # When constantsutils is None, falls back to Constants.py defaults (upper=2.0, lower=-1.0, n_runs=4)
+        logic_no_const = ForecastAllocationLogic(constantsutils=None)
+        history = [
+            {"run_count": 1, "actual_imp_forecast": 90.0},
+            {"run_count": 2, "actual_imp_forecast": 90.0},
+            {"run_count": 3, "actual_imp_forecast": 90.0},
+            {"run_count": 4, "actual_imp_forecast": 90.0},
+        ]
+        trend, delta, _ = logic_no_const.resolve_trend(92.5, history)
+        self.assertEqual(trend, "Increasing")
+        self.assertAlmostEqual(delta, 2.5)
+
+        trend, delta, _ = logic_no_const.resolve_trend(88.5, history)
+        self.assertEqual(trend, "Decreasing")
+        self.assertAlmostEqual(delta, -1.5)
 
     def test_resolve_lsf_fallback(self):
         # When LSF is NA, use average of last N selling fares in history

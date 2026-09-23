@@ -6,9 +6,21 @@ import statistics
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from Constants import CONST_NA
+    from Constants import (
+        CONST_NA,
+        PLF_CHANGE_PER,
+        PLF_CHANGE_UPPER_PER,
+        PLF_CHANGE_LOWER_PER,
+        PLF_CHANGE_N_RUNS,
+        LSF_FALLBACK_N_RUNS,
+    )
 except ImportError:
     CONST_NA = "NA"
+    PLF_CHANGE_PER = 2.0
+    PLF_CHANGE_UPPER_PER = 2.0
+    PLF_CHANGE_LOWER_PER = -1.0
+    PLF_CHANGE_N_RUNS = 4
+    LSF_FALLBACK_N_RUNS = 4
 
 
 DEFAULT_GRID_RULES = {
@@ -305,14 +317,13 @@ class ForecastAllocationLogic:
         self,
         current_imp_forecast: float,
         history: Optional[List[Dict[str, Any]]] = None,
-        n_runs: int = 4,
-        upper_threshold: float = 2.0,
-        lower_threshold: float = -1.0,
-        threshold: Optional[float] = None,
+        n_runs: Optional[int] = None,
+        upper_threshold: Optional[float] = None,
+        lower_threshold: Optional[float] = None,
     ) -> Tuple[str, Optional[float], Optional[float]]:
         """Determine trend (Increasing, Stable, Decreasing).
 
-        Range within [lower_threshold, upper_threshold] (default -1 to +2) is Stable.
+        Range within [lower_threshold, upper_threshold] is Stable.
         delta > upper_threshold -> Increasing.
         delta < lower_threshold -> Decreasing.
 
@@ -321,9 +332,19 @@ class ForecastAllocationLogic:
         if not value_exist(current_imp_forecast) or not history:
             return "Stable", None, None
 
-        if threshold is not None:
-            upper_threshold = threshold
-            lower_threshold = -threshold
+        if n_runs is None:
+            n_runs = getattr(self.constantsutils, "plf_change_n_runs", PLF_CHANGE_N_RUNS) if self.constantsutils else PLF_CHANGE_N_RUNS
+        n_runs = int(n_runs)
+
+        if upper_threshold is None:
+            upper_threshold = getattr(self.constantsutils, "plf_change_upper_per", None) if self.constantsutils else None
+            if upper_threshold is None:
+                upper_threshold = getattr(self.constantsutils, "plf_change_per", PLF_CHANGE_PER) if self.constantsutils else PLF_CHANGE_PER
+        upper_threshold = float(upper_threshold)
+
+        if lower_threshold is None:
+            lower_threshold = getattr(self.constantsutils, "plf_change_lower_per", PLF_CHANGE_LOWER_PER) if self.constantsutils else PLF_CHANGE_LOWER_PER
+        lower_threshold = float(lower_threshold)
 
         current_val = float(current_imp_forecast)
 
@@ -365,7 +386,7 @@ class ForecastAllocationLogic:
         self,
         lastSoldFare: Any,
         history: Optional[List[Dict[str, Any]]] = None,
-        n_runs: int = 4,
+        n_runs: Optional[int] = None,
     ) -> Tuple[Optional[float], bool]:
         """Resolve LSF: uses lastSoldFare if available, else average of N previous run selling fares.
 
@@ -373,6 +394,10 @@ class ForecastAllocationLogic:
         """
         if value_exist(lastSoldFare) and float(lastSoldFare) > 0:
             return float(lastSoldFare), False
+
+        if n_runs is None:
+            n_runs = getattr(self.constantsutils, "lsf_fallback_n_runs", LSF_FALLBACK_N_RUNS) if self.constantsutils else LSF_FALLBACK_N_RUNS
+        n_runs = int(n_runs)
 
         # Fallback to average of N previous run selling fares
         if history:
@@ -442,18 +467,10 @@ class ForecastAllocationLogic:
         band = band_override if band_override in (1, 2, 3, 4) else self.resolve_band(imp_forecast)
 
         # 2. Trend determination
-        n_runs = getattr(self.constantsutils, "plf_change_n_runs", 4) if self.constantsutils else 4
-        upper_threshold = getattr(self.constantsutils, "plf_change_upper_per", None)
-        if upper_threshold is None:
-            upper_threshold = getattr(self.constantsutils, "plf_change_per", 2.0) if self.constantsutils else 2.0
-        lower_threshold = getattr(self.constantsutils, "plf_change_lower_per", -1.0) if self.constantsutils else -1.0
-        trend, delta, prev_forecast = self.resolve_trend(
-            imp_forecast, history, n_runs=n_runs, upper_threshold=upper_threshold, lower_threshold=lower_threshold
-        )
+        trend, delta, prev_forecast = self.resolve_trend(imp_forecast, history)
 
         # 3. LSF determination
-        n_selling = getattr(self.constantsutils, "lsf_fallback_n_runs", 4) if self.constantsutils else 4
-        lsf, is_lsf_fallback = self.resolve_lsf(lastSoldFare, history, n_runs=n_selling)
+        lsf, is_lsf_fallback = self.resolve_lsf(lastSoldFare, history)
 
         # 4. Potential fares
         highest_fare, middle_fare, lowest_fare = self.compute_potential_fares(strategyFare, profileFare, lsf)
