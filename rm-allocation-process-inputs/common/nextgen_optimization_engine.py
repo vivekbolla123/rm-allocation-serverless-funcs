@@ -539,7 +539,11 @@ class NextGenOptimizationEngine:
         promo_first_rbd=10,
         promo_threshold=95.0,
         pmin_threshold_factor=0.1,
-        fare_col='fare'
+        fare_col='fare',
+        tax_helper=None,
+        origin=None,
+        destin=None,
+        route=None
     ):
         """
         Phase 3: Demand Redistribution & Revised AU Calculation.
@@ -568,6 +572,21 @@ class NextGenOptimizationEngine:
         C = to_float(strategy_fare, A)
         sig_fact = to_float(sigma_factor, 0.25)
         first_rbd_seats = to_float(first_rbd, 20.0)
+
+        # Convert backstop and hardanchor to airline component
+        b_val = to_float(backstop, None)
+        if b_val is not None and tax_helper and origin and destin:
+            try:
+                b_val = tax_helper.allin_to_airline_component(float(b_val), origin, destin, route=route)
+            except Exception as e:
+                logger.warning(f"Error converting backstop {b_val} to airline component: {e}")
+
+        h_val = to_float(hardanchor, None)
+        if h_val is not None and tax_helper and origin and destin:
+            try:
+                h_val = tax_helper.allin_to_airline_component(float(h_val), origin, destin, route=route)
+            except Exception as e:
+                logger.warning(f"Error converting hardanchor {h_val} to airline component: {e}")
 
         strat_candidates = [f for f in fares if f <= C]
         C_ladder = strat_candidates[0] if strat_candidates else fares[-1]
@@ -613,14 +632,12 @@ class NextGenOptimizationEngine:
                 au_rev[j] = 0.0
 
             # Apply backstop floor
-            b_val = to_float(backstop, None)
             if b_val is not None:
                 for i, f in enumerate(fares):
                     if f < b_val:
                         au_rev[i] = 0.0
 
             # Apply hardanchor cap
-            h_val = to_float(hardanchor, None)
             if h_val is not None:
                 for i, f in enumerate(fares):
                     if f >= h_val:
@@ -778,14 +795,12 @@ class NextGenOptimizationEngine:
         au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
 
         # Backstop
-        b_val = to_float(backstop, None)
         if b_val is not None:
             for i, f in enumerate(fares):
                 if f < b_val:
                     au_revised[i] = 0.0
 
         # Hardanchor
-        h_val = to_float(hardanchor, None)
         if h_val is not None:
             for i, f in enumerate(fares):
                 if f >= h_val:
@@ -996,8 +1011,8 @@ class NextGenOptimizationEngine:
         time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
-        backstop = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
-        hardanchor = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+        backstop = _get_val(curr_params, 'b2c_backstop_final', 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
+        hardanchor = _get_val(curr_params, 'hardfare_b2c', 'hardanchor', 'hardAnchor', 'hardAnchorFare', 'price_cap', default=None)
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
         first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', default=20), 20.0)
         promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
@@ -1035,9 +1050,42 @@ class NextGenOptimizationEngine:
         add_conn_dur = to_float(_get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=4.0), 4.0)
         dir_dur = getattr(curr_params, 'flight_duration', getattr(curr_params, 'outbound_duration', None)) if curr_params else None
 
+        # Apply Competitor Fare Recalibration per airline before filtering
+        recal_market_fares = market_fares
+        if market_fares is not None and recalibration_dict:
+            recal_map = {}
+            if isinstance(recalibration_dict, dict):
+                for k, v in recalibration_dict.items():
+                    k_str = str(k).strip().upper()
+                    if k_str not in ['_ID', 'SECTOR', 'ID']:
+                        try:
+                            recal_map[k_str] = float(v)
+                        except (ValueError, TypeError):
+                            pass
+
+            if recal_map:
+                if isinstance(market_fares, list):
+                    recal_market_fares = pd.DataFrame(market_fares)
+                elif isinstance(market_fares, pd.DataFrame):
+                    recal_market_fares = market_fares.copy()
+                else:
+                    recal_market_fares = pd.DataFrame()
+
+                if not recal_market_fares.empty:
+                    carr_col = next((c for c in ['outbound_airline_code', 'AirlineCode', 'airline_code', 'Carrier', 'carrier'] if c in recal_market_fares.columns), None)
+                    fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in recal_market_fares.columns), None)
+                    if carr_col and fare_col:
+                        recal_market_fares[fare_col] = recal_market_fares.apply(
+                            lambda r: to_float(r[fare_col], 0.0) + recal_map.get(str(r[carr_col]).strip().upper(), recal_map.get('DEFAULT', 0.0))
+                            if pd.notna(r[fare_col]) else r[fare_col],
+                            axis=1
+                        )
+                    elif fare_col and 'DEFAULT' in recal_map:
+                        recal_market_fares[fare_col] = pd.to_numeric(recal_market_fares[fare_col], errors='coerce').fillna(0.0) + recal_map['DEFAULT']
+
         # Convert market fares to AIRLINE COMPONENT before calculation
         c_min_allin, c_med_allin = cls.filter_market_fares(
-            market_fares, flight_std,
+            recal_market_fares, flight_std,
             time_range_hours=time_range,
             carrier_exclusion=carr_excl,
             connection_fare_flag=conn_fare_flag,
@@ -1046,12 +1094,12 @@ class NextGenOptimizationEngine:
             coverage_param=cov_param
         )
 
-        converted_market_fares = market_fares
-        if market_fares is not None:
-            if isinstance(market_fares, list):
-                converted_market_fares = pd.DataFrame(market_fares)
-            elif isinstance(market_fares, pd.DataFrame):
-                converted_market_fares = market_fares.copy()
+        converted_market_fares = recal_market_fares
+        if recal_market_fares is not None:
+            if isinstance(recal_market_fares, list):
+                converted_market_fares = pd.DataFrame(recal_market_fares)
+            elif isinstance(recal_market_fares, pd.DataFrame):
+                converted_market_fares = recal_market_fares.copy()
             else:
                 converted_market_fares = pd.DataFrame()
 
@@ -1083,10 +1131,6 @@ class NextGenOptimizationEngine:
                 c_med_comp = tax_helper.allin_to_airline_component(c_med_allin, origin, destin, route=route)
             else:
                 c_med_comp = c_med_allin
-
-        # Apply Recalibration if present (recalibration applies to airline component)
-        if c_min_comp is not None and recalibration_dict:
-            c_min_comp = c_min_comp + recalibration_dict.get('default', 0.0)
 
         rule_applied = "N/A"
         strategy_fare = anchor_fare
@@ -1131,7 +1175,11 @@ class NextGenOptimizationEngine:
             promo_flag=promo_flag,
             promo_first_rbd=promo_first_rbd,
             promo_threshold=promo_threshold,
-            pmin_threshold_factor=pmin_thresh_factor
+            pmin_threshold_factor=pmin_thresh_factor,
+            tax_helper=tax_helper,
+            origin=origin,
+            destin=destin,
+            route=route
         )
 
         # Step 4: Closed-Form Revenue Forecasting

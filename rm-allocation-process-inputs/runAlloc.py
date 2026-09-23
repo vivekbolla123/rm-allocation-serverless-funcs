@@ -1677,6 +1677,10 @@ class DynAlloc:
 							except (ValueError, TypeError):
 								pass
 					self.currParams.ndocounter = ndo_val
+					if hasattr(state, 'b2c_backstop_final') and getattr(state, 'b2c_backstop_final', None) not in (None, '', 'NA', 'None', CONST_NA):
+						self.currParams.b2c_backstop_final = state.b2c_backstop_final
+					if hasattr(state, 'hardfare_b2c') and getattr(state, 'hardfare_b2c', None) not in (None, '', 'NA', 'None', CONST_NA):
+						self.currParams.hardfare_b2c = state.hardfare_b2c
 
 					ng_opt_df, ng_summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
 						ladder_df, final_totalCapacity, currBookedLoad, curr_rev,
