@@ -306,14 +306,24 @@ class ForecastAllocationLogic:
         current_imp_forecast: float,
         history: Optional[List[Dict[str, Any]]] = None,
         n_runs: int = 4,
-        threshold: float = 2.0,
+        upper_threshold: float = 2.0,
+        lower_threshold: float = -1.0,
+        threshold: Optional[float] = None,
     ) -> Tuple[str, Optional[float], Optional[float]]:
         """Determine trend (Increasing, Stable, Decreasing).
+
+        Range within [lower_threshold, upper_threshold] (default -1 to +2) is Stable.
+        delta > upper_threshold -> Increasing.
+        delta < lower_threshold -> Decreasing.
 
         Returns: (trend_name, delta, nth_prev_forecast)
         """
         if not value_exist(current_imp_forecast) or not history:
             return "Stable", None, None
+
+        if threshold is not None:
+            upper_threshold = threshold
+            lower_threshold = -threshold
 
         current_val = float(current_imp_forecast)
 
@@ -342,9 +352,9 @@ class ForecastAllocationLogic:
         prev_val = float(prev_val)
         delta = current_val - prev_val
 
-        if delta > threshold:
+        if delta > upper_threshold:
             trend = "Increasing"
-        elif delta < -threshold:
+        elif delta < lower_threshold:
             trend = "Decreasing"
         else:
             trend = "Stable"
@@ -433,8 +443,13 @@ class ForecastAllocationLogic:
 
         # 2. Trend determination
         n_runs = getattr(self.constantsutils, "plf_change_n_runs", 4) if self.constantsutils else 4
-        threshold = getattr(self.constantsutils, "plf_change_per", 2.0) if self.constantsutils else 2.0
-        trend, delta, prev_forecast = self.resolve_trend(imp_forecast, history, n_runs=n_runs, threshold=threshold)
+        upper_threshold = getattr(self.constantsutils, "plf_change_upper_per", None)
+        if upper_threshold is None:
+            upper_threshold = getattr(self.constantsutils, "plf_change_per", 2.0) if self.constantsutils else 2.0
+        lower_threshold = getattr(self.constantsutils, "plf_change_lower_per", -1.0) if self.constantsutils else -1.0
+        trend, delta, prev_forecast = self.resolve_trend(
+            imp_forecast, history, n_runs=n_runs, upper_threshold=upper_threshold, lower_threshold=lower_threshold
+        )
 
         # 3. LSF determination
         n_selling = getattr(self.constantsutils, "lsf_fallback_n_runs", 4) if self.constantsutils else 4

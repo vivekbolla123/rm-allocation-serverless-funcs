@@ -205,6 +205,8 @@ class TestForecastAllocationLogic(unittest.TestCase):
         self.mock_db = MagicMock()
         self.mock_constants = MagicMock()
         self.mock_constants.plf_change_per = 2.0
+        self.mock_constants.plf_change_upper_per = 2.0
+        self.mock_constants.plf_change_lower_per = -1.0
         self.mock_constants.plf_change_n_runs = 4
         self.mock_constants.lsf_fallback_n_runs = 4
         self.logic = ForecastAllocationLogic(
@@ -250,10 +252,48 @@ class TestForecastAllocationLogic(unittest.TestCase):
             {"run_count": 3, "actual_imp_forecast": 91.0},
             {"run_count": 4, "actual_imp_forecast": 90.8},
         ]
-        # current = 91.0, 4th previous is 90.0. Delta = +1.0 within [-2, +2] -> Stable
+        # current = 91.0, 4th previous is 90.0. Delta = +1.0 within [-1, +2] -> Stable
         trend, delta, prev = self.logic.resolve_trend(91.0, history, n_runs=4, threshold=2.0)
         self.assertEqual(trend, "Stable")
         self.assertAlmostEqual(delta, 1.0)
+
+    def test_resolve_trend_asymmetric_range(self):
+        history = [
+            {"run_count": 1, "actual_imp_forecast": 90.0},
+            {"run_count": 2, "actual_imp_forecast": 90.0},
+            {"run_count": 3, "actual_imp_forecast": 90.0},
+            {"run_count": 4, "actual_imp_forecast": 90.0},
+        ]
+        # Range [-1.0, 2.0] is Stable; > 2.0 is Increasing; < -1.0 is Decreasing
+        # Delta = +2.5 -> Increasing
+        trend, delta, _ = self.logic.resolve_trend(92.5, history, n_runs=4, upper_threshold=2.0, lower_threshold=-1.0)
+        self.assertEqual(trend, "Increasing")
+        self.assertAlmostEqual(delta, 2.5)
+
+        # Delta = +2.0 -> Stable (boundary condition)
+        trend, delta, _ = self.logic.resolve_trend(92.0, history, n_runs=4, upper_threshold=2.0, lower_threshold=-1.0)
+        self.assertEqual(trend, "Stable")
+        self.assertAlmostEqual(delta, 2.0)
+
+        # Delta = +0.5 -> Stable
+        trend, delta, _ = self.logic.resolve_trend(90.5, history, n_runs=4, upper_threshold=2.0, lower_threshold=-1.0)
+        self.assertEqual(trend, "Stable")
+        self.assertAlmostEqual(delta, 0.5)
+
+        # Delta = -1.0 -> Stable (boundary condition)
+        trend, delta, _ = self.logic.resolve_trend(89.0, history, n_runs=4, upper_threshold=2.0, lower_threshold=-1.0)
+        self.assertEqual(trend, "Stable")
+        self.assertAlmostEqual(delta, -1.0)
+
+        # Delta = -1.5 -> Decreasing (< -1.0)
+        trend, delta, _ = self.logic.resolve_trend(88.5, history, n_runs=4, upper_threshold=2.0, lower_threshold=-1.0)
+        self.assertEqual(trend, "Decreasing")
+        self.assertAlmostEqual(delta, -1.5)
+
+        # Test defaults (upper=2.0, lower=-1.0 without passing them explicitly)
+        trend, delta, _ = self.logic.resolve_trend(88.5, history, n_runs=4)
+        self.assertEqual(trend, "Decreasing")
+        self.assertAlmostEqual(delta, -1.5)
 
     def test_resolve_trend_insufficient_history(self):
         history = [
@@ -408,6 +448,8 @@ class TestDetermineRBDIntegration(unittest.TestCase):
         self.constantsutils.OVERBOOKING_FARE_ABSOLUTE_VALUE = 200
         self.constantsutils.B2B_FACTOR_MAP = {"1": 0.5, "2": 0.5, "3": 0.0, "4": 0.0}
         self.constantsutils.plf_change_per = 2.0
+        self.constantsutils.plf_change_upper_per = 2.0
+        self.constantsutils.plf_change_lower_per = -1.0
         self.constantsutils.plf_change_n_runs = 4
         self.constantsutils.lsf_fallback_n_runs = 4
         self.mathutils = MagicMock()

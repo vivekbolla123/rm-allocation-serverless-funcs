@@ -157,6 +157,8 @@ class ConstantsUtils:
         self.DEFAULT_ML_CONFIG = json.loads(DEFAULT_ML_CONFIG)
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
         self.plf_change_per = PLF_CHANGE_PER
+        self.plf_change_upper_per = PLF_CHANGE_UPPER_PER
+        self.plf_change_lower_per = PLF_CHANGE_LOWER_PER
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
         self.lsf_fallback_n_runs = LSF_FALLBACK_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
@@ -501,6 +503,10 @@ class ConstantsUtils:
                 self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
             elif parameter_key == PLF_CHANGE_PER_KEY:
                 self.plf_change_per = float(parameter_value)
+            elif parameter_key == PLF_CHANGE_UPPER_PER_KEY:
+                self.plf_change_upper_per = float(parameter_value)
+            elif parameter_key == PLF_CHANGE_LOWER_PER_KEY:
+                self.plf_change_lower_per = float(parameter_value)
             elif parameter_key == PLF_CHANGE_N_RUNS_KEY:
                 self.plf_change_n_runs = int(parameter_value)
             elif parameter_key == LSF_FALLBACK_N_RUNS_KEY:
