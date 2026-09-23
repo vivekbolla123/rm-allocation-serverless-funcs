@@ -768,7 +768,7 @@ class DetermineRBD:
         # Final Fare Anchor will have tolerance/hard anchor applied by wrapper
         return temp_fareanchor, howDetermined, toleranceValue
 
-    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare=None, is_portfolio_flow=False):
+    def final_fare_anchor_forecast(self, strategyFare, profileFare, lastSoldFare, last7AvgVal,hardAnchorFare, currParams, plf, overBookingCount,BookingsInHour,last7avg,isProfileAnchor,b2b_discount_fare,anchorFareDiscounted,obfare, ndocounter, imp_forecast, imp_forecast_band, af_forecast_band, afForecastAllocFlag, Af_Nb_Allin, PLF_Gain, forecast_plf, toleranceFare=None, is_portfolio_flow=False, dPLF=None):
         anchorFare = 0
         strategyFare = float(strategyFare)
         howDetermined = ''
@@ -977,9 +977,32 @@ class DetermineRBD:
                     ndoc_val=ndoc_val
                 )
 
-                if flag_val in (1, '1') and current_grid_val > 0 and tolerance_not_hit_3_runs:
+                variance_improved = (curr_scenario_delta_variance > 2.0) or (current_grid_val > 0)
+                if flag_val in (1, '1') and tolerance_not_hit_3_runs and variance_improved:
                     base_tol = float(tolerance_fare) if has_tol else (0.10 * float(strategyFare))
-                    new_T = 0.8 * abs(float(anchor_fare) - (float(strategyFare) - base_tol))
+                    nth_rec = target_record
+                    if nth_rec is None and check_hist:
+                        if len(check_hist) >= N:
+                            nth_rec = check_hist[-N]
+                        else:
+                            nth_rec = check_hist[0]
+                    
+                    nth_t_prime = nth_rec.get("T_prime") if nth_rec else None
+                    nth_t = nth_rec.get("T") if nth_rec else None
+                    if nth_t_prime not in (None, "", "NA"):
+                        try:
+                            ref_t = float(nth_t_prime)
+                        except (ValueError, TypeError):
+                            ref_t = base_tol
+                    elif nth_t not in (None, "", "NA"):
+                        try:
+                            ref_t = float(nth_t)
+                        except (ValueError, TypeError):
+                            ref_t = base_tol
+                    else:
+                        ref_t = base_tol
+
+                    new_T = 0.8 * ref_t
                     new_T = max(100.0, min(float(strategyFare), new_T))
                     T = new_T
                     t_val = new_T
@@ -1506,10 +1529,32 @@ class DetermineRBD:
                     ndoc_val=ndoc_val
                 )
 
-                if flag_val in (1, '1') and current_grid_val > 0 and tolerance_not_hit_3_runs:
+                variance_improved = (curr_scenario_delta_variance > 2.0) or (current_grid_val > 0)
+                if flag_val in (1, '1') and tolerance_not_hit_3_runs and variance_improved:
                     base_tol = float(toleranceFare) if has_tol else (0.10 * float(strategyFare))
-                    anchor_val_for_tol = pre_tolerance_anchor if pre_tolerance_anchor is not None else strategyFare
-                    new_T = 0.8 * abs(float(anchor_val_for_tol) - (float(strategyFare) - base_tol))
+                    nth_rec = target_record
+                    if nth_rec is None and check_hist:
+                        if len(check_hist) >= N:
+                            nth_rec = check_hist[-N]
+                        else:
+                            nth_rec = check_hist[0]
+                    
+                    nth_t_prime = nth_rec.get("T_prime") if nth_rec else None
+                    nth_t = nth_rec.get("T") if nth_rec else None
+                    if nth_t_prime not in (None, "", "NA"):
+                        try:
+                            ref_t = float(nth_t_prime)
+                        except (ValueError, TypeError):
+                            ref_t = base_tol
+                    elif nth_t not in (None, "", "NA"):
+                        try:
+                            ref_t = float(nth_t)
+                        except (ValueError, TypeError):
+                            ref_t = base_tol
+                    else:
+                        ref_t = base_tol
+
+                    new_T = 0.8 * ref_t
                     new_T = max(100.0, min(float(strategyFare), new_T))
                     T = new_T
                     t_val = new_T

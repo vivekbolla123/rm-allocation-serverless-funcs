@@ -31,6 +31,9 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
         self.constantsutils.OVERBOOKING_FARE_PERCENT_VALUE = 0.1
         self.constantsutils.OVERBOOKING_FARE_ABSOLUTE_VALUE = 200
         self.constantsutils.B2B_FACTOR_MAP = {}
+        self.constantsutils.lsf_fallback_n_runs = 4
+        self.constantsutils.plf_change_n_runs = 4
+        self.constantsutils.plf_change_per = 2.0
         self.mathutils = MagicMock()
         self.redishelper = MagicMock()
 
@@ -122,12 +125,12 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
         self.assertEqual(g_val_neg, -0.2)
 
     def test_forecast_flow_triggers_enhancement(self):
-        # 3 prior runs without tolerance hit
+        # 3 prior runs without tolerance hit; Nth run has T_prime = 450.0
         import json
         history = [
-            {"run_id": "r1", "run_count": 1, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 50.0, "selling_fare": 4800.0, "tolerance_hit": False},
-            {"run_id": "r2", "run_count": 2, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 52.0, "selling_fare": 4850.0, "tolerance_hit": False},
-            {"run_id": "r3", "run_count": 3, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 54.0, "selling_fare": 4900.0, "tolerance_hit": False},
+            {"run_id": "r1", "run_count": 1, "T": 500.0, "T_prime": 450.0, "T_V": 4550.0, "actual_dplf": 0.0, "actual_imp_forecast": 50.0, "selling_fare": 4800.0, "tolerance_hit": False},
+            {"run_id": "r2", "run_count": 2, "T": 500.0, "T_prime": 450.0, "T_V": 4550.0, "actual_dplf": 0.0, "actual_imp_forecast": 52.0, "selling_fare": 4850.0, "tolerance_hit": False},
+            {"run_id": "r3", "run_count": 3, "T": 500.0, "T_prime": 450.0, "T_V": 4550.0, "actual_dplf": 0.0, "actual_imp_forecast": 54.0, "selling_fare": 4900.0, "tolerance_hit": False},
         ]
         self.redishelper.hget.return_value = json.dumps(history)
 
@@ -140,10 +143,12 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
 
         # Parameters
         strategyFare = 5000.0
-        toleranceFare = 500.0  # Floor = 4500.0. Pre-tolerance anchor = 4800.0. Buffer = 300.0.
+        toleranceFare = 500.0
         dPLF = 5.0            # delta_variance = 5.0 - 0.0 = 5.0 -> delta_band_id = 3 -> g_value = 0.5 > 0
         imp_forecast_band = "3"
         ndocounter = 25        # NDO 25 (NDO 22-45)
+
+        self.currParams.forecastAllocFlag = 1
 
         anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = \
             self.determinerbd.final_fare_anchor_forecast(
@@ -162,7 +167,7 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
                 anchorFareDiscounted=0,
                 obfare=0,
                 ndocounter=ndocounter,
-                imp_forecast=None,
+                imp_forecast=59.0,
                 imp_forecast_band=imp_forecast_band,
                 af_forecast_band=CONST_NA,
                 afForecastAllocFlag=0,
@@ -173,21 +178,21 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
             )
 
         # Enhancement expected:
-        # Buffer = |FareAnchor - (Strategy - Tolerance)| = |4800 - 4500| = 300
-        # New T = 0.8 * 300 = 240.0
-        # New Tolerance Floor = 5000 - 240 = 4760.0
-        self.assertEqual(T_prime, 240.0)
-        self.assertEqual(float(toleranceValue), 4760.0)
+        # Nth run T' = 450.0
+        # New T = 0.8 * 450.0 = 360.0
+        # New Tolerance Floor = 5000 - 360 = 4640.0
+        self.assertEqual(T_prime, 360.0)
+        self.assertEqual(float(toleranceValue), 4640.0)
         self.assertEqual(anchorFareBeforeTolerance, 4800.0)
-        self.assertEqual(anchorFare, 4800.0)  # 4800 >= 4760, so not clamped
+        self.assertEqual(anchorFare, 4800.0)  # 4800 >= 4640, so not clamped
 
     def test_dplf_flow_triggers_enhancement(self):
-        # 3 prior runs without tolerance hit
+        # 3 prior runs without tolerance hit; Nth run has T_prime = 400.0
         import json
         history = [
-            {"run_id": "r1", "run_count": 1, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4800.0, "tolerance_hit": False},
-            {"run_id": "r2", "run_count": 2, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4850.0, "tolerance_hit": False},
-            {"run_id": "r3", "run_count": 3, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4900.0, "tolerance_hit": False},
+            {"run_id": "r1", "run_count": 1, "T": 500.0, "T_prime": 400.0, "T_V": 4600.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4800.0, "tolerance_hit": False},
+            {"run_id": "r2", "run_count": 2, "T": 500.0, "T_prime": 400.0, "T_V": 4600.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4850.0, "tolerance_hit": False},
+            {"run_id": "r3", "run_count": 3, "T": 500.0, "T_prime": 400.0, "T_V": 4600.0, "actual_dplf": 0.0, "actual_imp_forecast": 0.0, "selling_fare": 4900.0, "tolerance_hit": False},
         ]
         self.redishelper.hget.return_value = json.dumps(history)
 
@@ -197,7 +202,6 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
         dplfBand = 3
         ndocounter = 25
 
-        # In finalFareAnchor with value='B' and lastSoldFare=4800
         anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = \
             self.determinerbd.finalFareAnchor(
                 strategyFare=strategyFare,
@@ -220,10 +224,10 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
                 ndocounter=ndocounter
             )
 
-        # Expected: T = 0.8 * |4800 - 4500| = 240.0
-        # Floor = 5000 - 240 = 4760.0
-        self.assertEqual(T_prime, 240.0)
-        self.assertEqual(float(toleranceValue), 4760.0)
+        # Expected: T = 0.8 * 400.0 = 320.0
+        # Floor = 5000 - 320 = 4680.0
+        self.assertEqual(T_prime, 320.0)
+        self.assertEqual(float(toleranceValue), 4680.0)
 
     def test_tolerance_hit_in_history_preserves_standard_behavior(self):
         # Run 2 had tolerance hit
@@ -280,18 +284,18 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
         self.assertEqual(float(toleranceValue), 4500.0)
 
     def test_min_clamp_tolerance_at_100(self):
-        # If 0.8 * buffer < 100, clamped to 100
+        # If 0.8 * T' < 100, clamped to 100
         import json
         history = [
-            {"run_id": "r1", "run_count": 1, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 50.0, "selling_fare": 4550.0, "tolerance_hit": False},
-            {"run_id": "r2", "run_count": 2, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 52.0, "selling_fare": 4550.0, "tolerance_hit": False},
-            {"run_id": "r3", "run_count": 3, "T": 500.0, "T_prime": "NA", "T_V": 4500.0, "actual_dplf": 0.0, "actual_imp_forecast": 54.0, "selling_fare": 4550.0, "tolerance_hit": False},
+            {"run_id": "r1", "run_count": 1, "T": 100.0, "T_prime": 100.0, "T_V": 4900.0, "actual_dplf": 0.0, "actual_imp_forecast": 50.0, "selling_fare": 4950.0, "tolerance_hit": False},
+            {"run_id": "r2", "run_count": 2, "T": 100.0, "T_prime": 100.0, "T_V": 4900.0, "actual_dplf": 0.0, "actual_imp_forecast": 52.0, "selling_fare": 4950.0, "tolerance_hit": False},
+            {"run_id": "r3", "run_count": 3, "T": 100.0, "T_prime": 100.0, "T_V": 4900.0, "actual_dplf": 0.0, "actual_imp_forecast": 54.0, "selling_fare": 4950.0, "tolerance_hit": False},
         ]
         self.redishelper.hget.return_value = json.dumps(history)
 
         self.determinerbd.forecast_logic = MagicMock()
         self.determinerbd.forecast_logic.calculate_anchor.return_value = {
-            "anchor_fare": 4550.0,  # Buffer = 4550 - 4500 = 50. 0.8 * 50 = 40 < 100
+            "anchor_fare": 4950.0,
             "how_determined": "AllocationY_Test",
         }
 
@@ -328,7 +332,7 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
                 toleranceFare=toleranceFare
             )
 
-        # 0.8 * 50 = 40 -> clamped to 100.0
+        # 0.8 * 100.0 = 80.0 -> clamped to 100.0
         # Floor = 5000 - 100 = 4900.0
         self.assertEqual(T_prime, 100.0)
         self.assertEqual(float(toleranceValue), 4900.0)
