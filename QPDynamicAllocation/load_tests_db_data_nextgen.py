@@ -63,10 +63,46 @@ class SchemaNextGen:
         self.load_generic_collection("comp_fare_recalibration", "comp_fare_recalibration.csv")
         self.load_generic_collection("add_model_fare_bucket_level_weighted", "add_model_fare_bucket_level_weighted.csv")
 
-        # 3. Sourcing bookload, capacity, departure time directly from weighted file
+        # 3. NextGen Inventory Optimization Collection (add_model_inventory_ng)
+        self.load_inventory_ng_collection()
+
+        # 4. Sourcing bookload, capacity, departure time directly from weighted file
         self.load_bookload_from_weighted()
 
         self.transformCollections()
+
+    def load_inventory_ng_collection(self):
+        """
+        Loads or generates `add_model_inventory_ng` using daily_next_gen,
+        persisting it to MongoDB so runAlloc can read pre-calculated
+        LF_Forecast_Revised and AF_Forecast.
+        """
+        inv_file = os.path.join(self.input_dir, "add_model_inventory_ng.csv")
+        if os.path.exists(inv_file):
+            self.load_generic_collection("add_model_inventory_ng", "add_model_inventory_ng.csv")
+            return
+
+        try:
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            sched_dir = os.path.join(base_dir, "rm-allocation-scheduled-jobs")
+            if sched_dir not in sys.path:
+                sys.path.insert(0, sched_dir)
+            from daily_next_gen import compute_inventory_ng_df
+            weighted_file = os.path.join(self.input_dir, "add_model_fare_bucket_level_weighted.csv")
+            if os.path.exists(weighted_file):
+                w_df = pd.read_csv(weighted_file)
+                inv_df = compute_inventory_ng_df(w_df)
+                if not inv_df.empty:
+                    self.dropCollection("add_model_inventory_ng")
+                    records = inv_df.to_dict('records')
+                    cleaned_records = [
+                        {k: (None if (v is pd.NA or (isinstance(v, float) and (np.isnan(v) or np.isinf(v)))) else v) for k, v in doc.items()}
+                        for doc in records
+                    ]
+                    self.db.add_model_inventory_ng.insert_many(cleaned_records)
+                    print(f"Successfully loaded {len(cleaned_records)} records into add_model_inventory_ng using daily_next_gen.")
+        except Exception as e:
+            print(f"Could not initialize add_model_inventory_ng: {e}")
 
     def load_bookload_from_weighted(self):
         """

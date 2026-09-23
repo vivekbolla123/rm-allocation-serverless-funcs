@@ -575,14 +575,14 @@ class NextGenOptimizationEngine:
 
         # Convert backstop and hardanchor to airline component
         b_val = to_float(backstop, None)
-        if b_val is not None and tax_helper and origin and destin:
+        if b_val is not None and b_val > 0 and tax_helper and origin and destin:
             try:
                 b_val = tax_helper.allin_to_airline_component(float(b_val), origin, destin, route=route)
             except Exception as e:
                 logger.warning(f"Error converting backstop {b_val} to airline component: {e}")
 
         h_val = to_float(hardanchor, None)
-        if h_val is not None and tax_helper and origin and destin:
+        if h_val is not None and h_val > 0 and tax_helper and origin and destin:
             try:
                 h_val = tax_helper.allin_to_airline_component(float(h_val), origin, destin, route=route)
             except Exception as e:
@@ -608,39 +608,42 @@ class NextGenOptimizationEngine:
                 df['sigma_3'] = df['sigma_2']
             df['sigma_bar_3'] = df['sigma_bar']
             au_2_list = df['AU'].copy().tolist()
-            for j in range(1, n):
-                if fares[j] < C_ladder:
-                    au_2_list[j] = 0.0
+            anchor_idx = fares.index(a_ladder)
+            for j in range(anchor_idx + 1, n):
+                au_2_list[j] = 0.0
             
-            strat_idx = fares.index(C_ladder)
-            # Floor protection: if AU_2 at Strategy Fare < current_bookings, elevate
-            if au_2_list[strat_idx] < cb:
+            # Floor protection: if AU_2 at Anchor Fare < current_bookings, elevate
+            if au_2_list[anchor_idx] < cb:
                 elevate_au = cb
-                for k in range(strat_idx, -1, -1):
+                for k in range(anchor_idx, -1, -1):
                     if au_2_list[k] >= cb:
                         elevate_au = au_2_list[k]
                         break
-                for k in range(strat_idx, -1, -1):
+                for k in range(anchor_idx, -1, -1):
                     if au_2_list[k] < elevate_au:
                         au_2_list[k] = elevate_au
 
             df['AU_2'] = au_2_list
             
             au_rev = df['AU_2'].copy().tolist()
-            au_rev[strat_idx] = min(au_rev[strat_idx], cb + first_rbd_seats)
-            for j in range(strat_idx + 1, n):
+            au_rev[anchor_idx] = min(au_rev[anchor_idx], cb + first_rbd_seats)
+            for j in range(anchor_idx + 1, n):
                 au_rev[j] = 0.0
 
             # Apply backstop floor
-            if b_val is not None:
+            if b_val is not None and b_val > 0:
                 for i, f in enumerate(fares):
                     if f < b_val:
                         au_rev[i] = 0.0
 
-            # Apply hardanchor cap
-            if h_val is not None:
+            # Apply hardanchor cap: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
+            if h_val is not None and h_val > 0:
+                lower_candidates = [f for f in fares if f <= h_val]
+                h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
                 for i, f in enumerate(fares):
-                    if f >= h_val:
+                    if f >= h_ladder:
+                        if b_val is not None and b_val > 0 and f < b_val:
+                            continue
                         au_rev[i] = float(cap)
 
             df['AU_Revised'] = au_rev
@@ -795,15 +798,19 @@ class NextGenOptimizationEngine:
         au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
 
         # Backstop
-        if b_val is not None:
+        if b_val is not None and b_val > 0:
             for i, f in enumerate(fares):
                 if f < b_val:
                     au_revised[i] = 0.0
 
-        # Hardanchor
-        if h_val is not None:
+        # Hardanchor: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
+        if h_val is not None and h_val > 0:
+            lower_candidates = [f for f in fares if f <= h_val]
+            h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
             for i, f in enumerate(fares):
-                if f >= h_val:
+                if f >= h_ladder:
+                    if b_val is not None and b_val > 0 and f < b_val:
+                        continue
                     au_revised[i] = float(cap)
 
         df['AU_Revised'] = au_revised
@@ -1011,8 +1018,18 @@ class NextGenOptimizationEngine:
         time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
-        backstop = _get_val(curr_params, 'b2c_backstop_final', 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
-        hardanchor = _get_val(curr_params, 'hardfare_b2c', 'hardanchor', 'hardAnchor', 'hardAnchorFare', 'price_cap', default=None)
+        raw_bs = _get_val(curr_params, 'b2c_backstop_final', 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
+        backstop = to_float(raw_bs, None)
+        if backstop is not None and backstop <= 0:
+            backstop = None
+
+        raw_ha = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+        if raw_ha is not None and str(raw_ha).strip().upper() in ['MIN', 'MAX', 'MED', '**', '', 'NONE', 'NAN', 'NA']:
+            hardanchor = None
+        else:
+            hardanchor = to_float(raw_ha, None)
+            if hardanchor is not None and hardanchor <= 0:
+                hardanchor = None
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
         first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', default=20), 20.0)
         promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
@@ -1223,10 +1240,27 @@ class NextGenOptimizationEngine:
             promo_row['A_cap'] = 0.0
             final_df = pd.concat([final_df, pd.DataFrame([promo_row])], ignore_index=True)
 
+        # Sourcing pre-calculated LF_Forecast_Revised and AF_Forecast from daily_next_gen table (add_model_inventory_ng)
+        daily_lf = None
+        daily_af = None
+        if db_helper is not None:
+            try:
+                sec_val = f"{origin}{destin}" if origin and destin else None
+                flt_val = _get_val(curr_params, 'flight_number', 'flt_num', 'flight', default=None)
+                date_val = _get_val(curr_params, 'dep_date', 'departure_date', 'currFltDate', 'date', default=None)
+                inv_ng = db_helper.get_additive_inventory_ng(sector=sec_val, date=date_val, flight=flt_val)
+                if inv_ng is not None and not inv_ng.empty:
+                    if 'LF_Forecast_Revised' in inv_ng.columns and pd.notna(inv_ng['LF_Forecast_Revised'].iloc[0]):
+                        daily_lf = to_float(inv_ng['LF_Forecast_Revised'].iloc[0], None)
+                    if 'AF_Forecast' in inv_ng.columns and pd.notna(inv_ng['AF_Forecast'].iloc[0]):
+                        daily_af = to_float(inv_ng['AF_Forecast'].iloc[0], None)
+            except Exception as e:
+                logger.warning(f"Error reading pre-calculated forecast from add_model_inventory_ng: {e}")
+
         summary = {
             'NG_Historical_current_booked': cb_val,
-            'NG_LF_Forecast': to_float(lf_fc_rev * 100.0, 0.0),
-            'NG_AF_Forecast': to_float(af_fc, 0.0),
+            'NG_LF_Forecast': daily_lf if daily_lf is not None else to_float(lf_fc_rev * 100.0, 0.0),
+            'NG_AF_Forecast': daily_af if daily_af is not None else to_float(af_fc, 0.0),
             'NG_Opening_fare': to_float(opening_fare, 0.0),
             'NG_FirstRBD': to_float(seats_on_opening, 0.0),
             'Strategy_fare': to_float(strategy_fare, 0.0),

@@ -508,6 +508,64 @@ class TestNextGenOptimizationEngine:
         # If response fare is None
         assert NextGenOptimizationEngine.determine_strategy_fare(None, sample_flight_data) is None
 
+    def test_hardanchor_non_numeric_ignored_and_backstop_floor(self, sample_flight_data):
+        """
+        Verify that non-numeric hardanchor (e.g. 'MIN', 'MAX') is ignored (not treated as cap),
+        and backstop floor properly sets AU_Revised = 0.0 for fares below backstop.
+        """
+        capacity = 189
+        cb = 100
+        # Compute initial EMSR-b
+        init_df, anchor_fare, promo_au = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+        # Test 1: hardanchor='MIN', backstop=5000.0
+        redistrib_df = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 5252.0, capacity, cb,
+            backstop=5000.0,
+            hardanchor='MIN',
+            first_rbd=20.0
+        )
+        # Fares below 5000 (4279, 3526, 2914) must be floored to 0.0
+        for _, r in redistrib_df.iterrows():
+            if r['fare'] < 5000.0:
+                assert r['AU_Revised'] == 0.0, f"Fare {r['fare']} below backstop should have AU_Revised=0"
+            elif r['fare'] >= 5252.0:
+                # Should not be capped to capacity everywhere
+                assert r['AU_Revised'] <= capacity
+
+        # Verify not all AU_Revised are equal to capacity
+        au_rev_vals = redistrib_df['AU_Revised'].tolist()
+        assert len(set(au_rev_vals)) > 1
+        assert not all(v == capacity for v in au_rev_vals)
+
+    def test_hardanchor_capping_from_nearest_lower_fare(self, sample_flight_data):
+        """
+        Verify that hardanchor capping starts from the nearest ladder fare lower than or equal
+        to hardanchor, ensuring no seats are only available at fares higher than hardanchor.
+        """
+        capacity = 189
+        cb = 100
+        init_df, anchor_fare, promo_au = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+        # sample_flight_data fares around 5000 are: 6409.0, 5252.0, 4279.0, 3526.0
+        # If hardanchor=5000.0, the nearest fare lower than 5000 is 4279.0.
+        # Fares >= 4279.0 (4279, 5252, 6409, ...) must have AU_Revised = capacity.
+        # Fares < 4279.0 (3526, 2914) must have AU_Revised < capacity (or floored).
+        redistrib_df = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 5252.0, capacity, cb,
+            hardanchor=5000.0,
+            first_rbd=20.0
+        )
+        for _, r in redistrib_df.iterrows():
+            if r['fare'] >= 4279.0:
+                assert r['AU_Revised'] == capacity, f"Fare {r['fare']} >= 4279 should be capped to capacity"
+            else:
+                assert r['AU_Revised'] < capacity, f"Fare {r['fare']} < 4279 should not be capped to capacity"
+
+
+
 
 
 

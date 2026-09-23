@@ -1679,8 +1679,9 @@ class DynAlloc:
 					self.currParams.ndocounter = ndo_val
 					if hasattr(state, 'b2c_backstop_final') and getattr(state, 'b2c_backstop_final', None) not in (None, '', 'NA', 'None', CONST_NA):
 						self.currParams.b2c_backstop_final = state.b2c_backstop_final
-					if hasattr(state, 'hardfare_b2c') and getattr(state, 'hardfare_b2c', None) not in (None, '', 'NA', 'None', CONST_NA):
-						self.currParams.hardfare_b2c = state.hardfare_b2c
+					self.currParams.dep_date = dateFormatted_yyyymmdd
+					self.currParams.departure_date = dateFormatted_yyyymmdd
+					self.currParams.currFltDate = dateFormatted_yyyymmdd
 
 					ng_opt_df, ng_summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
 						ladder_df, final_totalCapacity, currBookedLoad, curr_rev,
@@ -1691,6 +1692,34 @@ class DynAlloc:
 						recalibration_dict=recal_dict,
 						tax_helper=getattr(self, 'tax_helper', None)
 					)
+
+					# Sourcing pre-calculated LF_Forecast_Revised and AF_Forecast from daily_next_gen table (add_model_inventory_ng)
+					inv_ng_df = None
+					try:
+						inv_ng_df = self.rmdatabasehelper.get_additive_inventory_ng(
+							sector=f"{self.currParams.origin}{self.currParams.destin}",
+							date=dateFormatted_yyyymmdd,
+							flight=self.currParams.flight_number
+						)
+					except Exception as inv_err:
+						self.logger.warning(f"Error fetching add_model_inventory_ng: {inv_err}")
+
+					if (inv_ng_df is None or inv_ng_df.empty) and (s3_bucket_df is not None and not s3_bucket_df.empty):
+						try:
+							from daily_next_gen import compute_flight_inventory_ng
+							inv_ng_df = compute_flight_inventory_ng(s3_bucket_df)
+						except Exception as comp_err:
+							self.logger.warning(f"Error computing daily_next_gen fallback: {comp_err}")
+
+					if inv_ng_df is not None and not inv_ng_df.empty:
+						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
+							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
+							if daily_lf is not None:
+								ng_summary['NG_LF_Forecast'] = daily_lf
+						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
+							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
+							if daily_af is not None:
+								ng_summary['NG_AF_Forecast'] = daily_af
 
 					# Populate OutputSummaryNextGen (All fares are presented as ALL-IN fares)
 					ng_row = OutputSummaryNextGen()
@@ -2457,10 +2486,15 @@ class DynAlloc:
 				df_inv = pd.DataFrame(self.inventoryOptimizationResults)
 				final_inv_order = [col for col in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if col in df_inv.columns]
 				df_inv = df_inv[final_inv_order]
-				os.makedirs(os.path.dirname(os.path.abspath(inventory_opt_path)), exist_ok=True)
-				df_inv.to_csv(inventory_opt_path, index=False)
+				try:
+					df_inv.to_csv(inventory_opt_path, index=False)
+				except Exception as lock_err:
+					self.logger.warning(f"Could not overwrite {inventory_opt_path} (possibly open in Excel): {lock_err}")
+					fallback_path = os.path.join(os.path.dirname(inventory_opt_path), "inventory_optimization_latest.csv")
+					df_inv.to_csv(fallback_path, index=False)
+					self.logger.info(f"Saved latest inventory optimization to {fallback_path}")
 			except Exception as e:
-				self.logger.error(f"Error saving {inventory_opt_path}: {e}")
+				self.logger.error(f"Error saving inventory optimization: {e}")
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}

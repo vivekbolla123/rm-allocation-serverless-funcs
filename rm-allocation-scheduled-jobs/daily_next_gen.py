@@ -207,9 +207,9 @@ def compute_flight_inventory_ng(
     df = df.sort_values('fare', ascending=False).reset_index(drop=True)
 
     if pax_col not in df.columns:
-        pax_col = next((c for c in ['OptimizationDemand', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'mu'] if c in df.columns), None)
+        pax_col = next((c for c in ['OptimizationDemand', 'WTP_pax_count', 'New Final_pax_count', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in df.columns), None)
     if std_col not in df.columns:
-        std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'sigma'] if c in df.columns), None)
+        std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'sigma', 'std'] if c in df.columns), None)
 
     df['mu'] = pd.to_numeric(df[pax_col], errors='coerce').fillna(0.0) if pax_col else 0.0
     df['sigma'] = pd.to_numeric(df[std_col], errors='coerce').fillna(0.0) if std_col else (sigma_factor * df['mu'])
