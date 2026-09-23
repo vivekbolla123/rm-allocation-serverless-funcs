@@ -27,7 +27,7 @@ import time
 import logging
 import traceback
 from datetime import datetime, timedelta, time as dt_time, date as dt_date
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import boto3
 import pandas as pd
 import numpy as np
@@ -474,8 +474,12 @@ class DailyNextGen:
             'host': mongo_url,
             'port': mongo_port,
             'serverSelectionTimeoutMS': 5000,
-            'compressors': 'zlib'
+            'maxPoolSize': int(os.environ.get('MONGO_MAX_POOL_SIZE', 50)),
+            'retryWrites': True,
         }
+        mongo_compressors = os.environ.get('MONGO_COMPRESSORS')
+        if mongo_compressors:
+            kwargs['compressors'] = mongo_compressors
         if mongo_username and mongo_password:
             kwargs.update({
                 'username': mongo_username,
@@ -603,14 +607,23 @@ class DailyNextGen:
     # =========================================================================
     # MongoDB Collection Writer
     # =========================================================================
-    def write_to_mongo_collection(self, df, collection_name, max_retries=3, retry_delay=3, chunksize=2500):
+    def write_to_mongo_collection(self, df, collection_name, max_retries=3, retry_delay=3, chunksize=None, max_workers=None):
         """
         Atomically writes/replaces a MongoDB collection with clean documents.
-        Optimized for high-throughput bulk inserts & low memory.
+        Optimized for high-throughput bulk inserts & low memory:
+        - Vectorized NaN/inf/BSON sanitization in a single pass
+        - Increased chunk size (default 10,000) for fewer network roundtrips
+        - Concurrent bulk inserts across multiple worker threads
+        - Drops collection before bulk insert and builds compound index afterwards
         """
         if df is None or df.empty:
             self.logger.warning(f"Skipping Mongo write for {collection_name} (DataFrame empty).")
             return
+
+        if chunksize is None:
+            chunksize = int(os.environ.get('MONGO_CHUNK_SIZE', 10000))
+        if max_workers is None:
+            max_workers = int(os.environ.get('MONGO_INSERT_WORKERS', 4))
 
         t_prep = time.time()
         clean_df = df.copy()
@@ -642,31 +655,42 @@ class DailyNextGen:
             if date_col in clean_df.columns and pd.api.types.is_datetime64_any_dtype(clean_df[date_col]):
                 clean_df[date_col] = clean_df[date_col].dt.strftime('%Y-%m-%d')
 
-        total_records = len(clean_df)
+        # Fast vectorized conversion: convert missing values to None for BSON null
+        clean_df = clean_df.astype(object).where(pd.notnull(clean_df), None)
+        records = clean_df.to_dict('records')
+        total_records = len(records)
         self.logger.info(f"Prepared DataFrame ({total_records} rows) for MongoDB '{collection_name}' in {time.time() - t_prep:.2f}s.")
 
         db = self.get_mongo_db()
         col = db[collection_name]
 
+        chunks = [records[i:i + chunksize] for i in range(0, total_records, chunksize)]
+        total_chunks = len(chunks)
+
         for attempt in range(1, max_retries + 1):
             try:
-                self.logger.info(f"Writing {total_records} documents to MongoDB '{collection_name}' (chunksize={chunksize}, ordered=False, attempt {attempt}/{max_retries})...")
+                self.logger.info(
+                    f"Writing {total_records} documents in {total_chunks} chunks to MongoDB '{collection_name}' "
+                    f"(chunksize={chunksize}, workers={max_workers}, ordered=False, attempt {attempt}/{max_retries})..."
+                )
                 t0 = time.time()
                 col.drop()
                 if total_records > 0:
-                    for i in range(0, total_records, chunksize):
-                        chunk = clean_df.iloc[i:i + chunksize].to_dict('records')
-                        cleaned_chunk = [
-                            {k: (None if (v is pd.NA or (isinstance(v, float) and np.isnan(v))) else v) for k, v in doc.items()}
-                            for doc in chunk
-                        ]
-                        col.insert_many(cleaned_chunk, ordered=False)
+                    if total_chunks <= 1 or max_workers <= 1:
+                        for chunk in chunks:
+                            col.insert_many(chunk, ordered=False)
+                    else:
+                        workers = min(max_workers, total_chunks)
+                        with ThreadPoolExecutor(max_workers=workers) as executor:
+                            futures = [executor.submit(col.insert_many, chunk, ordered=False) for chunk in chunks]
+                            for future in as_completed(futures):
+                                future.result()
                     try:
                         cols = set(clean_df.columns)
                         if {'Sector', 'DepartureDate', 'FlightNumber'}.issubset(cols):
-                            col.create_index([("Sector", 1), ("DepartureDate", 1), ("FlightNumber", 1)])
+                            col.create_index([("Sector", 1), ("DepartureDate", 1), ("FlightNumber", 1)], background=True)
                         elif {'sector', 'date', 'flight'}.issubset(cols):
-                            col.create_index([("sector", 1), ("date", 1), ("flight", 1)])
+                            col.create_index([("sector", 1), ("date", 1), ("flight", 1)], background=True)
                     except Exception as idx_err:
                         self.logger.warning(f"Could not create index on {collection_name}: {idx_err}")
                 self.logger.info(f"Successfully wrote {total_records} documents to MongoDB '{collection_name}' in {time.time()-t0:.2f}s.")
@@ -753,19 +777,27 @@ class DailyNextGen:
 
             # 7. Persistence: MongoDB (weighted file & NextGen outputs)
             if self.write_mongo:
-                self.logger.info("Storing datasets into MongoDB...")
-                # A. Weighted file (add_model_fare_bucket_level_weighted) -> MongoDB
-                self.write_to_mongo_collection(fare_bucket_df, 'add_model_fare_bucket_level_weighted')
-
-                # B. NextGen Inventory Optimization output (add_model_inventory_ng) -> MongoDB
+                mongo_targets = [
+                    (fare_bucket_df, 'add_model_fare_bucket_level_weighted', "Storing weighted file into MongoDB collection 'add_model_fare_bucket_level_weighted'...")
+                ]
                 if inventory_ng_df is not None and not inventory_ng_df.empty:
-                    self.logger.info("Storing NextGen inventory optimization into MongoDB collection 'add_model_inventory_ng'...")
-                    self.write_to_mongo_collection(inventory_ng_df, 'add_model_inventory_ng')
-
-                # C. Flight-level weighted output (add_model_flight_level_weighted) -> MongoDB
+                    mongo_targets.append((inventory_ng_df, 'add_model_inventory_ng', "Storing NextGen inventory optimization into MongoDB collection 'add_model_inventory_ng'..."))
                 if flight_df is not None and not flight_df.empty:
-                    self.logger.info("Storing flight-level weighted into MongoDB collection 'add_model_flight_level_weighted'...")
-                    self.write_to_mongo_collection(flight_df, 'add_model_flight_level_weighted')
+                    mongo_targets.append((flight_df, 'add_model_flight_level_weighted', "Storing flight-level weighted into MongoDB collection 'add_model_flight_level_weighted'..."))
+
+                if self._to_bool(self._get_override('PARALLEL_MONGO_COLLECTIONS', False)):
+                    self.logger.info(f"Persisting {len(mongo_targets)} collections to MongoDB concurrently...")
+                    with ThreadPoolExecutor(max_workers=len(mongo_targets)) as executor:
+                        futures = [
+                            executor.submit(self.write_to_mongo_collection, target_df, target_col)
+                            for target_df, target_col, _ in mongo_targets
+                        ]
+                        for f in as_completed(futures):
+                            f.result()
+                else:
+                    for target_df, target_col, log_msg in mongo_targets:
+                        self.logger.info(log_msg)
+                        self.write_to_mongo_collection(target_df, target_col)
 
             elapsed = round(time.time() - start_time, 2)
             self.logger.info(f"DailyNextGen pipeline finished successfully in {elapsed}s.")

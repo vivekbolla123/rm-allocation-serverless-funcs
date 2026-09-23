@@ -211,3 +211,77 @@ class TestDailyNextGen:
         assert result['inventory_ng_rows'] == 4
         assert job.upload_snapshot_to_s3.call_count >= 1
         assert job.write_to_mongo_collection.call_count >= 1
+
+    def test_write_to_mongo_collection_parallel_chunks(self):
+        job = DailyNextGen()
+        mock_col = MagicMock()
+        mock_db = MagicMock()
+        mock_db.__getitem__.return_value = mock_col
+        job.get_mongo_db = MagicMock(return_value=mock_db)
+
+        # 25 rows, chunksize=10 -> should produce 3 chunks (10, 10, 5)
+        df = pd.DataFrame({
+            'Sector': ['BOMDEL'] * 25,
+            'DepartureDate': ['2026-10-01'] * 25,
+            'FlightNumber': list(range(1001, 1026)),
+            'Value': [float(i) for i in range(25)]
+        })
+
+        inserted_batches = []
+        def mock_insert_many(batch, ordered=False):
+            inserted_batches.append(len(batch))
+
+        mock_col.insert_many.side_effect = mock_insert_many
+
+        job.write_to_mongo_collection(df, 'test_parallel_col', chunksize=10, max_workers=2)
+
+        mock_col.drop.assert_called_once()
+        assert mock_col.insert_many.call_count == 3
+        assert sum(inserted_batches) == 25
+        assert set(inserted_batches) == {10, 5}
+        mock_col.create_index.assert_called_once()
+
+    def test_write_to_mongo_collection_retry(self):
+        job = DailyNextGen()
+        mock_col = MagicMock()
+        mock_db = MagicMock()
+        mock_db.__getitem__.return_value = mock_col
+        job.get_mongo_db = MagicMock(return_value=mock_db)
+
+        df = pd.DataFrame({
+            'Sector': ['BOMDEL'],
+            'DepartureDate': ['2026-10-01'],
+            'FlightNumber': [1101]
+        })
+
+        call_state = {'count': 0}
+        def flaky_insert(batch, ordered=False):
+            call_state['count'] += 1
+            if call_state['count'] == 1:
+                raise ConnectionError("Simulated network blip")
+            return None
+
+        mock_col.insert_many.side_effect = flaky_insert
+
+        job.write_to_mongo_collection(df, 'test_retry_col', max_retries=2, retry_delay=0.01)
+
+        assert call_state['count'] == 2
+        assert mock_col.drop.call_count == 2
+        mock_col.create_index.assert_called_once()
+
+    def test_run_pipeline_parallel_mongo_collections(self, sample_fare_bucket_df):
+        job = DailyNextGen(overrides={
+            'WRITE_MONGO': 'true',
+            'WRITE_S3_SNAPSHOTS': 'false',
+            'COMPUTE_INVENTORY_NG': 'true',
+            'PARALLEL_MONGO_COLLECTIONS': 'true'
+        })
+
+        job.discover_latest_snapshot_date = MagicMock(return_value='2026-09-22')
+        job.read_partitioned_parquet = MagicMock(return_value=sample_fare_bucket_df)
+        job.write_to_mongo_collection = MagicMock()
+
+        result = job.run()
+        assert result['status'] == 'success'
+        assert job.write_to_mongo_collection.call_count >= 2
+
