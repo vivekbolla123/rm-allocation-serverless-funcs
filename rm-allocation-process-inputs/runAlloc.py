@@ -1592,7 +1592,9 @@ class DynAlloc:
 		self.outputSummaryRow_b2c.FirstRBDAlloc = self.outputSummaryRow_b2b.FirstRBDAlloc = getattr(self, 'first_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.OtherRBDAlloc = self.outputSummaryRow_b2b.OtherRBDAlloc = getattr(self, 'other_rbd_alloc', CONST_NA)
 		self.outputSummaryRow_b2c.forecastPLF = self.outputSummaryRow_b2b.forecastPLF = getParsedForecast(self)
-		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = imp_forecast
+		self.outputSummaryRow_b2c.ImputedForecastPLF = self.outputSummaryRow_b2b.ImputedForecastPLF = getParsedImputedForecast(
+			self, self.outputSummaryRow_b2c.forecastPLF, currBookedLoad, sod_tgtAtCurrentHour_abs, final_totalCapacity
+		)
 		self.outputSummaryRow_b2c.AF_Allin = self.outputSummaryRow_b2b.AF_Allin = getattr(self.currParams, 'ALLIN_AF', CONST_NA)
 		self.outputSummaryRow_b2c.ForecastAF_Allin = self.outputSummaryRow_b2b.ForecastAF_Allin = getattr(self.currParams, 'ForecastAF_Allin', CONST_NA)
 		self.outputSummaryRow_b2c.ALLIN_AF_NB_LM = self.outputSummaryRow_b2b.ALLIN_AF_NB_LM = getattr(self.currParams, 'ALLIN_AF_NB_LM', CONST_NA)
