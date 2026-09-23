@@ -588,12 +588,29 @@ class NextGenOptimizationEngine:
                 df['sigma_2'] = sig_fact * df['mu_2']
                 df['sigma_3'] = df['sigma_2']
             df['sigma_bar_3'] = df['sigma_bar']
-            df['ProtectionLimit_3'] = df['ProtectionLimit']
-            df['AU_2'] = df['AU']
+            au_2_list = df['AU'].copy().tolist()
+            for j in range(1, n):
+                if fares[j] < C_ladder:
+                    au_2_list[j] = 0.0
+            
+            strat_idx = fares.index(C_ladder)
+            # Floor protection: if AU_2 at Strategy Fare < current_bookings, elevate
+            if au_2_list[strat_idx] < cb:
+                elevate_au = cb
+                for k in range(strat_idx, -1, -1):
+                    if au_2_list[k] >= cb:
+                        elevate_au = au_2_list[k]
+                        break
+                for k in range(strat_idx, -1, -1):
+                    if au_2_list[k] < elevate_au:
+                        au_2_list[k] = elevate_au
+
+            df['AU_2'] = au_2_list
             
             au_rev = df['AU_2'].copy().tolist()
-            strat_idx = fares.index(C_ladder)
             au_rev[strat_idx] = min(au_rev[strat_idx], cb + first_rbd_seats)
+            for j in range(strat_idx + 1, n):
+                au_rev[j] = 0.0
 
             # Apply backstop floor
             b_val = to_float(backstop, None)

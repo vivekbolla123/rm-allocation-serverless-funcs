@@ -1844,6 +1844,8 @@ class DynAlloc:
 						promo_rbd = str(getattr(self.constantsUtils, 'PROMO_RBD_NG', getattr(self.constantsUtils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip()
 						promo_rows = ng_opt_df[ng_opt_df.get('Promo_Flag', 0) == 1]
 						promo_au_revised = to_float(promo_rows['AU_Revised'].iloc[0], 0.0) if not promo_rows.empty else 0.0
+						target_open_fare = to_float(ng_summary.get('NG_Opening_fare', ng_summary.get('Anchor_fare', 0.0)), 0.0)
+						curr_booked_load_f = to_float(currBookedLoad, 0.0)
 
 						for slot_i in range(1, int(self.AU_COLUMN_LENGTH) + 1):
 							cos = getattr(currRec_fullalloc, f"class_of_service_{slot_i}", None)
@@ -1866,10 +1868,17 @@ class DynAlloc:
 								rbd_match = B2CRBDs_ladder[B2CRBDs_ladder['RBD'] == cos]
 								if not rbd_match.empty:
 									rbd_fare = to_float(rbd_match.iloc[0].get('TOTAL', rbd_match.iloc[0].get('Total', 0.0)), 0.0)
-									for b in bucket_intervals:
-										if b['low'] <= rbd_fare <= b['up'] or (b['up'] == float('inf') and rbd_fare >= b['low']):
-											assigned_au = b['au']
-											break
+									if target_open_fare > 0 and rbd_fare < (target_open_fare - 1e-4):
+										assigned_au = 0.0
+									else:
+										for b in bucket_intervals:
+											if b['low'] <= rbd_fare <= b['up'] or (b['up'] == float('inf') and rbd_fare >= b['low']):
+												assigned_au = b['au']
+												break
+
+							if assigned_au > 0 and assigned_au <= curr_booked_load_f:
+								assigned_au = 0.0
+
 							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', assigned_au)
 			except Exception as e:
 				self.logger.error(f"Error in NextGen AU Optimization: {e}")
