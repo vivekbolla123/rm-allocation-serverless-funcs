@@ -1535,6 +1535,7 @@ class DynAlloc:
 		final_plf = state.final_plf
 		variance_full = state.variance_full
 		dplfBand_full = state.dplfBand_full
+		imp_forecast = getattr(state, 'imp_forecast', CONST_NA)
 		imp_forecast_band = state.imp_forecast_band
 		Af_Nb_Allin = state.Af_Nb_Allin
 		sod_startOfDayTgtBookedLoad_abs = state.sod_startOfDayTgtBookedLoad_abs
