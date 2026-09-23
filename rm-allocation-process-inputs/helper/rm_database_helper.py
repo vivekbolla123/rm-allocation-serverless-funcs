@@ -888,6 +888,13 @@ class RMDatabaseHelper:
                 "conversionRate": str(latest_row.conversionRate),
                 "currency": str(latest_row.currency),
                 "region": str(latest_row.region),
+                "NG_LF_Forecast": str(getattr(latest_row, 'NG_LF_Forecast', CONST_NA)),
+                "NG_AF_Forecast": str(getattr(latest_row, 'NG_AF_Forecast', CONST_NA)),
+                "NG_Historical_current_booked": str(getattr(latest_row, 'NG_Historical_current_booked', CONST_NA)),
+                "NG_Opening_fare": str(getattr(latest_row, 'NG_Opening_fare', CONST_NA)),
+                "NG_FirstRBD": str(getattr(latest_row, 'NG_FirstRBD', CONST_NA)),
+                "NG_Strategy_fare": str(getattr(latest_row, 'NG_Strategy_fare', getattr(latest_row, 'Strategy_fare', CONST_NA))),
+                "NG_Anchor_fare": str(getattr(latest_row, 'NG_Anchor_fare', getattr(latest_row, 'Anchor_fare', CONST_NA))),
                 "DepDateObj": self.parse_date_to_datetime_obj(latest_row.DepDate)
             }
 

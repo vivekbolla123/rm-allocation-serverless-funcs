@@ -587,7 +587,7 @@ def compute_inventory_optimization_df(
 
 INVENTORY_NG_COLUMNS = [
     'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
+    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
@@ -729,12 +729,14 @@ def compute_flight_inventory_ng(
         anchor_fare = float(fares[0]) if n > 0 else 0.0
 
     # Strategy Fare C
-    if market_min_fare is not None and pd.notna(market_min_fare):
+    is_mkt_valid = (market_min_fare is not None and pd.notna(market_min_fare) and float(market_min_fare) > 0)
+    is_oal_below_anchor = (is_mkt_valid and float(market_min_fare) < anchor_fare)
+    if not is_mkt_valid or is_oal_below_anchor:
+        strategy_fare = anchor_fare
+    else:
         c_min_val = float(market_min_fare)
         valid_fares = [f for f in fares if f <= c_min_val]
         strategy_fare = float(valid_fares[0]) if valid_fares else float(fares[-1])
-    else:
-        strategy_fare = anchor_fare
 
     # Phase 3: Demand Redistribution & Revised AU
     A = anchor_fare
@@ -748,7 +750,7 @@ def compute_flight_inventory_ng(
     a_ladder = anchor_candidates[0] if anchor_candidates else fares[-1]
     a_idx = fares.index(a_ladder)
 
-    if C_ladder <= a_ladder or strategy_fare is None or pd.isna(strategy_fare):
+    if C_ladder <= a_ladder or strategy_fare is None or pd.isna(strategy_fare) or not is_mkt_valid or is_oal_below_anchor:
         P_eq_list = [np.nan] * n
         mu_bar_2_list = mu_bar_list
         mu_2_list = mu
@@ -758,7 +760,11 @@ def compute_flight_inventory_ng(
         y_2_list = y_list
         au_2_list = au_list
         au_revised = [float(x) for x in au_2_list]
-        au_revised[strat_idx] = min(au_revised[strat_idx], cb + first_rbd_seats)
+        au_revised[a_idx] = min(au_revised[a_idx], cb + first_rbd_seats)
+        for j in range(a_idx + 1, n):
+            au_revised[j] = 0.0
+            au_2_list[j] = 0.0
+            au_list[j] = 0.0
     else:
         P_max = fares[0]
 
@@ -932,6 +938,7 @@ def compute_flight_inventory_ng(
         'oal_b2c_min': [market_min_fare if market_min_fare is not None else np.nan] * n,
         'anchor_fare': [anchor_fare] * n,
         'strategy_fare': [strategy_fare] * n,
+        'opening fare': [float(fares[[i for i in range(n) if au_revised[i] > cb][-1]]) if [i for i in range(n) if au_revised[i] > cb] else (float(fares[0]) if n > 0 else 3000.0)] * n,
         'Promo_Flag': [0] * n,
         'mu_bar_orig': mu_bar_list,
         'mu': mu,

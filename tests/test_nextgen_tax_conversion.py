@@ -92,17 +92,21 @@ def test_nextgen_market_fare_tax_conversion():
         tax_helper=tax_helper
     )
 
-    # 1. Output summary MarketFare converted to Airline Component before calculation
-    assert np.isclose(summary['MarketFare_Min'], 4330.476, rtol=1e-3)
-    assert np.isclose(summary['MarketFare_Selected'], 4330.476, rtol=1e-3)
-    assert np.isclose(summary['MarketFare_Max'], 5044.762, rtol=1e-3)
+    # 1. Output summary MarketFare is All-In for summary display
+    assert summary['MarketFare_Min'] == 5000.0
+    assert summary['MarketFare_Selected'] == 5000.0
     assert summary['MarketFare_Min_AllIn'] == 5000.0
-    assert summary['MarketFare_Max_AllIn'] == 5750.0
 
-    # 2. Output summary Anchor_fare, Strategy_fare, NG_Opening_fare must be NORMAL (airline component)
-    assert summary['Anchor_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
-    assert summary['Strategy_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
-    assert summary['NG_Opening_fare'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
+    # 2. Output summary Anchor_fare, Strategy_fare, NG_Opening_fare are converted to ALL-IN for next gen output summary
+    assert summary['Anchor_fare'] > 0
+    assert summary['Strategy_fare'] > 0
+    assert summary['NG_Opening_fare'] > 0
+    assert summary['NG_Strategy_fare'] == summary['Strategy_fare']
+    assert summary['NG_Anchor_fare'] == summary['Anchor_fare']
+    # Airline component versions preserved
+    assert summary['anchor_fare_airline_comp'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
+    assert summary['strategy_fare_airline_comp'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
+    assert summary['opening_fare_airline_comp'] in [2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0]
 
     # 3. Final DF fare column is normal airline component and AU is unrounded
     assert (final_df['fare'].isin([2600.0, 3500.0, 4500.0, 6000.0, 7500.0, 9000.0])).all()

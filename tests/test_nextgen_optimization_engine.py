@@ -564,6 +564,138 @@ class TestNextGenOptimizationEngine:
             else:
                 assert r['AU_Revised'] < capacity, f"Fare {r['fare']} < 4279 should not be capped to capacity"
 
+    def test_oal_less_than_anchor_fare_bypasses_au_recalculation(self, sample_flight_data):
+        """
+        Verify that when oal_b2c_min < anchor_fare, AU recalculation and demand redistribution
+        are bypassed, strategy_fare = anchor_fare, and AUs below anchor fare are 0.
+        """
+        capacity = 189
+        cb = 100
+        # Compute anchor fare first to know its value
+        init_df, anchor_fare, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+        assert anchor_fare > 0
+
+        # Competitor fare below anchor fare
+        low_comp_fare = anchor_fare - 500.0
+        mkt_fares = [{'AirlineCode': '6E', 'Fare': low_comp_fare, 'outbound_stops': 0, 'outbound_duration': 120, 'DepTime': '10:30'}]
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 300000.0,
+            market_fares=mkt_fares,
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'first_rbd_NG': 15}
+        )
+
+        assert 'oal_b2c_min < anchor_fare' in summary['Rule_Applied']
+        assert summary['Strategy_fare'] == summary['Anchor_fare']
+        assert 'opening fare' in final_df.columns
+
+        # Verify AUs below anchor fare are 0.0
+        for _, r in final_df.iterrows():
+            if r['FareBucket'] == 'Promo':
+                continue
+            if r['fare'] < anchor_fare - 1e-4:
+                assert r['AU_Revised'] == 0.0, f"Fare {r['fare']} below anchor {anchor_fare} must have AU_Revised=0"
+
+    def test_market_fares_not_found_bypasses_au_recalculation(self, sample_flight_data):
+        """
+        Verify that when market fares are not found, AU recalculation and demand redistribution
+        are bypassed, strategy_fare = anchor_fare, and AUs below anchor fare are 0.
+        """
+        capacity = 189
+        cb = 100
+        init_df, anchor_fare, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 300000.0,
+            market_fares=[], # No market fares found
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'first_rbd_NG': 15}
+        )
+
+        assert 'Market Fares Not Found' in summary['Rule_Applied']
+        assert summary['Strategy_fare'] == summary['Anchor_fare']
+        assert 'opening fare' in final_df.columns
+
+        for _, r in final_df.iterrows():
+            if r['FareBucket'] == 'Promo':
+                continue
+            if r['fare'] < anchor_fare - 1e-4:
+                assert r['AU_Revised'] == 0.0
+
+    def test_competition_response_opening_fare_assigned_to_51_levels(self, sample_flight_data):
+        """
+        Verify that when oal_b2c_min >= anchor_fare, inventory at nearest forecast fare below
+        competition response is assigned to nearest lower among 51 fare levels as opening fare.
+        """
+        capacity = 189
+        cb = 100
+        init_df, anchor_fare, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb
+        )
+
+        # Higher competitor fare to trigger competition response
+        high_comp_fare = 15000.0
+        mkt_fares = [{'AirlineCode': '6E', 'Fare': high_comp_fare, 'outbound_stops': 0, 'outbound_duration': 120, 'DepTime': '10:30'}]
+
+        # Construct synthetic 51 filed B2C fare levels
+        filed_fares = np.linspace(25000, 2500, 51)
+        filed_51_ladder = pd.DataFrame({
+            'RBD': [f'RBD_{i}' for i in range(51)],
+            'fare': filed_fares
+        })
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 300000.0,
+            market_fares=mkt_fares,
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'first_rbd_NG': 15},
+            filed_51_ladder_df=filed_51_ladder
+        )
+
+        assert 'opening fare' in final_df.columns
+        assert summary['NG_Opening_fare'] > 0
+        assert 'filed_51_au_mapping' in summary
+        assert len(summary['filed_51_au_mapping']) == 51
+
+        # Check that filed levels below opening fare have 0 inventory
+        opening_fare = summary.get('opening_fare_airline_comp', summary['NG_Opening_fare'])
+        for rbd, au in summary['filed_51_au_mapping'].items():
+            rbd_fare = filed_51_ladder.loc[filed_51_ladder['RBD'] == rbd, 'fare'].iloc[0]
+            if rbd_fare < opening_fare - 1e-4:
+                assert au == 0.0, f"RBD {rbd} fare {rbd_fare} below opening {opening_fare} should have AU=0"
+
+    def test_allin_conversion_for_nextgen_summary(self, sample_flight_data):
+        """
+        Verify that airline component fares are converted to all-in for NextGen output summary.
+        """
+        class MockTaxHelper:
+            def allin_to_airline_component(self, f, o, d, route=None):
+                return float(f) - 500.0
+            def airline_component_to_allin(self, f, o, d, route=None):
+                return float(f) + 500.0
+
+        tax_helper = MockTaxHelper()
+        capacity = 189
+        cb = 100
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 300000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={'origin': 'BOM', 'destin': 'DEL'},
+            tax_helper=tax_helper
+        )
+
+        # In summary, Anchor_fare and NG_Opening_fare must be all-in (airline_comp + 500)
+        assert summary['Anchor_fare'] == summary['anchor_fare_airline_comp'] + 500.0
+        assert summary['NG_Opening_fare'] == summary['opening_fare_airline_comp'] + 500.0
+
+
 
 
 

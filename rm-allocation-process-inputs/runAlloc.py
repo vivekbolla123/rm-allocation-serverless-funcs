@@ -1690,8 +1690,10 @@ class DynAlloc:
 						curr_params=self.currParams,
 						db_helper=self.rmdatabasehelper,
 						recalibration_dict=recal_dict,
-						tax_helper=getattr(self, 'tax_helper', None)
+						tax_helper=getattr(self, 'tax_helper', None),
+						filed_51_ladder_df=B2CRBDs_ladder
 					)
+					state.ng_summary = ng_summary
 
 					# Sourcing pre-calculated LF_Forecast_Revised and AF_Forecast from daily_next_gen table (add_model_inventory_ng)
 					inv_ng_df = None
@@ -1744,8 +1746,10 @@ class DynAlloc:
 					ng_row.NG_LF_Forecast = ng_summary.get('NG_LF_Forecast')
 					ng_row.NG_AF_Forecast = ng_summary.get('NG_AF_Forecast')
 					ng_row.NG_Opening_fare = ng_summary.get('NG_Opening_fare')
-					ng_row.Strategy_fare = ng_summary.get('Strategy_fare')
-					ng_row.Anchor_fare = ng_summary.get('Anchor_fare')
+					strat_val = ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare'))
+					anch_val = ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare'))
+					ng_row.NG_Strategy_fare = strat_val
+					ng_row.NG_Anchor_fare = anch_val
 					ng_row.Current_Revenue = to_float(curr_rev, 0.0)
 					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
 					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
@@ -1791,6 +1795,7 @@ class DynAlloc:
 						ng_opt_df['qp_b2c_max'] = max(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
 						ng_opt_df['anchor_fare'] = ng_summary.get('Anchor_fare', 0.0)
 						ng_opt_df['strategy_fare'] = ng_summary.get('Strategy_fare', 0.0)
+						ng_opt_df['opening fare'] = ng_summary.get('NG_Opening_fare', 0.0)
 						ng_opt_df['predicted_pickup'] = float(ng_opt_df['mu'].sum()) if 'mu' in ng_opt_df.columns else 0.0
 						ng_opt_df['Predicted_Flown'] = curr_booked_f + ng_opt_df['predicted_pickup']
 						ng_opt_df['Predicted_pickup_Revised'] = ng_summary.get('Predicted_Pickup_Revised', 0.0)
@@ -1872,6 +1877,7 @@ class DynAlloc:
 					if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) and not ng_opt_df.empty:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
 						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
+						filed_51_au_map = ng_summary.get('filed_51_au_mapping') or {}
 
 						promo_flag = 1 if is_flag_enabled(getattr(self.currParams, 'promo_flag_NG', getattr(self.currParams, 'PromoFlag_NG', DEFAULT_PROMO_FLAG_NG))) else 0
 						promo_rbd = str(getattr(self.constantsUtils, 'PROMO_RBD_NG', getattr(self.constantsUtils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip()
@@ -1886,7 +1892,7 @@ class DynAlloc:
 
 							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
 							if promo_flag == 1 and cos == promo_rbd:
-								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', promo_au_revised)
+								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', int(round(promo_au_revised)))
 								continue
 
 							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
@@ -1895,7 +1901,9 @@ class DynAlloc:
 								continue
 
 							assigned_au = 0.0
-							if cos in rbd_to_au:
+							if filed_51_au_map and cos in filed_51_au_map:
+								assigned_au = to_float(filed_51_au_map[cos], 0.0)
+							elif cos in rbd_to_au:
 								assigned_au = to_float(rbd_to_au[cos], 0.0)
 							elif cos and not B2CRBDs_ladder.empty:
 								rbd_match = B2CRBDs_ladder[B2CRBDs_ladder['RBD'] == cos]
@@ -1909,10 +1917,12 @@ class DynAlloc:
 												assigned_au = b['au']
 												break
 
-							if assigned_au > 0 and assigned_au <= curr_booked_load_f:
-								assigned_au = 0.0
+							# Round off final AUs only for AU grid
+							rounded_au = int(round(assigned_au))
+							if rounded_au > 0 and rounded_au <= curr_booked_load_f:
+								rounded_au = 0
 
-							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', assigned_au)
+							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', rounded_au)
 			except Exception as e:
 				self.logger.error(f"Error in NextGen AU Optimization: {e}")
 
@@ -2090,6 +2100,19 @@ class DynAlloc:
 
 		# Portfolio anchor split (R9) — same ``portfolio_count`` on the B2B row.
 		self.outputSummaryRow_b2b.portfolio_count = portfolio_count_val
+
+		# Populate NextGen metrics for existing run_summary (both B2C and B2B rows)
+		ng_summary_ctx = getattr(state, 'ng_summary', None) or {}
+		for row in [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]:
+			row.NG_LF_Forecast = ng_summary_ctx.get('NG_LF_Forecast', CONST_NA)
+			row.NG_AF_Forecast = ng_summary_ctx.get('NG_AF_Forecast', CONST_NA)
+			row.NG_Historical_current_booked = ng_summary_ctx.get('NG_Historical_current_booked', currBookedLoad if currBookedLoad is not None else CONST_NA)
+			row.NG_Opening_fare = ng_summary_ctx.get('NG_Opening_fare', CONST_NA)
+			row.NG_FirstRBD = ng_summary_ctx.get('NG_FirstRBD', CONST_NA)
+			strat_val = ng_summary_ctx.get('NG_Strategy_fare', ng_summary_ctx.get('Strategy_fare', getattr(row, 'strategyFare', CONST_NA)))
+			anch_val = ng_summary_ctx.get('NG_Anchor_fare', ng_summary_ctx.get('Anchor_fare', getattr(row, 'anchorFare', CONST_NA)))
+			row.NG_Strategy_fare = strat_val
+			row.NG_Anchor_fare = anch_val
 
 		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
 		self.allocResults.extend(new_summary_rows_fullalloc)
@@ -2456,6 +2479,12 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
+			# Round off final AUs only in AU grid
+			for col in AUFrame.columns:
+				if 'Class AU' in col:
+					AUFrame[col] = AUFrame[col].apply(
+						lambda x: int(round(float(x))) if pd.notna(x) and str(x).strip() != "" else x
+					)
 			os.makedirs(os.path.dirname(os.path.abspath(au_grid_path)), exist_ok=True)
 			AUFrame.to_csv(au_grid_path, index=False)
 

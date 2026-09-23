@@ -19,8 +19,8 @@ class OutputSummaryNextGen:
         self.NG_AF_Forecast = CONST_NA
         self.NG_Opening_fare = CONST_NA
         self.NG_FirstRBD = CONST_NA
-        self.Strategy_fare = CONST_NA
-        self.Anchor_fare = CONST_NA
+        self.NG_Strategy_fare = CONST_NA
+        self.NG_Anchor_fare = CONST_NA
 
         # Revenue & Demand Metrics
         self.Current_Revenue = CONST_NA

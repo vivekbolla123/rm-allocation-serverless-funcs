@@ -442,7 +442,9 @@ CONST_OUTPUT_SUMMARY_ORDER = [
     'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM', 'ALLIN_AF_NB_LY',
     'B2BFactor', 'portfolio_count', 'z_score88', 'grpAdjPLF', 'z_score_composite',
     'AirlineCode_Max', 'grpAdjProfileFare', 'allocationStatus', 'Portfolio_Anchor',
-    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor'
+    'AirlineCode_Min', 'grpFareAnchor', 'Portfolio88_Anchor', 'upsell', 'currentLoadFactor',
+    'NG_LF_Forecast', 'NG_AF_Forecast', 'NG_Historical_current_booked',
+    'NG_Opening_fare', 'NG_FirstRBD', 'NG_Strategy_fare', 'NG_Anchor_fare'
 ]
 
 CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
@@ -452,13 +454,13 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
     'Grid_Name', 'Rule_Applied', 'nextgen_flag', 'competition_response_flag',
     'buy_up_factor', 'RunId', 'Id',
     'NG_Historical_current_booked', 'NG_LF_Forecast', 'NG_AF_Forecast',
-    'NG_Opening_fare', 'Strategy_fare', 'Anchor_fare',
+    'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare',
     'analystName', 'status', 'allocationStatus'
 ]
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
+    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',

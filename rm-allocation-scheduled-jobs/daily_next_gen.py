@@ -106,7 +106,7 @@ def get_ssm_parameter(parameter_name, region='ap-south-1', log_warning=False, lo
 # =============================================================================
 INVENTORY_NG_COLUMNS = [
     'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
+    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
@@ -250,15 +250,32 @@ def compute_flight_inventory_ng(
         au[1:] = np.maximum(0.0, cap - prot_lim[:-1])
 
     # Competition & Strategy
-    oal_min = float(market_min_fare) if market_min_fare is not None and market_min_fare > 0 else (fare_arr[-1] if k > 0 else 3000.0)
+    oal_min = float(market_min_fare) if market_min_fare is not None and market_min_fare > 0 else None
     anchor_fare = fare_arr[-1] if k > 0 else 3000.0
-    strategy_fare = max(anchor_fare, oal_min)
 
-    # Pass 2 - AU_Revised
-    mu_bar_2 = np.copy(mu_bar_orig)
-    mu_2 = np.copy(mu_arr)
-    au_2 = np.copy(au)
-    au_revised = np.copy(au)
+    if oal_min is None or oal_min < anchor_fare:
+        strategy_fare = anchor_fare
+        # In cases where oal_b2c_min < anchor fare or market fares not found:
+        # We don't do AU recalculate and demand redistribution and make AUs below anchor fare 0.
+        mu_bar_2 = np.copy(mu_bar_orig)
+        mu_2 = np.copy(mu_arr)
+        au_2 = np.copy(au)
+        au_revised = np.copy(au)
+        for i in range(k):
+            if fare_arr[i] < anchor_fare:
+                au[i] = 0.0
+                au_2[i] = 0.0
+                au_revised[i] = 0.0
+    else:
+        strategy_fare = max(anchor_fare, oal_min)
+        mu_bar_2 = np.copy(mu_bar_orig)
+        mu_2 = np.copy(mu_arr)
+        au_2 = np.copy(au)
+        au_revised = np.copy(au)
+
+    # Opening fare: lowest fare with AU higher than Total Bookings
+    open_indices = [i for i in range(k) if au_revised[i] > tot_bookings]
+    opening_fare = fare_arr[open_indices[-1]] if open_indices else (fare_arr[0] if k > 0 else 3000.0)
 
     # Predictions & Forecasts
     pred_pickup = np.sum(mu_arr)
@@ -284,9 +301,10 @@ def compute_flight_inventory_ng(
     res['capacity'] = cap
     res['Total_Bookings'] = tot_bookings
     res['fare'] = fare_arr
-    res['oal_b2c_min'] = oal_min
+    res['oal_b2c_min'] = oal_min if oal_min is not None else np.nan
     res['anchor_fare'] = anchor_fare
     res['strategy_fare'] = strategy_fare
+    res['opening fare'] = opening_fare
     res['Promo_Flag'] = 0
     res['mu_bar_orig'] = mu_bar_orig
     res['mu'] = mu_arr

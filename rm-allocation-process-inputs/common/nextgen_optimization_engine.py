@@ -978,7 +978,8 @@ class NextGenOptimizationEngine:
         curr_params=None,
         db_helper=None,
         recalibration_dict=None,
-        tax_helper=None
+        tax_helper=None,
+        filed_51_ladder_df=None
     ):
         """
         Executes end-to-end NextGen AU optimization and revenue forecasting for a single flight.
@@ -1151,16 +1152,81 @@ class NextGenOptimizationEngine:
 
         rule_applied = "N/A"
         strategy_fare = anchor_fare
+        response_fare = anchor_fare
 
-        if comp_flag == 1 and c_min_comp is not None:
-            # Dynamic Band Lookups from DB
+        # Rule: In cases where oal_b2c_min is less than anchor fare, or market fares not found:
+        # we don't do AU recalculate and demand redistribution and make AUs below anchor fare 0.
+        is_market_found = (c_min_comp is not None and not (isinstance(c_min_comp, float) and np.isnan(c_min_comp)))
+        is_oal_below_anchor = (is_market_found and c_min_comp < anchor_fare)
+
+        if not is_market_found or is_oal_below_anchor or comp_flag != 1:
+            # Case 1: Bypass recalculation and demand redistribution
+            if not is_market_found:
+                rule_applied = "No Competition Response (Market Fares Not Found)"
+            elif is_oal_below_anchor:
+                rule_applied = "No Competition Response (oal_b2c_min < anchor_fare)"
+            else:
+                rule_applied = "N/A"
+            strategy_fare = anchor_fare
+            response_fare = anchor_fare
+
+            redistrib_df = init_df.copy()
+            redistrib_df['P_eq'] = np.nan
+            redistrib_df['mu_bar_2'] = redistrib_df['mu_bar']
+            redistrib_df['mu_2'] = redistrib_df['mu']
+            if 'sigma' in redistrib_df.columns:
+                redistrib_df['sigma_2'] = redistrib_df['sigma'].copy()
+                redistrib_df['sigma_3'] = redistrib_df['sigma'].copy()
+            else:
+                redistrib_df['sigma_2'] = sigma_factor * redistrib_df['mu_2']
+                redistrib_df['sigma_3'] = redistrib_df['sigma_2']
+            redistrib_df['sigma_bar_3'] = redistrib_df['sigma_bar']
+
+            # Initial AU retained; make AUs below anchor fare 0
+            fares_init = [to_float(f, 0.0) for f in redistrib_df['fare'].tolist()]
+            au_init = redistrib_df['AU'].copy().tolist()
+            anchor_idx = 0
+            for idx, f in enumerate(fares_init):
+                if f <= anchor_fare:
+                    anchor_idx = idx
+                    break
+
+            au_rev = au_init.copy()
+            au_rev[anchor_idx] = min(au_rev[anchor_idx], float(cb_val + first_rbd))
+            for j in range(anchor_idx + 1, len(fares_init)):
+                au_init[j] = 0.0
+                au_rev[j] = 0.0
+
+            if backstop is not None and backstop > 0:
+                bs_val = backstop
+                if tax_helper and origin and destin:
+                    try:
+                        bs_val = tax_helper.allin_to_airline_component(float(backstop), origin, destin, route=route)
+                    except Exception:
+                        pass
+                for i, f in enumerate(fares_init):
+                    if f < bs_val:
+                        au_rev[i] = 0.0
+
+            redistrib_df['AU_2'] = au_init
+            redistrib_df['AU_Revised'] = au_rev
+            redistrib_df.attrs['p_min_old'] = anchor_fare
+            redistrib_df.attrs['anchor_fare'] = float(anchor_fare)
+            promo_revised = min(promo_au, to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG)) if promo_flag == 1 else 0.0
+            redistrib_df.attrs['promo_info'] = {
+                'AU': float(promo_au),
+                'AU_2': float(promo_au),
+                'AU_Revised': float(promo_revised),
+                'fare': float(promo_ratio) * float(strategy_fare) if strategy_fare else 0.0
+            }
+        else:
+            # Case 2: Competition response triggers (oal_b2c_min >= anchor_fare)
             pred_pickup_init = sum(init_df['mu'])
             plf_pct = ((cb_val + pred_pickup_init) / float(cap_val)) * 100.0 if cap_val > 0 else 0.0
 
             ndo_band = cls.get_ndo_band(ndo, db_helper=db_helper)
             plf_band = cls.get_plf_band(plf_pct, db_helper=db_helper)
 
-            # Dynamic Grid Lookup from DB
             grid_doc = None
             if db_helper and hasattr(db_helper, 'getCompResponseGrid'):
                 grid_doc = db_helper.getCompResponseGrid(grid_name, ndo_band, plf_band)
@@ -1174,30 +1240,27 @@ class NextGenOptimizationEngine:
 
             response_fare = cls.evaluate_grid_response(rule_applied, anchor_fare, c_min_comp, c_med_comp)
             strategy_fare = cls.determine_strategy_fare(response_fare, init_df)
-        else:
-            strategy_fare = anchor_fare
 
-        # Step 3: Demand Redistribution & Revised AU
-        pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
+            pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
 
-        redistrib_df = cls.redistribute_demand_and_compute_revised_au(
-            init_df, anchor_fare, strategy_fare, cap_val, cb_val,
-            buy_up_factor=buy_up,
-            sigma_factor=sigma_factor,
-            first_rbd=first_rbd,
-            promo_ratio=promo_ratio,
-            backstop=backstop,
-            hardanchor=hardanchor,
-            promo_au=promo_au,
-            promo_flag=promo_flag,
-            promo_first_rbd=promo_first_rbd,
-            promo_threshold=promo_threshold,
-            pmin_threshold_factor=pmin_thresh_factor,
-            tax_helper=tax_helper,
-            origin=origin,
-            destin=destin,
-            route=route
-        )
+            redistrib_df = cls.redistribute_demand_and_compute_revised_au(
+                init_df, anchor_fare, strategy_fare, cap_val, cb_val,
+                buy_up_factor=buy_up,
+                sigma_factor=sigma_factor,
+                first_rbd=first_rbd,
+                promo_ratio=promo_ratio,
+                backstop=backstop,
+                hardanchor=hardanchor,
+                promo_au=promo_au,
+                promo_flag=promo_flag,
+                promo_first_rbd=promo_first_rbd,
+                promo_threshold=promo_threshold,
+                pmin_threshold_factor=pmin_thresh_factor,
+                tax_helper=tax_helper,
+                origin=origin,
+                destin=destin,
+                route=route
+            )
 
         # Step 4: Closed-Form Revenue Forecasting
         pred_rev, tot_er, pickup_rev, flown_rev, af_fc, lf_fc_rev, final_df = cls.compute_closed_form_revenue_forecast(
@@ -1206,16 +1269,93 @@ class NextGenOptimizationEngine:
             anchor_fare=anchor_fare
         )
 
-        # Find opening fare & seats on opening fare (in airline component) - strictly ignoring Promo
-        open_classes = final_df[(final_df['AU_Revised'] > cb_val) & (final_df.get('Promo_Flag', 0) == 0)]
-        if not open_classes.empty:
-            opening_fare = to_float(open_classes['fare'].iloc[-1], 0.0)
-            opening_au = to_float(open_classes['AU_Revised'].iloc[-1], 0.0)
-            seats_on_opening = max(0.0, opening_au - cb_val)
+        # Step 5: 51 Fare Levels (airline component) Mapping & Opening Fare
+        # Resolve 51 filed B2C fare levels in airline component
+        filed_51_df = None
+        if filed_51_ladder_df is not None and not filed_51_ladder_df.empty:
+            filed_51_df = filed_51_ladder_df.copy()
+        elif db_helper and hasattr(db_helper, 'fareExtract') and origin and destin:
+            try:
+                b2c_fares = db_helper.fareExtract(origin, destin, 'B2C', '', route or 'L')
+                if b2c_fares is not None and not b2c_fares.empty:
+                    filed_51_df = b2c_fares.copy()
+            except Exception as e:
+                logger.warning(f"Could not extract 51 filed B2C fares: {e}")
+
+        filed_levels = []
+        if filed_51_df is not None and not filed_51_df.empty:
+            fare_col = next((c for c in ['airline_fare', 'fare', 'Fare', 'TOTAL', 'Total'] if c in filed_51_df.columns), None)
+            for _, r in filed_51_df.iterrows():
+                rbd_code = str(r.get('RBD', '')).strip()
+                raw_f = to_float(r.get(fare_col), 0.0) if fare_col else 0.0
+                if fare_col in ['TOTAL', 'Total'] and tax_helper and origin and destin:
+                    comp_f = tax_helper.allin_to_airline_component(raw_f, origin, destin, route=route)
+                else:
+                    comp_f = raw_f
+                filed_levels.append({
+                    'RBD': rbd_code,
+                    'fare': comp_f,
+                    'allin': raw_f if fare_col in ['TOTAL', 'Total'] else (tax_helper.airline_component_to_allin(comp_f, origin, destin, route=route) if tax_helper and origin and destin else comp_f)
+                })
+            filed_levels = sorted(filed_levels, key=lambda x: x['fare'], reverse=True)
+
+        # Nearest forecast fare below competition response fare (or anchor fare)
+        fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
+        fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
+        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= response_fare]
+        if fc_below:
+            target_fc_fare, target_fc_au = fc_below[0]
         else:
-            filed_classes = final_df[final_df.get('Promo_Flag', 0) == 0]
-            opening_fare = to_float(filed_classes['fare'].iloc[0], 0.0) if not filed_classes.empty else to_float(final_df['fare'].iloc[0], 0.0)
-            seats_on_opening = max(0.0, to_float(filed_classes['AU_Revised'].iloc[0], 0.0) - cb_val) if not filed_classes.empty else 0.0
+            target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
+
+        # "The inventory at nearest fare (among the fares from forecast file) below the fare obtained from
+        # competition response should be assigned to the nearest lower among the 51 fare levels (airline component)."
+        # "And add that as another column in inventory file as opening fare"
+        if filed_levels:
+            cand_51 = [fl for fl in filed_levels if fl['fare'] <= target_fc_fare]
+            open_filed = cand_51[0] if cand_51 else filed_levels[-1]
+            opening_fare = float(open_filed['fare'])
+            opening_rbd = open_filed['RBD']
+        else:
+            open_classes = final_df[(final_df['AU_Revised'] > cb_val) & (final_df.get('Promo_Flag', 0) == 0)]
+            if not open_classes.empty:
+                opening_fare = to_float(open_classes['fare'].iloc[-1], 0.0)
+            else:
+                filed_classes = final_df[final_df.get('Promo_Flag', 0) == 0]
+                opening_fare = to_float(filed_classes['fare'].iloc[0], 0.0) if not filed_classes.empty else to_float(final_df['fare'].iloc[0], 0.0)
+            opening_rbd = str(final_df['FareBucket'].iloc[0])
+
+        # Allocate inventory for each of the 51 fare levels:
+        # "If qp fares changed after morning so forecast fare levels and actual fare levels will be different
+        # then allocate inventory to nearest fare for each fare level."
+        filed_51_au_mapping = {}
+        if filed_levels:
+            for fl in filed_levels:
+                f_val = fl['fare']
+                r_code = fl['RBD']
+                if f_val < opening_fare - 1e-4:
+                    # Below opening fare: inventory is 0
+                    alloc_au = 0.0
+                elif abs(f_val - opening_fare) < 1e-4:
+                    # At opening fare: assigned the competition response inventory (capped at cb + first_rbd)
+                    alloc_au = min(target_fc_au, float(cb_val + first_rbd))
+                else:
+                    # Above opening fare: allocate inventory from nearest forecast fare
+                    nearest_idx = int(np.argmin([abs(f_val - fc_f) for fc_f in fc_fares]))
+                    alloc_au = fc_aus[nearest_idx]
+                filed_51_au_mapping[r_code] = alloc_au
+
+            # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
+            for i in range(len(filed_levels) - 2, -1, -1):
+                high_rbd = filed_levels[i]['RBD']
+                low_rbd = filed_levels[i+1]['RBD']
+                if filed_levels[i]['fare'] >= opening_fare - 1e-4:
+                    filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
+
+        seats_on_opening = max(0.0, target_fc_au - cb_val)
+
+        # Add 'opening fare' as another column in inventory file
+        final_df['opening fare'] = opening_fare
 
         # When promo_flag == 1, append Promo row to final_df
         if promo_flag == 1:
@@ -1238,6 +1378,7 @@ class NextGenOptimizationEngine:
             promo_row['Predicted_Revenue'] = to_float(pred_rev, 0.0)
             promo_row['A'] = 0.0
             promo_row['A_cap'] = 0.0
+            promo_row['opening fare'] = opening_fare
             final_df = pd.concat([final_df, pd.DataFrame([promo_row])], ignore_index=True)
 
         # Sourcing pre-calculated LF_Forecast_Revised and AF_Forecast from daily_next_gen table (add_model_inventory_ng)
@@ -1257,30 +1398,41 @@ class NextGenOptimizationEngine:
             except Exception as e:
                 logger.warning(f"Error reading pre-calculated forecast from add_model_inventory_ng: {e}")
 
+        # Convert airline component fares to ALL-IN for NextGen output summary
+        opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
+        strategy_fare_allin = tax_helper.airline_component_to_allin(strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else strategy_fare
+        anchor_fare_allin = tax_helper.airline_component_to_allin(anchor_fare, origin, destin, route=route) if tax_helper and origin and destin else anchor_fare
+
         summary = {
             'NG_Historical_current_booked': cb_val,
             'NG_LF_Forecast': daily_lf if daily_lf is not None else to_float(lf_fc_rev * 100.0, 0.0),
             'NG_AF_Forecast': daily_af if daily_af is not None else to_float(af_fc, 0.0),
-            'NG_Opening_fare': to_float(opening_fare, 0.0),
+            'NG_Opening_fare': to_float(opening_fare_allin, 0.0),
             'NG_FirstRBD': to_float(seats_on_opening, 0.0),
-            'Strategy_fare': to_float(strategy_fare, 0.0),
-            'Anchor_fare': to_float(anchor_fare, 0.0),
+            'NG_Strategy_fare': to_float(strategy_fare_allin, 0.0),
+            'NG_Anchor_fare': to_float(anchor_fare_allin, 0.0),
+            'Strategy_fare': to_float(strategy_fare_allin, 0.0),
+            'Anchor_fare': to_float(anchor_fare_allin, 0.0),
             'Pmin_Old': to_float(redistrib_df.attrs.get('p_min_old', anchor_fare), 0.0),
             'Current_Revenue': curr_rev_val,
             'Total_Expected_Revenue': to_float(tot_er, 0.0),
             'Predicted_Revenue': to_float(pred_rev, 0.0),
             'Predicted_Pickup_Revised': to_float(pickup_rev, 0.0),
             'Predicted_Flown_Revised': to_float(flown_rev, 0.0),
-            'MarketFare_Selected': to_float(c_min_comp, None) if c_min_comp is not None else None,
-            'MarketFare_Min': to_float(c_min_comp, None) if c_min_comp is not None else None,
-            'MarketFare_Max': to_float(c_med_comp, None) if c_med_comp is not None else None,
+            'MarketFare_Selected': to_float(c_min_allin, None) if c_min_allin is not None else None,
+            'MarketFare_Min': to_float(c_min_allin, None) if c_min_allin is not None else None,
+            'MarketFare_Max': to_float(c_med_allin, None) if c_med_allin is not None else None,
             'MarketFare_Min_AllIn': to_float(c_min_allin, None) if c_min_allin is not None else None,
             'MarketFare_Max_AllIn': to_float(c_med_allin, None) if c_med_allin is not None else None,
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,
             'competition_response_flag': 1 if is_flag_enabled(comp_flag) else 0,
-            'buy_up_factor': buy_up
+            'buy_up_factor': buy_up,
+            'opening_fare_airline_comp': to_float(opening_fare, 0.0),
+            'strategy_fare_airline_comp': to_float(strategy_fare, 0.0),
+            'anchor_fare_airline_comp': to_float(anchor_fare, 0.0),
+            'filed_51_au_mapping': filed_51_au_mapping
         }
 
         return final_df, summary

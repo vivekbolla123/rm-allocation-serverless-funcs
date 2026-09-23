@@ -20,7 +20,7 @@ class TestInventoryNG:
         """Verify that INVENTORY_NG_COLUMNS contains all 50 columns in exact order."""
         expected_columns = [
             'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-            'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'Promo_Flag',
+            'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
             'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
             'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
             'LF_Forecast_Revised', 'AF_Forecast', 'RASK_Forecast', 'Distance', 'RPKM', 'ASKM',
@@ -29,7 +29,7 @@ class TestInventoryNG:
             'FareBucket', 'sigma', 'STD_future', 'qp_b2c_min', 'sigma_bar', 'F_j',
             'protection_limit_yj', 'ProtectionLimit', 'sigma_3', 'ProtectionLimit_3', 'sigma_bar_3'
         ]
-        assert len(INVENTORY_NG_COLUMNS) == 50
+        assert len(INVENTORY_NG_COLUMNS) == 51
         assert INVENTORY_NG_COLUMNS == expected_columns
 
     def test_single_flight_inventory_ng_calculations(self):

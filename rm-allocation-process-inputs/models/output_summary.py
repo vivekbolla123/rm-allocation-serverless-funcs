@@ -86,3 +86,12 @@ class OutputSummary:
         self.currency = CONST_NA
         self.region = DOMESTIC_VALUE
         self.DepDateObj = CONST_NA
+
+        # NextGen Metrics
+        self.NG_LF_Forecast = CONST_NA
+        self.NG_AF_Forecast = CONST_NA
+        self.NG_Historical_current_booked = CONST_NA
+        self.NG_Opening_fare = CONST_NA
+        self.NG_FirstRBD = CONST_NA
+        self.NG_Strategy_fare = CONST_NA
+        self.NG_Anchor_fare = CONST_NA
