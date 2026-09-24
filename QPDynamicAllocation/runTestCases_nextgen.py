@@ -136,8 +136,13 @@ def run_nextgen_test():
             print(f"  Promo Fare = {p_fare}")
             print(f"  Promo Initial AU = {p_au}")
             print(f"  Promo AU_2 (Competition Response) = {p_au2}")
-            print(f"  Promo AU_Revised (Capped by PromoFirstRBD_NG) = {p_aurev}")
-            assert p_aurev <= 10, f"Promo AU_Revised {p_aurev} exceeds PromoFirstRBD_NG limit 10"
+            cb_val = df_inv['Total_Bookings'].iloc[0]
+            thresh_val = cb_val + 10.0
+            print(f"  Promo AU_Revised = {p_aurev} (threshold: cb + PromoFirstRBD_NG = {thresh_val})")
+            if p_au2 > thresh_val:
+                assert abs(p_aurev - thresh_val) < 1e-4, f"Promo AU_Revised {p_aurev} expected to be capped at {thresh_val}"
+            else:
+                assert abs(p_aurev - p_au2) < 1e-4, f"Promo AU_Revised {p_aurev} expected to equal AU_2 {p_au2}"
         else:
             print(f"\nPromo Inventory: PromoFlag_NG is off or no promo row generated.")
 

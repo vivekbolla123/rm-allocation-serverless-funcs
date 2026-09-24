@@ -1003,6 +1003,39 @@ class RMDatabaseHelper:
             self.logger.error(f"Error querying comp_response_plf_bands: {e}")
             return None
 
+    def getCompResponsePlfBandDoc(self, plf):
+        """Finds PLF band document (including threshold_factor) for a given PLF value."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                result = self.db.comp_response_plf_bands.find_one({
+                    "start": {"$lte": float(plf)},
+                    "end": {"$gt": float(plf)}
+                })
+                return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands: {e}")
+            return None
+
+    def getCompResponsePlfBandById(self, band_id):
+        """Finds PLF band document by id/plf_band."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                try:
+                    b_int = int(band_id)
+                    result = self.db.comp_response_plf_bands.find_one({
+                        "$or": [{"id": b_int}, {"plf_band": b_int}, {"id": str(band_id)}, {"plf_band": str(band_id)}]
+                    })
+                except Exception:
+                    result = self.db.comp_response_plf_bands.find_one({
+                        "$or": [{"id": band_id}, {"plf_band": band_id}]
+                    })
+                return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands by id: {e}")
+            return None
+
     def getCompFareRecalibration(self, sector):
         """Fetches competitor fare recalibration adjustments for the sector from MongoDB collection."""
         try:

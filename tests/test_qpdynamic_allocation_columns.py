@@ -28,7 +28,12 @@ def test_nextgen_summary_exact_columns_and_order():
 def test_inventory_optimization_exact_columns_and_order():
     expected_inv_opt_cols = [
         'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-        'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
+        'fare', 'fare_All_in',
+        'oal_b2c_min', 'oal_b2c_min_All_in',
+        'anchor_fare', 'anchor_fare_All_in',
+        'strategy_fare', 'strategy_fare_All_in',
+        'opening fare', 'opening fare_All_in',
+        'Promo_Flag',
         'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
         'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
         'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',
@@ -36,7 +41,7 @@ def test_inventory_optimization_exact_columns_and_order():
         'SnapshotDate', 'Tagging', 'FareBucket', 'RunId'
     ]
     assert CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER == expected_inv_opt_cols
-    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 40
+    assert len(CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER) == 45
 
 
 def test_output_summary_has_nextgen_columns():
@@ -101,14 +106,16 @@ def test_add_model_fare_bucket_level_weighted_file_dates_and_sectors():
 def test_generated_output_csv_exact_headers():
     summary_ng_path = _resolve_output_path("summary_nextgen.csv")
     inv_opt_path = _resolve_output_path("inventory_optimization.csv")
+    inv_opt_latest = _resolve_output_path("inventory_optimization_latest.csv")
 
     if os.path.exists(summary_ng_path):
         df_ng = pd.read_csv(summary_ng_path)
         assert list(df_ng.columns) == CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER
 
-    if os.path.exists(inv_opt_path):
-        df_inv = pd.read_csv(inv_opt_path)
-        assert list(df_inv.columns) == CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER
+    for path in [inv_opt_path, inv_opt_latest]:
+        if os.path.exists(path):
+            df_inv = pd.read_csv(path)
+            assert list(df_inv.columns) == CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER
 
 
 def test_au_grid_final_aus_rounded_and_inventory_opt_unrounded():

@@ -99,42 +99,68 @@ class NextGenOptimizationEngine:
     is_flag_enabled = staticmethod(is_flag_enabled)
 
     @classmethod
-    def get_plf_band(cls, plf_pct, db_helper=None):
+    def get_plf_band_info(cls, plf_pct, db_helper=None):
         """
-        Dynamically determines the PLF band for a given PLF percentage.
+        Dynamically determines the PLF band ID and threshold_factor for a given PLF percentage.
         Queries comp_response_plf_bands via db_helper if available, or matches range.
+        Returns: (band_id, threshold_factor)
         """
         val = to_float(plf_pct, 0.0)
         if 0.0 < val <= 1.5:
             val = val * 100.0
 
-        if db_helper and hasattr(db_helper, 'getCompResponsePlfBand'):
-            band = db_helper.getCompResponsePlfBand(val)
-            if band is not None:
-                return band
-
-        # Generic dynamic fallback from database band table if query not available
-        if hasattr(db_helper, 'db') and hasattr(db_helper.db, 'comp_response_plf_bands'):
+        band_doc = None
+        if db_helper and hasattr(db_helper, 'getCompResponsePlfBandDoc'):
+            band_doc = db_helper.getCompResponsePlfBandDoc(val)
+        elif hasattr(db_helper, 'db') and hasattr(db_helper.db, 'comp_response_plf_bands'):
             try:
-                rec = db_helper.db.comp_response_plf_bands.find_one({"start": {"$lte": val}, "end": {"$gt": val}})
-                if rec:
-                    return rec.get("plf_band", rec.get("id"))
+                band_doc = db_helper.db.comp_response_plf_bands.find_one({"start": {"$lte": val}, "end": {"$gt": val}})
             except Exception as e:
                 logger.error(f"Error querying comp_response_plf_bands: {e}")
 
-        # Standard range mapping
+        if band_doc:
+            band_id = band_doc.get("plf_band", band_doc.get("id"))
+            try:
+                band_id = int(band_id) if band_id is not None else None
+            except Exception:
+                pass
+            threshold_factor = to_float(band_doc.get("threshold_factor", 0.0), 0.0)
+            return band_id, threshold_factor
+
+        if db_helper and hasattr(db_helper, 'getCompResponsePlfBand'):
+            band = db_helper.getCompResponsePlfBand(val)
+            if band is not None:
+                tf = 0.0
+                if hasattr(db_helper, 'getCompResponsePlfBandById'):
+                    b_doc = db_helper.getCompResponsePlfBandById(band)
+                    if b_doc:
+                        tf = to_float(b_doc.get("threshold_factor", 0.0), 0.0)
+                return band, tf
+
+        # Standard range mapping fallback
         if val < 80.0:
-            return 0
+            b_id = 0
         elif val < 85.0:
-            return 1
+            b_id = 1
         elif val < 90.0:
-            return 2
+            b_id = 2
         elif val < 95.0:
-            return 3
+            b_id = 3
         elif val < 100.0:
-            return 4
+            b_id = 4
         else:
-            return 5
+            b_id = 5
+
+        return b_id, 0.0
+
+    @classmethod
+    def get_plf_band(cls, plf_pct, db_helper=None):
+        """
+        Dynamically determines the PLF band for a given PLF percentage.
+        Queries comp_response_plf_bands via db_helper if available, or matches range.
+        """
+        band_id, _ = cls.get_plf_band_info(plf_pct, db_helper=db_helper)
+        return band_id
 
     @classmethod
     def get_ndo_band(cls, ndo, db_helper=None):
@@ -216,8 +242,14 @@ class NextGenOptimizationEngine:
             cap = 189
         cb = to_float(current_bookings, 0.0)
 
-        mu = pd.to_numeric(df.get(pax_col, 0.0), errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
-        sigma = pd.to_numeric(df.get(std_col, 0.0), errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
+        if pax_col in df.columns:
+            mu = pd.to_numeric(df[pax_col], errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
+        else:
+            mu = [0.0] * n
+        if std_col in df.columns:
+            sigma = pd.to_numeric(df[std_col], errors='coerce').fillna(0.0).clip(lower=0.0).tolist()
+        else:
+            sigma = [0.0] * n
         fares = [to_float(f, 0.0) for f in df[fare_col].tolist()]
 
         f_lowest = fares[-1] if n > 0 else 0.0
@@ -273,14 +305,12 @@ class NextGenOptimizationEngine:
 
         # Promo AU (only calculated when promo_flag == 1)
         if is_flag_enabled(promo_flag):
-            au_promo_calc = max(0.0, float(cap) - y_list[-1]) if n > 0 else float(cap)
-            pred_pickup_initial = sum(mu)
-            lf_forecast_initial = ((cb + pred_pickup_initial) / cap) * 100.0 if cap > 0 else 0.0
-            promo_th = to_float(promo_threshold, 95.0)
-            au_promo = 0.0 if (promo_threshold is not None and lf_forecast_initial >= promo_th) else au_promo_calc
+            au_promo = max(0.0, float(cap) - y_list[-1]) if n > 0 else float(cap)
         else:
             au_promo = 0.0
 
+        df['mu'] = mu
+        df['sigma'] = sigma
         df['mu_bar'] = mu_bar_list
         df['mu_bar_orig'] = mu_bar_list
         df['sigma_bar'] = sig_bar_list
@@ -437,7 +467,8 @@ class NextGenOptimizationEngine:
         grid_rule_str,
         anchor_fare,
         comp_min_fare,
-        comp_med_fare=None
+        comp_med_fare=None,
+        threshold_factor=None
     ):
         """
         Phase 2b: Dynamically parses and evaluates ANY Competition Response Grid formula
@@ -445,6 +476,8 @@ class NextGenOptimizationEngine:
         Supports:
           - 'Min (1.2A, 0.8C)', 'Min (1.3A, 0.9C)', 'Min (1.5A, C)', 'Min (2A, C)', 'Min (xA, yC)'
           - 'Max (xA, yC)', 'C', '0.95C', 'A', '1.1A', etc.
+        Also applies threshold_factor floor if provided:
+          final_response = max(threshold_factor * C, rule_result)
         """
         A = to_float(anchor_fare, 0.0)
         C = to_float(comp_min_fare, 0.0)
@@ -452,38 +485,50 @@ class NextGenOptimizationEngine:
 
         rule = str(grid_rule_str).strip()
         if not rule or rule == CONST_NA:
-            return C
+            rule_resp = C
+        else:
+            # Determine whether to use median or minimum competitor fare
+            C_val = med_C if re.search(r'\bmed\b', rule, re.IGNORECASE) else C
 
-        # Determine whether to use median or minimum competitor fare
-        C_val = med_C if re.search(r'\bmed\b', rule, re.IGNORECASE) else C
+            # Clean and extract mathematical expression
+            expr = rule
+            if '/' in expr:
+                expr = expr.split('/')[-1].strip()
 
-        # Clean and extract mathematical expression
-        expr = rule
-        if '/' in expr:
-            expr = expr.split('/')[-1].strip()
+            # Standardize operators and variables
+            expr = re.sub(r'(?i)\bmin\b', 'min', expr)
+            expr = re.sub(r'(?i)\bmax\b', 'max', expr)
+            # Convert numeric multipliers like 1.2A -> 1.2*A and 0.8C -> 0.8*C
+            expr = re.sub(r'(\d+(?:\.\d+)?)\s*[aA]\b', r'\1*A', expr)
+            expr = re.sub(r'(\d+(?:\.\d+)?)\s*[cC]\b', r'\1*C', expr)
+            expr = re.sub(r'(?i)\bA\b', 'A', expr)
+            expr = re.sub(r'(?i)\bC\b', 'C', expr)
 
-        # Standardize operators and variables
-        expr = re.sub(r'(?i)\bmin\b', 'min', expr)
-        expr = re.sub(r'(?i)\bmax\b', 'max', expr)
-        # Convert numeric multipliers like 1.2A -> 1.2*A and 0.8C -> 0.8*C
-        expr = re.sub(r'(\d+(?:\.\d+)?)\s*[aA]\b', r'\1*A', expr)
-        expr = re.sub(r'(\d+(?:\.\d+)?)\s*[cC]\b', r'\1*C', expr)
-        expr = re.sub(r'(?i)\bA\b', 'A', expr)
-        expr = re.sub(r'(?i)\bC\b', 'C', expr)
+            safe_env = {
+                "A": A,
+                "C": C_val,
+                "min": min,
+                "max": max,
+                "round": round
+            }
 
-        safe_env = {
-            "A": A,
-            "C": C_val,
-            "min": min,
-            "max": max,
-            "round": round
-        }
+            try:
+                rule_resp = float(eval(expr, {"__builtins__": {}}, safe_env))
+            except Exception as e:
+                logger.warning(f"Error evaluating grid rule expression '{expr}': {e}. Defaulting to competitor fare.")
+                rule_resp = C_val
 
-        try:
-            return float(eval(expr, {"__builtins__": {}}, safe_env))
-        except Exception as e:
-            logger.warning(f"Error evaluating grid rule expression '{expr}': {e}. Defaulting to competitor fare.")
-            return C_val
+        # Apply threshold_factor: max(threshold_factor * C, whatever response rule comes from grid)
+        if threshold_factor is not None:
+            tf = to_float(threshold_factor, 0.0)
+            if tf > 1.5:
+                tf = tf / 100.0  # normalize if passed as percentage e.g. 80 -> 0.80
+            if tf > 0:
+                c_for_thresh = med_C if re.search(r'\bmed\b', rule, re.IGNORECASE) else C
+                thresh_fare = tf * to_float(c_for_thresh, 0.0)
+                rule_resp = max(thresh_fare, rule_resp)
+
+        return rule_resp
 
     @classmethod
     def determine_strategy_fare(cls, response_fare, ladder_df=None, fare_col='fare'):
@@ -654,7 +699,11 @@ class NextGenOptimizationEngine:
             f_promo_init = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * f_lowest
             if is_flag_enabled(promo_flag):
                 au_2_promo = to_float(promo_au, 0.0)
-                au_revised_promo = min(float(au_2_promo), to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+                promo_thresh = float(cb + to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+                if au_2_promo > promo_thresh:
+                    au_revised_promo = promo_thresh
+                else:
+                    au_revised_promo = float(au_2_promo)
                 if b_val is not None and f_promo_init < b_val:
                     au_revised_promo = 0.0
             else:
@@ -834,14 +883,13 @@ class NextGenOptimizationEngine:
                 y_promo_comp = max(y_promo_comp, y_2_list[strat_idx - 1])
 
             au_2_promo = max(0.0, float(cap) - y_promo_comp)
-            pred_flown_2 = cb + sum(mu_2_list)
-            lf_fc_2 = (pred_flown_2 / cap) * 100.0 if cap > 0 else 0.0
-            promo_th = to_float(promo_threshold, 95.0)
-            if promo_threshold is not None and lf_fc_2 >= promo_th:
-                au_2_promo = 0.0
 
-            # The maximum seats to be allocated to promo RBD will be defined using the parameter PromoFirstRBD_NG (default 10)
-            au_revised_promo = min(float(au_2_promo), to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+            # Promo threshold: current_bookings + promo_first_rbd. If AU_2 crossed threshold make it threshold, otherwise take AU_2
+            promo_thresh = float(cb + to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+            if au_2_promo > promo_thresh:
+                au_revised_promo = promo_thresh
+            else:
+                au_revised_promo = float(au_2_promo)
             if b_val is not None and f_promo_comp < b_val:
                 au_revised_promo = 0.0
         else:
@@ -1155,10 +1203,21 @@ class NextGenOptimizationEngine:
                 c_med_comp = tax_helper.allin_to_airline_component(c_med_allin, origin, destin, route=route)
             else:
                 c_med_comp = c_med_allin
+        if c_min_allin is None and c_min_comp is not None:
+            if tax_helper and origin and destin:
+                c_min_allin = tax_helper.airline_component_to_allin(c_min_comp, origin, destin, route=route)
+            else:
+                c_min_allin = c_min_comp
+        if c_med_allin is None and c_med_comp is not None:
+            if tax_helper and origin and destin:
+                c_med_allin = tax_helper.airline_component_to_allin(c_med_comp, origin, destin, route=route)
+            else:
+                c_med_allin = c_med_comp
 
         rule_applied = "N/A"
         strategy_fare = anchor_fare
         response_fare = anchor_fare
+        threshold_factor = 0.0
 
         # Rule: In cases where oal_b2c_min is less than anchor fare, or market fares not found:
         # we don't do AU recalculate and demand redistribution and make AUs below anchor fare 0.
@@ -1218,7 +1277,14 @@ class NextGenOptimizationEngine:
             redistrib_df['AU_Revised'] = au_rev
             redistrib_df.attrs['p_min_old'] = anchor_fare
             redistrib_df.attrs['anchor_fare'] = float(anchor_fare)
-            promo_revised = min(promo_au, to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG)) if promo_flag == 1 else 0.0
+            if promo_flag == 1:
+                promo_thresh = float(cb_val + to_float(promo_first_rbd, DEFAULT_PROMO_FIRST_RBD_NG))
+                if float(promo_au) > promo_thresh:
+                    promo_revised = promo_thresh
+                else:
+                    promo_revised = float(promo_au)
+            else:
+                promo_revised = 0.0
             redistrib_df.attrs['promo_info'] = {
                 'AU': float(promo_au),
                 'AU_2': float(promo_au),
@@ -1231,7 +1297,11 @@ class NextGenOptimizationEngine:
             plf_pct = ((cb_val + pred_pickup_init) / float(cap_val)) * 100.0 if cap_val > 0 else 0.0
 
             ndo_band = cls.get_ndo_band(ndo, db_helper=db_helper)
-            plf_band = cls.get_plf_band(plf_pct, db_helper=db_helper)
+            plf_band, threshold_factor = cls.get_plf_band_info(plf_pct, db_helper=db_helper)
+
+            override_tf = _get_val(curr_params, 'threshold_factor_NG', 'threshold_factor', default=None)
+            if override_tf is not None:
+                threshold_factor = to_float(override_tf, threshold_factor)
 
             grid_doc = None
             if db_helper and hasattr(db_helper, 'getCompResponseGrid'):
@@ -1244,7 +1314,10 @@ class NextGenOptimizationEngine:
                 rule_applied = "Min (1.2A, 0.8C)" if plf_band == 0 else ("Min (1.3A, 0.9C)" if plf_band == 1 else "C")
                 criteria = "Min"
 
-            response_fare = cls.evaluate_grid_response(rule_applied, anchor_fare, c_min_comp, c_med_comp)
+            response_fare = cls.evaluate_grid_response(
+                rule_applied, anchor_fare, c_min_comp, c_med_comp,
+                threshold_factor=threshold_factor
+            )
             strategy_fare = cls.determine_strategy_fare(response_fare, init_df)
 
             pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
@@ -1404,10 +1477,26 @@ class NextGenOptimizationEngine:
             except Exception as e:
                 logger.warning(f"Error reading pre-calculated forecast from add_model_inventory_ng: {e}")
 
-        # Convert airline component fares to ALL-IN for NextGen output summary
+        # Convert airline component fares to ALL-IN for NextGen output summary and inventory optimization
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
         strategy_fare_allin = tax_helper.airline_component_to_allin(strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else strategy_fare
         anchor_fare_allin = tax_helper.airline_component_to_allin(anchor_fare, origin, destin, route=route) if tax_helper and origin and destin else anchor_fare
+
+        # Populate fare columns with both Airline Component and All_in values on final_df
+        final_df['opening fare'] = float(opening_fare)
+        final_df['opening fare_All_in'] = float(opening_fare_allin)
+        if tax_helper and origin and destin:
+            final_df['fare_All_in'] = final_df['fare'].apply(
+                lambda f: tax_helper.airline_component_to_allin(float(f), origin, destin, route=route) if pd.notna(f) else f
+            )
+        else:
+            final_df['fare_All_in'] = final_df['fare']
+        final_df['anchor_fare'] = float(anchor_fare)
+        final_df['anchor_fare_All_in'] = float(anchor_fare_allin)
+        final_df['strategy_fare'] = float(strategy_fare)
+        final_df['strategy_fare_All_in'] = float(strategy_fare_allin)
+        final_df['oal_b2c_min'] = to_float(c_min_comp, 0.0)
+        final_df['oal_b2c_min_All_in'] = to_float(c_min_allin, 0.0)
 
         summary = {
             'NG_Historical_current_booked': cb_val,
@@ -1430,14 +1519,21 @@ class NextGenOptimizationEngine:
             'MarketFare_Max': to_float(c_med_allin, None) if c_med_allin is not None else None,
             'MarketFare_Min_AllIn': to_float(c_min_allin, None) if c_min_allin is not None else None,
             'MarketFare_Max_AllIn': to_float(c_med_allin, None) if c_med_allin is not None else None,
+            'MarketFare_Min_Comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,
             'competition_response_flag': 1 if is_flag_enabled(comp_flag) else 0,
             'buy_up_factor': buy_up,
+            'threshold_factor': to_float(threshold_factor, 0.0),
             'opening_fare_airline_comp': to_float(opening_fare, 0.0),
             'strategy_fare_airline_comp': to_float(strategy_fare, 0.0),
             'anchor_fare_airline_comp': to_float(anchor_fare, 0.0),
+            'opening_fare_allin': to_float(opening_fare_allin, 0.0),
+            'strategy_fare_allin': to_float(strategy_fare_allin, 0.0),
+            'anchor_fare_allin': to_float(anchor_fare_allin, 0.0),
+            'oal_b2c_min_airline_comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
+            'oal_b2c_min_allin': to_float(c_min_allin, None) if c_min_allin is not None else None,
             'filed_51_au_mapping': filed_51_au_mapping
         }
 

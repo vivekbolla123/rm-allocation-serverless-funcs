@@ -35,12 +35,12 @@ collectionsToCreate.forEach(function (colName) {
 // 2. Seed comp_response_plf_bands
 // ==========================================
 var defaultPlfBands = [
-    { "id": 0, "band_name": "<80%", "start": -9999.0, "end": 80.0 },
-    { "id": 1, "band_name": "80-85%", "start": 80.0, "end": 85.0 },
-    { "id": 2, "band_name": "85-90%", "start": 85.0, "end": 90.0 },
-    { "id": 3, "band_name": "90-95%", "start": 90.0, "end": 95.0 },
-    { "id": 4, "band_name": "95-100%", "start": 95.0, "end": 100.0 },
-    { "id": 5, "band_name": "100+%", "start": 100.0, "end": 9999.0 }
+    { "id": 0, "band_name": "<80%", "start": -9999.0, "end": 80.0, "threshold_factor": 0.0 },
+    { "id": 1, "band_name": "80-85%", "start": 80.0, "end": 85.0, "threshold_factor": 0.0 },
+    { "id": 2, "band_name": "85-90%", "start": 85.0, "end": 90.0, "threshold_factor": 0.0 },
+    { "id": 3, "band_name": "90-95%", "start": 90.0, "end": 95.0, "threshold_factor": 0.0 },
+    { "id": 4, "band_name": "95-100%", "start": 95.0, "end": 100.0, "threshold_factor": 0.0 },
+    { "id": 5, "band_name": "100+%", "start": 100.0, "end": 9999.0, "threshold_factor": 0.0 }
 ];
 
 if (db.comp_response_plf_bands.countDocuments({}) === 0) {
@@ -53,6 +53,9 @@ if (db.comp_response_plf_bands.countDocuments({}) === 0) {
     });
     db.comp_response_plf_bands.find({ plf_band: { $exists: false }, id: { $exists: true } }).forEach(function(doc) {
         db.comp_response_plf_bands.updateOne({ _id: doc._id }, { $set: { plf_band: doc.id } });
+    });
+    db.comp_response_plf_bands.find({ threshold_factor: { $exists: false } }).forEach(function(doc) {
+        db.comp_response_plf_bands.updateOne({ _id: doc._id }, { $set: { threshold_factor: 0.0 } });
     });
 }
 
@@ -143,7 +146,7 @@ var marketListColumns = "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,TimeWind
 
 var nextgenSummaryColumns = "Origin,Destin,FltNum,DepDate,Capacity,NG_FirstRBD,Predicted_Flown_Revised,MarketFare_Selected,MarketFare_Min,MarketFare_Max,Grid_Name,Rule_Applied,nextgen_flag,competition_response_flag,buy_up_factor,RunId,Id,NG_Historical_current_booked,NG_LF_Forecast,NG_AF_Forecast,NG_Opening_fare,NG_Strategy_fare,NG_Anchor_fare,analystName,status,allocationStatus";
 
-var inventoryOptimizationColumns = "sector,date,DOW,STD,flight,NDO,capacity,Total_Bookings,fare,oal_b2c_min,anchor_fare,strategy_fare,Promo_Flag,mu_bar_orig,mu,AU,P_eq,mu_bar_2,mu_2,AU_2,AU_Revised,predicted_pickup,Predicted_Flown,Predicted_pickup_Revised,Predicted_Flown_Revised,LF_Forecast_Revised,AF_Forecast,Distance,ASKM,RPKM,RASK_Forecast,Current_Revenue,Expected_Revenue,Total_Expected_Revenue,Predicted_Revenue,SnapshotDate,Tagging,FareBucket,RunId";
+var inventoryOptimizationColumns = "sector,date,DOW,STD,flight,NDO,capacity,Total_Bookings,fare,fare_All_in,oal_b2c_min,oal_b2c_min_All_in,anchor_fare,anchor_fare_All_in,strategy_fare,strategy_fare_All_in,opening fare,opening fare_All_in,Promo_Flag,mu_bar_orig,mu,AU,P_eq,mu_bar_2,mu_2,AU_2,AU_Revised,predicted_pickup,Predicted_Flown,Predicted_pickup_Revised,Predicted_Flown_Revised,LF_Forecast_Revised,AF_Forecast,Distance,ASKM,RPKM,RASK_Forecast,Current_Revenue,Expected_Revenue,Total_Expected_Revenue,Predicted_Revenue,SnapshotDate,Tagging,FareBucket,RunId";
 
 db.config_column_names.deleteMany({
     "tableName": {
@@ -165,7 +168,7 @@ db.config_column_names.insertMany([
     { "tableName": "market_list_international", "columns": marketListColumns },
     { "tableName": "market_list_s3", "columns": marketListColumns },
     { "tableName": "comp_response_grid", "columns": "grid_name,ndo_band,plf_band,time_range,criteria,response_rule" },
-    { "tableName": "comp_response_plf_bands", "columns": "id,band_name,start,end" },
+    { "tableName": "comp_response_plf_bands", "columns": "id,band_name,start,end,threshold_factor" },
     { "tableName": "comp_fare_recalibration", "columns": "Sector,IX,6E,SG,AI" },
     { "tableName": "summary_nextgen", "columns": nextgenSummaryColumns },
     { "tableName": "inventory_optimization", "columns": inventoryOptimizationColumns }

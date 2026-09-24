@@ -234,10 +234,14 @@ def compute_flight_inventory_ng(
         next_fare[-1] = fare_arr[-1] * promo_ratio
 
     prob = np.zeros(k, dtype=float)
-    alpha = to_float(buy_up_factor, 0.0)
+    try:
+        alpha = float(buy_up_factor or 0.0)
+    except (ValueError, TypeError):
+        alpha = 0.0
     if alpha > 1.0:
         alpha = alpha / 100.0
     alpha = float(np.clip(alpha, 0.0, 0.99))
+    valid_f = F_j > 0
     prob[valid_f] = np.clip((1.0 - (next_fare[valid_f] / F_j[valid_f])) / max(1e-6, 1.0 - alpha), 0.0001, 0.9999)
 
     z = norm.ppf(prob)

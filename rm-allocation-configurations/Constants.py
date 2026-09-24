@@ -460,7 +460,12 @@ CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER = [
 
 CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER = [
     'sector', 'date', 'DOW', 'STD', 'flight', 'NDO', 'capacity', 'Total_Bookings',
-    'fare', 'oal_b2c_min', 'anchor_fare', 'strategy_fare', 'opening fare', 'Promo_Flag',
+    'fare', 'fare_All_in',
+    'oal_b2c_min', 'oal_b2c_min_All_in',
+    'anchor_fare', 'anchor_fare_All_in',
+    'strategy_fare', 'strategy_fare_All_in',
+    'opening fare', 'opening fare_All_in',
+    'Promo_Flag',
     'mu_bar_orig', 'mu', 'AU', 'P_eq', 'mu_bar_2', 'mu_2', 'AU_2', 'AU_Revised',
     'predicted_pickup', 'Predicted_Flown', 'Predicted_pickup_Revised', 'Predicted_Flown_Revised',
     'LF_Forecast_Revised', 'AF_Forecast', 'Distance', 'ASKM', 'RPKM', 'RASK_Forecast', 'Current_Revenue',

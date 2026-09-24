@@ -135,3 +135,88 @@ def test_nextgen_without_tax_helper_graceful_fallback():
     assert summary['Anchor_fare'] in [3000.0, 5000.0]
     assert summary['Strategy_fare'] in [3000.0, 5000.0]
     assert (final_df['fare'].isin([3000.0, 5000.0])).all()
+
+
+def test_nextgen_five_fare_metrics_airline_component_and_allin():
+    """
+    Verify that the 5 fare metrics:
+    1. fare & fare_All_in
+    2. oal_b2c_min & oal_b2c_min_All_in
+    3. anchor_fare & anchor_fare_All_in
+    4. strategy_fare & strategy_fare_All_in
+    5. opening fare & opening fare_All_in
+    correctly maintain airline component in original header and all-in in _All_in header.
+    """
+    tax_helper = FareTaxHelper(
+        MockMongoMasterDb(),
+        MockConstantsUtils(),
+        MockRMDatabaseHelper(),
+        logger=None
+    )
+    curr_params = MockCurrParams('BOM', 'DEL', 'D')
+    curr_params.tax_helper = tax_helper
+
+    ladder_data = [
+        {'FareBucket': 'B1', 'fare': 9000.0, 'mu': 2.0, 'sigma': 0.5},
+        {'FareBucket': 'B2', 'fare': 7500.0, 'mu': 5.0, 'sigma': 1.25},
+        {'FareBucket': 'B3', 'fare': 6000.0, 'mu': 10.0, 'sigma': 2.5},
+        {'FareBucket': 'B4', 'fare': 4500.0, 'mu': 15.0, 'sigma': 3.75},
+        {'FareBucket': 'B5', 'fare': 3500.0, 'mu': 20.0, 'sigma': 5.0},
+        {'FareBucket': 'B6', 'fare': 2600.0, 'mu': 30.0, 'sigma': 7.5}
+    ]
+    ladder_df = pd.DataFrame(ladder_data)
+    market_fares = pd.DataFrame([
+        {
+            'gross_fare': 5000.0,
+            'outbound_airline_code': '6E',
+            'outbound_flight': '6E101',
+            'outbound_departuretime': '10:30',
+            'outbound_stops': 0
+        }
+    ])
+
+    final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+        ladder_df,
+        189,
+        50,
+        250000.0,
+        market_fares=market_fares,
+        flight_std='10:30',
+        curr_params=curr_params,
+        tax_helper=tax_helper
+    )
+
+    # Check 1: fare & fare_All_in
+    assert 'fare' in final_df.columns
+    assert 'fare_All_in' in final_df.columns
+    for _, row in final_df.iterrows():
+        comp = row['fare']
+        allin = row['fare_All_in']
+        assert allin > comp
+        assert abs(allin - tax_helper.airline_component_to_allin(comp, 'BOM', 'DEL', route='D')) < 1e-4
+
+    # Check 2: oal_b2c_min & oal_b2c_min_All_in
+    assert 'oal_b2c_min' in final_df.columns
+    assert 'oal_b2c_min_All_in' in final_df.columns
+    assert final_df['oal_b2c_min_All_in'].iloc[0] == 5000.0
+    assert final_df['oal_b2c_min'].iloc[0] < 5000.0
+    assert abs(final_df['oal_b2c_min_All_in'].iloc[0] - tax_helper.airline_component_to_allin(final_df['oal_b2c_min'].iloc[0], 'BOM', 'DEL', route='D')) < 1e-4
+
+    # Check 3: anchor_fare & anchor_fare_All_in
+    assert 'anchor_fare' in final_df.columns
+    assert 'anchor_fare_All_in' in final_df.columns
+    assert final_df['anchor_fare_All_in'].iloc[0] > final_df['anchor_fare'].iloc[0]
+    assert abs(final_df['anchor_fare_All_in'].iloc[0] - tax_helper.airline_component_to_allin(final_df['anchor_fare'].iloc[0], 'BOM', 'DEL', route='D')) < 1e-4
+
+    # Check 4: strategy_fare & strategy_fare_All_in
+    assert 'strategy_fare' in final_df.columns
+    assert 'strategy_fare_All_in' in final_df.columns
+    assert final_df['strategy_fare_All_in'].iloc[0] > final_df['strategy_fare'].iloc[0]
+    assert abs(final_df['strategy_fare_All_in'].iloc[0] - tax_helper.airline_component_to_allin(final_df['strategy_fare'].iloc[0], 'BOM', 'DEL', route='D')) < 1e-4
+
+    # Check 5: opening fare & opening fare_All_in
+    assert 'opening fare' in final_df.columns
+    assert 'opening fare_All_in' in final_df.columns
+    assert final_df['opening fare_All_in'].iloc[0] > final_df['opening fare'].iloc[0]
+    assert abs(final_df['opening fare_All_in'].iloc[0] - tax_helper.airline_component_to_allin(final_df['opening fare'].iloc[0], 'BOM', 'DEL', route='D')) < 1e-4
+

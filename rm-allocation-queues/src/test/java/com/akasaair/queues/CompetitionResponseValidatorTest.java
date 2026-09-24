@@ -36,6 +36,36 @@ public class CompetitionResponseValidatorTest {
         assertEquals("<80%", extracted.get(0).bandName);
         assertEquals(-9999.0, extracted.get(0).start);
         assertEquals(80.0, extracted.get(0).end);
+        assertEquals(0.0, extracted.get(0).thresholdFactor);
+    }
+
+    @Test
+    public void testValidPlfBandsWithThresholdFactor() {
+        List<List<String>> csvData = new ArrayList<>();
+        csvData.add(Arrays.asList("id", "band_name", "start", "end", "threshold_factor"));
+        csvData.add(Arrays.asList("0", "<80%", "-9999", "80", "0.85"));
+        csvData.add(Arrays.asList("1", "80-85%", "80", "85", "0.90"));
+
+        List<String> errors = new ArrayList<>();
+        boolean valid = CompetitionResponseValidator.validatePlfBandsFile(csvData, errors);
+        assertTrue(valid, "Should be valid: " + errors);
+
+        List<CompetitionResponseValidator.ExtractedPlfBandRow> extracted = CompetitionResponseValidator.extractPlfBands(csvData);
+        assertEquals(2, extracted.size());
+        assertEquals(0.85, extracted.get(0).thresholdFactor);
+        assertEquals(0.90, extracted.get(1).thresholdFactor);
+    }
+
+    @Test
+    public void testPlfBandsNegativeThresholdFactor() {
+        List<List<String>> csvData = new ArrayList<>();
+        csvData.add(Arrays.asList("id", "band_name", "start", "end", "threshold_factor"));
+        csvData.add(Arrays.asList("0", "<80%", "-9999", "80", "-0.5"));
+
+        List<String> errors = new ArrayList<>();
+        boolean valid = CompetitionResponseValidator.validatePlfBandsFile(csvData, errors);
+        assertFalse(valid, "Should fail due to negative threshold factor");
+        assertTrue(errors.stream().anyMatch(e -> e.contains("Threshold factor must be non-negative")));
     }
 
     @Test

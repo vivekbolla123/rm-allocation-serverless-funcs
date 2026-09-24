@@ -241,8 +241,13 @@ class TestNextGenOptimizationEngine:
         assert promo_row['FareBucket'] == 'Promo'
         assert promo_row['Promo_Flag'] == 1
         assert promo_row['AU'] == promo_au
-        # AU_Revised must be capped by PromoFirstRBD_NG (10)
-        assert promo_row['AU_Revised'] <= promo_first_rbd
+        # AU_Revised must be capped by threshold (cb + PromoFirstRBD_NG) if AU_2 crossed it, otherwise AU_2
+        promo_threshold = cb + promo_first_rbd
+        if promo_row['AU_2'] > promo_threshold:
+            assert promo_row['AU_Revised'] == promo_threshold
+        else:
+            assert promo_row['AU_Revised'] == promo_row['AU_2']
+        assert promo_row['AU_Revised'] <= promo_threshold
         # Opening fare must not be promo fare
         assert summary['NG_Opening_fare'] != promo_row['fare']
         assert summary['NG_Opening_fare'] in sample_flight_data['fare'].tolist()
@@ -720,6 +725,103 @@ class TestNextGenOptimizationEngine:
             curr_params={'origin': 'BOM', 'destin': 'DEL', 'buy_up_factor_NG': 10.0}
         )
         assert summary['buy_up_factor'] == 0.10
+
+    def test_evaluate_grid_response_with_threshold_factor(self):
+        """
+        Verify that evaluate_grid_response correctly computes:
+        max(threshold_factor * C, rule_response)
+        """
+        # A = 3000, C = 5000
+        # Rule: Min (1.2A, 0.8C) -> 1.2*3000 = 3600, 0.8*5000 = 4000 -> Min is 3600
+        anchor_fare = 3000.0
+        comp_min = 5000.0
+        rule = "Min (1.2A, 0.8C)"
+
+        # Case 1: No threshold factor
+        res_no_tf = NextGenOptimizationEngine.evaluate_grid_response(rule, anchor_fare, comp_min)
+        assert res_no_tf == 3600.0
+
+        # Case 2: Threshold factor = 0.85 -> 0.85 * 5000 = 4250 -> max(4250, 3600) = 4250
+        res_high_tf = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, threshold_factor=0.85
+        )
+        assert res_high_tf == 4250.0
+
+        # Case 3: Threshold factor = 0.70 -> 0.70 * 5000 = 3500 -> max(3500, 3600) = 3600
+        res_low_tf = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, threshold_factor=0.70
+        )
+        assert res_low_tf == 3600.0
+
+        # Case 4: Percentage normalization (85 -> 0.85)
+        res_pct_tf = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, threshold_factor=85.0
+        )
+        assert res_pct_tf == 4250.0
+
+    def test_execute_flight_nextgen_optimization_with_threshold_factor(self, sample_flight_data):
+        """
+        Verify that execute_flight_nextgen_optimization uses threshold_factor
+        from comp_response_plf_bands or curr_params to decide final strategy fare.
+        """
+        capacity = 189
+        cb = 50
+        oal_min = 6000.0
+        flight_std = '10:30'
+
+        market_fares = [
+            {'carrier': '6E', 'flight_duration': '2:00', 'departure_time': '10:30', 'outbound_stops': 0, 'gross_fare': 6000.0},
+            {'carrier': 'AI', 'flight_duration': '2:00', 'departure_time': '10:30', 'outbound_stops': 0, 'gross_fare': 7000.0}
+        ]
+
+        # Mock db_helper with PLF band having threshold_factor = 0.90
+        class MockDbHelper:
+            class MockDb:
+                class MockColl:
+                    def find_one(self, query):
+                        # Returns band with threshold_factor 0.90
+                        return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0, "threshold_factor": 0.90}
+                comp_response_plf_bands = MockColl()
+
+                class MockGridColl:
+                    def find_one(self, query):
+                        return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min"}
+                comp_response_grid = MockGridColl()
+
+            db = MockDb()
+
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min"}
+
+            def getCompResponsePlfBandDoc(self, plf):
+                return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0, "threshold_factor": 0.90}
+
+            def getCompResponsePlfBand(self, plf):
+                return 1
+
+        helper = MockDbHelper()
+
+        # Run with threshold_factor 0.90 from db_helper
+        # C = 6000. 0.90 * C = 5400.
+        # Rule Min(1.2A, 0.7C) gives min(1.2*anchor, 4200) <= 4200.
+        # threshold_fare = 5400. Response fare = max(5400, <=4200) = 5400.
+        # Strategy fare mapped to discrete ladder <= 5400 is 5252.0!
+        res_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, oal_min,
+            market_fares=market_fares,
+            flight_std=flight_std,
+            curr_params={
+                'origin': 'BOM', 'destin': 'DEL',
+                'competition_response_flag_NG': 1,
+                'nextgen_flag_NG': 1
+            },
+            db_helper=helper
+        )
+
+        assert summary['threshold_factor'] == 0.90
+        # Discrete ladder fare <= 5400 is 5252.0
+        assert summary['Strategy_fare'] == 5252.0
+
 
 
 

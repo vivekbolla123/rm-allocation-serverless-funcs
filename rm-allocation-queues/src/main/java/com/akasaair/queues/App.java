@@ -3746,7 +3746,7 @@ public class App implements CommandLineRunner {
         }
 
         if (COMP_RESPONSE_PLF_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "id,band_name,start,end";
+            return "id,band_name,start,end,threshold_factor";
         }
 
         if (COMP_RESPONSE_GRID_TABLE_NAME.equalsIgnoreCase(value)) {
@@ -6700,6 +6700,7 @@ public class App implements CommandLineRunner {
                 doc.put("band_name", r.bandName);
                 doc.put("start", r.start);
                 doc.put("end", r.end);
+                doc.put("threshold_factor", r.thresholdFactor);
                 bandsDocuments.add(doc);
             }
 

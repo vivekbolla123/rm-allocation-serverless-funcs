@@ -1790,13 +1790,81 @@ class DynAlloc:
 						ng_opt_df['capacity'] = final_cap_f
 						ng_opt_df['Total_Bookings'] = curr_booked_f
 						ng_opt_df['fare'] = ng_opt_df.get('fare', 0.0)
-						ng_opt_df['oal_b2c_min'] = ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn', 0.0))
+						if 'fare_All_in' not in ng_opt_df.columns or ng_opt_df['fare_All_in'].isnull().any():
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								route_val = getattr(self.currParams, 'route', 'L') or 'L'
+								ng_opt_df['fare_All_in'] = ng_opt_df['fare'].apply(
+									lambda f: self.tax_helper.airline_component_to_allin(float(f), self.currParams.origin, self.currParams.destin, route=route_val) if pd.notna(f) else f
+								)
+							else:
+								ng_opt_df['fare_All_in'] = ng_opt_df['fare']
+
+						oal_min_comp = ng_summary.get('MarketFare_Min_Comp', ng_summary.get('oal_b2c_min_airline_comp', None))
+						oal_min_allin = ng_summary.get('MarketFare_Min_AllIn', ng_summary.get('MarketFare_Min', None))
+						if oal_min_comp is None and oal_min_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								oal_min_comp = self.tax_helper.allin_to_airline_component(float(oal_min_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								oal_min_comp = oal_min_allin
+						if oal_min_allin is None and oal_min_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								oal_min_allin = self.tax_helper.airline_component_to_allin(float(oal_min_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								oal_min_allin = oal_min_comp
+
+						ng_opt_df['oal_b2c_min'] = to_float(oal_min_comp, 0.0)
+						ng_opt_df['oal_b2c_min_All_in'] = to_float(oal_min_allin, 0.0)
 						ng_opt_df['oal_b2c_max'] = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn', 0.0))
 						ng_opt_df['qp_b2c_min'] = min(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
 						ng_opt_df['qp_b2c_max'] = max(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
-						ng_opt_df['anchor_fare'] = ng_summary.get('Anchor_fare', 0.0)
-						ng_opt_df['strategy_fare'] = ng_summary.get('Strategy_fare', 0.0)
-						ng_opt_df['opening fare'] = ng_summary.get('NG_Opening_fare', 0.0)
+
+						anchor_comp = ng_summary.get('anchor_fare_airline_comp', None)
+						anchor_allin = ng_summary.get('anchor_fare_allin', ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare', None)))
+						if anchor_comp is None and anchor_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								anchor_comp = self.tax_helper.allin_to_airline_component(float(anchor_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								anchor_comp = anchor_allin
+						if anchor_allin is None and anchor_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								anchor_allin = self.tax_helper.airline_component_to_allin(float(anchor_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								anchor_allin = anchor_comp
+
+						ng_opt_df['anchor_fare'] = to_float(anchor_comp, 0.0)
+						ng_opt_df['anchor_fare_All_in'] = to_float(anchor_allin, 0.0)
+
+						strat_comp = ng_summary.get('strategy_fare_airline_comp', None)
+						strat_allin = ng_summary.get('strategy_fare_allin', ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare', None)))
+						if strat_comp is None and strat_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								strat_comp = self.tax_helper.allin_to_airline_component(float(strat_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								strat_comp = strat_allin
+						if strat_allin is None and strat_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								strat_allin = self.tax_helper.airline_component_to_allin(float(strat_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								strat_allin = strat_comp
+
+						ng_opt_df['strategy_fare'] = to_float(strat_comp, 0.0)
+						ng_opt_df['strategy_fare_All_in'] = to_float(strat_allin, 0.0)
+
+						open_comp = ng_summary.get('opening_fare_airline_comp', ng_opt_df.get('opening fare', None))
+						open_allin = ng_summary.get('opening_fare_allin', ng_summary.get('NG_Opening_fare', None))
+						if open_comp is None and open_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								open_comp = self.tax_helper.allin_to_airline_component(float(open_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								open_comp = open_allin
+						if open_allin is None and open_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								open_allin = self.tax_helper.airline_component_to_allin(float(open_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								open_allin = open_comp
+
+						ng_opt_df['opening fare'] = to_float(open_comp, 0.0)
+						ng_opt_df['opening fare_All_in'] = to_float(open_allin, 0.0)
 						ng_opt_df['predicted_pickup'] = float(ng_opt_df['mu'].sum()) if 'mu' in ng_opt_df.columns else 0.0
 						ng_opt_df['Predicted_Flown'] = curr_booked_f + ng_opt_df['predicted_pickup']
 						ng_opt_df['Predicted_pickup_Revised'] = ng_summary.get('Predicted_Pickup_Revised', 0.0)
