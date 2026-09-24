@@ -1739,7 +1739,8 @@ class DynAlloc:
 					ng_row.Rule_Applied = ng_summary.get('Rule_Applied')
 					ng_row.nextgen_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) else 'N'
 					ng_row.competition_response_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'competition_response_flag_NG', getattr(self.currParams, 'competition_response_flag', 1))) else 'N'
-					ng_row.buy_up_factor = to_float(getattr(self.currParams, 'buy_up_factor_NG', getattr(self.currParams, 'buy_up_factor', 0.0)), 0.0)
+					raw_buy_up = to_float(getattr(self.currParams, 'buy_up_factor_NG', getattr(self.currParams, 'buy_up_factor', 0.0)), 0.0)
+					ng_row.buy_up_factor = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
 					ng_row.RunId = self.runId
 					ng_row.Id = getattr(self, 'Id', getattr(self.currParams, 'Id', CONST_NA))
 					ng_row.NG_Historical_current_booked = to_float(currBookedLoad, 0.0)

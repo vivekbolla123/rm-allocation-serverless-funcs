@@ -224,6 +224,8 @@ class NextGenOptimizationEngine:
         f_promo = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * f_lowest
 
         alpha = to_float(buy_up_factor, 0.0)
+        if alpha > 1.0:
+            alpha = alpha / 100.0
         alpha = float(np.clip(alpha, 0.0, 0.99))
         buy_up_mult = 1.0 / (1.0 - alpha)
         sig_fact = to_float(sigma_factor, 0.25)
@@ -748,7 +750,10 @@ class NextGenOptimizationEngine:
         # Recompute EMSR-b on mu_2, sigma_2
         f_promo = to_float(promo_ratio, DEFAULT_PROMO_RATIO_NG) * fares[-1]
         alpha = to_float(buy_up_factor, 0.0)
-        buy_up_mult = 1.0 / (1.0 - np.clip(alpha, 0.0, 0.99))
+        if alpha > 1.0:
+            alpha = alpha / 100.0
+        alpha = float(np.clip(alpha, 0.0, 0.99))
+        buy_up_mult = 1.0 / (1.0 - alpha)
 
         y_2_list = []
         for j in range(n):
@@ -1014,7 +1019,8 @@ class NextGenOptimizationEngine:
         if tax_helper is None:
             tax_helper = _get_val(curr_params, 'tax_helper', default=getattr(db_helper, 'tax_helper', None))
 
-        buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
+        raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
+        buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
         comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=1)) else 0
         time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)

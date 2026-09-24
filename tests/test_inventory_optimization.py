@@ -276,6 +276,17 @@ def test_buy_up_factor_clamped_below_one():
     assert (res['AU'] >= 0).all()
 
 
+def test_buy_up_factor_percentage_normalization(sample_flight_data):
+    """When buy_up_factor is provided as a percentage > 1 (e.g. 10.0), it should be
+    normalized to fraction (0.10) and match the explicit decimal run."""
+    decimal_run = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=0.10)
+    percent_run = compute_flight_inventory_optimization(sample_flight_data, buy_up_factor=10.0)
+
+    assert list(decimal_run['ProtectionLimit']) == list(percent_run['ProtectionLimit'])
+    assert list(decimal_run['AU']) == list(percent_run['AU'])
+
+
+
 def test_protection_limit_not_capped_at_capacity():
     """BRD has no capacity ceiling on the protection limit: it is the demand the
     class wants held back. AU stays floored at 0 regardless."""

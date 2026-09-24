@@ -454,6 +454,8 @@ def compute_flight_inventory_optimization(
     # Buy-up factor: Prob_j is scaled by 1 / (1 - alpha). alpha must stay below 1,
     # and a negative alpha would suppress the probability rather than lift it.
     alpha = float(buy_up_factor or 0.0)
+    if alpha > 1.0:
+        alpha = alpha / 100.0
     alpha = float(np.clip(alpha, 0.0, 0.99))
     buy_up_multiplier = 1.0 / (1.0 - alpha)
 

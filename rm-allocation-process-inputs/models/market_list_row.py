@@ -142,7 +142,8 @@ class MarketListRow:
         self.time_range = parse_numeric(currParams.get("time_range", currParams.get("timeRange", currParams.get("TimeRange", 2.0))))
 
         # Renamed NextGen fields with backward-compatible aliases
-        self.buy_up_factor_NG = parse_numeric(currParams.get("buy_up_factor_NG", currParams.get("buy_up_factor", currParams.get("buyUpFactor", currParams.get("BuyUpFactor", 0.0)))))
+        raw_buy_up = parse_numeric(currParams.get("buy_up_factor_NG", currParams.get("buy_up_factor", currParams.get("buyUpFactor", currParams.get("BuyUpFactor", 0.0)))))
+        self.buy_up_factor_NG = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
         self.buy_up_factor = self.buy_up_factor_NG
         self.connection_fare_flag_NG = parse_int_flag(currParams.get("connection_fare_flag_NG", currParams.get("connection_fare_flag", currParams.get("connectionFareFlag", currParams.get("ConnectionFareFlag", 0)))), 0)
         self.connection_fare_flag = self.connection_fare_flag_NG

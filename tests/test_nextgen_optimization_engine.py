@@ -695,6 +695,33 @@ class TestNextGenOptimizationEngine:
         assert summary['Anchor_fare'] == summary['anchor_fare_airline_comp'] + 500.0
         assert summary['NG_Opening_fare'] == summary['opening_fare_airline_comp'] + 500.0
 
+    def test_buy_up_factor_percentage_normalization(self, sample_flight_data):
+        capacity = 189
+        cb = 50
+
+        # Run with decimal 0.10
+        df_dec, anchor_dec, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb, buy_up_factor=0.10
+        )
+        # Run with percentage 10.0
+        df_pct, anchor_pct, _ = NextGenOptimizationEngine.compute_initial_emsr_b(
+            sample_flight_data, capacity, cb, buy_up_factor=10.0
+        )
+
+        assert np.allclose(df_dec['ProtectionLimit'].values, df_pct['ProtectionLimit'].values)
+        assert np.allclose(df_dec['AU'].values, df_pct['AU'].values)
+        assert anchor_dec == anchor_pct
+
+        # Test execute_flight_nextgen_optimization reporting normalized buy_up_factor
+        _, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 200000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={'origin': 'BOM', 'destin': 'DEL', 'buy_up_factor_NG': 10.0}
+        )
+        assert summary['buy_up_factor'] == 0.10
+
+
 
 
 
