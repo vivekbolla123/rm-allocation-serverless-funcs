@@ -1497,7 +1497,9 @@ class NextGenOptimizationEngine:
             opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route)
         else:
             opening_fare_allin = opening_fare
-        strategy_fare_allin = tax_helper.airline_component_to_allin(strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else strategy_fare
+        # Strategy fare for viewing/display: show the fare from grid calculation (eff_response_fare), not ladder-mapped
+        display_strategy_fare = eff_response_fare
+        display_strategy_fare_allin = tax_helper.airline_component_to_allin(display_strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else display_strategy_fare
         anchor_fare_allin = tax_helper.airline_component_to_allin(anchor_fare, origin, destin, route=route) if tax_helper and origin and destin else anchor_fare
 
         # Populate fare columns with both Airline Component and All_in values on final_df
@@ -1511,8 +1513,8 @@ class NextGenOptimizationEngine:
             final_df['fare_All_in'] = final_df['fare']
         final_df['anchor_fare'] = float(anchor_fare)
         final_df['anchor_fare_All_in'] = float(anchor_fare_allin)
-        final_df['strategy_fare'] = float(strategy_fare)
-        final_df['strategy_fare_All_in'] = float(strategy_fare_allin)
+        final_df['strategy_fare'] = float(display_strategy_fare)
+        final_df['strategy_fare_All_in'] = float(display_strategy_fare_allin)
         final_df['oal_b2c_min'] = to_float(c_min_comp, 0.0)
         final_df['oal_b2c_min_All_in'] = to_float(c_min_allin, 0.0)
 
@@ -1522,9 +1524,9 @@ class NextGenOptimizationEngine:
             'NG_AF_Forecast': daily_af if daily_af is not None else to_float(af_fc, 0.0),
             'NG_Opening_fare': to_float(opening_fare_allin, 0.0),
             'NG_FirstRBD': to_float(seats_on_opening, 0.0),
-            'NG_Strategy_fare': to_float(strategy_fare_allin, 0.0),
+            'NG_Strategy_fare': to_float(display_strategy_fare_allin, 0.0),
             'NG_Anchor_fare': to_float(anchor_fare_allin, 0.0),
-            'Strategy_fare': to_float(strategy_fare_allin, 0.0),
+            'Strategy_fare': to_float(display_strategy_fare_allin, 0.0),
             'Anchor_fare': to_float(anchor_fare_allin, 0.0),
             'Pmin_Old': to_float(redistrib_df.attrs.get('p_min_old', anchor_fare), 0.0),
             'Current_Revenue': curr_rev_val,
@@ -1545,10 +1547,10 @@ class NextGenOptimizationEngine:
             'buy_up_factor': buy_up,
             'threshold_factor': to_float(threshold_factor, 0.0),
             'opening_fare_airline_comp': to_float(opening_fare, 0.0),
-            'strategy_fare_airline_comp': to_float(strategy_fare, 0.0),
+            'strategy_fare_airline_comp': to_float(display_strategy_fare, 0.0),
             'anchor_fare_airline_comp': to_float(anchor_fare, 0.0),
             'opening_fare_allin': to_float(opening_fare_allin, 0.0),
-            'strategy_fare_allin': to_float(strategy_fare_allin, 0.0),
+            'strategy_fare_allin': to_float(display_strategy_fare_allin, 0.0),
             'anchor_fare_allin': to_float(anchor_fare_allin, 0.0),
             'oal_b2c_min_airline_comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
             'oal_b2c_min_allin': to_float(c_min_allin, None) if c_min_allin is not None else None,

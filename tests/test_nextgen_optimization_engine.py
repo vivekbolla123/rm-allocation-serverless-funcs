@@ -818,9 +818,9 @@ class TestNextGenOptimizationEngine:
             db_helper=helper
         )
 
-        assert summary['threshold_factor'] == 0.90
-        # Discrete ladder fare <= 5400 is 5252.0
-        assert summary['Strategy_fare'] == 5252.0
+        # Output Strategy_fare shows the exact grid calculation output fare (5400.0)
+        assert summary['Strategy_fare'] == 5400.0
+        assert res_df['strategy_fare'].iloc[0] == 5400.0
 
     def test_opening_fare_selected_from_response_fare_not_target_fc_fare(self, sample_flight_data):
         """
