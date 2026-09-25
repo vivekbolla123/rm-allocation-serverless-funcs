@@ -1069,7 +1069,7 @@ class NextGenOptimizationEngine:
 
         raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
         buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
-        comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=1)) else 0
+        comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=0)) else 0
         time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
