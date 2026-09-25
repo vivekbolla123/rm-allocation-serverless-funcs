@@ -1422,18 +1422,20 @@ class NextGenOptimizationEngine:
         # then allocate inventory to nearest fare for each fare level."
         filed_51_au_mapping = {}
         if filed_levels:
+            fc_fares_allin = [tax_helper.airline_component_to_allin(f, origin, destin, route=route) if tax_helper and origin and destin else f for f in fc_fares]
             for fl in filed_levels:
                 f_val = fl['fare']
+                f_allin = fl['allin']
                 r_code = fl['RBD']
                 if f_val < opening_fare - 1e-4:
                     # Below opening fare: inventory is 0
                     alloc_au = 0.0
                 elif abs(f_val - opening_fare) < 1e-4:
-                    # At opening fare: assigned the competition response inventory (capped at cb + first_rbd)
-                    alloc_au = min(target_fc_au, float(cb_val + first_rbd))
+                    # At opening fare: assign the target_fc_au without capping by first_rbd
+                    alloc_au = target_fc_au
                 else:
-                    # Above opening fare: allocate inventory from nearest forecast fare
-                    nearest_idx = int(np.argmin([abs(f_val - fc_f) for fc_f in fc_fares]))
+                    # Above opening fare: allocate inventory from nearest forecast fare using all-in fares
+                    nearest_idx = int(np.argmin([abs(f_allin - fc_f) for fc_f in fc_fares_allin]))
                     alloc_au = fc_aus[nearest_idx]
                 filed_51_au_mapping[r_code] = alloc_au
 
