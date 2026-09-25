@@ -824,14 +824,15 @@ class TestNextGenOptimizationEngine:
 
     def test_opening_fare_selected_from_response_fare_not_target_fc_fare(self, sample_flight_data):
         """
-        Verify that opening fare among 51 filed levels is selected based on nearest lower
-        to the grid output fare (response_fare), NOT the forecast strategy fare (target_fc_fare).
+        Verify that opening fare among 51 filed levels is now selected based on the
+        first open forecast bucket (AU_Revised > booked_load), NOT the strategy fare.
         
         Example:
         - Competitor min fare / grid output = 6061.9
-        - Forecast ladder fares: ..., 6433, 5658, 4980, ... -> strategy fare = 5658
-        - Filed 51 levels: R1=6200, R2=5800, R3=5421.9, R4=4900
-        - Correct opening fare must be R2 (5800), NOT R3 (5421.9).
+        - Forecast ladder fares: ..., 6409, 5658, 4980, ... -> first open bucket = 5252 (AU=120 > cb=100)
+        - Filed 51 levels: R1=6200(allin=7000), R2=5800(allin=6600), R3=5421.9(allin=6136), R4=4900(allin=5600)
+        - Cutoff fare (all-in) = 5252.  R3 (fare=5421.9) is nearest to 5252 -> opening_rbd=R3.
+        - All filed levels have all-in >= 5252 -> all get non-zero AU.
         """
         capacity = 189
         cb = 100
@@ -857,22 +858,19 @@ class TestNextGenOptimizationEngine:
             filed_51_ladder_df=filed_51_ladder
         )
 
-        # Response fare is around 6061.9. Strategy fare in sample_flight_data is <= 6061.9 (5252.0 in sample data).
-        # Filed level absolutely nearest to 6061.9 is R1 (6200.0) because abs(6200-6061.9) = 138.1 vs abs(5800-6061.9) = 261.9.
-        # If the bug was present, it would have picked <= 5252 (R4=4900.0).
-        # With the fix to use absolute nearest fare, it correctly picks R1!
-        assert summary['opening_rbd'] == 'R1'
-        assert summary['opening_fare_airline_comp'] == 6200.0
-        assert summary['NG_Opening_fare'] == 7000.0
-        assert final_df['opening fare'].iloc[0] == 6200.0
+        # Cutoff fare = 5252 (first open forecast bucket with AU > cb=100).
+        # Nearest filed level to 5252 (airline comp) is R3 (5421.9).
+        assert summary['opening_rbd'] == 'R3'
+        assert summary['opening_fare_airline_comp'] == 5421.904762
+        assert summary['NG_Opening_fare'] == 6136.0
+        assert final_df['opening fare'].iloc[0] == 5421.904762
 
-        # RBDs below R1 (R2, R3, R4) should have AU = 0
+        # All filed levels have all-in fare >= cutoff (5252), so all get non-zero AU
         mapping = summary['filed_51_au_mapping']
-        assert mapping['R2'] == 0.0
-        assert mapping['R3'] == 0.0
-        assert mapping['R4'] == 0.0
-        # R1 (opening) should have AU > 0
         assert mapping['R1'] > 0.0
+        assert mapping['R2'] > 0.0
+        assert mapping['R3'] > 0.0
+        assert mapping['R4'] > 0.0
 
 
 

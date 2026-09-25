@@ -1402,15 +1402,27 @@ class NextGenOptimizationEngine:
         else:
             target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
-        # "The inventory at nearest fare (among the fares from forecast file) below the fare obtained from
-        # competition response should be assigned to the nearest lower among the 51 fare levels (airline component)."
-        # "And add that as another column in inventory file as opening fare"
+        # Compute the cutoff fare: the fare of the lowest forecast bucket where
+        # AU_Revised > current booked load.  Only QP fare RBDs at or above this
+        # fare will receive non-zero inventory in the filed_51_au_mapping.
+        non_promo_mask = (final_df.get('Promo_Flag', 0) == 0)
+        open_bucket_mask = (final_df['AU_Revised'] > cb_val) & non_promo_mask
+        if open_bucket_mask.any():
+            cutoff_fare_comp = to_float(final_df.loc[open_bucket_mask, 'fare'].iloc[-1], 0.0)
+            cutoff_fc_au = to_float(final_df.loc[open_bucket_mask, 'AU_Revised'].iloc[-1], 0.0)
+        else:
+            cutoff_fare_comp = eff_response_fare
+            cutoff_fc_au = target_fc_au
+        cutoff_fare_allin = tax_helper.airline_component_to_allin(cutoff_fare_comp, origin, destin, route=route) if tax_helper and origin and destin else cutoff_fare_comp
+
+        # Match the cutoff fare to the nearest QP fare RBD in the 51-level ladder.
+        # This becomes the "opening" RBD — the lowest class that receives inventory.
         open_filed = None
         if filed_levels:
             if tax_helper and origin and destin:
-                nearest_idx = int(np.argmin([abs(fl['allin'] - eff_response_fare_allin) for fl in filed_levels]))
+                nearest_idx = int(np.argmin([abs(fl['allin'] - cutoff_fare_allin) for fl in filed_levels]))
             else:
-                nearest_idx = int(np.argmin([abs(fl['fare'] - eff_response_fare) for fl in filed_levels]))
+                nearest_idx = int(np.argmin([abs(fl['fare'] - cutoff_fare_comp) for fl in filed_levels]))
             open_filed = filed_levels[nearest_idx]
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
@@ -1424,23 +1436,19 @@ class NextGenOptimizationEngine:
             opening_rbd = str(final_df['FareBucket'].iloc[0])
 
         # Allocate inventory for each of the 51 fare levels:
-        # "If qp fares changed after morning so forecast fare levels and actual fare levels will be different
-        # then allocate inventory to nearest fare for each fare level."
+        # QP fare RBDs below the cutoff fare (first open bucket) get AU=0.
+        # QP fare RBDs at or above the cutoff fare get AU from the nearest forecast bucket.
         filed_51_au_mapping = {}
         if filed_levels:
             fc_fares_allin = [tax_helper.airline_component_to_allin(f, origin, destin, route=route) if tax_helper and origin and destin else f for f in fc_fares]
             for fl in filed_levels:
-                f_val = fl['fare']
                 f_allin = fl['allin']
                 r_code = fl['RBD']
-                if f_val < opening_fare - 1e-4:
-                    # Below opening fare: inventory is 0
+                if f_allin < cutoff_fare_allin - 1e-4:
+                    # Below first open bucket fare: inventory is 0
                     alloc_au = 0.0
-                elif abs(f_val - opening_fare) < 1e-4:
-                    # At opening fare: assign the target_fc_au without capping by first_rbd
-                    alloc_au = target_fc_au
                 else:
-                    # Above opening fare: allocate inventory from nearest forecast fare using all-in fares
+                    # At or above first open bucket: allocate from nearest forecast fare
                     nearest_idx = int(np.argmin([abs(f_allin - fc_f) for fc_f in fc_fares_allin]))
                     alloc_au = fc_aus[nearest_idx]
                 filed_51_au_mapping[r_code] = alloc_au
@@ -1449,13 +1457,13 @@ class NextGenOptimizationEngine:
             for i in range(len(filed_levels) - 2, -1, -1):
                 high_rbd = filed_levels[i]['RBD']
                 low_rbd = filed_levels[i+1]['RBD']
-                if filed_levels[i]['fare'] >= opening_fare - 1e-4:
+                if filed_levels[i]['allin'] >= cutoff_fare_allin - 1e-4:
                     filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
 
         if filed_levels:
-            opening_au = filed_51_au_mapping.get(opening_rbd, target_fc_au)
+            opening_au = filed_51_au_mapping.get(opening_rbd, cutoff_fc_au)
         else:
-            opening_au = target_fc_au
+            opening_au = cutoff_fc_au
         seats_on_opening = float(int(round(opening_au)))
 
         # Add 'opening fare' as another column in inventory file
