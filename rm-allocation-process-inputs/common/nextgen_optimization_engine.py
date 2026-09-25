@@ -1444,7 +1444,11 @@ class NextGenOptimizationEngine:
                 if filed_levels[i]['fare'] >= opening_fare - 1e-4:
                     filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
 
-        seats_on_opening = max(0.0, target_fc_au - cb_val)
+        if filed_levels:
+            opening_au = filed_51_au_mapping.get(opening_rbd, target_fc_au)
+        else:
+            opening_au = target_fc_au
+        seats_on_opening = float(int(round(max(0.0, opening_au - cb_val))))
 
         # Add 'opening fare' as another column in inventory file
         final_df['opening fare'] = opening_fare
