@@ -858,20 +858,21 @@ class TestNextGenOptimizationEngine:
         )
 
         # Response fare is around 6061.9. Strategy fare in sample_flight_data is <= 6061.9 (5252.0 in sample data).
-        # Filed level <= 6061.9 is R2 (5800.0).
+        # Filed level absolutely nearest to 6061.9 is R1 (6200.0) because abs(6200-6061.9) = 138.1 vs abs(5800-6061.9) = 261.9.
         # If the bug was present, it would have picked <= 5252 (R4=4900.0).
-        # With the fix, it correctly picks R2 (5800.0)!
-        assert summary['opening_rbd'] == 'R2'
-        assert summary['opening_fare_airline_comp'] == 5800.0
-        assert summary['NG_Opening_fare'] == 6600.0
-        assert final_df['opening fare'].iloc[0] == 5800.0
+        # With the fix to use absolute nearest fare, it correctly picks R1!
+        assert summary['opening_rbd'] == 'R1'
+        assert summary['opening_fare_airline_comp'] == 6200.0
+        assert summary['NG_Opening_fare'] == 7000.0
+        assert final_df['opening fare'].iloc[0] == 6200.0
 
-        # RBDs below R2 (R3, R4) should have AU = 0
+        # RBDs below R1 (R2, R3, R4) should have AU = 0
         mapping = summary['filed_51_au_mapping']
+        assert mapping['R2'] == 0.0
         assert mapping['R3'] == 0.0
         assert mapping['R4'] == 0.0
-        # R2 (opening) should have AU > 0
-        assert mapping['R2'] > 0.0
+        # R1 (opening) should have AU > 0
+        assert mapping['R1'] > 0.0
 
 
 

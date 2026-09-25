@@ -1408,10 +1408,10 @@ class NextGenOptimizationEngine:
         open_filed = None
         if filed_levels:
             if tax_helper and origin and destin:
-                cand_51 = [fl for fl in filed_levels if fl['allin'] <= eff_response_fare_allin + 1e-4]
+                nearest_idx = int(np.argmin([abs(fl['allin'] - eff_response_fare_allin) for fl in filed_levels]))
             else:
-                cand_51 = [fl for fl in filed_levels if fl['fare'] <= eff_response_fare + 1e-4]
-            open_filed = cand_51[0] if cand_51 else filed_levels[-1]
+                nearest_idx = int(np.argmin([abs(fl['fare'] - eff_response_fare) for fl in filed_levels]))
+            open_filed = filed_levels[nearest_idx]
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
         else:
