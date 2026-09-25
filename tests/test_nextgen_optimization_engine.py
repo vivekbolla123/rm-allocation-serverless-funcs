@@ -822,6 +822,58 @@ class TestNextGenOptimizationEngine:
         # Discrete ladder fare <= 5400 is 5252.0
         assert summary['Strategy_fare'] == 5252.0
 
+    def test_opening_fare_selected_from_response_fare_not_target_fc_fare(self, sample_flight_data):
+        """
+        Verify that opening fare among 51 filed levels is selected based on nearest lower
+        to the grid output fare (response_fare), NOT the forecast strategy fare (target_fc_fare).
+        
+        Example:
+        - Competitor min fare / grid output = 6061.9
+        - Forecast ladder fares: ..., 6433, 5658, 4980, ... -> strategy fare = 5658
+        - Filed 51 levels: R1=6200, R2=5800, R3=5421.9, R4=4900
+        - Correct opening fare must be R2 (5800), NOT R3 (5421.9).
+        """
+        capacity = 189
+        cb = 100
+        # Comp fare 6061.9
+        mkt_fares = [{'AirlineCode': '6E', 'Fare': 6061.904762, 'outbound_stops': 0, 'outbound_duration': 120, 'DepTime': '10:30'}]
+        filed_51_ladder = pd.DataFrame([
+            {'RBD': 'R1', 'fare': 6200.0, 'TOTAL': 7000.0},
+            {'RBD': 'R2', 'fare': 5800.0, 'TOTAL': 6600.0},
+            {'RBD': 'R3', 'fare': 5421.904762, 'TOTAL': 6136.0},
+            {'RBD': 'R4', 'fare': 4900.0, 'TOTAL': 5600.0},
+        ])
+
+        class MockDbHelper:
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                return {'response_rule': 'C', 'criteria': 'Min'}
+
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 300000.0,
+            market_fares=mkt_fares,
+            flight_std='10:30',
+            curr_params={'competition_response_flag_NG': 1, 'first_rbd_NG': 15},
+            db_helper=MockDbHelper(),
+            filed_51_ladder_df=filed_51_ladder
+        )
+
+        # Response fare is around 6061.9. Strategy fare in sample_flight_data is <= 6061.9 (5252.0 in sample data).
+        # Filed level <= 6061.9 is R2 (5800.0).
+        # If the bug was present, it would have picked <= 5252 (R4=4900.0).
+        # With the fix, it correctly picks R2 (5800.0)!
+        assert summary['opening_rbd'] == 'R2'
+        assert summary['opening_fare_airline_comp'] == 5800.0
+        assert summary['NG_Opening_fare'] == 6600.0
+        assert final_df['opening fare'].iloc[0] == 5800.0
+
+        # RBDs below R2 (R3, R4) should have AU = 0
+        mapping = summary['filed_51_au_mapping']
+        assert mapping['R3'] == 0.0
+        assert mapping['R4'] == 0.0
+        # R2 (opening) should have AU > 0
+        assert mapping['R2'] > 0.0
+
+
 
 
 

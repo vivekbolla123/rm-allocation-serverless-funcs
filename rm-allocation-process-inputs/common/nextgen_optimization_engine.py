@@ -1363,25 +1363,37 @@ class NextGenOptimizationEngine:
 
         filed_levels = []
         if filed_51_df is not None and not filed_51_df.empty:
-            fare_col = next((c for c in ['airline_fare', 'fare', 'Fare', 'TOTAL', 'Total'] if c in filed_51_df.columns), None)
+            total_col = next((c for c in ['TOTAL', 'Total', 'allin', 'All_in'] if c in filed_51_df.columns), None)
+            comp_col = next((c for c in ['airline_fare', 'fare', 'Fare', 'airline_comp'] if c in filed_51_df.columns), None)
+
             for _, r in filed_51_df.iterrows():
                 rbd_code = str(r.get('RBD', '')).strip()
-                raw_f = to_float(r.get(fare_col), 0.0) if fare_col else 0.0
-                if fare_col in ['TOTAL', 'Total'] and tax_helper and origin and destin:
-                    comp_f = tax_helper.allin_to_airline_component(raw_f, origin, destin, route=route)
+                if comp_col:
+                    comp_f = to_float(r.get(comp_col), 0.0)
+                elif total_col and tax_helper and origin and destin:
+                    comp_f = tax_helper.allin_to_airline_component(to_float(r.get(total_col), 0.0), origin, destin, route=route)
                 else:
-                    comp_f = raw_f
+                    comp_f = to_float(r.get(total_col), 0.0) if total_col else 0.0
+
+                if total_col:
+                    allin_f = to_float(r.get(total_col), 0.0)
+                elif tax_helper and origin and destin:
+                    allin_f = tax_helper.airline_component_to_allin(comp_f, origin, destin, route=route)
+                else:
+                    allin_f = comp_f
+
                 filed_levels.append({
                     'RBD': rbd_code,
                     'fare': comp_f,
-                    'allin': raw_f if fare_col in ['TOTAL', 'Total'] else (tax_helper.airline_component_to_allin(comp_f, origin, destin, route=route) if tax_helper and origin and destin else comp_f)
+                    'allin': allin_f
                 })
             filed_levels = sorted(filed_levels, key=lambda x: x['fare'], reverse=True)
 
         # Nearest forecast fare below competition response fare (or anchor fare)
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
-        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= response_fare]
+        eff_response_fare = response_fare if response_fare is not None else anchor_fare
+        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_response_fare]
         if fc_below:
             target_fc_fare, target_fc_au = fc_below[0]
         else:
@@ -1390,8 +1402,9 @@ class NextGenOptimizationEngine:
         # "The inventory at nearest fare (among the fares from forecast file) below the fare obtained from
         # competition response should be assigned to the nearest lower among the 51 fare levels (airline component)."
         # "And add that as another column in inventory file as opening fare"
+        open_filed = None
         if filed_levels:
-            cand_51 = [fl for fl in filed_levels if fl['fare'] <= target_fc_fare]
+            cand_51 = [fl for fl in filed_levels if fl['fare'] <= eff_response_fare]
             open_filed = cand_51[0] if cand_51 else filed_levels[-1]
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
@@ -1478,7 +1491,12 @@ class NextGenOptimizationEngine:
                 logger.warning(f"Error reading pre-calculated forecast from add_model_inventory_ng: {e}")
 
         # Convert airline component fares to ALL-IN for NextGen output summary and inventory optimization
-        opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
+        if open_filed and 'allin' in open_filed and open_filed['allin']:
+            opening_fare_allin = float(open_filed['allin'])
+        elif tax_helper and origin and destin:
+            opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route)
+        else:
+            opening_fare_allin = opening_fare
         strategy_fare_allin = tax_helper.airline_component_to_allin(strategy_fare, origin, destin, route=route) if tax_helper and origin and destin else strategy_fare
         anchor_fare_allin = tax_helper.airline_component_to_allin(anchor_fare, origin, destin, route=route) if tax_helper and origin and destin else anchor_fare
 
@@ -1534,6 +1552,7 @@ class NextGenOptimizationEngine:
             'anchor_fare_allin': to_float(anchor_fare_allin, 0.0),
             'oal_b2c_min_airline_comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
             'oal_b2c_min_allin': to_float(c_min_allin, None) if c_min_allin is not None else None,
+            'opening_rbd': opening_rbd,
             'filed_51_au_mapping': filed_51_au_mapping
         }
 
