@@ -5,7 +5,10 @@ All MongoDB reads/writes for the Additive Pickup Model.
 
   self.db        -> qp_dw_rmalloc  (fares, rm_parameter_values, additive_model_run_audit)
   self.master_db -> qp_rm_master   (active_sectors, tax_mast_dom/intl,
-                                    config_sector_demand_multiplier, config_quarter_wtp)
+                                    config_sector_demand_multiplier, config_quarter_wtp,
+                                    config_station_master)
+  self.dw_helper -> AdditiveDwHelper (RM_DW_DATA, optional) (currency_conversion —
+                                    international fare currency -> INR)
 
 Cache + test mode: bind the shared AdditiveCache once (bind_context); tax/pricing
 constants are written into `self.cache.data` so the processor and ESB helper see
@@ -25,21 +28,26 @@ import configsettings
 class AdditiveMongoHelper:
     """MongoDB database operations for the Additive Pickup Model."""
 
-    def __init__(self, mongo_db, master_db, logger):
+    def __init__(self, mongo_db, master_db, logger, dw_helper=None):
         """
         Args:
             mongo_db:  qp_dw_rmalloc DB handle (fares, rm_parameter_values, audit)
             master_db: qp_rm_master DB handle (active_sectors, tax, config_*)
             logger:    logger instance
+            dw_helper: AdditiveDwHelper for RM_DW_DATA reads (currency_conversion
+                       ->INR rates for international fares). Optional — if not
+                       supplied, currency conversion is skipped (fares used as-is).
         """
         self.db = mongo_db
         self.master_db = master_db
         self.logger = logger
+        self.dw_helper = dw_helper
         # bound later via bind_context / set_run
         self.cache = None
         self.mode = 'PROD'
         self._dm = None
         self._wtp = None
+        self._intl_stations = None
         self._mapped_sectors = None
         # run metadata for audit
         self.run_id = None
@@ -196,12 +204,17 @@ class AdditiveMongoHelper:
     # RAW FARES  (bucket computation stays in the processor)
     # =========================================================================
     def fetch_fares(self, sectors, required_rbds):
-        """Raw QP all-in fares for these sectors from qp_dw_rmalloc.fares."""
+        """Raw QP all-in fares for these sectors from qp_dw_rmalloc.fares.
+
+        Includes `currency` (native currency of the fare's TOTAL) so the caller
+        can convert international fares to INR before any tax/bucket math —
+        see apply_currency_conversion.
+        """
         self.logger.info("Fetching fares from qp_dw_rmalloc.fares ...")
         docs = list(self.db.fares.find(
-            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$ne": 1}, "TOTAL": {"$ne": 99999}, "route":{"$eq": "L"},
+            {"SECTOR": {"$in": list(sectors)}, "TOTAL": {"$nin": [1, 99999]}, "route": {"$eq": "L"},
              "RBD": {"$in": list(required_rbds)}},
-            {"_id": 0, "SECTOR": 1, "RBD": 1, "TOTAL": 1}
+            {"_id": 0, "SECTOR": 1, "RBD": 1, "TOTAL": 1, "currency": 1}
         ))
         if not docs:
             self.logger.error("No fare data found in qp_dw_rmalloc.fares.")
@@ -209,9 +222,105 @@ class AdditiveMongoHelper:
         fares_df = pd.DataFrame(docs)
         fares_df['TOTAL'] = pd.to_numeric(fares_df['TOTAL'], errors='coerce')
         fares_df = fares_df.dropna(subset=['TOTAL'])
+        if 'currency' in fares_df.columns:
+            fares_df['currency'] = fares_df['currency'].astype(str).str.strip().replace(
+                {'': 'INR', 'nan': 'INR', 'None': 'INR'})
+        else:
+            fares_df['currency'] = 'INR'
         self.logger.info(f"Fetched {len(fares_df)} all-in fare records across "
                          f"{fares_df['SECTOR'].nunique()} sectors.")
         return fares_df
+
+    # =========================================================================
+    # CURRENCY CONVERSION  (international fares -> INR before tax/bucket math)
+    # =========================================================================
+    def fetch_international_stations(self):
+        """{station} set of INTERNATIONAL stations from qp_rm_master.config_station_master
+        (route == 'I'). A sector's origin (SECTOR[:3]) in this set means its QP
+        fare TOTAL is denominated in the fare's local `currency`, not INR."""
+        if self._intl_stations is not None:
+            return self._intl_stations
+        stations = set()
+        try:
+            docs = self.master_db.config_station_master.find(
+                {'route': 'I'}, {'_id': 0, 'station': 1})
+            stations = {str(d['station']).strip() for d in docs if d.get('station')}
+            self.logger.info(f"[Currency] {len(stations)} international station(s) loaded "
+                             f"from config_station_master.")
+        except Exception as e:
+            self.logger.error(f"[Currency] failed to load config_station_master "
+                              f"({e.__class__.__name__}: {e}); no sector will be treated "
+                              f"as international — fares used as-is.")
+            stations = set()
+        self._intl_stations = stations
+        return stations
+
+    def apply_currency_conversion(self, fares_df):
+        """
+        Convert TOTAL to INR for fares whose SECTOR origin is international.
+
+        A sector's origin is international when SECTOR[:3] is in
+        config_station_master (route='I') — e.g. JEDBOM, DOHBOM, BKKBOM. A
+        sector like BOMJED (origin BOM, domestic) is NOT converted: QP already
+        prices that fare in INR. Domestic-origin rows, and any row whose
+        currency is already 'INR', pass through with ConversionRate = 1.0.
+
+        Fully vectorized (no per-row Python loop). Rows for an international
+        sector whose currency has no ->INR rate available (DW lookup miss or
+        DW unreachable) are LEFT UNCONVERTED and logged — surfaced instead of
+        silently mis-priced, but never dropped, so bucket coverage isn't lost.
+        """
+        df = fares_df.copy()
+        if 'currency' not in df.columns:
+            df['currency'] = 'INR'
+        df['currency'] = df['currency'].astype(str).str.strip().replace(
+            {'': 'INR', 'nan': 'INR', 'None': 'INR'})
+
+        origin = df['SECTOR'].astype(str).str[:3]
+        intl_stations = self.fetch_international_stations()
+        is_intl_origin = origin.isin(intl_stations)
+        needs_conversion = is_intl_origin & df['currency'].ne('INR')
+
+        if not needs_conversion.any():
+            self.logger.info("[Currency] no international-origin fares needing "
+                             "conversion — TOTAL used as-is.")
+            df['TOTAL_ORIGINAL'] = df['TOTAL']
+            df['ConversionRate'] = 1.0
+            return df.drop(columns=['ConversionRate'])
+
+        needed_currencies = df.loc[needs_conversion, 'currency'].unique().tolist()
+        if self.dw_helper is not None:
+            rates_df = self.dw_helper.fetch_currency_conversion_rates(needed_currencies)
+        else:
+            self.logger.warning("[Currency] no DW helper bound — cannot fetch ->INR "
+                                f"rates for {sorted(set(needed_currencies))}; "
+                                "these fares stay unconverted.")
+            rates_df = pd.DataFrame(columns=['currency', 'ConversionRate'])
+
+        df = df.merge(rates_df, on='currency', how='left')
+        df.loc[~needs_conversion, 'ConversionRate'] = 1.0   # domestic-origin / already-INR
+
+        no_rate = needs_conversion & df['ConversionRate'].isna()
+        if no_rate.any():
+            affected = sorted(df.loc[no_rate, ['SECTOR', 'currency']]
+                              .drop_duplicates().itertuples(index=False, name=None))
+            self.logger.warning(
+                f"[Currency] no ->INR rate for {int(no_rate.sum())} fare row(s) "
+                f"({len(affected)} distinct sector/currency pair(s), e.g. "
+                f"{affected[:10]}); leaving TOTAL unconverted for these rows."
+            )
+            df.loc[no_rate, 'ConversionRate'] = 1.0   # leave TOTAL as-is (fallback)
+
+        converted_mask = needs_conversion & (~no_rate)
+        self.logger.info(
+            f"[Currency] converting {int(converted_mask.sum())} fare row(s) across "
+            f"{df.loc[converted_mask, 'SECTOR'].nunique()} international sector(s) "
+            f"to INR (currencies: {sorted(df.loc[converted_mask, 'currency'].unique())})."
+        )
+
+        df['TOTAL_ORIGINAL'] = df['TOTAL']
+        df['TOTAL'] = df['TOTAL'] * df['ConversionRate']
+        return df.drop(columns=['ConversionRate'])
 
     # =========================================================================
     # DEMAND MULTIPLIER  (flight-level: DepartureDate, Sector, FlightNumber)
