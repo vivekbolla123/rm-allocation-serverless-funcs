@@ -1393,7 +1393,10 @@ class NextGenOptimizationEngine:
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
         eff_response_fare = response_fare if response_fare is not None else anchor_fare
-        fc_below = [(f, a) for f, a in zip(fc_fares, fc_aus) if f <= eff_response_fare]
+        eff_response_fare_allin = tax_helper.airline_component_to_allin(eff_response_fare, origin, destin, route=route) if tax_helper and origin and destin else eff_response_fare
+        
+        fc_fares_allin_grid = [tax_helper.airline_component_to_allin(f, origin, destin, route=route) if tax_helper and origin and destin else f for f in fc_fares]
+        fc_below = [(f, a) for f, f_allin, a in zip(fc_fares, fc_fares_allin_grid, fc_aus) if f_allin <= eff_response_fare_allin + 1e-4]
         if fc_below:
             target_fc_fare, target_fc_au = fc_below[0]
         else:
@@ -1404,7 +1407,10 @@ class NextGenOptimizationEngine:
         # "And add that as another column in inventory file as opening fare"
         open_filed = None
         if filed_levels:
-            cand_51 = [fl for fl in filed_levels if fl['fare'] <= eff_response_fare]
+            if tax_helper and origin and destin:
+                cand_51 = [fl for fl in filed_levels if fl['allin'] <= eff_response_fare_allin + 1e-4]
+            else:
+                cand_51 = [fl for fl in filed_levels if fl['fare'] <= eff_response_fare + 1e-4]
             open_filed = cand_51[0] if cand_51 else filed_levels[-1]
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
