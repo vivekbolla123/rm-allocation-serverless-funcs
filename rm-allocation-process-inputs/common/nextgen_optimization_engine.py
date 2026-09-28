@@ -1067,24 +1067,59 @@ class NextGenOptimizationEngine:
         if tax_helper is None:
             tax_helper = _get_val(curr_params, 'tax_helper', default=getattr(db_helper, 'tax_helper', None))
 
+        # Resolve 51 filed B2C fare levels in airline component early
+        filed_51_df = None
+        if filed_51_ladder_df is not None and not filed_51_ladder_df.empty:
+            filed_51_df = filed_51_ladder_df.copy()
+        elif db_helper and hasattr(db_helper, 'fareExtract') and origin and destin:
+            try:
+                b2c_fares = db_helper.fareExtract(origin, destin, 'B2C', '', route or 'L')
+                if b2c_fares is not None and not b2c_fares.empty:
+                    filed_51_df = b2c_fares.copy()
+            except Exception as e:
+                logger.warning(f"Could not extract 51 filed B2C fares: {e}")
+
+        filed_levels = []
+        if filed_51_df is not None and not filed_51_df.empty:
+            total_col = next((c for c in ['TOTAL', 'Total', 'allin', 'All_in'] if c in filed_51_df.columns), None)
+            comp_col = next((c for c in ['airline_fare', 'fare', 'Fare', 'airline_comp'] if c in filed_51_df.columns), None)
+
+            for _, r in filed_51_df.iterrows():
+                rbd_code = str(r.get('RBD', '')).strip()
+                if comp_col:
+                    comp_f = to_float(r.get(comp_col), 0.0)
+                elif total_col and tax_helper and origin and destin:
+                    comp_f = tax_helper.allin_to_airline_component(to_float(r.get(total_col), 0.0), origin, destin, route=route)
+                else:
+                    comp_f = to_float(r.get(total_col), 0.0) if total_col else 0.0
+
+                if total_col:
+                    allin_f = to_float(r.get(total_col), 0.0)
+                elif tax_helper and origin and destin:
+                    allin_f = tax_helper.airline_component_to_allin(comp_f, origin, destin, route=route)
+                else:
+                    allin_f = comp_f
+
+                filed_levels.append({
+                    'RBD': rbd_code,
+                    'fare': comp_f,
+                    'allin': allin_f
+                })
+            filed_levels = sorted(filed_levels, key=lambda x: x['fare'], reverse=True)
+
         raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
         buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
         comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=0)) else 0
         time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
-        raw_bs = _get_val(curr_params, 'b2c_backstop_final', 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
+        # In NextGen, use raw B2C backstop from Market List directly (do not use autobackstop / b2c_backstop_final)
+        raw_bs = _get_val(curr_params, 'b2c_backstop', 'B2CBackstop', 'price_floor', default=None)
         backstop = to_float(raw_bs, None)
         if backstop is not None and backstop <= 0:
             backstop = None
 
-        raw_ha = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
-        if raw_ha is not None and str(raw_ha).strip().upper() in ['MIN', 'MAX', 'MED', '**', '', 'NONE', 'NAN', 'NA']:
-            hardanchor = None
-        else:
-            hardanchor = to_float(raw_ha, None)
-            if hardanchor is not None and hardanchor <= 0:
-                hardanchor = None
+        hardanchor = None
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
         first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', default=20), 20.0)
         promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
@@ -1213,6 +1248,63 @@ class NextGenOptimizationEngine:
                 c_med_allin = tax_helper.airline_component_to_allin(c_med_comp, origin, destin, route=route)
             else:
                 c_med_allin = c_med_comp
+
+        # Resolve hardanchor
+        # If hardanchor is non-numeric (e.g. 'MIN', 'MAX', 'MINO', 'MAXO', 'MED'), get its value from market fares
+        # like in runAlloc (getDynamicD2Value -> getMarketFareAnchorFare -> getValueWithOffset).
+        raw_ha = _get_val(curr_params, 'hard_anchor_fare', 'hardAnchorFare', 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+
+        plf_thresh = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
+        curr_plf = (cb_val / cap_val) * 100.0 if cap_val > 0 else 0.0
+        is_plf_below_thresh = (curr_plf < plf_thresh)
+
+        hardanchor = None
+        if is_plf_below_thresh:
+            resolved_ha_num = to_float(_get_val(curr_params, 'hard_anchor_fare', 'hardAnchorFare', default=None), None)
+            if resolved_ha_num is not None and resolved_ha_num > 0:
+                hardanchor = resolved_ha_num
+            elif raw_ha is not None:
+                raw_ha_str = str(raw_ha).strip().upper()
+                if raw_ha_str in ['MIN', 'MAX', 'MINO', 'MAXO', 'MED', 'MEDC', 'MIN2', 'MIN2C']:
+                    ha_mkt_val = None
+                    if recal_market_fares is not None and not (isinstance(recal_market_fares, pd.DataFrame) and recal_market_fares.empty):
+                        fare_col = next((c for c in ['gross_fare', 'Fare', 'fare', 'TotalFare', 'total_fare', 'TOTAL', 'price', 'Total'] if c in recal_market_fares.columns), None)
+                        if fare_col:
+                            fares_s = pd.to_numeric(recal_market_fares[fare_col], errors='coerce').dropna()
+                            fares_s = fares_s[fares_s > 0]
+                            if not fares_s.empty:
+                                if 'MIN' in raw_ha_str:
+                                    ha_mkt_val = float(fares_s.min())
+                                elif 'MAX' in raw_ha_str:
+                                    ha_mkt_val = float(fares_s.max())
+                                elif 'MED' in raw_ha_str:
+                                    ha_mkt_val = float(fares_s.median())
+                    elif c_min_allin is not None:
+                        if 'MIN' in raw_ha_str:
+                            ha_mkt_val = float(c_min_allin)
+                        elif 'MED' in raw_ha_str and c_med_allin is not None:
+                            ha_mkt_val = float(c_med_allin)
+
+                    if ha_mkt_val is not None and ha_mkt_val > 0:
+                        ha_offset = to_int(_get_val(curr_params, 'fare_offset', 'fareOffset', 'hardoffset', default=0), 0)
+                        if filed_levels:
+                            sorted_fl_asc = sorted(filed_levels, key=lambda x: x['allin'])
+                            cand_idx = None
+                            for idx, fl in enumerate(sorted_fl_asc):
+                                if fl['allin'] >= ha_mkt_val - 1.0:
+                                    cand_idx = idx
+                                    break
+                            if cand_idx is not None:
+                                target_idx = min(len(sorted_fl_asc) - 1, max(0, cand_idx + ha_offset))
+                                hardanchor = float(sorted_fl_asc[target_idx]['allin'])
+                            else:
+                                hardanchor = float(ha_mkt_val)
+                        else:
+                            hardanchor = float(ha_mkt_val)
+                else:
+                    num_ha = to_float(raw_ha, None)
+                    if num_ha is not None and num_ha > 0:
+                        hardanchor = num_ha
 
         rule_applied = "N/A"
         strategy_fare = anchor_fare
@@ -1366,46 +1458,6 @@ class NextGenOptimizationEngine:
         )
 
         # Step 5: 51 Fare Levels (airline component) Mapping & Opening Fare
-        # Resolve 51 filed B2C fare levels in airline component
-        filed_51_df = None
-        if filed_51_ladder_df is not None and not filed_51_ladder_df.empty:
-            filed_51_df = filed_51_ladder_df.copy()
-        elif db_helper and hasattr(db_helper, 'fareExtract') and origin and destin:
-            try:
-                b2c_fares = db_helper.fareExtract(origin, destin, 'B2C', '', route or 'L')
-                if b2c_fares is not None and not b2c_fares.empty:
-                    filed_51_df = b2c_fares.copy()
-            except Exception as e:
-                logger.warning(f"Could not extract 51 filed B2C fares: {e}")
-
-        filed_levels = []
-        if filed_51_df is not None and not filed_51_df.empty:
-            total_col = next((c for c in ['TOTAL', 'Total', 'allin', 'All_in'] if c in filed_51_df.columns), None)
-            comp_col = next((c for c in ['airline_fare', 'fare', 'Fare', 'airline_comp'] if c in filed_51_df.columns), None)
-
-            for _, r in filed_51_df.iterrows():
-                rbd_code = str(r.get('RBD', '')).strip()
-                if comp_col:
-                    comp_f = to_float(r.get(comp_col), 0.0)
-                elif total_col and tax_helper and origin and destin:
-                    comp_f = tax_helper.allin_to_airline_component(to_float(r.get(total_col), 0.0), origin, destin, route=route)
-                else:
-                    comp_f = to_float(r.get(total_col), 0.0) if total_col else 0.0
-
-                if total_col:
-                    allin_f = to_float(r.get(total_col), 0.0)
-                elif tax_helper and origin and destin:
-                    allin_f = tax_helper.airline_component_to_allin(comp_f, origin, destin, route=route)
-                else:
-                    allin_f = comp_f
-
-                filed_levels.append({
-                    'RBD': rbd_code,
-                    'fare': comp_f,
-                    'allin': allin_f
-                })
-            filed_levels = sorted(filed_levels, key=lambda x: x['fare'], reverse=True)
-
         # Nearest forecast fare below competition response fare (or anchor fare)
         fc_fares = [to_float(f, 0.0) for f in final_df['fare'].tolist()]
         fc_aus = [to_float(a, 0.0) for a in final_df['AU_Revised'].tolist()]
@@ -1419,7 +1471,7 @@ class NextGenOptimizationEngine:
         else:
             target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
-        # Determine backstop values in airline component and all-in
+        # Determine backstop and hardanchor values in airline component and all-in
         bs_comp = None
         bs_allin = None
         if backstop is not None and backstop > 0:
@@ -1434,6 +1486,24 @@ class NextGenOptimizationEngine:
                 bs_comp = float(backstop)
                 bs_allin = float(backstop)
 
+        ha_comp = None
+        ha_allin = None
+        if hardanchor is not None and hardanchor > 0:
+            if tax_helper and origin and destin:
+                try:
+                    ha_comp = tax_helper.allin_to_airline_component(float(hardanchor), origin, destin, route=route)
+                    ha_allin = float(hardanchor)
+                except Exception:
+                    ha_comp = float(hardanchor)
+                    ha_allin = float(hardanchor)
+            else:
+                ha_comp = float(hardanchor)
+                ha_allin = float(hardanchor)
+
+        # The effective floor on cutoff and opening fare is max of backstop and hardanchor
+        eff_floor_comp = max([v for v in [bs_comp, ha_comp] if v is not None], default=None)
+        eff_floor_allin = max([v for v in [bs_allin, ha_allin] if v is not None], default=None)
+
         # Compute the cutoff fare: the fare of the lowest forecast bucket where
         # AU_Revised > current booked load.  Only QP fare RBDs at or above this
         # fare will receive non-zero inventory in the filed_51_au_mapping.
@@ -1446,16 +1516,16 @@ class NextGenOptimizationEngine:
             cutoff_fare_comp = eff_response_fare
             cutoff_fc_au = target_fc_au
 
-        # Enforce backstop floor on cutoff fare
-        if bs_comp is not None and cutoff_fare_comp < bs_comp:
-            cutoff_fare_comp = bs_comp
+        # Enforce floor on cutoff fare
+        if eff_floor_comp is not None and cutoff_fare_comp < eff_floor_comp:
+            cutoff_fare_comp = eff_floor_comp
 
         cutoff_fare_allin = tax_helper.airline_component_to_allin(cutoff_fare_comp, origin, destin, route=route) if tax_helper and origin and destin else cutoff_fare_comp
-        if bs_allin is not None and cutoff_fare_allin < bs_allin:
-            cutoff_fare_allin = bs_allin
+        if eff_floor_allin is not None and cutoff_fare_allin < eff_floor_allin:
+            cutoff_fare_allin = eff_floor_allin
 
         # Allocate inventory for each of the 51 fare levels:
-        # QP fare RBDs below the cutoff fare (first open bucket) or below backstop get AU=0.
+        # QP fare RBDs below the cutoff fare (first open bucket) or below floor get AU=0.
         # QP fare RBDs at or above cutoff allocate from the forecast bucket whose lower fare is <= filed fare (floor mapping).
         filed_51_au_mapping = {}
         if filed_levels:
@@ -1465,9 +1535,9 @@ class NextGenOptimizationEngine:
                 f_comp = fl['fare']
                 r_code = fl['RBD']
 
-                # Below cutoff fare or below backstop floor: inventory is 0
-                is_below_bs = (bs_allin is not None and f_allin < bs_allin - 1.0) or (bs_comp is not None and f_comp < bs_comp - 1.0)
-                if is_below_bs or f_allin < cutoff_fare_allin - 1.0:
+                # Below cutoff fare or below floor: inventory is 0
+                is_below_floor = (eff_floor_allin is not None and f_allin < eff_floor_allin - 1.0) or (eff_floor_comp is not None and f_comp < eff_floor_comp - 1.0)
+                if is_below_floor or f_allin < cutoff_fare_allin - 1.0:
                     alloc_au = 0.0
                 else:
                     # Floor / bucket interval mapping: find first forecast bucket where f_allin >= fc_f - 1.0
@@ -1492,17 +1562,17 @@ class NextGenOptimizationEngine:
         open_filed = None
         if filed_levels:
             if tax_helper and origin and destin:
-                # In all-in space: find the lowest filed level >= cutoff fare (and >= backstop)
+                # In all-in space: find the lowest filed level >= cutoff fare (and >= floor)
                 candidates = [
                     fl for fl in filed_levels
                     if fl['allin'] >= cutoff_fare_allin - 1.0
-                    and (bs_allin is None or fl['allin'] >= bs_allin - 1.0)
+                    and (eff_floor_allin is None or fl['allin'] >= eff_floor_allin - 1.0)
                 ]
                 if candidates:
                     open_filed = candidates[-1]
                 else:
-                    bs_cand = [fl for fl in filed_levels if (bs_allin is None or fl['allin'] >= bs_allin - 1.0)]
-                    open_filed = bs_cand[-1] if bs_cand else filed_levels[0]
+                    floor_cand = [fl for fl in filed_levels if (eff_floor_allin is None or fl['allin'] >= eff_floor_allin - 1.0)]
+                    open_filed = floor_cand[-1] if floor_cand else filed_levels[0]
             else:
                 nearest_idx = int(np.argmin([abs(fl['fare'] - cutoff_fare_comp) for fl in filed_levels]))
                 open_filed = filed_levels[nearest_idx]
@@ -1518,12 +1588,12 @@ class NextGenOptimizationEngine:
                 opening_fare = to_float(filed_classes['fare'].iloc[0], 0.0) if not filed_classes.empty else to_float(final_df['fare'].iloc[0], 0.0)
             opening_rbd = str(final_df['FareBucket'].iloc[0])
 
-        # Ensure opening fare strictly respects Backstop floor
-        if bs_comp is not None and opening_fare < bs_comp:
-            opening_fare = bs_comp
+        # Ensure opening fare strictly respects floor
+        if eff_floor_comp is not None and opening_fare < eff_floor_comp:
+            opening_fare = eff_floor_comp
         opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
-        if bs_allin is not None and opening_fare_allin < bs_allin:
-            opening_fare_allin = bs_allin
+        if eff_floor_allin is not None and opening_fare_allin < eff_floor_allin:
+            opening_fare_allin = eff_floor_allin
 
         if filed_levels:
             opening_au = filed_51_au_mapping.get(opening_rbd, cutoff_fc_au)
@@ -1607,25 +1677,25 @@ class NextGenOptimizationEngine:
         summary = {
             'NG_Historical_current_booked': cb_val,
             'NG_LF_Forecast': daily_lf if daily_lf is not None else to_float(lf_fc_rev * 100.0, 0.0),
-            'NG_AF_Forecast': daily_af if daily_af is not None else to_float(af_fc, 0.0),
-            'NG_Opening_fare': to_float(opening_fare_allin, 0.0),
+            'NG_AF_Forecast': int(round(daily_af)) if daily_af is not None else int(round(to_float(af_fc, 0.0))),
+            'NG_Opening_fare': int(round(to_float(opening_fare_allin, 0.0))),
             'NG_FirstRBD': to_float(seats_on_opening, 0.0),
-            'NG_Strategy_fare': to_float(display_strategy_fare_allin, 0.0),
-            'NG_Anchor_fare': to_float(anchor_fare_allin, 0.0),
-            'Strategy_fare': to_float(display_strategy_fare_allin, 0.0),
-            'Anchor_fare': to_float(anchor_fare_allin, 0.0),
+            'NG_Strategy_fare': int(round(to_float(display_strategy_fare_allin, 0.0))),
+            'NG_Anchor_fare': int(round(to_float(anchor_fare_allin, 0.0))),
+            'Strategy_fare': int(round(to_float(display_strategy_fare_allin, 0.0))),
+            'Anchor_fare': int(round(to_float(anchor_fare_allin, 0.0))),
             'Pmin_Old': to_float(redistrib_df.attrs.get('p_min_old', anchor_fare), 0.0),
             'Current_Revenue': curr_rev_val,
             'Total_Expected_Revenue': to_float(tot_er, 0.0),
             'Predicted_Revenue': to_float(pred_rev, 0.0),
             'Predicted_Pickup_Revised': to_float(pickup_rev, 0.0),
             'Predicted_Flown_Revised': to_float(flown_rev, 0.0),
-            'MarketFare_Selected': to_float(c_min_allin, None) if c_min_allin is not None else None,
-            'MarketFare_Min': to_float(c_min_allin, None) if c_min_allin is not None else None,
-            'MarketFare_Max': to_float(c_med_allin, None) if c_med_allin is not None else None,
-            'MarketFare_Min_AllIn': to_float(c_min_allin, None) if c_min_allin is not None else None,
-            'MarketFare_Max_AllIn': to_float(c_med_allin, None) if c_med_allin is not None else None,
-            'MarketFare_Min_Comp': to_float(c_min_comp, None) if c_min_comp is not None else None,
+            'MarketFare_Selected': int(round(to_float(c_min_allin, 0.0))) if c_min_allin is not None else None,
+            'MarketFare_Min': int(round(to_float(c_min_allin, 0.0))) if c_min_allin is not None else None,
+            'MarketFare_Max': int(round(to_float(c_med_allin, 0.0))) if c_med_allin is not None else None,
+            'MarketFare_Min_AllIn': int(round(to_float(c_min_allin, 0.0))) if c_min_allin is not None else None,
+            'MarketFare_Max_AllIn': int(round(to_float(c_med_allin, 0.0))) if c_med_allin is not None else None,
+            'MarketFare_Min_Comp': int(round(to_float(c_min_comp, 0.0))) if c_min_comp is not None else None,
             'Grid_Name': grid_name,
             'Rule_Applied': rule_applied,
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,

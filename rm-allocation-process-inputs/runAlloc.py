@@ -1677,8 +1677,12 @@ class DynAlloc:
 							except (ValueError, TypeError):
 								pass
 					self.currParams.ndocounter = ndo_val
-					if hasattr(state, 'b2c_backstop_final') and getattr(state, 'b2c_backstop_final', None) not in (None, '', 'NA', 'None', CONST_NA):
-						self.currParams.b2c_backstop_final = state.b2c_backstop_final
+					resolved_ha = getattr(self.outputSummaryRow_b2c, 'hardAnchorFare', None)
+					if resolved_ha in (None, '', 'NA', 'None', CONST_NA):
+						resolved_ha = getattr(state, 'hardfare_b2c', None)
+					if resolved_ha not in (None, '', 'NA', 'None', CONST_NA):
+						self.currParams.hard_anchor_fare = resolved_ha
+						self.currParams.hardAnchorFare = resolved_ha
 					self.currParams.dep_date = dateFormatted_yyyymmdd
 					self.currParams.departure_date = dateFormatted_yyyymmdd
 					self.currParams.currFltDate = dateFormatted_yyyymmdd
@@ -1732,9 +1736,9 @@ class DynAlloc:
 					ng_row.Capacity = to_float(final_totalCapacity, 189.0)
 					ng_row.NG_FirstRBD = ng_summary.get('NG_FirstRBD')
 					ng_row.Predicted_Flown_Revised = ng_summary.get('Predicted_Flown_Revised')
-					ng_row.MarketFare_Selected = ng_summary.get('MarketFare_Selected', ng_summary.get('MarketFare_Min'))
-					ng_row.MarketFare_Min = ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn'))
-					ng_row.MarketFare_Max = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn'))
+					ng_row.MarketFare_Selected = safe_round_fare(ng_summary.get('MarketFare_Selected', ng_summary.get('MarketFare_Min')))
+					ng_row.MarketFare_Min = safe_round_fare(ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn')))
+					ng_row.MarketFare_Max = safe_round_fare(ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn')))
 					ng_row.Grid_Name = ng_summary.get('Grid_Name')
 					ng_row.Rule_Applied = ng_summary.get('Rule_Applied')
 					ng_row.nextgen_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) else 'N'
@@ -1745,12 +1749,12 @@ class DynAlloc:
 					ng_row.Id = getattr(self, 'Id', getattr(self.currParams, 'Id', CONST_NA))
 					ng_row.NG_Historical_current_booked = to_float(currBookedLoad, 0.0)
 					ng_row.NG_LF_Forecast = ng_summary.get('NG_LF_Forecast')
-					ng_row.NG_AF_Forecast = ng_summary.get('NG_AF_Forecast')
-					ng_row.NG_Opening_fare = ng_summary.get('NG_Opening_fare')
+					ng_row.NG_AF_Forecast = safe_round_fare(ng_summary.get('NG_AF_Forecast'))
+					ng_row.NG_Opening_fare = safe_round_fare(ng_summary.get('NG_Opening_fare'))
 					strat_val = ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare'))
 					anch_val = ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare'))
-					ng_row.NG_Strategy_fare = strat_val
-					ng_row.NG_Anchor_fare = anch_val
+					ng_row.NG_Strategy_fare = safe_round_fare(strat_val)
+					ng_row.NG_Anchor_fare = safe_round_fare(anch_val)
 					ng_row.Current_Revenue = to_float(curr_rev, 0.0)
 					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
 					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
@@ -2174,14 +2178,20 @@ class DynAlloc:
 		ng_summary_ctx = getattr(state, 'ng_summary', None) or {}
 		for row in [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]:
 			row.NG_LF_Forecast = ng_summary_ctx.get('NG_LF_Forecast', CONST_NA)
-			row.NG_AF_Forecast = ng_summary_ctx.get('NG_AF_Forecast', CONST_NA)
+			row.NG_AF_Forecast = safe_round_fare(ng_summary_ctx.get('NG_AF_Forecast', CONST_NA))
 			row.NG_Historical_current_booked = ng_summary_ctx.get('NG_Historical_current_booked', currBookedLoad if currBookedLoad is not None else CONST_NA)
-			row.NG_Opening_fare = ng_summary_ctx.get('NG_Opening_fare', CONST_NA)
+			row.NG_Opening_fare = safe_round_fare(ng_summary_ctx.get('NG_Opening_fare', CONST_NA))
 			row.NG_FirstRBD = ng_summary_ctx.get('NG_FirstRBD', CONST_NA)
 			strat_val = ng_summary_ctx.get('NG_Strategy_fare', ng_summary_ctx.get('Strategy_fare', getattr(row, 'strategyFare', CONST_NA)))
 			anch_val = ng_summary_ctx.get('NG_Anchor_fare', ng_summary_ctx.get('Anchor_fare', getattr(row, 'anchorFare', CONST_NA)))
-			row.NG_Strategy_fare = strat_val
-			row.NG_Anchor_fare = anch_val
+			row.NG_Strategy_fare = safe_round_fare(strat_val)
+			row.NG_Anchor_fare = safe_round_fare(anch_val)
+
+			# Round off all fare values in OutputSummary
+			for f_col in SUMMARY_FARE_COLUMNS:
+				val = getattr(row, f_col, None)
+				if val not in (None, CONST_NA, 'NA'):
+					setattr(row, f_col, safe_round_fare(val))
 
 		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
 		self.allocResults.extend(new_summary_rows_fullalloc)
@@ -2564,6 +2574,9 @@ class DynAlloc:
 			missing_cols = [col for col in df.columns if col not in final_order]
 			df = df[final_order + missing_cols]
 			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
+			for col in SUMMARY_FARE_COLUMNS:
+				if col in df.columns:
+					df[col] = df[col].apply(safe_round_fare)
 			os.makedirs(os.path.dirname(os.path.abspath(summary_path)), exist_ok=True)
 			df.to_csv(summary_path, index=False)
 
@@ -2573,6 +2586,9 @@ class DynAlloc:
 				df_ng = pd.DataFrame([vars(row) for row in self.nextgenSummaryResults])
 				final_ng_order = [col for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if col in df_ng.columns]
 				df_ng = df_ng[final_ng_order]
+				for col in NEXTGEN_SUMMARY_FARE_COLUMNS:
+					if col in df_ng.columns:
+						df_ng[col] = df_ng[col].apply(safe_round_fare)
 				os.makedirs(os.path.dirname(os.path.abspath(summary_nextgen_path)), exist_ok=True)
 				df_ng.to_csv(summary_nextgen_path, index=False)
 			except Exception as e:

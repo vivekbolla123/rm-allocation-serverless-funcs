@@ -922,7 +922,7 @@ class TestNextGenOptimizationEngine:
             flight_std='10:30',
             curr_params={
                 'origin': 'BOM', 'destin': 'BLR',
-                'b2c_backstop_final': 5672.0,
+                'b2c_backstop': 5672.0,
                 'competition_response_flag_NG': 0
             },
             tax_helper=tax_helper,
@@ -968,7 +968,7 @@ class TestNextGenOptimizationEngine:
             ladder_df, capacity, cb, 200000.0,
             market_fares=[],
             flight_std='10:30',
-            curr_params={'b2c_backstop_final': 5000.0, 'hardanchor': 6000.0},
+            curr_params={'b2c_backstop': 5000.0, 'hardanchor': 6000.0},
         )
 
         assert final_df['opening fare'].iloc[0] >= 5000.0

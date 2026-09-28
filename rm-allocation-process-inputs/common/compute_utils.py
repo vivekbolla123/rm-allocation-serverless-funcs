@@ -404,3 +404,35 @@ def safe_float(val, default=0.0):
     return float(val)
   except (ValueError, TypeError):
     return default
+
+
+def safe_round_fare(val, default=CONST_NA):
+  """Safely round a fare value to the nearest integer, preserving NA/None/alphanumeric strings."""
+  if val is None or pd.isna(val):
+    return default
+  s = str(val).strip()
+  if s.upper() in ('', 'NA', 'NONE', 'NAN', 'NULL', 'CONST_NA'):
+    return default
+  if any(c.isalpha() for c in s):
+    return val
+  try:
+    f = float(s)
+    return int(round(f))
+  except (ValueError, TypeError):
+    return val
+
+
+SUMMARY_FARE_COLUMNS = [
+  'Backstop', 'hardAnchorFare', 'strategyFare', 'lastSellingFare', 'profileFare',
+  'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue', 'anchorFare',
+  'SellingFare', 'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM',
+  'ALLIN_AF_NB_LY', 'grpAdjProfileFare', 'Portfolio_Anchor', 'grpFareAnchor',
+  'Portfolio88_Anchor', 'upsell', 'NG_AF_Forecast', 'NG_Opening_fare',
+  'NG_Strategy_fare', 'NG_Anchor_fare', 'MktFare_Min', 'MktFare_Max', 'autoBackstop'
+]
+
+NEXTGEN_SUMMARY_FARE_COLUMNS = [
+  'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+  'NG_AF_Forecast', 'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare'
+]
+
