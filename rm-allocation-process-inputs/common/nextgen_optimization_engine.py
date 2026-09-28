@@ -1262,6 +1262,7 @@ class NextGenOptimizationEngine:
                 au_init[j] = 0.0
                 au_rev[j] = 0.0
 
+            bs_val = None
             if backstop is not None and backstop > 0:
                 bs_val = backstop
                 if tax_helper and origin and destin:
@@ -1272,6 +1273,22 @@ class NextGenOptimizationEngine:
                 for i, f in enumerate(fares_init):
                     if f < bs_val:
                         au_rev[i] = 0.0
+
+            # Hardanchor in Case 1: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
+            if hardanchor is not None and hardanchor > 0:
+                ha_val = hardanchor
+                if tax_helper and origin and destin:
+                    try:
+                        ha_val = tax_helper.allin_to_airline_component(float(hardanchor), origin, destin, route=route)
+                    except Exception:
+                        pass
+                lower_candidates = [f for f in fares_init if f <= ha_val]
+                h_ladder = lower_candidates[0] if lower_candidates else fares_init[-1]
+                for i, f in enumerate(fares_init):
+                    if f >= h_ladder:
+                        if bs_val is not None and bs_val > 0 and f < bs_val:
+                            continue
+                        au_rev[i] = float(cap_val)
 
             redistrib_df['AU_2'] = au_init
             redistrib_df['AU_Revised'] = au_rev
@@ -1402,6 +1419,21 @@ class NextGenOptimizationEngine:
         else:
             target_fc_fare, target_fc_au = fc_fares[-1], fc_aus[-1]
 
+        # Determine backstop values in airline component and all-in
+        bs_comp = None
+        bs_allin = None
+        if backstop is not None and backstop > 0:
+            if tax_helper and origin and destin:
+                try:
+                    bs_comp = tax_helper.allin_to_airline_component(float(backstop), origin, destin, route=route)
+                    bs_allin = float(backstop)
+                except Exception:
+                    bs_comp = float(backstop)
+                    bs_allin = float(backstop)
+            else:
+                bs_comp = float(backstop)
+                bs_allin = float(backstop)
+
         # Compute the cutoff fare: the fare of the lowest forecast bucket where
         # AU_Revised > current booked load.  Only QP fare RBDs at or above this
         # fare will receive non-zero inventory in the filed_51_au_mapping.
@@ -1413,17 +1445,68 @@ class NextGenOptimizationEngine:
         else:
             cutoff_fare_comp = eff_response_fare
             cutoff_fc_au = target_fc_au
-        cutoff_fare_allin = tax_helper.airline_component_to_allin(cutoff_fare_comp, origin, destin, route=route) if tax_helper and origin and destin else cutoff_fare_comp
 
-        # Match the cutoff fare to the nearest QP fare RBD in the 51-level ladder.
+        # Enforce backstop floor on cutoff fare
+        if bs_comp is not None and cutoff_fare_comp < bs_comp:
+            cutoff_fare_comp = bs_comp
+
+        cutoff_fare_allin = tax_helper.airline_component_to_allin(cutoff_fare_comp, origin, destin, route=route) if tax_helper and origin and destin else cutoff_fare_comp
+        if bs_allin is not None and cutoff_fare_allin < bs_allin:
+            cutoff_fare_allin = bs_allin
+
+        # Allocate inventory for each of the 51 fare levels:
+        # QP fare RBDs below the cutoff fare (first open bucket) or below backstop get AU=0.
+        # QP fare RBDs at or above cutoff allocate from the forecast bucket whose lower fare is <= filed fare (floor mapping).
+        filed_51_au_mapping = {}
+        if filed_levels:
+            fc_fares_allin = [tax_helper.airline_component_to_allin(f, origin, destin, route=route) if tax_helper and origin and destin else f for f in fc_fares]
+            for fl in filed_levels:
+                f_allin = fl['allin']
+                f_comp = fl['fare']
+                r_code = fl['RBD']
+
+                # Below cutoff fare or below backstop floor: inventory is 0
+                is_below_bs = (bs_allin is not None and f_allin < bs_allin - 1.0) or (bs_comp is not None and f_comp < bs_comp - 1.0)
+                if is_below_bs or f_allin < cutoff_fare_allin - 1.0:
+                    alloc_au = 0.0
+                else:
+                    # Floor / bucket interval mapping: find first forecast bucket where f_allin >= fc_f - 1.0
+                    # (fc_fares_allin is sorted descending)
+                    matched_au = None
+                    for fc_f, au_val in zip(fc_fares_allin, fc_aus):
+                        if f_allin >= fc_f - 1.0:
+                            matched_au = au_val
+                            break
+                    alloc_au = matched_au if matched_au is not None else 0.0
+                filed_51_au_mapping[r_code] = alloc_au
+
+            # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
+            for i in range(len(filed_levels) - 2, -1, -1):
+                high_rbd = filed_levels[i]['RBD']
+                low_rbd = filed_levels[i+1]['RBD']
+                if filed_levels[i]['allin'] >= cutoff_fare_allin - 1.0:
+                    filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
+
+        # Match the cutoff fare to the opening QP fare RBD in the 51-level ladder.
         # This becomes the "opening" RBD — the lowest class that receives inventory.
         open_filed = None
         if filed_levels:
             if tax_helper and origin and destin:
-                nearest_idx = int(np.argmin([abs(fl['allin'] - cutoff_fare_allin) for fl in filed_levels]))
+                # In all-in space: find the lowest filed level >= cutoff fare (and >= backstop)
+                candidates = [
+                    fl for fl in filed_levels
+                    if fl['allin'] >= cutoff_fare_allin - 1.0
+                    and (bs_allin is None or fl['allin'] >= bs_allin - 1.0)
+                ]
+                if candidates:
+                    open_filed = candidates[-1]
+                else:
+                    bs_cand = [fl for fl in filed_levels if (bs_allin is None or fl['allin'] >= bs_allin - 1.0)]
+                    open_filed = bs_cand[-1] if bs_cand else filed_levels[0]
             else:
                 nearest_idx = int(np.argmin([abs(fl['fare'] - cutoff_fare_comp) for fl in filed_levels]))
-            open_filed = filed_levels[nearest_idx]
+                open_filed = filed_levels[nearest_idx]
+
             opening_fare = float(open_filed['fare'])
             opening_rbd = open_filed['RBD']
         else:
@@ -1435,30 +1518,12 @@ class NextGenOptimizationEngine:
                 opening_fare = to_float(filed_classes['fare'].iloc[0], 0.0) if not filed_classes.empty else to_float(final_df['fare'].iloc[0], 0.0)
             opening_rbd = str(final_df['FareBucket'].iloc[0])
 
-        # Allocate inventory for each of the 51 fare levels:
-        # QP fare RBDs below the cutoff fare (first open bucket) get AU=0.
-        # QP fare RBDs at or above the cutoff fare get AU from the nearest forecast bucket.
-        filed_51_au_mapping = {}
-        if filed_levels:
-            fc_fares_allin = [tax_helper.airline_component_to_allin(f, origin, destin, route=route) if tax_helper and origin and destin else f for f in fc_fares]
-            for fl in filed_levels:
-                f_allin = fl['allin']
-                r_code = fl['RBD']
-                if f_allin < cutoff_fare_allin - 1e-4:
-                    # Below first open bucket fare: inventory is 0
-                    alloc_au = 0.0
-                else:
-                    # At or above first open bucket: allocate from nearest forecast fare
-                    nearest_idx = int(np.argmin([abs(f_allin - fc_f) for fc_f in fc_fares_allin]))
-                    alloc_au = fc_aus[nearest_idx]
-                filed_51_au_mapping[r_code] = alloc_au
-
-            # Enforce non-decreasing monotonicity (higher fare cannot have lower AU)
-            for i in range(len(filed_levels) - 2, -1, -1):
-                high_rbd = filed_levels[i]['RBD']
-                low_rbd = filed_levels[i+1]['RBD']
-                if filed_levels[i]['allin'] >= cutoff_fare_allin - 1e-4:
-                    filed_51_au_mapping[high_rbd] = max(filed_51_au_mapping[high_rbd], filed_51_au_mapping[low_rbd])
+        # Ensure opening fare strictly respects Backstop floor
+        if bs_comp is not None and opening_fare < bs_comp:
+            opening_fare = bs_comp
+        opening_fare_allin = tax_helper.airline_component_to_allin(opening_fare, origin, destin, route=route) if tax_helper and origin and destin else opening_fare
+        if bs_allin is not None and opening_fare_allin < bs_allin:
+            opening_fare_allin = bs_allin
 
         if filed_levels:
             opening_au = filed_51_au_mapping.get(opening_rbd, cutoff_fc_au)
@@ -1466,8 +1531,9 @@ class NextGenOptimizationEngine:
             opening_au = cutoff_fc_au
         seats_on_opening = float(int(round(opening_au)))
 
-        # Add 'opening fare' as another column in inventory file
-        final_df['opening fare'] = opening_fare
+        # Add 'opening fare' and 'opening fare_All_in' as columns in inventory file
+        final_df['opening fare'] = float(opening_fare)
+        final_df['opening fare_All_in'] = float(opening_fare_allin)
 
         # When promo_flag == 1, append Promo row to final_df
         if promo_flag == 1:

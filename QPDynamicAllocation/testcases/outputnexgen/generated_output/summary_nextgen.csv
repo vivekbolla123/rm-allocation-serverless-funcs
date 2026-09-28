@@ -1,5 +1,5 @@
 Origin,Destin,FltNum,DepDate,Capacity,NG_FirstRBD,Predicted_Flown_Revised,MarketFare_Selected,MarketFare_Min,MarketFare_Max,Grid_Name,Rule_Applied,nextgen_flag,competition_response_flag,buy_up_factor,RunId,Id,NG_Historical_current_booked,NG_LF_Forecast,NG_AF_Forecast,NG_Opening_fare,NG_Strategy_fare,NG_Anchor_fare,analystName,status,allocationStatus
-BOM,DEL,1109,2026-10-01,194.0,127.0,222.717119901,,,,DEFAULT,No Competition Response (Market Fares Not Found),Y,Y,0.0,TestNextGen12345,NA,107.0,1.1931,5924.72,6074.0,6075.05,6075.05,test,NA,NA
+BOM,DEL,1109,2026-10-01,194.0,127.0,222.717119901,,,,DEFAULT,No Competition Response (Market Fares Not Found),Y,Y,0.0,TestNextGen12345,NA,107.0,1.1931,5924.72,6225.0,6075.05,6075.05,test,NA,NA
 BOM,DEL,1109,2026-10-02,194.0,157.0,226.98901078,5000.0,5000.0,5000.0,DEFAULT,No Competition Response (oal_b2c_min < anchor_fare),Y,Y,0.0,TestNextGen12345,NA,154.0,1.4181,5716.2,6673.0,6641.0,6641.0,test,NA,NA
-BOM,DEL,1109,2026-10-03,194.0,127.0,222.717119901,7000.0,7000.0,8000.0,DEFAULT,"Min (3A, C)",Y,Y,0.0,TestNextGen12345,NA,107.0,1.1931,5924.72,8325.0,8298.2,6075.05,test,NA,NA
-BOM,DEL,1109,2026-10-04,194.0,127.0,222.717119901,6500.0,6500.0,6500.0,DEFAULT,"Min (3A, C)",Y,Y,0.1,TestNextGen12345,NA,107.0,1.1931,5924.72,7624.0,7698.2,6075.05,test,NA,NA
+BOM,DEL,1109,2026-10-03,194.0,127.0,222.717119901,7000.0,7000.0,8000.0,DEFAULT,"Min (3A, C)",Y,Y,0.0,TestNextGen12345,NA,107.0,1.1931,5924.72,7825.0,8298.2,6075.05,test,NA,NA
+BOM,DEL,1109,2026-10-04,194.0,127.0,222.717119901,6500.0,6500.0,6500.0,DEFAULT,"Min (3A, C)",Y,Y,0.1,TestNextGen12345,NA,107.0,1.1931,5924.72,7223.0,7698.2,6075.05,test,NA,NA

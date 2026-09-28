@@ -872,6 +872,111 @@ class TestNextGenOptimizationEngine:
         assert mapping['R3'] > 0.0
         assert mapping['R4'] > 0.0
 
+    def test_au_mapping_floor_interval_not_euclidean_nearest(self):
+        """
+        Verify that a lower filed fare (e.g. R4 all-in 6136) is mapped to its matching
+        lower forecast bucket (all-in 5672, AU=126), and NOT mapped upward to the higher
+        forecast bucket (all-in 6383.9, AU=157) merely because 6136 is closer in Euclidean
+        distance to 6383.9 than to 5672.
+        Only R3 (all-in 6384) which is >= 6383.9 should receive AU=157.
+        """
+        # Forecast ladder with buckets including 5658 (allin 6383.9) and 4980 (allin 5672)
+        ladder_df = pd.DataFrame([
+            {'FareBucket': '6433-7320', 'fare': 6433.0, 'mu': 1.0, 'sigma': 0.25},
+            {'FareBucket': '5658-6433', 'fare': 5658.0, 'mu': 2.0, 'sigma': 0.50},
+            {'FareBucket': '4980-5658', 'fare': 4980.0, 'mu': 3.0, 'sigma': 0.75},
+            {'FareBucket': '4208-4980', 'fare': 4208.0, 'mu': 4.0, 'sigma': 1.00},
+            {'FareBucket': '3277-4208', 'fare': 3277.0, 'mu': 5.0, 'sigma': 1.25},
+        ])
+
+        class MockTaxHelper:
+            def allin_to_airline_component(self, gross_fare, origin, destination, route=None):
+                return (gross_fare - 443.0) / 1.05
+            def airline_component_to_allin(self, comp_fare, origin, destination, route=None):
+                return comp_fare * 1.05 + 443.0
+
+        tax_helper = MockTaxHelper()
+        # 5658 all-in = 5658 * 1.05 + 443 = 6383.9
+        # 4980 all-in = 4980 * 1.05 + 443 = 5672.0
+        # 4208 all-in = 4208 * 1.05 + 443 = 4861.4
+
+        filed_ladder = pd.DataFrame([
+            {'RBD': 'R2', 'fare': 7158.0, 'TOTAL': 7959.0},
+            {'RBD': 'R3', 'fare': 5658.1, 'TOTAL': 6384.0},
+            {'RBD': 'R4', 'fare': 5421.9, 'TOTAL': 6136.0},
+            {'RBD': 'R9', 'fare': 5166.7, 'TOTAL': 5868.0},
+            {'RBD': 'T0', 'fare': 4920.0, 'TOTAL': 5609.0},
+            {'RBD': 'TF', 'fare': 4721.0, 'TOTAL': 5400.0},
+        ])
+
+        class MockDbHelper:
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                return {'response_rule': 'A', 'criteria': 'Min'}
+
+        capacity = 186
+        cb = 64
+        # Backstop at 5672 (all-in) / 4980 (comp)
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity, cb, 300000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'origin': 'BOM', 'destin': 'BLR',
+                'b2c_backstop_final': 5672.0,
+                'competition_response_flag_NG': 0
+            },
+            tax_helper=tax_helper,
+            filed_51_ladder_df=filed_ladder
+        )
+
+        mapping = summary['filed_51_au_mapping']
+        au_5658 = final_df.loc[final_df['FareBucket'] == '5658-6433', 'AU_Revised'].iloc[0]
+        au_4980 = final_df.loc[final_df['FareBucket'] == '4980-5658', 'AU_Revised'].iloc[0]
+
+        # R3 (TOTAL 6384.0) >= 6383.9 -> receives AU from 5658 bucket
+        # R4 (TOTAL 6136.0) < 6383.9 and >= 5672.0 -> receives AU from 4980 bucket
+        # It must NOT be assigned the AU of 5658 bucket!
+        assert mapping['R3'] == au_5658
+        assert mapping['R4'] == au_4980
+        assert mapping['R3'] > mapping['R4'], f"R3 AU ({mapping['R3']}) must be higher than R4 AU ({mapping['R4']})"
+
+        # Fares below cutoff / backstop 5672 must have AU=0
+        assert mapping['T0'] == 0.0
+        assert mapping['TF'] == 0.0
+
+        # Opening RBD must be R9 (5868) which is lowest open class >= backstop (5672)
+        assert summary['opening_rbd'] == 'R9'
+        assert summary['NG_Opening_fare'] >= 5672.0
+        assert final_df['opening fare_All_in'].iloc[0] >= 5672.0
+
+    def test_opening_fare_after_backstop_and_hardanchor(self):
+        """
+        Verify that Opening Fare column is strictly determined AFTER Backstop and Hardanchor
+        are applied, and can never be lower than the Backstop price floor.
+        """
+        ladder_df = pd.DataFrame([
+            {'FareBucket': 'B1', 'fare': 6000.0, 'mu': 2.0, 'sigma': 0.5},
+            {'FareBucket': 'B2', 'fare': 5000.0, 'mu': 3.0, 'sigma': 0.75},
+            {'FareBucket': 'B3', 'fare': 4000.0, 'mu': 4.0, 'sigma': 1.0},
+            {'FareBucket': 'B4', 'fare': 3000.0, 'mu': 5.0, 'sigma': 1.25},
+        ])
+
+        capacity = 189
+        cb = 50
+        # Backstop floor at 5000. Fares below 5000 cannot be open.
+        final_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            ladder_df, capacity, cb, 200000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={'b2c_backstop_final': 5000.0, 'hardanchor': 6000.0},
+        )
+
+        assert final_df['opening fare'].iloc[0] >= 5000.0
+        assert summary['opening_fare_airline_comp'] >= 5000.0
+        # Buckets below backstop must have AU_Revised = 0
+        assert final_df.loc[final_df['fare'] < 5000.0, 'AU_Revised'].sum() == 0.0
+
+
 
 
 
