@@ -8,6 +8,7 @@ from utilities.time_utils import TimeUtils
 from utilities.offset_utils import offset_snap_direction
 from helper.redis_helper import RedisHelper
 from constants_utils import ConstantsUtils
+from common.compute_utils import parse_int_flag
 
 class RMDatabaseHelper:
     def __init__(self, mongo_db, dwconn, runId, inputSource, debugmode, cache_client, currParams):
@@ -964,6 +965,12 @@ class RMDatabaseHelper:
     def get_imputed_forecast_band(self, imp_forecast):
         rounded_imp_fcst = round(imp_forecast, 2)
         try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                res = self.db.config_forecast_allocation_bands.find_one(
+                    {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
+                )
+                if res and "band" in res:
+                    return int(res["band"])
             result = self.db.imputed_forecast_bands.find_one(
                 {"start": {"$lte": rounded_imp_fcst}, "end": {"$gte": rounded_imp_fcst}}
             )
@@ -982,6 +989,26 @@ class RMDatabaseHelper:
         except Exception as e:
             self.logger.error(e)
             return CONST_NA
+
+    def get_forecast_allocation_grid(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_grid"):
+                docs = list(self.db.config_forecast_allocation_grid.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_grid: {e}")
+        return pd.DataFrame()
+
+    def get_forecast_allocation_bands(self):
+        try:
+            if hasattr(self.db, "config_forecast_allocation_bands"):
+                docs = list(self.db.config_forecast_allocation_bands.find({}))
+                if docs:
+                    return pd.DataFrame(docs)
+        except Exception as e:
+            self.logger.error(f"Error fetching config_forecast_allocation_bands: {e}")
+        return pd.DataFrame()
 
     def getPlfThreshhold(self, ndocounter, flightNumber):
         rbds = json.loads(self.constants_utils.SOFTBLOCK_RBDS)
@@ -1169,8 +1196,23 @@ class RMDatabaseHelper:
                 "channel": channel,
                 "outbound_airline_code": {
                     "$nin": carr_exclusion_list + ["QP", "G8"]
-                },
-                "outbound_stop": '0'
+                }
+            }
+
+            # Outbound stop filter — mirrors getMarketFareRangeConnections:
+            # allow records with outbound_stop <= configured value, handling
+            # both string and numeric storage of the field.
+            outbound_stop_expr = {
+                "$lte": [
+                    {
+                        "$cond": {
+                            "if": {"$eq": [{"$type": "$outbound_stop"}, "string"]},
+                            "then": {"$toInt": "$outbound_stop"},
+                            "else": "$outbound_stop"
+                        }
+                    },
+                    parse_int_flag(currParams.outboundstop, 0)
+                ]
             }
             
             if flight_exclusion_list:
@@ -1197,7 +1239,8 @@ class RMDatabaseHelper:
                 base_match_conditions["$expr"] = {
                     "$and": [
                         {"$gte": [{"$hour": "$outbound_departuretime"}, start_time_parts[0]]},
-                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]}
+                        {"$lte": [{"$hour": "$outbound_departuretime"}, end_time_parts[0]]},
+                        outbound_stop_expr
                     ]
                 }
             else:
@@ -1228,7 +1271,8 @@ class RMDatabaseHelper:
                                 }},
                                 enddateTime
                             ]
-                        }
+                        },
+                        outbound_stop_expr
                     ]
                 }
  
