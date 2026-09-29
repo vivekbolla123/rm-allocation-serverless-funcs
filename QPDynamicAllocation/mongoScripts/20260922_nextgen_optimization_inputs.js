@@ -122,6 +122,12 @@ var defaultGridRules = [
 if (db.comp_response_grid.countDocuments({}) === 0) {
     db.comp_response_grid.insertMany(defaultGridRules);
     print("Seeded default rows for comp_response_grid");
+} else {
+    var plfToleranceMap = { 0: 0.7, 1: 0.8, 2: 0.9, 3: 0.95, 4: 1.0, 5: 1.2 };
+    db.comp_response_grid.find({ tolerance: { $exists: false } }).forEach(function(doc) {
+        var tol = (doc.threshold_factor !== undefined) ? doc.threshold_factor : (plfToleranceMap[doc.plf_band] !== undefined ? plfToleranceMap[doc.plf_band] : 1.0);
+        db.comp_response_grid.updateOne({ _id: doc._id }, { $set: { tolerance: tol }, $unset: { threshold_factor: "" } });
+    });
 }
 
 // ==========================================
