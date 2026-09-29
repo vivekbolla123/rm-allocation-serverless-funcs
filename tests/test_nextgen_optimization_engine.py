@@ -547,7 +547,7 @@ class TestNextGenOptimizationEngine:
     def test_hardanchor_capping_from_nearest_lower_fare(self, sample_flight_data):
         """
         Verify that hardanchor capping starts from the nearest ladder fare lower than or equal
-        to hardanchor, ensuring no seats are only available at fares higher than hardanchor.
+        to hardanchor, elevating AU_Revised using PLF threshold.
         """
         capacity = 189
         cb = 100
@@ -556,18 +556,30 @@ class TestNextGenOptimizationEngine:
         )
         # sample_flight_data fares around 5000 are: 6409.0, 5252.0, 4279.0, 3526.0
         # If hardanchor=5000.0, the nearest fare lower than 5000 is 4279.0.
-        # Fares >= 4279.0 (4279, 5252, 6409, ...) must have AU_Revised = capacity.
-        # Fares < 4279.0 (3526, 2914) must have AU_Revised < capacity (or floored).
+        # With default plf_threshold=95.0 -> plf_target = 179.55.
+        # Fares >= 4279.0 must have AU_Revised >= 179.55.
         redistrib_df = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
             init_df, anchor_fare, 5252.0, capacity, cb,
             hardanchor=5000.0,
+            plf_threshold=95.0,
             first_rbd=20.0
         )
         for _, r in redistrib_df.iterrows():
             if r['fare'] >= 4279.0:
-                assert r['AU_Revised'] == capacity, f"Fare {r['fare']} >= 4279 should be capped to capacity"
+                assert r['AU_Revised'] >= 179.55, f"Fare {r['fare']} >= 4279 should be at least PLF target"
             else:
                 assert r['AU_Revised'] < capacity, f"Fare {r['fare']} < 4279 should not be capped to capacity"
+
+        # With plf_threshold=100.0, plf_target = 189 (capacity)
+        redistrib_100 = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 5252.0, capacity, cb,
+            hardanchor=5000.0,
+            plf_threshold=100.0,
+            first_rbd=20.0
+        )
+        for _, r in redistrib_100.iterrows():
+            if r['fare'] >= 4279.0:
+                assert r['AU_Revised'] == capacity, f"Fare {r['fare']} >= 4279 should be capped to capacity when PLF=100%"
 
     def test_oal_less_than_anchor_fare_bypasses_au_recalculation(self, sample_flight_data):
         """
@@ -975,6 +987,127 @@ class TestNextGenOptimizationEngine:
         assert summary['opening_fare_airline_comp'] >= 5000.0
         # Buckets below backstop must have AU_Revised = 0
         assert final_df.loc[final_df['fare'] < 5000.0, 'AU_Revised'].sum() == 0.0
+
+    def test_tolerance_grid_vs_ml_input_enhancements(self, sample_flight_data):
+        """
+        Verify scheduled run tolerance enhancement:
+        1. Consider Tolerance in the grid as well as the ML input.
+        2. Higher fare is considered as tolerance.
+        3. Max of that fare and fare obtained from grid calculation is Strategy fare.
+        """
+        capacity = 189
+        cb = 50
+        oal_min = 6000.0
+        flight_std = '10:30'
+
+        market_fares = [
+            {'carrier': '6E', 'flight_duration': '2:00', 'departure_time': '10:30', 'outbound_stops': 0, 'gross_fare': 6000.0}
+        ]
+
+        class MockDbHelper:
+            class MockDb:
+                pass
+            db = MockDb()
+
+            def __init__(self, grid_tolerance):
+                self.grid_tolerance = grid_tolerance
+
+            def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+                # Rule Min(1.2A, 0.7C) gives min(1.2*anchor, 4200) <= 4200
+                return {
+                    "response_rule": "Min (1.2A, 0.7C)",
+                    "criteria": "Min",
+                    "tolerance": self.grid_tolerance
+                }
+
+            def getCompResponsePlfBandDoc(self, plf):
+                return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0, "threshold_factor": 0.70}
+
+            def getCompResponsePlfBand(self, plf):
+                return 1
+
+        # Case 1: Grid tolerance 0.80 -> 4800. ML tolerance = 5400.
+        # Higher tolerance is ML tolerance (5400).
+        # Rule gives 4200. Max(4200, 5400) = 5400.
+        helper_1 = MockDbHelper(grid_tolerance=0.80)
+        res_1, summary_1 = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, oal_min,
+            market_fares=market_fares,
+            flight_std=flight_std,
+            curr_params={
+                'origin': 'BOM', 'destin': 'DEL',
+                'competition_response_flag_NG': 1,
+                'nextgen_flag_NG': 1,
+                'B2CTolerance': 5400.0
+            },
+            db_helper=helper_1
+        )
+        assert summary_1['Strategy_fare'] == 5400.0
+
+        # Case 2: Grid tolerance 0.95 -> 5700. ML tolerance = 5100.
+        # Higher tolerance is Grid tolerance (5700).
+        # Rule gives 4200. Max(4200, 5700) = 5700.
+        helper_2 = MockDbHelper(grid_tolerance=0.95)
+        res_2, summary_2 = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, oal_min,
+            market_fares=market_fares,
+            flight_std=flight_std,
+            curr_params={
+                'origin': 'BOM', 'destin': 'DEL',
+                'competition_response_flag_NG': 1,
+                'nextgen_flag_NG': 1,
+                'B2CTolerance': 5100.0
+            },
+            db_helper=helper_2
+        )
+        assert summary_2['Strategy_fare'] == 5700.0
+
+    def test_hardanchor_plf_threshold_and_backstop_enhancements(self):
+        """
+        Verify Hardanchor with PLF threshold enhancement:
+        - Once AU_2 is calculated, for applying hardanchor to get AU_Revised, use PLF threshold from ML.
+        - If AU_2 of fare immediately below Hardanchor is less than PLF threshold then change it to
+          value equivalent to PLF threshold (if not, let it remain as it is).
+        - Once this is done, check whether AUs of fares above hardanchor fare is >= AU of fare immediately
+          below hardanchor. If greater, let it remain as is; if less, change to value equal to PLF threshold.
+        - Hardanchor and Backstop should be applied after FirstRBD logic is applied.
+        """
+        # Ladder with 5 fares
+        ladder = pd.DataFrame([
+            {'fare': 10000.0, 'mu': 10.0, 'sigma': 2.5},
+            {'fare': 7000.0, 'mu': 20.0, 'sigma': 5.0},
+            {'fare': 5000.0, 'mu': 30.0, 'sigma': 7.5},
+            {'fare': 4000.0, 'mu': 40.0, 'sigma': 10.0},
+            {'fare': 3000.0, 'mu': 50.0, 'sigma': 12.5},
+        ])
+        capacity = 189
+        cb = 80
+        # Hardanchor = 5500. Nearest fare <= 5500 is 5000.
+        # PLF threshold = 90% -> plf_target = 0.90 * 189 = 170.1
+        # Backstop = 3500. Fares < 3500 (3000) must have AU_Revised = 0.0.
+        init_df, anchor_fare, promo_au = NextGenOptimizationEngine.compute_initial_emsr_b(
+            ladder, capacity, cb
+        )
+        redistrib_df = NextGenOptimizationEngine.redistribute_demand_and_compute_revised_au(
+            init_df, anchor_fare, 7000.0, capacity, cb,
+            hardanchor=5500.0,
+            plf_threshold=90.0,
+            backstop=3500.0,
+            first_rbd=20.0
+        )
+        # 1. Fare 5000 (immediately below 5500) has AU_Revised >= 170.1
+        r_5000 = redistrib_df.loc[redistrib_df['fare'] == 5000.0, 'AU_Revised'].iloc[0]
+        assert r_5000 >= 170.1
+
+        # 2. Fares above 5000 (7000, 10000) must be >= AU of 5000
+        r_7000 = redistrib_df.loc[redistrib_df['fare'] == 7000.0, 'AU_Revised'].iloc[0]
+        r_10000 = redistrib_df.loc[redistrib_df['fare'] == 10000.0, 'AU_Revised'].iloc[0]
+        assert r_7000 >= r_5000
+        assert r_10000 >= r_5000
+
+        # 3. Backstop: fare 3000 is < 3500 so AU_Revised must be 0.0
+        r_3000 = redistrib_df.loc[redistrib_df['fare'] == 3000.0, 'AU_Revised'].iloc[0]
+        assert r_3000 == 0.0
 
 
 

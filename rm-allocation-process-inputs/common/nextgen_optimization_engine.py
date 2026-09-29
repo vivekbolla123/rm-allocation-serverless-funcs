@@ -468,7 +468,8 @@ class NextGenOptimizationEngine:
         anchor_fare,
         comp_min_fare,
         comp_med_fare=None,
-        threshold_factor=None
+        threshold_factor=None,
+        tolerance=None
     ):
         """
         Phase 2b: Dynamically parses and evaluates ANY Competition Response Grid formula
@@ -476,8 +477,8 @@ class NextGenOptimizationEngine:
         Supports:
           - 'Min (1.2A, 0.8C)', 'Min (1.3A, 0.9C)', 'Min (1.5A, C)', 'Min (2A, C)', 'Min (xA, yC)'
           - 'Max (xA, yC)', 'C', '0.95C', 'A', '1.1A', etc.
-        Also applies threshold_factor floor if provided:
-          final_response = max(threshold_factor * C, rule_result)
+        Also applies tolerance / threshold_factor floor if provided:
+          final_response = max(thresh_fare, rule_result)
         """
         A = to_float(anchor_fare, 0.0)
         C = to_float(comp_min_fare, 0.0)
@@ -518,15 +519,19 @@ class NextGenOptimizationEngine:
                 logger.warning(f"Error evaluating grid rule expression '{expr}': {e}. Defaulting to competitor fare.")
                 rule_resp = C_val
 
-        # Apply threshold_factor: max(threshold_factor * C, whatever response rule comes from grid)
-        if threshold_factor is not None:
-            tf = to_float(threshold_factor, 0.0)
-            if tf > 1.5:
-                tf = tf / 100.0  # normalize if passed as percentage e.g. 80 -> 0.80
-            if tf > 0:
-                c_for_thresh = med_C if re.search(r'\bmed\b', rule, re.IGNORECASE) else C
-                thresh_fare = tf * to_float(c_for_thresh, 0.0)
-                rule_resp = max(thresh_fare, rule_resp)
+        # Apply tolerance / threshold_factor: max(tolerance_fare, whatever response rule comes from grid)
+        tol_param = tolerance if tolerance is not None else threshold_factor
+        if tol_param is not None and pd.notna(tol_param) and str(tol_param).strip().upper() not in ['', 'NA', 'NAN']:
+            tf = to_float(tol_param, 0.0)
+            if tf > 100.0:
+                rule_resp = max(tf, rule_resp)
+            else:
+                if tf > 1.5:
+                    tf = tf / 100.0  # normalize if passed as percentage e.g. 80 -> 0.80
+                if tf > 0:
+                    c_for_thresh = med_C if re.search(r'\bmed\b', rule, re.IGNORECASE) else C
+                    thresh_fare = tf * to_float(c_for_thresh, 0.0)
+                    rule_resp = max(thresh_fare, rule_resp)
 
         return rule_resp
 
@@ -586,6 +591,7 @@ class NextGenOptimizationEngine:
         promo_first_rbd=10,
         promo_threshold=95.0,
         pmin_threshold_factor=0.1,
+        plf_threshold=95.0,
         fare_col='fare',
         tax_helper=None,
         origin=None,
@@ -847,25 +853,35 @@ class NextGenOptimizationEngine:
 
         df['AU_2'] = au_2_list
 
-        # AU_revised
+        # AU_revised: 1. FirstRBD logic applied
         au_revised = au_2_list.copy()
         au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
 
-        # Backstop
+        # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
+        if h_val is not None and h_val > 0:
+            lower_candidates = [f for f in fares if f <= h_val]
+            h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
+            ha_idx = fares.index(h_ladder)
+
+            plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, 95.0)
+            plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
+            plf_target = float(round(plf_pct * cap, 2))
+            plf_target = min(float(cap), max(0.0, plf_target))
+
+            if au_revised[ha_idx] < plf_target:
+                au_revised[ha_idx] = plf_target
+
+            for i in range(ha_idx):
+                if au_revised[i] >= au_revised[ha_idx]:
+                    pass
+                else:
+                    au_revised[i] = plf_target
+
+        # 3. Backstop: applied after Hardanchor
         if b_val is not None and b_val > 0:
             for i, f in enumerate(fares):
                 if f < b_val:
                     au_revised[i] = 0.0
-
-        # Hardanchor: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
-        if h_val is not None and h_val > 0:
-            lower_candidates = [f for f in fares if f <= h_val]
-            h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
-            for i, f in enumerate(fares):
-                if f >= h_ladder:
-                    if b_val is not None and b_val > 0 and f < b_val:
-                        continue
-                    au_revised[i] = float(cap)
 
         df['AU_Revised'] = au_revised
 
@@ -1349,11 +1365,39 @@ class NextGenOptimizationEngine:
                     break
 
             au_rev = au_init.copy()
-            au_rev[anchor_idx] = min(au_rev[anchor_idx], float(cb_val + first_rbd))
+            if first_rbd is not None and first_rbd > 0 and not np.isinf(first_rbd):
+                au_rev[anchor_idx] = min(au_rev[anchor_idx], float(cb_val + first_rbd))
             for j in range(anchor_idx + 1, len(fares_init)):
                 au_init[j] = 0.0
                 au_rev[j] = 0.0
 
+            # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
+            if hardanchor is not None and hardanchor > 0:
+                ha_val = hardanchor
+                if tax_helper and origin and destin:
+                    try:
+                        ha_val = tax_helper.allin_to_airline_component(float(hardanchor), origin, destin, route=route)
+                    except Exception:
+                        pass
+                lower_candidates = [f for f in fares_init if f <= ha_val]
+                h_ladder = lower_candidates[0] if lower_candidates else fares_init[-1]
+                ha_idx = fares_init.index(h_ladder)
+
+                plf_th = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
+                plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
+                plf_target = float(round(plf_pct * cap_val, 2))
+                plf_target = min(float(cap_val), max(0.0, plf_target))
+
+                if au_rev[ha_idx] < plf_target:
+                    au_rev[ha_idx] = plf_target
+
+                for i in range(ha_idx):
+                    if au_rev[i] >= au_rev[ha_idx]:
+                        pass
+                    else:
+                        au_rev[i] = plf_target
+
+            # 3. Backstop: applied after Hardanchor
             bs_val = None
             if backstop is not None and backstop > 0:
                 bs_val = backstop
@@ -1365,22 +1409,6 @@ class NextGenOptimizationEngine:
                 for i, f in enumerate(fares_init):
                     if f < bs_val:
                         au_rev[i] = 0.0
-
-            # Hardanchor in Case 1: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
-            if hardanchor is not None and hardanchor > 0:
-                ha_val = hardanchor
-                if tax_helper and origin and destin:
-                    try:
-                        ha_val = tax_helper.allin_to_airline_component(float(hardanchor), origin, destin, route=route)
-                    except Exception:
-                        pass
-                lower_candidates = [f for f in fares_init if f <= ha_val]
-                h_ladder = lower_candidates[0] if lower_candidates else fares_init[-1]
-                for i, f in enumerate(fares_init):
-                    if f >= h_ladder:
-                        if bs_val is not None and bs_val > 0 and f < bs_val:
-                            continue
-                        au_rev[i] = float(cap_val)
 
             redistrib_df['AU_2'] = au_init
             redistrib_df['AU_Revised'] = au_rev
@@ -1423,13 +1451,67 @@ class NextGenOptimizationEngine:
                 rule_applied = "Min (1.2A, 0.8C)" if plf_band == 0 else ("Min (1.3A, 0.9C)" if plf_band == 1 else "C")
                 criteria = "Min"
 
-            response_fare = cls.evaluate_grid_response(
+            # 1. Fare obtained from grid calculation
+            rule_calc_resp = cls.evaluate_grid_response(
                 rule_applied, anchor_fare, c_min_comp, c_med_comp,
-                threshold_factor=threshold_factor
+                threshold_factor=None, tolerance=None
             )
+
+            # 2. Tolerance in the grid
+            grid_tol = None
+            if grid_doc:
+                grid_tol = grid_doc.get("tolerance", grid_doc.get("tolernace", grid_doc.get("threshold_factor")))
+            if grid_tol is None:
+                grid_tol = threshold_factor
+
+            c_for_thresh = c_med_comp if (c_med_comp is not None and re.search(r'\bmed\b', str(rule_applied), re.IGNORECASE)) else c_min_comp
+            grid_tol_fare = 0.0
+            if grid_tol is not None and pd.notna(grid_tol) and str(grid_tol).strip().upper() not in ['', 'NA', 'NAN']:
+                try:
+                    gt = float(grid_tol)
+                    if gt > 100.0:
+                        grid_tol_fare = gt
+                    elif gt > 1.5:
+                        if c_for_thresh is not None:
+                            grid_tol_fare = (gt / 100.0) * float(c_for_thresh)
+                    elif gt > 0.0:
+                        if c_for_thresh is not None:
+                            grid_tol_fare = gt * float(c_for_thresh)
+                except (ValueError, TypeError):
+                    pass
+
+            # 3. Tolerance in ML input
+            ml_tol_fare = 0.0
+            ml_tol = _get_val(curr_params, 'tolerance', 'B2CTolerance', 'b2c_tolerance', 'b2cTolerance', default=None)
+            if ml_tol is not None and pd.notna(ml_tol) and str(ml_tol).strip().upper() not in ['', 'NA', 'NAN']:
+                try:
+                    mt = float(ml_tol)
+                    if mt > 100.0:
+                        if tax_helper and origin and destin:
+                            try:
+                                ml_tol_fare = float(tax_helper.allin_to_airline_component(mt, origin, destin, route=route))
+                            except Exception:
+                                ml_tol_fare = mt
+                        else:
+                            ml_tol_fare = mt
+                    elif mt > 1.5:
+                        if c_for_thresh is not None:
+                            ml_tol_fare = (mt / 100.0) * float(c_for_thresh)
+                    elif mt > 0.0:
+                        if c_for_thresh is not None:
+                            ml_tol_fare = mt * float(c_for_thresh)
+                except (ValueError, TypeError):
+                    pass
+
+            # Higher fare considered as tolerance
+            chosen_tolerance_fare = max(grid_tol_fare, ml_tol_fare)
+
+            # Max of tolerance fare and grid calculation fare is Strategy fare
+            response_fare = max(rule_calc_resp, chosen_tolerance_fare)
             strategy_fare = cls.determine_strategy_fare(response_fare, init_df)
 
             pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
+            plf_thresh = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
 
             redistrib_df = cls.redistribute_demand_and_compute_revised_au(
                 init_df, anchor_fare, strategy_fare, cap_val, cb_val,
@@ -1444,6 +1526,7 @@ class NextGenOptimizationEngine:
                 promo_first_rbd=promo_first_rbd,
                 promo_threshold=promo_threshold,
                 pmin_threshold_factor=pmin_thresh_factor,
+                plf_threshold=plf_thresh,
                 tax_helper=tax_helper,
                 origin=origin,
                 destin=destin,

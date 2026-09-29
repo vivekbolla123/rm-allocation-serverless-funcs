@@ -3746,11 +3746,11 @@ public class App implements CommandLineRunner {
         }
 
         if (COMP_RESPONSE_PLF_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "id,band_name,start,end,threshold_factor";
+            return "id,band_name,start,end";
         }
 
         if (COMP_RESPONSE_GRID_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "grid_name,ndo_band,plf_band,time_range,criteria,response_rule";
+            return "grid_name,ndo_band,plf_band,time_range,criteria,response_rule,tolerance";
         }
 
         try {
@@ -6700,7 +6700,6 @@ public class App implements CommandLineRunner {
                 doc.put("band_name", r.bandName);
                 doc.put("start", r.start);
                 doc.put("end", r.end);
-                doc.put("threshold_factor", r.thresholdFactor);
                 bandsDocuments.add(doc);
             }
 
@@ -6754,6 +6753,9 @@ public class App implements CommandLineRunner {
                 doc.put("time_range", r.timeRange);
                 doc.put("criteria", r.criteria);
                 doc.put("response_rule", r.responseRule);
+                if (r.tolerance != null) {
+                    doc.put("tolerance", r.tolerance);
+                }
                 gridDocuments.add(doc);
             }
 

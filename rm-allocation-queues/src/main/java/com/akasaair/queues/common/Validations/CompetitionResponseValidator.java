@@ -29,6 +29,7 @@ public class CompetitionResponseValidator {
         public String timeRange;
         public String criteria;
         public String responseRule;
+        public Double tolerance = null;
     }
 
     public static class ExtractedFareRecalibrationRow {
@@ -326,6 +327,10 @@ public class CompetitionResponseValidator {
     // ==========================================
 
     public static ExtractedGridRow extractGridRow(List<String> row, int gridIdx, int ndoIdx, int plfIdx, int trIdx, int critIdx, int ruleIdx) {
+        return extractGridRow(row, gridIdx, ndoIdx, plfIdx, trIdx, critIdx, ruleIdx, -1);
+    }
+
+    public static ExtractedGridRow extractGridRow(List<String> row, int gridIdx, int ndoIdx, int plfIdx, int trIdx, int critIdx, int ruleIdx, int tolIdx) {
         ExtractedGridRow res = new ExtractedGridRow();
         res.gridName = gridIdx >= 0 && gridIdx < row.size() ? row.get(gridIdx).trim() : "";
         res.timeRange = trIdx >= 0 && trIdx < row.size() ? row.get(trIdx).trim() : "";
@@ -361,6 +366,15 @@ public class CompetitionResponseValidator {
             res.responseRule = ruleBuilder.toString();
         } else {
             res.responseRule = rawRule;
+        }
+
+        if (tolIdx >= 0 && tolIdx < row.size()) {
+            String tolStr = row.get(tolIdx).trim();
+            if (!tolStr.isEmpty()) {
+                try {
+                    res.tolerance = Double.parseDouble(tolStr);
+                } catch (NumberFormatException ignored) {}
+            }
         }
 
         return res;
@@ -533,6 +547,7 @@ public class CompetitionResponseValidator {
         int trIdx = findHeaderIndex(headers, "time_range", "timerange", "time");
         int critIdx = findHeaderIndex(headers, "criteria", "criterion");
         int ruleIdx = findHeaderIndex(headers, "response_rule", "responserule", "rule", "strategy", "response");
+        int tolIdx = findHeaderIndex(headers, "tolerance", "tolernace", "threshold_factor");
 
         for (int i = 1; i < csvData.size(); i++) {
             List<String> row = csvData.get(i);
@@ -540,7 +555,7 @@ public class CompetitionResponseValidator {
             int maxReqIdx = Math.max(Math.max(gridIdx, ndoIdx), Math.max(Math.max(plfIdx, trIdx), Math.max(critIdx, ruleIdx)));
             if (row.size() <= maxReqIdx) continue;
 
-            ExtractedGridRow r = extractGridRow(row, gridIdx, ndoIdx, plfIdx, trIdx, critIdx, ruleIdx);
+            ExtractedGridRow r = extractGridRow(row, gridIdx, ndoIdx, plfIdx, trIdx, critIdx, ruleIdx, tolIdx);
             r.lineNum = i + 1;
             r.criteria = canonicalCriteria(r.criteria);
             result.add(r);

@@ -180,6 +180,24 @@ public class CompetitionResponseValidatorTest {
         assertTrue(errors.stream().anyMatch(e -> e.contains("Duplicate entry for Grid 'DEFAULT'")));
     }
 
+    @Test
+    public void testValidGridFileWithTolerance() {
+        List<List<String>> csvData = new ArrayList<>();
+        csvData.add(Arrays.asList("grid_name", "ndo_band", "plf_band", "time_range", "criteria", "response_rule", "tolerance"));
+        csvData.add(Arrays.asList("DEFAULT", "0", "0", "TR", "Min", "Min (2A, 0.9C)", "0.7"));
+        csvData.add(Arrays.asList("DEFAULT", "0", "1", "TR", "Min", "Min (2A, 0.95C)", "0.8"));
+
+        List<String> errors = new ArrayList<>();
+        boolean valid = CompetitionResponseValidator.validateGridFile(csvData, errors);
+        assertTrue(valid, "Grid should be valid: " + errors);
+
+        List<CompetitionResponseValidator.ExtractedGridRow> rows = CompetitionResponseValidator.extractGridRows(csvData);
+        assertEquals(2, rows.size());
+        assertEquals("Min (2A, 0.9C)", rows.get(0).responseRule);
+        assertEquals(0.7, rows.get(0).tolerance);
+        assertEquals(0.8, rows.get(1).tolerance);
+    }
+
     // ==========================================
     // 3. Fare Recalibration Tests
     // ==========================================

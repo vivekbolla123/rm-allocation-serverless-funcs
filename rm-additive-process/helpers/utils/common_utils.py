@@ -615,6 +615,8 @@ def compute_flight_inventory_ng(
     promo_ratio=0.80,
     backstop=None,
     hardanchor=None,
+    plf_threshold=95.0,
+    tolerance=None,
     open_bucket_markup=OPEN_BUCKET_MIDPOINT_FACTOR
 ):
     """
@@ -860,24 +862,40 @@ def compute_flight_inventory_ng(
         au_revised = [float(x) for x in au_2_list]
         au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
 
-    # Backstop floor
-    if backstop is not None and pd.notna(backstop):
-        try:
-            b_val = float(backstop)
-            for i, f in enumerate(fares):
-                if f < b_val:
-                    au_revised[i] = 0.0
-        except ValueError:
-            pass
-
-    # Hardanchor cap
+    # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
     if hardanchor is not None and pd.notna(hardanchor):
         try:
             h_val = float(hardanchor)
-            for i, f in enumerate(fares):
-                if f >= h_val:
-                    au_revised[i] = cap
-        except ValueError:
+            if h_val > 0:
+                lower_candidates = [f for f in fares if f <= h_val]
+                h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
+                ha_idx = fares.index(h_ladder)
+
+                plf_th = float(plf_threshold if plf_threshold is not None and pd.notna(plf_threshold) else 95.0)
+                plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
+                plf_target = float(round(plf_pct * cap, 2))
+                plf_target = min(float(cap), max(0.0, plf_target))
+
+                if au_revised[ha_idx] < plf_target:
+                    au_revised[ha_idx] = plf_target
+
+                for i in range(ha_idx):
+                    if au_revised[i] >= au_revised[ha_idx]:
+                        pass
+                    else:
+                        au_revised[i] = plf_target
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Backstop floor: applied after Hardanchor
+    if backstop is not None and pd.notna(backstop):
+        try:
+            b_val = float(backstop)
+            if b_val > 0:
+                for i, f in enumerate(fares):
+                    if f < b_val:
+                        au_revised[i] = 0.0
+        except (ValueError, TypeError):
             pass
 
     # Phase 4: Closed-Form Revenue Forecasting
