@@ -529,14 +529,22 @@ class AdditivePickupModelProcessor:
         try:
             fares_df = self.mongo_helper.fetch_fares(
                 self.active_sectors, self.constants_utils.FARE_BUCKET_RBDS)
-            fares_df = self.mongo_helper.apply_currency_conversion(fares_df)
 
-            # --- Convert all-in -> airline component BEFORE bucketing ---
+            # --- Step A: all-in -> airline component, IN LOCAL CURRENCY ---
+            # For an international sector both the QP fare (TOTAL) and the intl tax
+            # master are in the origin's local currency, so the tax stripping must
+            # happen while everything is still local. Domestic sectors are already
+            # INR, so this is a no-op for them currency-wise.
             fares_df = self._fares_to_airline_component(fares_df, fare_col='TOTAL')
             if fares_df.empty:
                 raise RuntimeError("No fares left after airline-component conversion")
 
-            # GP logic operates on the airline component from here on
+            # --- Step B: convert the (local-currency) airline component -> INR ---
+            # Only international-origin sectors are converted; domestic pass through.
+            fares_df = self.mongo_helper.apply_currency_conversion(
+                fares_df, fare_col='AirlineComponent')
+
+            # GP logic operates on the (now INR) airline component from here on
             fares_df['TOTAL'] = fares_df['AirlineComponent'].round(0).astype(int)
 
             all_buckets = []
