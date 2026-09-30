@@ -1874,8 +1874,20 @@ class DynAlloc:
 						ng_opt_df['strategy_fare'] = to_float(strat_comp, 0.0)
 						ng_opt_df['strategy_fare_All_in'] = to_float(strat_allin, 0.0)
 
-						open_comp = ng_summary.get('opening_fare_airline_comp', ng_opt_df.get('opening fare', None))
+						open_comp = ng_summary.get('opening_fare_airline_comp', None)
+						if open_comp is None:
+							if 'opening fare' in ng_opt_df.columns and not ng_opt_df['opening fare'].empty:
+								open_comp = ng_opt_df['opening fare'].iloc[0]
+							else:
+								open_comp = None
+
 						open_allin = ng_summary.get('opening_fare_allin', ng_summary.get('NG_Opening_fare', None))
+						if open_allin is None:
+							if 'opening fare_All_in' in ng_opt_df.columns and not ng_opt_df['opening fare_All_in'].empty:
+								open_allin = ng_opt_df['opening fare_All_in'].iloc[0]
+							else:
+								open_allin = None
+
 						if open_comp is None and open_allin is not None:
 							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
 								open_comp = self.tax_helper.allin_to_airline_component(float(open_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')

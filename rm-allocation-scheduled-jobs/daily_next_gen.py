@@ -881,6 +881,103 @@ def match_market_list_config(market_list_df, origin, destin, flight_num, dep_dat
     return candidates.iloc[0].to_dict()
 
 
+# =============================================================================
+# 51 FILED B2C FARE LEVELS HELPERS
+# =============================================================================
+B2C_RBD_VALUES = [
+    'V4', 'V3', 'V2', 'V1', 'V0',
+    'U4', 'U3', 'U2', 'U1', 'U0',
+    'T4', 'T3', 'T2', 'T1', 'T0',
+    'R4', 'R3', 'R2', 'R1', 'R0',
+    'Q4', 'Q3', 'Q2', 'Q1', 'Q0',
+    'P4', 'P3', 'P2', 'P1', 'P0',
+    'O4', 'O3', 'O2', 'O1', 'O',
+    'N4', 'N3', 'N2', 'N1', 'N',
+    'M', 'K', 'J', 'I', 'H', 'F', 'E', 'D', 'C', 'B', 'Y'
+]
+
+
+def load_sector_filed_51_fares(mongo_client=None, mongo_db=None, origin=None, destin=None, tax_helper=None, route='L'):
+    """
+    Loads the 51 filed B2C fare levels for (origin, destin) from MongoDB collection 'fares'.
+    Returns a sorted list of dicts: [{'RBD': rbd, 'fare': comp_fare, 'allin': allin_fare}, ...]
+    sorted descending by airline component fare.
+    """
+    if not origin or not destin:
+        return []
+
+    target_dbs = []
+    if mongo_db is not None:
+        target_dbs.append(mongo_db)
+    if mongo_client is not None:
+        for db_name in ['qp_dw_rmalloc', 'rm_database', 'qp_rm_master']:
+            try:
+                target_dbs.append(mongo_client[db_name])
+            except Exception:
+                pass
+
+    org_u = str(origin).strip().upper()
+    dest_u = str(destin).strip().upper()
+    sec_dash = f"{org_u}-{dest_u}"
+    sec_nodash = f"{org_u}{dest_u}"
+
+    for db_obj in target_dbs:
+        try:
+            coll = getattr(db_obj, 'fares', None)
+            if coll is None and hasattr(db_obj, '__getitem__'):
+                coll = db_obj['fares']
+            if coll is None:
+                continue
+
+            query = {
+                "$or": [
+                    {"Org": org_u, "Dst": dest_u},
+                    {"SECTOR": sec_dash},
+                    {"SECTOR": sec_nodash}
+                ]
+            }
+            if route:
+                query["route"] = route
+
+            docs = list(coll.find(query).max_time_ms(5000))
+            if docs:
+                levels = []
+                for d in docs:
+                    rbd = str(d.get('RBD', '')).strip()
+                    total = d.get('TOTAL')
+                    fare = d.get('fare')
+                    if fare is not None and pd.notna(fare) and float(fare) > 0:
+                        comp_f = float(fare)
+                        allin_f = float(total) if total is not None and pd.notna(total) else (
+                            tax_helper.airline_component_to_allin(comp_f, org_u, dest_u) if tax_helper else comp_f
+                        )
+                    elif total is not None and pd.notna(total) and float(total) > 0:
+                        allin_f = float(total)
+                        comp_f = tax_helper.allin_to_airline_component(allin_f, org_u, dest_u) if tax_helper else allin_f
+                    else:
+                        continue
+                    levels.append({'RBD': rbd, 'fare': comp_f, 'allin': allin_f})
+                if levels:
+                    return sorted(levels, key=lambda x: x['fare'], reverse=True)
+        except Exception:
+            continue
+    return []
+
+
+def find_nearest_lower_51_fare(filed_51_levels, target_fare):
+    """
+    Finds the nearest lower fare among the 51 fare levels (airline component) <= target_fare.
+    If target_fare is below all levels, returns the lowest level.
+    If no 51 levels are provided, returns target_fare as fallback.
+    """
+    if not filed_51_levels:
+        return float(target_fare)
+    cands = [fl['fare'] for fl in filed_51_levels if fl['fare'] <= float(target_fare) + 1e-4]
+    if cands:
+        return float(max(cands))
+    return float(min(fl['fare'] for fl in filed_51_levels))
+
+
 def compute_flight_inventory_ng(
     flight_df,
     pax_col='Final_pax_count',
@@ -914,7 +1011,10 @@ def compute_flight_inventory_ng(
     tax_helper=None,
     origin=None,
     destin=None,
-    route=None
+    route=None,
+    filed_51_ladder_df=None,
+    mongo_client=None,
+    mongo_db=None
 ):
     """
     Computes full NextGen AU optimization, competition response, demand redistribution,
@@ -946,6 +1046,21 @@ def compute_flight_inventory_ng(
             flt_num = int(float(m.group(1))) if m else 0
         except (ValueError, TypeError):
             flt_num = 0
+
+    filed_51_levels = []
+    if filed_51_ladder_df is not None:
+        if isinstance(filed_51_ladder_df, list):
+            filed_51_levels = filed_51_ladder_df
+        elif isinstance(filed_51_ladder_df, pd.DataFrame) and not filed_51_ladder_df.empty:
+            for _, r in filed_51_ladder_df.iterrows():
+                f_val = r.get('fare', r.get('TOTAL', 0.0))
+                tot_val = r.get('TOTAL', f_val)
+                filed_51_levels.append({'RBD': str(r.get('RBD', '')), 'fare': float(f_val), 'allin': float(tot_val)})
+    elif mongo_client is not None or mongo_db is not None:
+        filed_51_levels = load_sector_filed_51_fares(
+            mongo_client=mongo_client, mongo_db=mongo_db,
+            origin=origin, destin=destin, tax_helper=tax_helper, route=route or 'L'
+        )
 
     cap_val = capacity if capacity is not None else (df['Capacity'].iloc[0] if 'Capacity' in df.columns and pd.notna(df['Capacity'].iloc[0]) else df.get('capacity', pd.Series([189.0])).iloc[0])
     cap = float(cap_val) if pd.notna(cap_val) and float(cap_val) > 0 else 189.0
@@ -1220,13 +1335,14 @@ def compute_flight_inventory_ng(
     else:
         strategy_fare = anchor_fare
 
-    if not comp_enabled or oal_min is None or oal_min < anchor_fare or strategy_fare <= a_ladder:
+    if not comp_enabled or oal_min is None or oal_min < anchor_fare or target_resp <= anchor_fare:
         strategy_fare = anchor_fare
         mu_bar_2 = np.copy(mu_bar_orig)
         mu_2 = np.copy(mu_arr)
         au_2 = np.copy(au)
-        for j in range(a_idx + 1, k):
-            au_2[j] = 0.0
+        for j, f in enumerate(fare_arr):
+            if f < anchor_fare - 1e-4:
+                au_2[j] = 0.0
 
         if au_2[a_idx] < tot_bookings:
             elevate_au = tot_bookings
@@ -1240,8 +1356,9 @@ def compute_flight_inventory_ng(
 
         # 1. FirstRBD logic applied at opening bucket
         au_revised = np.copy(au_2)
-        for j in range(a_idx + 1, k):
-            au_revised[j] = 0.0
+        for j, f in enumerate(fare_arr):
+            if f < anchor_fare - 1e-4:
+                au_revised[j] = 0.0
 
         if b_val is not None and b_val > 0:
             for i, f in enumerate(fare_arr):
@@ -1428,18 +1545,22 @@ def compute_flight_inventory_ng(
         if b_val is not None and b_val > 0 and (round(float(promo_ratio) * float(strategy_fare), 2) < b_val):
             au_revised_promo = 0.0
 
-    # Opening fare: lowest fare with AU higher than Total Bookings (respecting backstop floor)
-    open_indices = [i for i in range(k) if au_revised[i] > tot_bookings]
-    if open_indices:
-        opening_fare = fare_arr[open_indices[-1]]
+    # Opening fare logic:
+    # In Case 1 (or market fares not found): opening fare is assigned to nearest lower 51 level for anchor_fare
+    # In Case 2 (oal_min >= anchor_fare): opening fare is assigned to nearest lower 51 level below competition response
+    target_resp_for_opening = target_resp if (comp_enabled and oal_min is not None and oal_min >= anchor_fare and target_resp > anchor_fare) else anchor_fare
+
+    if filed_51_levels:
+        opening_fare = find_nearest_lower_51_fare(filed_51_levels, target_resp_for_opening)
+        if b_val is not None and b_val > 0 and opening_fare < b_val:
+            floor_51 = [fl['fare'] for fl in filed_51_levels if fl['fare'] >= b_val - 1e-4]
+            opening_fare = float(floor_51[-1]) if floor_51 else b_val
     else:
-        if b_val is not None and b_val > 0:
+        open_candidates = [f for f in fare_arr if f <= target_resp_for_opening + 1e-4]
+        opening_fare = open_candidates[0] if open_candidates else (fare_arr[-1] if k > 0 else 3000.0)
+        if b_val is not None and b_val > 0 and opening_fare < b_val:
             valid_b = [f for f in fare_arr if f >= b_val]
-            opening_fare = valid_b[-1] if valid_b else (fare_arr[0] if k > 0 else 3000.0)
-        else:
-            opening_fare = fare_arr[0] if k > 0 else 3000.0
-    if b_val is not None and b_val > 0 and opening_fare < b_val:
-        opening_fare = b_val
+            opening_fare = valid_b[-1] if valid_b else b_val
 
     # Closed-Form Revenue Forecasting (Phase 4)
     A_cap = [0.0] * k
@@ -1829,7 +1950,9 @@ def compute_inventory_ng_df(
             tolerance=tol_raw,
             tax_helper=tax_helper,
             origin=origin,
-            destin=destin
+            destin=destin,
+            mongo_client=mongo_client,
+            mongo_db=mongo_db
         )
 
     if not group_cols:

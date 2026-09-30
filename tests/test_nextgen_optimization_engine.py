@@ -880,15 +880,18 @@ class TestNextGenOptimizationEngine:
 
     def test_opening_fare_selected_from_response_fare_not_target_fc_fare(self, sample_flight_data):
         """
-        Verify that opening fare among 51 filed levels is now selected based on the
-        first open forecast bucket (AU_Revised > booked_load), NOT the strategy fare.
-        
+        Verify that opening fare among 51 filed levels is selected as the nearest lower
+        among 51 levels below competition response fare, and assigned the inventory
+        at the nearest forecast fare below competition response.
+
         Example:
         - Competitor min fare / grid output = 6061.9
-        - Forecast ladder fares: ..., 6409, 5658, 4980, ... -> first open bucket = 5252 (AU=120 > cb=100)
+        - Forecast ladder fares: ..., 6409, 5252, 4279, ... -> nearest forecast bucket below 6061.9 is 5252.
         - Filed 51 levels: R1=6200(allin=7000), R2=5800(allin=6600), R3=5421.9(allin=6136), R4=4900(allin=5600)
-        - Cutoff fare (all-in) = 5252.  R3 (fare=5421.9) is nearest to 5252 -> opening_rbd=R3.
-        - All filed levels have all-in >= 5252 -> all get non-zero AU.
+        - Nearest lower among 51 levels below 6061.9 is R2 (5800.0).
+        - Opening fare = 5800.0 (allin = 6600.0), opening_rbd = R2.
+        - Inventory at 5252 forecast bucket is assigned to R2.
+        - Filed levels below R2 get AU = 0.
         """
         capacity = 189
         cb = 100
@@ -914,19 +917,18 @@ class TestNextGenOptimizationEngine:
             filed_51_ladder_df=filed_51_ladder
         )
 
-        # Cutoff fare = 5252 (first open forecast bucket with AU > cb=100).
-        # Nearest filed level to 5252 (airline comp) is R3 (5421.9).
-        assert summary['opening_rbd'] == 'R3'
-        assert summary['opening_fare_airline_comp'] == 5421.904762
-        assert summary['NG_Opening_fare'] == 6136.0
-        assert final_df['opening fare'].iloc[0] == 5421.904762
+        # Nearest lower among 51 levels below competition response 6061.9 is R2 (5800.0).
+        assert summary['opening_rbd'] == 'R2'
+        assert summary['opening_fare_airline_comp'] == 5800.0
+        assert summary['NG_Opening_fare'] == 6600.0
+        assert final_df['opening fare'].iloc[0] == 5800.0
 
-        # All filed levels have all-in fare >= cutoff (5252), so all get non-zero AU
+        # R1 and R2 receive inventory; levels below opening fare R2 get 0.0
         mapping = summary['filed_51_au_mapping']
         assert mapping['R1'] > 0.0
         assert mapping['R2'] > 0.0
-        assert mapping['R3'] > 0.0
-        assert mapping['R4'] > 0.0
+        assert mapping['R3'] == 0.0
+        assert mapping['R4'] == 0.0
 
     def test_au_mapping_floor_interval_not_euclidean_nearest(self):
         """
