@@ -62,10 +62,14 @@ def to_float(val, default=0.0):
     if val is None:
         return default
     s = str(val).strip().upper()
+    if s.endswith('%'):
+        s = s[:-1].strip()
+    elif '%' in s:
+        s = s.replace('%', '').strip()
     if s in ['', 'NA', 'NAN', 'NONE', 'NULL']:
         return default
     try:
-        return float(val)
+        return float(s)
     except (ValueError, TypeError):
         return default
 

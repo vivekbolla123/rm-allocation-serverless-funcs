@@ -604,6 +604,31 @@ def get_plf_band(plf_pct, mongo_db=None):
         return 5
 
 
+def parse_plf_threshold(val, default=95.0):
+    """
+    Parses plf_threshold / plfThreshold from market_list or arguments.
+    Handles values like '50%', '50.0%', ' 50 % ', 50, 0.5, etc.
+    Always returns a float representing percentage (e.g., 50.0 for 50%).
+    """
+    if val is None or pd.isna(val):
+        return default
+    if isinstance(val, (int, float)):
+        v = float(val)
+        return v * 100.0 if 0 < v <= 1.5 else v
+    s = str(val).strip()
+    if s.endswith('%'):
+        s = s[:-1].strip()
+    elif '%' in s:
+        s = s.replace('%', '').strip()
+    if not s or s.upper() in ('NA', 'NAN', 'NONE', 'NULL'):
+        return default
+    try:
+        v = float(s)
+        return v * 100.0 if 0 < v <= 1.5 else v
+    except (ValueError, TypeError):
+        return default
+
+
 def evaluate_grid_response(grid_rule_str, anchor_fare, comp_fare, comp_med_fare=None, tolerance=None, threshold_factor=None):
     """Evaluates grid response rule against anchor fare (A) and competitor fare (C/med).
     Applies tolerance floor if provided:
@@ -1241,7 +1266,7 @@ def compute_flight_inventory_ng(
     # Resolve hardanchor in airline component
     h_val = None
     curr_plf = (tot_bookings / cap * 100.0) if cap > 0 else 0.0
-    plf_thresh = float(plf_threshold if plf_threshold is not None and pd.notna(plf_threshold) else 95.0)
+    plf_thresh = parse_plf_threshold(plf_threshold, default=95.0)
     is_plf_below_thresh = (curr_plf < plf_thresh)
     if is_plf_below_thresh and hardanchor is not None and pd.notna(hardanchor):
         try:
@@ -1902,10 +1927,7 @@ def compute_inventory_ng_df(
         # 10. hardanchor, plfthreshold & tolerance
         ha_raw = matched_cfg.get('hardanchor', matched_cfg.get('hardAnchor', matched_cfg.get('hard_anchor_fare')))
         plf_thresh_raw = matched_cfg.get('plfthreshold', matched_cfg.get('plfThreshold', 95.0))
-        try:
-            plf_thresh = float(plf_thresh_raw) if plf_thresh_raw is not None and pd.notna(plf_thresh_raw) else 95.0
-        except (ValueError, TypeError):
-            plf_thresh = 95.0
+        plf_thresh = parse_plf_threshold(plf_thresh_raw, default=95.0)
         tol_raw = matched_cfg.get('B2CTolerance', matched_cfg.get('tolerance', matched_cfg.get('b2c_tolerance', matched_cfg.get('b2cTolerance'))))
 
         # Direct duration (minutes)
