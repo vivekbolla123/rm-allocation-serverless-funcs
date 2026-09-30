@@ -1627,6 +1627,23 @@ def compute_inventory_ng_df(
             if logger:
                 logger.warning(f"Could not initialize FareTaxHelper: {e}")
 
+    # 1b. Load system FirstRBD seat threshold from parameter table (rm_parameter_values), default 20.0
+    system_first_rbd = 20.0
+    try:
+        if mongo_db is not None and hasattr(mongo_db, 'rm_parameter_values'):
+            p_doc = mongo_db.rm_parameter_values.find_one({"parameterKey": {"$in": ["DEFAULT_FIRST_RBD_SEATS", "FIRST_RBD_SEATS"]}})
+            if p_doc and "parameterValue" in p_doc:
+                system_first_rbd = float(p_doc["parameterValue"])
+        elif mongo_client is not None:
+            db_p = mongo_client.get_default_database() or mongo_client['RM']
+            if hasattr(db_p, 'rm_parameter_values'):
+                p_doc = db_p.rm_parameter_values.find_one({"parameterKey": {"$in": ["DEFAULT_FIRST_RBD_SEATS", "FIRST_RBD_SEATS"]}})
+                if p_doc and "parameterValue" in p_doc:
+                    system_first_rbd = float(p_doc["parameterValue"])
+    except Exception as e:
+        if logger:
+            logger.warning(f"Could not load DEFAULT_FIRST_RBD_SEATS from rm_parameter_values: {e}")
+
     # 2. Caches for comp grids and market fares
     grid_caches = {}
     mkt_fares_cache = {}
@@ -1755,16 +1772,8 @@ def compute_inventory_ng_df(
         carr_excl = matched_cfg.get('CarrExlusionB2C')
         flight_excl = matched_cfg.get('flightExclusionB2C')
 
-        # 8. FirstRBDAlloc
-        first_rbd_raw = matched_cfg.get('FirstRBDAlloc', matched_cfg.get('first_rbd_alloc', matched_cfg.get('first_rbd_NG', matched_cfg.get('first_rbd', matched_cfg.get('FirstRBD_NG')))))
-        try:
-            if first_rbd_raw is not None and pd.notna(first_rbd_raw):
-                f_rbd = float(first_rbd_raw)
-                first_rbd = f_rbd if f_rbd > 0 else 20.0
-            else:
-                first_rbd = 20.0
-        except (ValueError, TypeError):
-            first_rbd = 20.0
+        # 8. FirstRBD: For NextGen inventory optimization, use system parameter from parameter table / constants, NOT from MarketList
+        first_rbd = system_first_rbd
 
         # 9. B2CBackstop
         bs_raw = matched_cfg.get('B2CBackstop', matched_cfg.get('b2c_backstop'))

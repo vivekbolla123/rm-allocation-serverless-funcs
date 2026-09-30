@@ -590,8 +590,8 @@ class TestDailyNextGen:
                 assert promo_row['FareBucket'] == 'Promo'
                 assert promo_row['Promo_Flag'] == 1
                 assert promo_row['fare'] == round(0.80 * res_df['strategy_fare'].iloc[0], 2)
-                # FirstRBDAlloc was 8 -> capped at 100 + 8 = 108
-                assert res_df['AU_Revised'].iloc[3] == 108.0
+                # System default 20 is used (FirstRBDAlloc from MarketList is ignored for NextGen) -> capped at 100 + 20 = 120
+                assert res_df['AU_Revised'].iloc[3] == 120.0
 
     def test_backstop_floor(self, sample_fare_bucket_df):
         """Verify backstop floor sets AU_Revised=0 for fares below backstop and floors opening fare."""

@@ -1192,7 +1192,8 @@ class NextGenOptimizationEngine:
 
         hardanchor = None
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
-        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', 'FirstRBDAlloc', 'first_rbd_NG', 'first_rbd', 'FirstRBD_NG', default=first_rbd_const), to_float(first_rbd_const, DEFAULT_FIRST_RBD_SEATS))
+        # First RBD seat threshold for NextGen comes from parameter table / ConstantsUtils / Constants.py, NOT from MarketList FirstRBDAlloc
+        first_rbd = to_float(first_rbd_const, DEFAULT_FIRST_RBD_SEATS)
         if first_rbd <= 0:
             first_rbd = float(DEFAULT_FIRST_RBD_SEATS)
         promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=promo_threshold_const), to_float(promo_threshold_const, DEFAULT_FORECAST_THRESHOLD_PROMO_AU))
