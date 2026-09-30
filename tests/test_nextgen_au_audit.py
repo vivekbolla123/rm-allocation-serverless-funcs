@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import pytest
+from datetime import datetime
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.abspath("rm-allocation-process-inputs"))
@@ -12,8 +13,12 @@ from helper.rm_database_helper import RMDatabaseHelper
 
 class TestNextGenAuAudit:
 
-    def test_insert_navitaire_allocation_audit_nextgen(self):
+    def test_insert_navitaire_allocation_audit_nextgen_upsert(self):
         mock_mongo = MagicMock()
+        mock_col = MagicMock()
+        mock_col.find_one.return_value = None
+        mock_mongo.navitaire_allocation_audit = mock_col
+
         helper = RMDatabaseHelper(
             mongo_db=mock_mongo,
             dwconn=MagicMock(),
@@ -35,7 +40,7 @@ class TestNextGenAuAudit:
         }
         au_result = {"Y": 180, "B": 160, "C": 140}
 
-        helper.insertNavitaireAllocationAuditNextGen(
+        doc_id = helper.insertNavitaireAllocationAuditNextGen(
             run_id="test_run_123",
             flight="QP1955 BOMBLR",
             flight_number="1955",
@@ -46,23 +51,76 @@ class TestNextGenAuAudit:
             au_result=au_result
         )
 
-        assert mock_mongo.navitaire_allocation_audit.insert_one.called
-        args, kwargs = mock_mongo.navitaire_allocation_audit.insert_one.call_args
-        inserted_doc = args[0]
+        assert doc_id is not None
+        assert mock_col.update_one.called
+        args, kwargs = mock_col.update_one.call_args
+        filter_doc = args[0]
+        update_doc = args[1]
 
-        assert inserted_doc["run_id"] == "test_run_123"
-        assert inserted_doc["type"] == "nextgen_au"
-        assert inserted_doc["flight"] == "QP1955 BOMBLR"
-        assert inserted_doc["flight_number"] == "1955"
-        assert inserted_doc["sector"] == "BOMBLR"
-        assert inserted_doc["departure_date"] == "2026-10-19"
-        assert len(inserted_doc["rbds"]) == 3
-        assert inserted_doc["rbds"][0]["rbd"] == "Y"
-        assert inserted_doc["rbds"][0]["fare"] == 11500.0
-        assert inserted_doc["rbds"][0]["au"] == 180
+        assert filter_doc["run_id"] == "test_run_123"
+        assert filter_doc["sector"] == "BOMBLR"
+        assert filter_doc["flight_number"] == "1955"
+        assert filter_doc["departure_date"] == "2026-10-19"
 
-        # Check request JSON string
-        request_obj = json.loads(inserted_doc["request"])
-        assert request_obj["runId"] == "test_run_123"
-        assert request_obj["type"] == "nextgen_au"
-        assert request_obj["auClasses"]["Y"]["classAU"] == 180
+        set_fields = update_doc["$set"]
+        assert set_fields["type"] == "nextgen_au"
+        assert set_fields["newgnwua"] is True
+        assert set_fields["flight"] == "QP1955 BOMBLR"
+        assert len(set_fields["rbds"]) == 3
+        assert set_fields["rbds"][0]["rbd"] == "Y"
+        assert set_fields["rbds"][0]["fare"] == 11500.0
+        assert set_fields["rbds"][0]["au"] == 180
+
+        assert kwargs.get("upsert") is True
+
+    def test_single_record_consolidation_in_update_rbd(self):
+        """Verifies that update-rbd lambda function updates the existing audit record rather than inserting a duplicate."""
+        import importlib
+        sys.path.insert(0, os.path.abspath("rm-allocation-update-rbd"))
+        
+        # Mock dependencies for lambda_function import
+        mock_col = MagicMock()
+        existing_doc = {
+            "_id": "doc_existing_123",
+            "run_id": "test_run_123",
+            "sector": "BOMBLR",
+            "flight_number": "1955",
+            "departure_date": "2026-10-19",
+            "type": "nextgen_au",
+            "newgnwua": True,
+            "rbds": [{"rbd": "Y", "fare": 11500.0, "au": 180}]
+        }
+        mock_col.find_one.return_value = existing_doc
+
+        import lambda_function
+        lambda_function.navitaire_allocation_audit_col = mock_col
+
+        start_time = datetime.now()
+        end_time = datetime.now()
+        request_str = json.dumps({"test": "request"})
+        result_str = json.dumps({"Y": 180})
+
+        lambda_function.insertNavAudit(
+            id="new_random_id",
+            startTime=start_time,
+            endTime=end_time,
+            request=request_str,
+            result=result_str,
+            runId="test_run_123",
+            b2cRunId="b2c_1",
+            b2bRunId="b2b_1",
+            countOfFailures=0,
+            countOfTotal=2,
+            navAuditId="doc_existing_123",
+            sector="BOMBLR",
+            flightNumber="1955",
+            departureDate="2026-10-19"
+        )
+
+        # Verify it updated the existing record and did NOT call insert_one
+        assert mock_col.update_one.called
+        assert not mock_col.insert_one.called
+        u_args, u_kwargs = mock_col.update_one.call_args
+        assert u_args[0] == {"_id": "doc_existing_123"}
+        assert u_args[1]["$set"]["run_id"] == "test_run_123"
+        assert u_args[1]["$set"]["failures"] == 0

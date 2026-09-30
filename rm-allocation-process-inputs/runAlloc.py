@@ -2055,10 +2055,10 @@ class DynAlloc:
 							if is_nextgen_alloc_enabled:
 								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', rounded_au)
 
-						# Insert NextGen AU to navitaire_allocation_audit collection regardless of flag (reference only)
+						# Insert or update NextGen AU to navitaire_allocation_audit collection regardless of flag (reference only)
 						try:
 							flight_str = f"QP{self.currParams.flight_number} {self.currParams.origin}{self.currParams.destin}"
-							self.rmdatabasehelper.insertNavitaireAllocationAuditNextGen(
+							doc_id = self.rmdatabasehelper.insertNavitaireAllocationAuditNextGen(
 								run_id=self.runId,
 								flight=flight_str,
 								flight_number=str(self.currParams.flight_number),
@@ -2068,6 +2068,11 @@ class DynAlloc:
 								au_classes=nextgen_au_classes,
 								au_result=nextgen_au_dict
 							)
+							currRec_fullalloc.nav_audit_id = doc_id
+							currRec_fullalloc.nextgen_rbd_details = nextgen_rbd_details
+							currRec_fullalloc.flight_number = str(self.currParams.flight_number)
+							currRec_fullalloc.sector = f"{self.currParams.origin}{self.currParams.destin}"
+							currRec_fullalloc.departure_date = dateFormatted_yyyymmdd
 						except Exception as nav_audit_err:
 							self.logger.error(f"Error inserting NextGen AU audit: {nav_audit_err}")
 			except Exception as e:
@@ -2690,6 +2695,18 @@ class DynAlloc:
 		for i in range(self.AU_COLUMN_LENGTH):
 			auClass = {"classOfService": getattr(rec, f"class_of_service_{i+1}", None), "classType": getattr(rec, f"class_type_{i+1}", None), "classNest": int(getattr(rec, f"class_nest_{i+1}", None)), "classRank": int(getattr(rec, f"class_rank_{i+1}", None)), "classAU": int(getattr(rec, f"class_au_{i+1}", None)), "classAllotted": int(getattr(rec, f"class_allotted_{i+1}", None)), "apRestriction": int(getattr(rec, f"ap_restriction_{i+1}", None))}
 			auData['auClasses'][auClass['classOfService']] = auClass
+
+		if hasattr(rec, 'nav_audit_id') and rec.nav_audit_id:
+			auData['navAuditId'] = rec.nav_audit_id
+		if hasattr(rec, 'nextgen_rbd_details') and rec.nextgen_rbd_details:
+			auData['rbds'] = rec.nextgen_rbd_details
+			auData['newgnwua'] = True
+		if hasattr(rec, 'sector') and rec.sector:
+			auData['sector'] = rec.sector
+		if hasattr(rec, 'flight_number') and rec.flight_number:
+			auData['flightNumber'] = rec.flight_number
+		if hasattr(rec, 'departure_date') and rec.departure_date:
+			auData['departureDate'] = rec.departure_date
 
 		auDataStr = json.dumps(auData)
 		# self.logger.info(auDataStr)

@@ -21,9 +21,13 @@ CACHE_PORT = configsettings.RM_CACHE_PORT
 CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
 CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
 
-cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
-if cache_client.ping():
-    print("Connected to Redis")
+try:
+    cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+    if cache_client.ping():
+        print("Connected to Redis")
+except Exception as e:
+    print(f"Redis connection skipped or failed: {e}")
+    cache_client = None
 
 KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
@@ -292,9 +296,12 @@ session = requests.Session()
 session.headers.update(
     {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
 )
-token_response = get_nav_token_api()
-access_token = token_response["data"]["token"]
-session.headers.update({'Authorization': f"Bearer {access_token}"})
+try:
+    token_response = get_nav_token_api()
+    access_token = token_response["data"]["token"]
+    session.headers.update({'Authorization': f"Bearer {access_token}"})
+except Exception as e:
+    logger.error(f"Could not fetch initial Navitaire token at startup: {e}")
 
 
 def lambda_handler(event, context):
@@ -350,9 +357,18 @@ def lambda_handler(event, context):
             countOfFailures += 1
         
         allocationEndTime = datetime.now()
+        nav_audit_id = allocation_data.get("navAuditId")
+        rbds = allocation_data.get("rbds")
+        newgnwua = allocation_data.get("newgnwua")
+        sector_val = allocation_data.get("sector") or (origin + destination)
+        flight_number_val = allocation_data.get("flightNumber") or identifier
+        dept_date_val = allocation_data.get("departureDate") or start_date_f[:10]
+
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
                        content, json.dumps(allocation_result), run_id, allocation_data["b2cRunId"], 
-                       allocation_data["b2bRunId"], countOfFailures, countOfTotal)
+                       allocation_data["b2bRunId"], countOfFailures, countOfTotal,
+                       navAuditId=nav_audit_id, sector=sector_val, flightNumber=flight_number_val,
+                       departureDate=dept_date_val, flight=flight, rbds=rbds, newgnwua=newgnwua)
         updateRunAudit(run_id, start_date_f,origin+destination, identifier, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
         log_time.send_time_log_db()
@@ -367,21 +383,66 @@ def lambda_handler(event, context):
 def check_status(response):
     return response.status_code >= 200 and response.status_code < 300
 
-def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal):
-    document = {
-        "_id": id,
-        "start_time": startTime,
-        "end_time": endTime,
-        "request": request,
-        "result": result,
-        "run_id": runId,
-        "b2cRunId": b2cRunId,
-        "b2bRunId": b2bRunId,
-        "failures": int(countOfFailures),
-        "totalApiCalls": int(countOfTotal)
-    }
-    navitaire_allocation_audit_col.insert_one(document)
-    print("ADDED ALLOCATION RUN")
+def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal,
+                   navAuditId=None, sector=None, flightNumber=None, departureDate=None, flight=None, rbds=None, newgnwua=None):
+    try:
+        filter_doc = None
+        if navAuditId:
+            filter_doc = {"_id": navAuditId}
+        elif sector and flightNumber and departureDate:
+            flight_variants = [str(flightNumber)]
+            if str(flightNumber).isdigit():
+                flight_variants.append(str(int(flightNumber)))
+            flight_variants.append(f"QP{flightNumber}")
+            filter_doc = {
+                "run_id": runId,
+                "sector": sector,
+                "flight_number": {"$in": flight_variants},
+                "departure_date": departureDate
+            }
+
+        existing = None
+        if filter_doc and navitaire_allocation_audit_col is not None:
+            existing = navitaire_allocation_audit_col.find_one(filter_doc)
+
+        update_fields = {
+            "start_time": startTime,
+            "end_time": endTime,
+            "request": request,
+            "result": result,
+            "run_id": runId,
+            "b2cRunId": b2cRunId,
+            "b2bRunId": b2bRunId,
+            "failures": int(countOfFailures),
+            "totalApiCalls": int(countOfTotal)
+        }
+        if sector:
+            update_fields["sector"] = sector
+        if flightNumber:
+            update_fields["flight_number"] = str(flightNumber)
+        if departureDate:
+            update_fields["departure_date"] = departureDate
+        if flight:
+            update_fields["flight"] = flight
+        if rbds is not None:
+            update_fields["rbds"] = rbds
+        if newgnwua is not None:
+            update_fields["newgnwua"] = newgnwua
+
+        if existing:
+            navitaire_allocation_audit_col.update_one({"_id": existing["_id"]}, {"$set": update_fields})
+            print("UPDATED EXISTING ALLOCATION RUN")
+        elif filter_doc and not navAuditId:
+            set_on_insert = {"_id": id or str(uuid4())}
+            navitaire_allocation_audit_col.update_one(filter_doc, {"$set": update_fields, "$setOnInsert": set_on_insert}, upsert=True)
+            print("UPSERTED ALLOCATION RUN")
+        else:
+            doc_id = navAuditId or id or str(uuid4())
+            update_fields["_id"] = doc_id
+            navitaire_allocation_audit_col.insert_one(update_fields)
+            print("ADDED ALLOCATION RUN")
+    except Exception as e:
+        logger.error(f"Error in insertNavAudit: {e}")
 
 def updateRunAudit(run_id, start_date,sector, flight, result):
     dateFormatted = start_date[:10]
