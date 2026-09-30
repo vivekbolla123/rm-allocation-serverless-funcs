@@ -176,6 +176,15 @@ class ConstantsUtils:
         self.PromoRatio_NG = self.PROMO_RATIO_NG
         self.PMIN_THRESHOLD_FACTOR_NG = float(DEFAULT_PMIN_THRESHOLD_FACTOR_NG)
         self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+        self.DEFAULT_FIRST_RBD_SEATS = float(DEFAULT_FIRST_RBD_SEATS)
+        self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+        self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+        self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(DEFAULT_STANDARD_DEVIATION_FACTOR)
+        self.DEFAULT_PROMO_FARE_FACTOR = float(DEFAULT_PROMO_FARE_FACTOR)
+        self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
+        self.DEFAULT_COVERAGE_PARAMETER = float(DEFAULT_COVERAGE_PARAMETER)
+        self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(DEFAULT_ADDITIONAL_CONNECTION_DURATION)
+        self.DEFAULT_TIME_RANGE = float(DEFAULT_TIME_RANGE)
         self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
         self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
         # --- Additive Pickup Model constants ---------------------------------
@@ -543,6 +552,25 @@ class ConstantsUtils:
             elif parameter_key in (PROMO_RATIO_NG_KEY, 'PROMO_RATIO_NG', 'PromoRatio_NG'):
                 self.PROMO_RATIO_NG = float(parameter_value)
                 self.PromoRatio_NG = self.PROMO_RATIO_NG
+            elif parameter_key in (DEFAULT_PMIN_THRESHOLD_FACTOR_NG_KEY, PMIN_THRESHOLD_FACTOR_NG_KEY, 'PMIN_THRESHOLD_FACTOR_NG', 'pmin_threshold_factor_NG'):
+                self.PMIN_THRESHOLD_FACTOR_NG = float(parameter_value)
+                self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+            elif parameter_key in (DEFAULT_FIRST_RBD_SEATS_KEY, 'DEFAULT_FIRST_RBD_SEATS', 'FIRST_RBD_SEATS', 'first_rbd_alloc', 'FirstRBDAlloc'):
+                self.DEFAULT_FIRST_RBD_SEATS = float(parameter_value)
+                self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+                self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+            elif parameter_key in (DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', 'additional_connection_duration_NG', 'additional_connection_duration'):
+                self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(parameter_value)
+            elif parameter_key in (DEFAULT_TIME_RANGE_KEY, 'DEFAULT_TIME_RANGE', 'time_range', 'TimeRange'):
+                self.DEFAULT_TIME_RANGE = float(parameter_value)
+            elif parameter_key in (DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY, 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU', 'forecast_threshold_promo_au'):
+                self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(parameter_value)
+            elif parameter_key in (DEFAULT_STANDARD_DEVIATION_FACTOR_KEY, 'DEFAULT_STANDARD_DEVIATION_FACTOR'):
+                self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_PROMO_FARE_FACTOR_KEY, 'DEFAULT_PROMO_FARE_FACTOR'):
+                self.DEFAULT_PROMO_FARE_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_COVERAGE_PARAMETER_KEY, 'DEFAULT_COVERAGE_PARAMETER'):
+                self.DEFAULT_COVERAGE_PARAMETER = float(parameter_value)
             elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
                 self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
             elif parameter_key == BUY_UP_FACTOR_KEY:

@@ -139,7 +139,7 @@ class MarketListRow:
         self.price_floor = self.b2c_backstop if self.b2c_backstop != CONST_NA and self.b2c_backstop is not None else currParams.get("price_floor", currParams.get("priceFloor", CONST_NA))
         self.price_cap = self.hardanchor if self.hardanchor != CONST_NA and self.hardanchor is not None else currParams.get("price_cap", currParams.get("priceCap", CONST_NA))
         self.carrier_exclusion = self.carr_exclusion_b2c if self.carr_exclusion_b2c != CONST_NA and self.carr_exclusion_b2c is not None else currParams.get("carrier_exclusion", currParams.get("carrierExclusion", currParams.get("CarrierExclusion", [])))
-        self.time_range = parse_numeric(currParams.get("time_range", currParams.get("timeRange", currParams.get("TimeRange", 2.0))))
+        self.time_range = parse_numeric(currParams.get("time_range", currParams.get("timeRange", currParams.get("TimeRange", DEFAULT_TIME_RANGE))))
 
         # Renamed NextGen fields with backward-compatible aliases
         raw_buy_up = parse_numeric(currParams.get("buy_up_factor_NG", currParams.get("buy_up_factor", currParams.get("buyUpFactor", currParams.get("BuyUpFactor", 0.0)))))
@@ -147,7 +147,7 @@ class MarketListRow:
         self.buy_up_factor = self.buy_up_factor_NG
         self.connection_fare_flag_NG = parse_int_flag(currParams.get("connection_fare_flag_NG", currParams.get("connection_fare_flag", currParams.get("connectionFareFlag", currParams.get("ConnectionFareFlag", 0)))), 0)
         self.connection_fare_flag = self.connection_fare_flag_NG
-        self.additional_connection_duration_NG = parse_numeric(currParams.get("additional_connection_duration_NG", currParams.get("additional_connection_duration", currParams.get("additionalConnectionDuration", currParams.get("AdditionalConnectionDuration", 4.0)))))
+        self.additional_connection_duration_NG = parse_numeric(currParams.get("additional_connection_duration_NG", currParams.get("additional_connection_duration", currParams.get("additionalConnectionDuration", currParams.get("AdditionalConnectionDuration", DEFAULT_ADDITIONAL_CONNECTION_DURATION)))))
         self.additional_connection_duration = self.additional_connection_duration_NG
         self.CompetitionResponseGrid_NG = str(currParams.get("CompetitionResponseGrid_NG", currParams.get("grid_name", currParams.get("gridName", currParams.get("GridName", "DEFAULT"))))).strip() or "DEFAULT"
         self.grid_name = self.CompetitionResponseGrid_NG

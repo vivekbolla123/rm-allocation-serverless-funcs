@@ -41,10 +41,18 @@ import logging
 
 from Constants import (
     CONST_NA,
+    DEFAULT_FIRST_RBD_SEATS,
+    DEFAULT_STANDARD_DEVIATION_FACTOR,
+    DEFAULT_PROMO_FARE_FACTOR,
+    DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
+    DEFAULT_COVERAGE_PARAMETER,
+    DEFAULT_ADDITIONAL_CONNECTION_DURATION,
+    DEFAULT_TIME_RANGE,
     DEFAULT_PROMO_FLAG_NG,
     DEFAULT_PROMO_RBD_NG,
     DEFAULT_PROMO_FIRST_RBD_NG,
-    DEFAULT_PROMO_RATIO_NG
+    DEFAULT_PROMO_RATIO_NG,
+    DEFAULT_PMIN_THRESHOLD_FACTOR_NG
 )
 
 logger = logging.getLogger(__name__)
@@ -201,10 +209,10 @@ class NextGenOptimizationEngine:
         capacity,
         current_bookings,
         buy_up_factor=0.0,
-        sigma_factor=0.25,
-        promo_ratio=0.80,
-        promo_threshold=95.0,
-        promo_flag=0,
+        sigma_factor=DEFAULT_STANDARD_DEVIATION_FACTOR,
+        promo_ratio=DEFAULT_PROMO_RATIO_NG,
+        promo_threshold=DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
+        promo_flag=DEFAULT_PROMO_FLAG_NG,
         pax_col='mu',
         std_col='sigma',
         fare_col='fare'
@@ -254,7 +262,7 @@ class NextGenOptimizationEngine:
             alpha = alpha / 100.0
         alpha = float(np.clip(alpha, 0.0, 0.99))
         buy_up_mult = 1.0 / (1.0 - alpha)
-        sig_fact = to_float(sigma_factor, 0.25)
+        sig_fact = to_float(sigma_factor, DEFAULT_STANDARD_DEVIATION_FACTOR)
 
         mu_bar_list = []
         sig_bar_list = []
@@ -328,12 +336,12 @@ class NextGenOptimizationEngine:
         cls,
         market_fares,
         flight_std=None,
-        time_range_hours=2.0,
+        time_range_hours=DEFAULT_TIME_RANGE,
         carrier_exclusion=None,
         connection_fare_flag=0,
         direct_duration_mins=None,
-        additional_connection_hours=4.0,
-        coverage_param=3.0
+        additional_connection_hours=DEFAULT_ADDITIONAL_CONNECTION_DURATION,
+        coverage_param=DEFAULT_COVERAGE_PARAMETER
     ):
         """
         Phase 2a: Dynamically filters competitor market fares for normal direct flights:
@@ -577,15 +585,15 @@ class NextGenOptimizationEngine:
         buy_up_factor=0.0,
         sigma_factor=0.25,
         first_rbd=20,
-        promo_ratio=0.80,
+        promo_ratio=DEFAULT_PROMO_RATIO_NG,
         backstop=None,
         hardanchor=None,
         promo_au=0,
-        promo_flag=0,
-        promo_first_rbd=10,
-        promo_threshold=95.0,
-        pmin_threshold_factor=0.1,
-        plf_threshold=95.0,
+        promo_flag=DEFAULT_PROMO_FLAG_NG,
+        promo_first_rbd=DEFAULT_PROMO_FIRST_RBD_NG,
+        promo_threshold=DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
+        pmin_threshold_factor=DEFAULT_PMIN_THRESHOLD_FACTOR_NG,
+        plf_threshold=DEFAULT_FORECAST_THRESHOLD_PROMO_AU,
         fare_col='fare',
         tax_helper=None,
         origin=None,
@@ -617,8 +625,8 @@ class NextGenOptimizationEngine:
         cb = to_float(current_bookings, 0.0)
         A = to_float(anchor_fare, 0.0)
         C = to_float(strategy_fare, A)
-        sig_fact = to_float(sigma_factor, 0.25)
-        first_rbd_seats = to_float(first_rbd, 20.0)
+        sig_fact = to_float(sigma_factor, DEFAULT_STANDARD_DEVIATION_FACTOR)
+        first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
 
         # Convert backstop and hardanchor to airline component
         b_val = to_float(backstop, None)
@@ -689,9 +697,9 @@ class NextGenOptimizationEngine:
                     open_idx = i
                     break
 
-            first_rbd_seats = to_float(first_rbd, 20.0)
+            first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
             if first_rbd_seats <= 0:
-                first_rbd_seats = 20.0
+                first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
             if open_idx is not None:
                 au_rev[open_idx] = min(au_rev[open_idx], float(cb + first_rbd_seats))
@@ -702,7 +710,7 @@ class NextGenOptimizationEngine:
                 h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
                 ha_idx = fares.index(h_ladder)
 
-                plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, 95.0)
+                plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
                 plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
                 plf_target = float(round(plf_pct * cap, 2))
                 plf_target = min(float(cap), max(0.0, plf_target))
@@ -756,7 +764,7 @@ class NextGenOptimizationEngine:
         # If it doesn't cross the threshold even at C then C itself will be Pmin_old.
         cum_mu = 0.0
         p_min_old = C_ladder
-        threshold = to_float(pmin_threshold_factor, 0.1) * float(cap)
+        threshold = to_float(pmin_threshold_factor, DEFAULT_PMIN_THRESHOLD_FACTOR_NG) * float(cap)
         for idx in range(a_idx, strat_idx - 1, -1):
             cum_mu += to_float(df['mu'].iloc[idx], 0.0)
             if cum_mu >= threshold:
@@ -891,9 +899,9 @@ class NextGenOptimizationEngine:
                 open_idx = i
                 break
 
-        first_rbd_seats = to_float(first_rbd, 20.0)
+        first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
         if first_rbd_seats <= 0:
-            first_rbd_seats = 20.0
+            first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
         if open_idx is not None:
             au_revised[open_idx] = min(au_revised[open_idx], float(cb + first_rbd_seats))
@@ -904,7 +912,7 @@ class NextGenOptimizationEngine:
             h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
             ha_idx = fares.index(h_ladder)
 
-            plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, 95.0)
+            plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
             plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
             plf_target = float(round(plf_pct * cap, 2))
             plf_target = min(float(cap), max(0.0, plf_target))
@@ -1161,10 +1169,19 @@ class NextGenOptimizationEngine:
                 })
             filed_levels = sorted(filed_levels, key=lambda x: x['fare'], reverse=True)
 
+        const_utils = getattr(db_helper, 'constants_utils', getattr(db_helper, 'constantsUtils', None))
+        first_rbd_const = getattr(const_utils, 'DEFAULT_FIRST_RBD_SEATS', getattr(const_utils, 'FIRST_RBD_SEATS', getattr(const_utils, 'FirstRBDAlloc', DEFAULT_FIRST_RBD_SEATS)))
+        promo_threshold_const = getattr(const_utils, 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU', DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
+        sigma_factor_const = getattr(const_utils, 'EMSR_SIGMA_FACTOR', getattr(const_utils, 'DEFAULT_STANDARD_DEVIATION_FACTOR', DEFAULT_STANDARD_DEVIATION_FACTOR))
+        time_range_const = getattr(const_utils, 'DEFAULT_TIME_RANGE', DEFAULT_TIME_RANGE)
+        cov_param_const = getattr(const_utils, 'COVERAGE_PARAMETER', getattr(const_utils, 'DEFAULT_COVERAGE_PARAMETER', DEFAULT_COVERAGE_PARAMETER))
+        add_conn_dur_const = getattr(const_utils, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', DEFAULT_ADDITIONAL_CONNECTION_DURATION)
+        pmin_thresh_const = getattr(const_utils, 'PMIN_THRESHOLD_FACTOR_NG', getattr(const_utils, 'pmin_threshold_factor_NG', DEFAULT_PMIN_THRESHOLD_FACTOR_NG))
+
         raw_buy_up = to_float(_get_val(curr_params, 'buy_up_factor_NG', 'buy_up_factor', default=0.0), 0.0)
         buy_up = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
         comp_flag = 1 if is_flag_enabled(_get_val(curr_params, 'competition_response_flag_NG', 'competition_response_flag', default=0)) else 0
-        time_range = to_float(_get_val(curr_params, 'time_range', default=2.0), 2.0)
+        time_range = to_float(_get_val(curr_params, 'time_range', default=time_range_const), to_float(time_range_const, DEFAULT_TIME_RANGE))
         carr_excl = _get_val(curr_params, 'carr_exclusion_b2c', 'CarrExlusionB2C', 'carrier_exclusion', default=None)
         grid_name = str(_get_val(curr_params, 'CompetitionResponseGrid_NG', 'grid_name', default='DEFAULT')).strip() or 'DEFAULT'
         # In NextGen, use raw B2C backstop from Market List directly (do not use autobackstop / b2c_backstop_final)
@@ -1175,13 +1192,12 @@ class NextGenOptimizationEngine:
 
         hardanchor = None
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
-        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', 'FirstRBDAlloc', 'first_rbd_NG', 'first_rbd', 'FirstRBD_NG', default=20), 20.0)
+        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', 'FirstRBDAlloc', 'first_rbd_NG', 'first_rbd', 'FirstRBD_NG', default=first_rbd_const), to_float(first_rbd_const, DEFAULT_FIRST_RBD_SEATS))
         if first_rbd <= 0:
-            first_rbd = 20.0
-        promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
-        sigma_factor = to_float(_get_val(curr_params, 'sigma_factor', default=0.25), 0.25)
+            first_rbd = float(DEFAULT_FIRST_RBD_SEATS)
+        promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=promo_threshold_const), to_float(promo_threshold_const, DEFAULT_FORECAST_THRESHOLD_PROMO_AU))
+        sigma_factor = to_float(_get_val(curr_params, 'sigma_factor', default=sigma_factor_const), to_float(sigma_factor_const, DEFAULT_STANDARD_DEVIATION_FACTOR))
         # Promo inventory parameters: PromoFlag_NG from Market List; others come from constants (ConstantsUtils / DB / Constants.py)
-        const_utils = getattr(db_helper, 'constants_utils', getattr(db_helper, 'constantsUtils', None))
         promo_ratio_const = getattr(const_utils, 'PROMO_RATIO_NG', getattr(const_utils, 'PromoRatio_NG', DEFAULT_PROMO_RATIO_NG))
         promo_rbd_const = str(getattr(const_utils, 'PROMO_RBD_NG', getattr(const_utils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip() or DEFAULT_PROMO_RBD_NG
         promo_first_rbd_const = getattr(const_utils, 'PROMO_FIRST_RBD_NG', getattr(const_utils, 'PromoFirstRBD_NG', DEFAULT_PROMO_FIRST_RBD_NG))
@@ -1190,7 +1206,7 @@ class NextGenOptimizationEngine:
         promo_ratio = to_float(_get_val(curr_params, 'promo_ratio_NG', 'promo_ratio', 'PromoRatio_NG', 'promo_fare_factor', default=promo_ratio_const), to_float(promo_ratio_const, DEFAULT_PROMO_RATIO_NG))
         promo_rbd = str(_get_val(curr_params, 'promo_rbd_NG', 'promo_rbd', 'PromoRBD_NG', default=promo_rbd_const)).strip() or promo_rbd_const
         promo_first_rbd = to_float(_get_val(curr_params, 'promo_first_rbd_NG', 'promo_first_rbd', 'PromoFirstRBD_NG', default=promo_first_rbd_const), to_float(promo_first_rbd_const, DEFAULT_PROMO_FIRST_RBD_NG))
-        cov_param = to_float(_get_val(curr_params, 'coverage_parameter', default=3.0), 3.0)
+        cov_param = to_float(_get_val(curr_params, 'coverage_parameter', default=cov_param_const), to_float(cov_param_const, DEFAULT_COVERAGE_PARAMETER))
 
         cap_val = to_int(capacity, 189)
         if cap_val <= 0:
@@ -1210,7 +1226,7 @@ class NextGenOptimizationEngine:
 
         # Step 2: Competition Response & Strategy Fare
         conn_fare_flag = 1 if is_flag_enabled(_get_val(curr_params, 'connection_fare_flag_NG', 'connection_fare_flag', default=0)) else 0
-        add_conn_dur = to_float(_get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=4.0), 4.0)
+        add_conn_dur = to_float(_get_val(curr_params, 'additional_connection_duration_NG', 'additional_connection_duration', default=add_conn_dur_const), to_float(add_conn_dur_const, DEFAULT_ADDITIONAL_CONNECTION_DURATION))
         dir_dur = getattr(curr_params, 'flight_duration', getattr(curr_params, 'outbound_duration', None)) if curr_params else None
 
         # Apply Competitor Fare Recalibration per airline before filtering
@@ -1433,9 +1449,9 @@ class NextGenOptimizationEngine:
                     open_idx = i
                     break
 
-            first_rbd_seats = to_float(first_rbd, 20.0)
+            first_rbd_seats = to_float(first_rbd, DEFAULT_FIRST_RBD_SEATS)
             if first_rbd_seats <= 0:
-                first_rbd_seats = 20.0
+                first_rbd_seats = float(DEFAULT_FIRST_RBD_SEATS)
 
             if open_idx is not None:
                 au_rev[open_idx] = min(au_rev[open_idx], float(cb_val + first_rbd_seats))
@@ -1452,7 +1468,7 @@ class NextGenOptimizationEngine:
                 h_ladder = lower_candidates[0] if lower_candidates else fares_init[-1]
                 ha_idx = fares_init.index(h_ladder)
 
-                plf_th = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
+                plf_th = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=promo_threshold_const), to_float(promo_threshold_const, DEFAULT_FORECAST_THRESHOLD_PROMO_AU))
                 plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
                 plf_target = float(round(plf_pct * cap_val, 2))
                 plf_target = min(float(cap_val), max(0.0, plf_target))
@@ -1563,8 +1579,8 @@ class NextGenOptimizationEngine:
             response_fare = max(rule_calc_resp, chosen_tolerance_fare)
             strategy_fare = cls.determine_strategy_fare(response_fare, init_df)
 
-            pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=0.1), 0.1)
-            plf_thresh = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
+            pmin_thresh_factor = to_float(_get_val(curr_params, 'pmin_threshold_factor_NG', 'pmin_threshold_factor', default=pmin_thresh_const), to_float(pmin_thresh_const, DEFAULT_PMIN_THRESHOLD_FACTOR_NG))
+            plf_thresh = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=promo_threshold_const), to_float(promo_threshold_const, DEFAULT_FORECAST_THRESHOLD_PROMO_AU))
 
             redistrib_df = cls.redistribute_demand_and_compute_revised_au(
                 init_df, anchor_fare, strategy_fare, cap_val, cb_val,

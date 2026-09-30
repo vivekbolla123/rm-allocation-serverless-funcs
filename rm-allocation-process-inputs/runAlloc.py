@@ -1658,7 +1658,7 @@ class DynAlloc:
 					if is_flag_enabled(getattr(self.currParams, 'connection_fare_flag_NG', getattr(self.currParams, 'connection_fare_flag', 0))):
 						try:
 							max_stops = 1
-							add_dur = to_float(getattr(self.currParams, 'additional_connection_duration_NG', getattr(self.currParams, 'additional_connection_duration', 4.0)), 4.0)
+							add_dur = to_float(getattr(self.currParams, 'additional_connection_duration_NG', getattr(self.currParams, 'additional_connection_duration', DEFAULT_ADDITIONAL_CONNECTION_DURATION)), DEFAULT_ADDITIONAL_CONNECTION_DURATION)
 							mkt_conn = self.rmdatabasehelper.getMarketFareRangeConnections(
 								B2C_CHANNEL, self.currParams, dateFormatted_yyyymmdd, max_stops, add_dur
 							)
