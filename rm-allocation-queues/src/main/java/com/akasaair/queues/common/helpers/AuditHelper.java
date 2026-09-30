@@ -875,80 +875,6 @@ public class AuditHelper {
         }
     }
 
-    /**
-     * Renames DataFrame columns from JavaBean property names (derived from the
-     * entity's Java field names) to the real MongoDB {@code @Column(name)} keys.
-     * <p>
-     * The audit entities extend the persistence entities (MarketListEntity /
-     * MarketListConnectionsEntity), whose Java field names often differ from
-     * their {@code @Column(name)} MongoDB keys (e.g. {@code OBFare} → {@code obFare},
-     * {@code flightNo} → {@code FlightNumber}). {@code Encoders.bean} names the
-     * columns after the bean properties, so without this step the Parquet schema
-     * carries Java-side names that don't match the {@code market_list} collection.
-     * <p>
-     * This derives the mapping dynamically from each field's {@code @Column}
-     * annotation, so newly added fields need no manual mapping here or in any
-     * downstream consumer. Audit-only fields (no {@code @Column}: sector, date,
-     * userName, changedAt, newRecord, flightNo) are left untouched. Each rename is
-     * guarded so a missing or already-correct column is skipped rather than failing.
-     *
-     * @param df          the DataFrame produced from the audit entities
-     * @param entityClass the audit entity class (fields inherited from the base
-     *                    persistence entity carry the {@code @Column} annotations)
-     * @return the DataFrame with columns renamed to MongoDB {@code @Column(name)} keys
-     */
-    private Dataset<Row> renameColumnsToMongoKeys(Dataset<Row> df, Class<?> entityClass) {
-        Set<String> existingColumns = new java.util.HashSet<>(java.util.Arrays.asList(df.columns()));
-
-        for (Field field : FieldUtils.getAllFields(entityClass)) {
-            Column column = field.getAnnotation(Column.class);
-            if (column == null) {
-                continue; // audit-only field (no @Column) — leave as-is
-            }
-
-            // Encoders.bean names columns after the JavaBean PROPERTY, which the
-            // introspector derives from the getter (Introspector.decapitalize of
-            // the field name in the common case, e.g. Marketfare_Upsell ->
-            // marketfare_Upsell, but OBFare stays OBFare). Resolve the actual
-            // DataFrame column name against the schema rather than assuming it
-            // equals the raw field name.
-            String mongoColumn = column.name();        // real market_list key
-            String beanColumn = resolveBeanColumn(field.getName(), existingColumns);
-
-            // Skip if unresolved, unchanged, or if the target name already exists
-            // (avoids accidental column collisions).
-            if (beanColumn == null
-                    || beanColumn.equals(mongoColumn)
-                    || existingColumns.contains(mongoColumn)) {
-                continue;
-            }
-
-            df = df.withColumnRenamed(beanColumn, mongoColumn);
-            existingColumns.remove(beanColumn);
-            existingColumns.add(mongoColumn);
-        }
-
-        return df;
-    }
-
-    /**
-     * Resolves the actual DataFrame column name for a given Java field name,
-     * accounting for the bean-property naming applied by {@code Encoders.bean}.
-     * Tries the raw field name first, then the JavaBean-decapitalized form
-     * ({@code Introspector.decapitalize}). Returns {@code null} if neither is
-     * present in the current schema.
-     */
-    private String resolveBeanColumn(String fieldName, Set<String> existingColumns) {
-        if (existingColumns.contains(fieldName)) {
-            return fieldName;
-        }
-        String decapitalized = java.beans.Introspector.decapitalize(fieldName);
-        if (existingColumns.contains(decapitalized)) {
-            return decapitalized;
-        }
-        return null;
-    }
-
     public <T> void appendAuditsToS3(List<T> changeMap, LocalDateTime currentDateTime, Class<T> entityClass) {
         if (changeMap == null || changeMap.isEmpty()) {
             log.info("No audits to upload");
@@ -971,12 +897,6 @@ public class AuditHelper {
                 log.info("Dataset created for write with {} rows", dataset.count());
 
                 Dataset<Row> df = dataset.toDF();
-
-                // Rename bean-property columns to the real MongoDB @Column(name) keys
-                // so the audit Parquet schema always matches the market_list field
-                // names, with no per-field mapping to maintain in downstream consumers.
-                df = renameColumnsToMongoKeys(df, entityClass);
-
                 df = df.withColumn("changedAtDate", functions.lit(currentDateTime.toLocalDate().toString()))
                         .coalesce(1);
 

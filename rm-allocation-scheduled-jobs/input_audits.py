@@ -10,6 +10,7 @@ import traceback
 import configsettings
 from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from Constants import ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD, ML_AUDIT_BOOLEAN_FLAG_COLUMNS
 
 class S3AuditProcessor:
     
@@ -347,6 +348,25 @@ class S3AuditProcessor:
         
         return True
 
+    def normalize_flag_value(self, col_name: str, value: str) -> str:
+        """Normalize boolean-flag values to the MongoDB representation (1/0).
+
+        ML audits (source=0) store these flags as 1/0 (raw Mongo value) while WB
+        audits (source=1) store them as Y/N (analyst CSV value). To keep
+        audit_reports consistent, convert Y/N -> 1/0 for the known flag columns.
+        `col_name` is expected to be the real market_list column name (i.e. after
+        the ML colName mapping is applied, which matches the native WB header).
+        Non-flag columns and already-numeric values pass through unchanged.
+        """
+        if col_name not in ML_AUDIT_BOOLEAN_FLAG_COLUMNS or value is None:
+            return value
+        v = value.strip()
+        if v.upper() == 'Y':
+            return '1'
+        if v.upper() == 'N':
+            return '0'
+        return value
+
     def process_ml_file(self, file_key: str) -> List[Dict]:
         """Process single ML parquet file - HANDLES CONNECTIONS and NEW RECORDS"""
         try:
@@ -359,7 +379,7 @@ class S3AuditProcessor:
             for _, row in df.iterrows():
                 # Get sector and flight info (could be connections like "619-1528")
                 sector = str(row.get('sector', ''))[:50].strip()
-                flight_no = str(row.get('flightNo', ''))[:50].strip()
+                flight_no = str(row.get('FlightNumber', ''))[:50].strip()
                 dept_date = str(row.get('date', ''))  # MM-DD-YYYY format
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100].strip()
@@ -389,7 +409,7 @@ class S3AuditProcessor:
                 
                 # Skip connection-specific metadata fields, newRecord flag, and explicit source
                 skip_columns = [
-                    'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName',
+                    'sector', 'flightNo', 'date', 'changedAt', 'userName', 'analystName', 'FlightNumber'
                     'sector1', 'sector2', 'flight1', 'flight2', 'newRecord', 'source'
                 ]
                 
@@ -400,6 +420,13 @@ class S3AuditProcessor:
                     if pd.isna(val):
                         continue
                     
+                    # ML audit Parquet columns use Java bean field names, which
+                    # can differ from the real market_list Mongo field names.
+                    # Translate to the actual market_list field so colName is
+                    # meaningful; unmapped columns pass through unchanged.
+                    col_name = ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD.get(col, col)
+                    col_value = self.normalize_flag_value(col_name, str(val) if val is not None else '')
+                    
                     record = {
                         'sector': sector,
                         'flightNo': flight_no,
@@ -408,8 +435,8 @@ class S3AuditProcessor:
                         'changedAtDate': changed_at_date_int,
                         'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
-                        'colName': col,
-                        'value': str(val) if val is not None else ''
+                        'colName': col_name,
+                        'value': col_value
                     }
                     
                     # Validate before adding
@@ -485,6 +512,11 @@ class S3AuditProcessor:
                     if pd.isna(val):
                         continue
                     
+                    # WB audits store boolean flags as Y/N; normalize to the
+                    # MongoDB 1/0 representation so WB and ML audits agree.
+                    # WB CSV headers already use the market_list column names.
+                    col_value = self.normalize_flag_value(col, str(val) if val is not None else '')
+                    
                     record = {
                         'sector': csv_sector,
                         'flightNo': csv_flight,
@@ -494,7 +526,7 @@ class S3AuditProcessor:
                         'changedAtTime': changed_at_time_int,
                         'analystName': analyst,
                         'colName': col,
-                        'value': str(val) if val is not None else ''
+                        'value': col_value
                     }
                     
                     # Validate before adding
