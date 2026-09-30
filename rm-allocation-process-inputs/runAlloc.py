@@ -1541,6 +1541,11 @@ class DynAlloc:
 
 			# --- NextGen AU Optimization & Competition Response Execution ---
 			try:
+				# Determine if this is a local test run (same logic as runDynamicAllocationForMarket)
+				is_local_test = (
+					self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA
+					or self.inputSource.input_source.get(CONST_BOOKLOAD) == TEST_DATA
+				)
 				B2CRBDs_ladder = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
 				if not B2CRBDs_ladder.empty:
 					# Read exact per-bucket (mu, sigma) from DW/MongoDB table
@@ -1611,22 +1616,28 @@ class DynAlloc:
 							})
 					ladder_df = pd.DataFrame(ladder_data).sort_values('fare', ascending=False).reset_index(drop=True)
 
-					# Sourcing STD, capacity, bookings directly from weighted file if available
+					# STD (departure time) is always sourced from the weighted file if available,
+					# since it is not provided by Navitaire.
+					# currBookedLoad and Capacity are ONLY overridden from the weighted file for
+					# local test cases — in UAT/prod they must come from the live Navitaire feed.
 					flight_std_val = getattr(state, 'currFltTime', None)
 					if s3_bucket_df is not None and not s3_bucket_df.empty:
-						cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in s3_bucket_df.columns), None)
-						if cb_col and pd.notna(s3_bucket_df[cb_col].iloc[0]):
-							try:
-								currBookedLoad = to_float(s3_bucket_df[cb_col].iloc[0], currBookedLoad)
-							except (ValueError, TypeError):
-								pass
-						if 'Capacity' in s3_bucket_df.columns and pd.notna(s3_bucket_df['Capacity'].iloc[0]):
-							try:
-								final_totalCapacity = to_float(s3_bucket_df['Capacity'].iloc[0], final_totalCapacity)
-							except (ValueError, TypeError):
-								pass
+						# Always pick up STD from the weighted forecast file
 						if 'STD' in s3_bucket_df.columns and pd.notna(s3_bucket_df['STD'].iloc[0]):
 							flight_std_val = str(s3_bucket_df['STD'].iloc[0])[:5]
+						# Only override bookload and capacity from weighted file for local test runs
+						if is_local_test:
+							cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in s3_bucket_df.columns), None)
+							if cb_col and pd.notna(s3_bucket_df[cb_col].iloc[0]):
+								try:
+									currBookedLoad = to_float(s3_bucket_df[cb_col].iloc[0], currBookedLoad)
+								except (ValueError, TypeError):
+									pass
+							if 'Capacity' in s3_bucket_df.columns and pd.notna(s3_bucket_df['Capacity'].iloc[0]):
+								try:
+									final_totalCapacity = to_float(s3_bucket_df['Capacity'].iloc[0], final_totalCapacity)
+								except (ValueError, TypeError):
+									pass
 
 					# Sourced exclusively from market fares service / database
 					mkt_fares = None
