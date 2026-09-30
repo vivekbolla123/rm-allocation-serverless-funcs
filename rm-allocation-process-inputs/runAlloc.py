@@ -1978,8 +1978,8 @@ class DynAlloc:
 						except Exception as inv_err:
 							self.logger.error(f"Error inserting inventory optimization rows: {inv_err}")
 
-					# If nextgen_flag == 1, update AU values ONLY for B2C RBDs in currRec_fullalloc
-					if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) and not ng_opt_df.empty:
+					# Compute NextGen AU mapping for B2C RBDs regardless of nextgen_flag
+					if not ng_opt_df.empty:
 						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
 						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
 						filed_51_au_map = ng_summary.get('filed_51_au_mapping') or {}
@@ -1990,14 +1990,17 @@ class DynAlloc:
 						promo_au_revised = to_float(promo_rows['AU_Revised'].iloc[0], 0.0) if not promo_rows.empty else 0.0
 						target_open_fare = to_float(ng_summary.get('NG_Opening_fare', ng_summary.get('Anchor_fare', 0.0)), 0.0)
 						curr_booked_load_f = to_float(currBookedLoad, 0.0)
+						is_nextgen_alloc_enabled = is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0)))
+
+						nextgen_rbd_details = []
+						nextgen_au_classes = {}
+						nextgen_au_dict = {}
 
 						for slot_i in range(1, int(self.AU_COLUMN_LENGTH) + 1):
 							cos = getattr(currRec_fullalloc, f"class_of_service_{slot_i}", None)
 							c_type = getattr(currRec_fullalloc, f"class_type_{slot_i}", None)
 
-							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
-							if promo_flag == 1 and cos == promo_rbd:
-								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', int(round(promo_au_revised)))
+							if not cos:
 								continue
 
 							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
@@ -2005,15 +2008,23 @@ class DynAlloc:
 							if not is_b2c:
 								continue
 
-							assigned_au = 0.0
-							if filed_51_au_map and cos in filed_51_au_map:
-								assigned_au = to_float(filed_51_au_map[cos], 0.0)
-							elif cos in rbd_to_au:
-								assigned_au = to_float(rbd_to_au[cos], 0.0)
-							elif cos and not B2CRBDs_ladder.empty:
+							rbd_fare = 0.0
+							rbd_match = pd.DataFrame()
+							if not B2CRBDs_ladder.empty:
 								rbd_match = B2CRBDs_ladder[B2CRBDs_ladder['RBD'] == cos]
 								if not rbd_match.empty:
 									rbd_fare = to_float(rbd_match.iloc[0].get('TOTAL', rbd_match.iloc[0].get('Total', 0.0)), 0.0)
+
+							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
+							if promo_flag == 1 and cos == promo_rbd:
+								rounded_au = int(round(promo_au_revised))
+							else:
+								assigned_au = 0.0
+								if filed_51_au_map and cos in filed_51_au_map:
+									assigned_au = to_float(filed_51_au_map[cos], 0.0)
+								elif cos in rbd_to_au:
+									assigned_au = to_float(rbd_to_au[cos], 0.0)
+								elif cos and not B2CRBDs_ladder.empty and not rbd_match.empty:
 									if target_open_fare > 0 and rbd_fare < (target_open_fare - 1e-4):
 										assigned_au = 0.0
 									else:
@@ -2022,12 +2033,43 @@ class DynAlloc:
 												assigned_au = b['au']
 												break
 
-							# Round off final AUs only for AU grid
-							rounded_au = int(round(assigned_au))
-							if rounded_au > 0 and rounded_au <= curr_booked_load_f:
-								rounded_au = 0
+								# Round off final AUs only for AU grid
+								rounded_au = int(round(assigned_au))
+								if rounded_au > 0 and rounded_au <= curr_booked_load_f:
+									rounded_au = 0
 
-							currRec_fullalloc.set_class_attribute(slot_i, 'class_au', rounded_au)
+							nextgen_au_dict[cos] = rounded_au
+							nextgen_rbd_details.append({
+								"rbd": cos,
+								"fare": rbd_fare,
+								"au": rounded_au
+							})
+							nextgen_au_classes[cos] = {
+								"classOfService": cos,
+								"classType": c_type or "B2C",
+								"classAU": rounded_au,
+								"fare": rbd_fare
+							}
+
+							# If nextgen_flag == 1, update AU values ONLY for B2C RBDs in currRec_fullalloc for Navitaire
+							if is_nextgen_alloc_enabled:
+								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', rounded_au)
+
+						# Insert NextGen AU to navitaire_allocation_audit collection regardless of flag (reference only)
+						try:
+							flight_str = f"QP{self.currParams.flight_number} {self.currParams.origin}{self.currParams.destin}"
+							self.rmdatabasehelper.insertNavitaireAllocationAuditNextGen(
+								run_id=self.runId,
+								flight=flight_str,
+								flight_number=str(self.currParams.flight_number),
+								sector=f"{self.currParams.origin}{self.currParams.destin}",
+								departure_date=dateFormatted_yyyymmdd,
+								rbd_details=nextgen_rbd_details,
+								au_classes=nextgen_au_classes,
+								au_result=nextgen_au_dict
+							)
+						except Exception as nav_audit_err:
+							self.logger.error(f"Error inserting NextGen AU audit: {nav_audit_err}")
 			except Exception as e:
 				self.logger.error(f"Error in NextGen AU Optimization: {e}")
 

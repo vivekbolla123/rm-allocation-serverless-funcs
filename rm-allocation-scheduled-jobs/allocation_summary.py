@@ -88,6 +88,11 @@ class AllocationSummaryReport:
                     # OPTIMIZATION: Only fetch necessary fields from lookup
                     "pipeline": [
                         {
+                            "$match": {
+                                "type": {"$ne": "nextgen_au"}
+                            }
+                        },
+                        {
                             "$project": {
                                 "run_id": 1,
                                 "end_time": 1,

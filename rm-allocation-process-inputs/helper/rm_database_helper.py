@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, date
+from uuid import uuid4
 import json
 import pandas as pd
 import pytz
@@ -968,6 +969,46 @@ class RMDatabaseHelper:
                     self.db.inventory_optimization.insert_many(docs)
             except Exception as e:
                 self.logger.error(f"Error inserting inventory_optimization: {e}")
+
+    def insertNavitaireAllocationAuditNextGen(self, run_id, flight, flight_number, sector, departure_date, rbd_details, au_classes=None, au_result=None):
+        """Inserts NextGen AU details into navitaire_allocation_audit collection regardless of nextgen flag."""
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                now = datetime.now()
+                request_doc = {
+                    "runId": run_id,
+                    "type": "nextgen_au",
+                    "flight": flight,
+                    "startDate": departure_date,
+                    "endDate": departure_date,
+                    "sector": sector,
+                    "flightNumber": str(flight_number),
+                    "auClasses": au_classes or {}
+                }
+                document = {
+                    "_id": str(uuid4()),
+                    "run_id": run_id,
+                    "type": "nextgen_au",
+                    "source": "nextgen_au",
+                    "newgnwua": True,
+                    "flight": flight,
+                    "flight_number": str(flight_number),
+                    "sector": sector,
+                    "departure_date": departure_date,
+                    "start_time": now,
+                    "end_time": now,
+                    "request": json.dumps(request_doc),
+                    "result": json.dumps(au_result or {}),
+                    "rbds": rbd_details or [],
+                    "failures": 0,
+                    "totalApiCalls": 0
+                }
+                if hasattr(self.db, 'navitaire_allocation_audit'):
+                    self.db.navitaire_allocation_audit.insert_one(document)
+                elif hasattr(self.db, '__getitem__'):
+                    self.db['navitaire_allocation_audit'].insert_one(document)
+            except Exception as e:
+                self.logger.error(f"Error inserting nextgen_au to navitaire_allocation_audit: {e}")
 
     def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
         """Queries normalized competition response grid or returns None."""
