@@ -141,8 +141,12 @@ class DynAlloc:
 		self.wait_for_inputs()
 		bookedLoad = self.currParams.bookedPax
 
-		# Sourcing flight parameters (capacity, time, bookload, tagging) from weighted file if NextGen optimization is enabled
-		if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))):
+		# Sourcing flight parameters (capacity, time, bookload, tagging) from weighted file ONLY for local test cases
+		is_local_test = (
+			self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA
+			or self.inputSource.input_source.get(CONST_BOOKLOAD) == TEST_DATA
+		)
+		if is_local_test and is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))):
 			try:
 				fc_df = self.rmdatabasehelper.get_additive_fare_bucket_forecast(
 					sector=f"{self.currParams.origin}{self.currParams.destin}",
