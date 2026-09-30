@@ -902,11 +902,11 @@ from the **higher** bucket — the cheapest bucket gains, the top loses, still s
 
 ### Inventory Optimization (EMSR-b)
 
-**Purpose:** Calculate protection limits and authorization levels (AU) for each fare class using Expected Marginal Seat Revenue (EMSR-b) methodology, add Promo Fare (W RBD) at 80% of lowest filed fare, and determine Opening Fare without considering promo inventory.
+**Purpose:** Calculate protection limits and authorization levels (AU) for each fare class using Expected Marginal Seat Revenue (EMSR-b) methodology.
 
 **Process (per flight, fare classes sorted highest fare → lowest):**
 
-For fare class `j` (where class 1 is highest fare, up to class `n` lowest filed fare):
+For fare class `j` (where class 1 is highest fare):
 
 1. **Aggregated mean demand:**
    ```
@@ -915,7 +915,7 @@ For fare class `j` (where class 1 is highest fare, up to class `n` lowest filed 
 
 2. **Aggregated standard deviation:**
    ```
-   σ_bar = min(sqrt(σ_1² + σ_2² + ... + σ_j²), Factor × μ_bar)   (default Factor = 0.25)
+   σ_bar = sqrt(σ_1² + σ_2² + ... + σ_j²)
    ```
 
 3. **Weighted average fare for aggregated class:**
@@ -923,50 +923,37 @@ For fare class `j` (where class 1 is highest fare, up to class `n` lowest filed 
    F_j = Σ(μ_i × fare_midpoint_i) / μ_bar
    ```
 
-4. **Next lower fare:**
-   - For `j < n`: `f_{j+1}` is the midpoint of next lower filed class `j+1`.
-   - For `j = n` (lowest filed class): `f_{n+1} = f_promo = 0.80 × f_n`.
-
-5. **Probability:**
+4. **Probability:**
    ```
-   P_j = 1 - (f_{j+1} / F_j)
+   P_j = 1 - (f_{j+1} / F_j)    where f_{j+1} is the next lower fare
    ```
 
-6. **Z-score from inverse normal:**
+5. **Z-score from inverse normal:**
    ```
    z = Φ⁻¹(P_j)
    ```
 
-7. **Protection limit:**
+6. **Protection limit:**
    ```
-   y_j = min(Capacity, max(0, ⌈μ_bar + z × σ_bar⌉))
-   ```
-
-8. **Authorization (AU):**
-   ```
-   AU_1 = Capacity                          (highest class)
-   AU_j = max(0, Capacity - Protection_{j-1})    (class 2..n)
-   AU_promo = max(0, Capacity - Protection_n)    (Promo class n+1)
+   y_j = max(0, ⌈μ_bar + z × σ_bar⌉)
    ```
 
-9. **Promo Fare (W RBD):**
-   - Unfiled promo tier with fare midpoint `0.80 × f_n`, RBD `'W'`, `ProtectionLimit = 0`, and `AU = AU_promo`.
+7. **Authorization (AU):**
+   ```
+   AU_j = Capacity - Protection_{j-1}    (highest class: AU = Capacity)
+   ```
 
-10. **Opening Fare Determination:**
-   - Evaluates lowest filed fare class where `AU > Current_Bookings` without consideration of Promo inventory.
+**Example (Flight BOMDEL-1234, Capacity=189):**
 
-**Example (Flight BOMDEL-1234, Capacity=189, Current_Bookings=50):**
-
-| FareBucket | FareMidpoint | predicted_pax | predicted_std | ProtectionLimit | AU | OpeningFareBucket | IsOpeningFare | RBD |
-|------------|:------------:|:-------------:|:-------------:|:---------------:|:---:|:-----------------:|:-------------:|:---:|
-| 25088+ | 27597 | 2.1 | 1.0 | 2 | 189 | 1620-1911 | False | |
-| 21685-25088 | 23387 | 3.5 | 1.5 | 5 | 187 | 1620-1911 | False | |
-| 15000-21685 | 18343 | 5.2 | 2.0 | 11 | 184 | 1620-1911 | False | |
-| 8000-15000 | 11500 | 8.7 | 2.5 | 21 | 178 | 1620-1911 | False | |
-| 5000-8000 | 6500 | 12.5 | 3.2 | 36 | 168 | 1620-1911 | False | |
-| 3000-4000 | 3500 | 15.8 | 3.8 | 54 | 153 | 1620-1911 | False | |
-| 1620-1911 | 1766 | 18.2 | 4.1 | 73 | 135 | 1620-1911 | True | |
-| Promo | 1412.8 | 0.0 | 0.0 | 0 | 116 | 1620-1911 | False | W |
+| FareBasis | FareMidpoint | predicted_pax | predicted_std | ProtectionLimit | AU |
+|-----------|:-----------:|:-------------:|:------------:|:---------------:|:---:|
+| 25088+ | 27597 | 2.1 | 1.0 | 3 | 189 |
+| 21685-25088 | 23387 | 3.5 | 1.5 | 7 | 186 |
+| 15000-21685 | 18343 | 5.2 | 2.0 | 14 | 182 |
+| 8000-15000 | 11500 | 8.7 | 2.5 | 24 | 175 |
+| 5000-8000 | 6500 | 12.5 | 3.2 | 42 | 165 |
+| 3000-4000 | 3500 | 15.8 | 3.8 | 65 | 147 |
+| 1620-1911 | 1766 | 18.2 | 4.1 | 0 | 124 |
 
 ---
 

@@ -21,6 +21,3 @@ README.md
 testcases/
 additive_model_output/
 additive_model_cache/
-
-# Local test flow (never ships in the Lambda image)
-localtest/
