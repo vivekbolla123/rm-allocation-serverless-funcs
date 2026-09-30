@@ -202,7 +202,12 @@ class SchemaNextGen:
                 rawdata["FlightNumber"] = rawdata["FlightNumber"].astype(str)
 
         db = self.master_db if collectionName in self.MASTER_COLLECTIONS else (self.dw_db if use_dw else self.db)
-        self.dropCollection(collectionName, use_dw)
+        if collectionName == "comp_response_grid" and "grid_name" in rawdata.columns:
+            grid_names = [str(g).strip() for g in rawdata["grid_name"].dropna().unique() if str(g).strip()]
+            if grid_names:
+                db[collectionName].delete_many({"grid_name": {"$in": grid_names}})
+        else:
+            self.dropCollection(collectionName, use_dw)
         records = rawdata.to_dict('records')
 
         import json

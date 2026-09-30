@@ -1677,12 +1677,17 @@ class DynAlloc:
 							except (ValueError, TypeError):
 								pass
 					self.currParams.ndocounter = ndo_val
-					resolved_ha = getattr(self.outputSummaryRow_b2c, 'hardAnchorFare', None)
-					if resolved_ha in (None, '', 'NA', 'None', CONST_NA):
-						resolved_ha = getattr(state, 'hardfare_b2c', None)
-					if resolved_ha not in (None, '', 'NA', 'None', CONST_NA):
-						self.currParams.hard_anchor_fare = resolved_ha
-						self.currParams.hardAnchorFare = resolved_ha
+					raw_ha_ml = getattr(self.currParams, 'hardanchor', getattr(self.currParams, 'hardAnchor', getattr(self.currParams, 'price_cap', None)))
+					if raw_ha_ml not in (None, '', 'NA', 'None', CONST_NA):
+						resolved_ha = getattr(self.outputSummaryRow_b2c, 'hardAnchorFare', None)
+						if resolved_ha in (None, '', 'NA', 'None', CONST_NA):
+							resolved_ha = getattr(state, 'hardfare_b2c', None)
+						if resolved_ha not in (None, '', 'NA', 'None', CONST_NA):
+							self.currParams.hard_anchor_fare = resolved_ha
+							self.currParams.hardAnchorFare = resolved_ha
+					else:
+						self.currParams.hard_anchor_fare = None
+						self.currParams.hardAnchorFare = None
 					self.currParams.dep_date = dateFormatted_yyyymmdd
 					self.currParams.departure_date = dateFormatted_yyyymmdd
 					self.currParams.currFltDate = dateFormatted_yyyymmdd

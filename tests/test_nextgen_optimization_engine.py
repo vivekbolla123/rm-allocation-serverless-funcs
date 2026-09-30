@@ -738,10 +738,10 @@ class TestNextGenOptimizationEngine:
         )
         assert summary['buy_up_factor'] == 0.10
 
-    def test_evaluate_grid_response_with_threshold_factor(self):
+    def test_evaluate_grid_response_with_tolerance(self):
         """
         Verify that evaluate_grid_response correctly computes:
-        max(threshold_factor * C, rule_response)
+        max(tolerance * C, rule_response)
         """
         # A = 3000, C = 5000
         # Rule: Min (1.2A, 0.8C) -> 1.2*3000 = 3600, 0.8*5000 = 4000 -> Min is 3600
@@ -749,32 +749,32 @@ class TestNextGenOptimizationEngine:
         comp_min = 5000.0
         rule = "Min (1.2A, 0.8C)"
 
-        # Case 1: No threshold factor
-        res_no_tf = NextGenOptimizationEngine.evaluate_grid_response(rule, anchor_fare, comp_min)
-        assert res_no_tf == 3600.0
+        # Case 1: No tolerance
+        res_no_tol = NextGenOptimizationEngine.evaluate_grid_response(rule, anchor_fare, comp_min)
+        assert res_no_tol == 3600.0
 
-        # Case 2: Threshold factor = 0.85 -> 0.85 * 5000 = 4250 -> max(4250, 3600) = 4250
-        res_high_tf = NextGenOptimizationEngine.evaluate_grid_response(
-            rule, anchor_fare, comp_min, threshold_factor=0.85
+        # Case 2: Tolerance = 0.85 -> 0.85 * 5000 = 4250 -> max(4250, 3600) = 4250
+        res_high_tol = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, tolerance=0.85
         )
-        assert res_high_tf == 4250.0
+        assert res_high_tol == 4250.0
 
-        # Case 3: Threshold factor = 0.70 -> 0.70 * 5000 = 3500 -> max(3500, 3600) = 3600
-        res_low_tf = NextGenOptimizationEngine.evaluate_grid_response(
-            rule, anchor_fare, comp_min, threshold_factor=0.70
+        # Case 3: Tolerance = 0.70 -> 0.70 * 5000 = 3500 -> max(3500, 3600) = 3600
+        res_low_tol = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, tolerance=0.70
         )
-        assert res_low_tf == 3600.0
+        assert res_low_tol == 3600.0
 
         # Case 4: Percentage normalization (85 -> 0.85)
-        res_pct_tf = NextGenOptimizationEngine.evaluate_grid_response(
-            rule, anchor_fare, comp_min, threshold_factor=85.0
+        res_pct_tol = NextGenOptimizationEngine.evaluate_grid_response(
+            rule, anchor_fare, comp_min, tolerance=85.0
         )
-        assert res_pct_tf == 4250.0
+        assert res_pct_tol == 4250.0
 
-    def test_execute_flight_nextgen_optimization_with_threshold_factor(self, sample_flight_data):
+    def test_execute_flight_nextgen_optimization_with_tolerance(self, sample_flight_data):
         """
-        Verify that execute_flight_nextgen_optimization uses threshold_factor
-        from comp_response_plf_bands or curr_params to decide final strategy fare.
+        Verify that execute_flight_nextgen_optimization uses tolerance
+        from comp_response_grid or curr_params to decide final strategy fare.
         """
         capacity = 189
         cb = 50
@@ -786,37 +786,36 @@ class TestNextGenOptimizationEngine:
             {'carrier': 'AI', 'flight_duration': '2:00', 'departure_time': '10:30', 'outbound_stops': 0, 'gross_fare': 7000.0}
         ]
 
-        # Mock db_helper with PLF band having threshold_factor = 0.90
+        # Mock db_helper with Grid having tolerance = 0.90
         class MockDbHelper:
             class MockDb:
                 class MockColl:
                     def find_one(self, query):
-                        # Returns band with threshold_factor 0.90
-                        return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0, "threshold_factor": 0.90}
+                        return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0}
                 comp_response_plf_bands = MockColl()
 
                 class MockGridColl:
                     def find_one(self, query):
-                        return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min"}
+                        return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min", "tolerance": 0.90}
                 comp_response_grid = MockGridColl()
 
             db = MockDb()
 
             def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
-                return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min"}
+                return {"response_rule": "Min (1.2A, 0.7C)", "criteria": "Min", "tolerance": 0.90}
 
             def getCompResponsePlfBandDoc(self, plf):
-                return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0, "threshold_factor": 0.90}
+                return {"id": 1, "plf_band": 1, "start": 0.0, "end": 100.0}
 
             def getCompResponsePlfBand(self, plf):
                 return 1
 
         helper = MockDbHelper()
 
-        # Run with threshold_factor 0.90 from db_helper
+        # Run with tolerance 0.90 from db_helper
         # C = 6000. 0.90 * C = 5400.
         # Rule Min(1.2A, 0.7C) gives min(1.2*anchor, 4200) <= 4200.
-        # threshold_fare = 5400. Response fare = max(5400, <=4200) = 5400.
+        # tolerance_fare = 5400. Response fare = max(5400, <=4200) = 5400.
         # Strategy fare mapped to discrete ladder <= 5400 is 5252.0!
         res_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
             sample_flight_data, capacity, cb, oal_min,
@@ -833,6 +832,51 @@ class TestNextGenOptimizationEngine:
         # Output Strategy_fare shows the exact grid calculation output fare (5400.0)
         assert summary['Strategy_fare'] == 5400.0
         assert res_df['strategy_fare'].iloc[0] == 5400.0
+
+        # Check that 20-seat threshold is respected at the lowest open bucket
+        open_rows = res_df[res_df['AU_Revised'] > 0]
+        assert not open_rows.empty
+        lowest_open_au = open_rows['AU_Revised'].iloc[-1]
+        assert lowest_open_au == min(open_rows['AU_2'].iloc[-1], cb + 20.0)
+
+    def test_first_rbd_20_seat_threshold_and_hardanchor(self, sample_flight_data):
+        """
+        Verify that:
+        1. 20-seat threshold (cb + 20) is always enforced at opening bucket by default.
+        2. Hardanchor overrides the 20-seat threshold ONLY when explicitly configured
+           in curr_params and curr_plf < plf_threshold.
+        """
+        capacity = 189
+        cb = 50
+        # Case A: Without hardanchor -> 20-seat threshold strictly enforced
+        res_df, summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 200000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={'origin': 'BOM', 'destin': 'DEL'}
+        )
+        open_rows = res_df[res_df['AU_Revised'] > 0]
+        assert not open_rows.empty
+        lowest_open_au = open_rows['AU_Revised'].iloc[-1]
+        assert lowest_open_au <= (cb + 20.0)
+
+        # Case B: With hardanchor explicitly configured -> hardanchor elevates AU_Revised to plf_target
+        # Suppose hardanchor is set to 4000.0 (which is in the ladder)
+        res_df_ha, summary_ha = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+            sample_flight_data, capacity, cb, 200000.0,
+            market_fares=[],
+            flight_std='10:30',
+            curr_params={
+                'origin': 'BOM', 'destin': 'DEL',
+                'hardanchor': 4000.0,
+                'plfthreshold': 95.0,
+                'plftarget': 95.0
+            }
+        )
+        # Because curr_plf = 50/189 = 26.4% < 95%, hardanchor elevates AU_Revised for buckets >= 4000.0
+        # to target PLF = 0.95 * 189 = 179.55, which is > cb + 20 (70)
+        ha_rows = res_df_ha[res_df_ha['fare'] >= 4000.0]
+        assert (ha_rows['AU_Revised'] >= 179.0).any()
 
     def test_opening_fare_selected_from_response_fare_not_target_fc_fare(self, sample_flight_data):
         """

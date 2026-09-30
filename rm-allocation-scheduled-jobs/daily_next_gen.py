@@ -604,9 +604,9 @@ def get_plf_band(plf_pct, mongo_db=None):
         return 5
 
 
-def evaluate_grid_response(grid_rule_str, anchor_fare, comp_fare, comp_med_fare=None, threshold_factor=None, tolerance=None):
+def evaluate_grid_response(grid_rule_str, anchor_fare, comp_fare, comp_med_fare=None, tolerance=None, threshold_factor=None):
     """Evaluates grid response rule against anchor fare (A) and competitor fare (C/med).
-    Applies tolerance / threshold_factor floor if provided:
+    Applies tolerance floor if provided:
       rule_resp = max(thresh_fare, rule_resp)
     """
     A = float(anchor_fare or 0.0)
@@ -1127,7 +1127,8 @@ def compute_flight_inventory_ng(
     h_val = None
     curr_plf = (tot_bookings / cap * 100.0) if cap > 0 else 0.0
     plf_thresh = float(plf_threshold if plf_threshold is not None and pd.notna(plf_threshold) else 95.0)
-    if hardanchor is not None and pd.notna(hardanchor):
+    is_plf_below_thresh = (curr_plf < plf_thresh)
+    if is_plf_below_thresh and hardanchor is not None and pd.notna(hardanchor):
         try:
             h_float = float(hardanchor)
             if h_float > 0:
@@ -1162,7 +1163,6 @@ def compute_flight_inventory_ng(
             anchor_fare,
             comp_fare,
             comp_med_fare=c_med,
-            threshold_factor=None,
             tolerance=None
         )
 
@@ -1170,7 +1170,7 @@ def compute_flight_inventory_ng(
         c_for_thresh = c_med if (c_med is not None and re.search(r'\bmed\b', str(response_rule), re.IGNORECASE)) else comp_fare
         grid_tol = None
         if grid_doc:
-            grid_tol = grid_doc.get('tolerance', grid_doc.get('tolernace', grid_doc.get('threshold_factor')))
+            grid_tol = grid_doc.get('tolerance', grid_doc.get('tolernace'))
 
         grid_tol_fare = 0.0
         if grid_tol is not None and pd.notna(grid_tol) and str(grid_tol).strip().upper() not in ['', 'NA', 'NAN']:
@@ -1238,12 +1238,25 @@ def compute_flight_inventory_ng(
                 if au_2[m] < elevate_au:
                     au_2[m] = elevate_au
 
-        # 1. FirstRBD logic applied
+        # 1. FirstRBD logic applied at opening bucket
         au_revised = np.copy(au_2)
-        if first_rbd is not None and first_rbd > 0 and not np.isinf(first_rbd):
-            au_revised[a_idx] = min(au_revised[a_idx], tot_bookings + first_rbd)
         for j in range(a_idx + 1, k):
             au_revised[j] = 0.0
+
+        if b_val is not None and b_val > 0:
+            for i, f in enumerate(fare_arr):
+                if f < b_val:
+                    au_revised[i] = 0.0
+
+        open_idx = None
+        for i in range(k - 1, -1, -1):
+            if au_revised[i] > 0:
+                open_idx = i
+                break
+
+        f_rbd = float(first_rbd) if first_rbd is not None and not np.isinf(first_rbd) and float(first_rbd) > 0 else 20.0
+        if open_idx is not None:
+            au_revised[open_idx] = min(au_revised[open_idx], tot_bookings + f_rbd)
 
         # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
         if h_val is not None and h_val > 0:
@@ -1259,16 +1272,13 @@ def compute_flight_inventory_ng(
                 au_revised[ha_idx] = plf_target
 
             for i in range(ha_idx):
-                if au_revised[i] >= au_revised[ha_idx]:
-                    pass
-                else:
+                if au_revised[i] < au_revised[ha_idx]:
                     au_revised[i] = plf_target
 
-        # 3. Backstop floor: applied after Hardanchor logic
-        if b_val is not None and b_val > 0:
-            for i, f in enumerate(fare_arr):
-                if f < b_val:
-                    au_revised[i] = 0.0
+            if b_val is not None and b_val > 0:
+                for i, f in enumerate(fare_arr):
+                    if f < b_val:
+                        au_revised[i] = 0.0
 
         P_eq_vals = prob
         y_2_list = prot_lim
@@ -1369,12 +1379,25 @@ def compute_flight_inventory_ng(
                 if au_2[m] < elevate_au:
                     au_2[m] = elevate_au
 
-        # 1. FirstRBD logic applied
+        # 1. FirstRBD logic applied at opening bucket
         au_revised = np.copy(au_2)
-        if first_rbd is not None and first_rbd > 0 and not np.isinf(first_rbd):
-            au_revised[strat_idx] = min(au_revised[strat_idx], tot_bookings + first_rbd)
         for j in range(strat_idx + 1, k):
             au_revised[j] = 0.0
+
+        if b_val is not None and b_val > 0:
+            for i, f in enumerate(fare_arr):
+                if f < b_val:
+                    au_revised[i] = 0.0
+
+        open_idx = None
+        for i in range(k - 1, -1, -1):
+            if au_revised[i] > 0:
+                open_idx = i
+                break
+
+        f_rbd = float(first_rbd) if first_rbd is not None and not np.isinf(first_rbd) and float(first_rbd) > 0 else 20.0
+        if open_idx is not None:
+            au_revised[open_idx] = min(au_revised[open_idx], tot_bookings + f_rbd)
 
         # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
         if h_val is not None and h_val > 0:
@@ -1390,16 +1413,13 @@ def compute_flight_inventory_ng(
                 au_revised[ha_idx] = plf_target
 
             for i in range(ha_idx):
-                if au_revised[i] >= au_revised[ha_idx]:
-                    pass
-                else:
+                if au_revised[i] < au_revised[ha_idx]:
                     au_revised[i] = plf_target
 
-        # 3. Backstop floor: applied after Hardanchor logic
-        if b_val is not None and b_val > 0:
-            for i, f in enumerate(fare_arr):
-                if f < b_val:
-                    au_revised[i] = 0.0
+            if b_val is not None and b_val > 0:
+                for i, f in enumerate(fare_arr):
+                    if f < b_val:
+                        au_revised[i] = 0.0
 
         P_eq_vals = np.array(P_eq_list, dtype=float)
         y_promo_comp = y_2_list[-1] if len(y_2_list) > 0 else (prot_lim[-1] if k > 0 else 0.0)
@@ -1736,11 +1756,11 @@ def compute_inventory_ng_df(
         flight_excl = matched_cfg.get('flightExclusionB2C')
 
         # 8. FirstRBDAlloc
-        first_rbd_raw = matched_cfg.get('FirstRBDAlloc')
+        first_rbd_raw = matched_cfg.get('FirstRBDAlloc', matched_cfg.get('first_rbd_alloc', matched_cfg.get('first_rbd_NG', matched_cfg.get('first_rbd', matched_cfg.get('FirstRBD_NG')))))
         try:
             if first_rbd_raw is not None and pd.notna(first_rbd_raw):
                 f_rbd = float(first_rbd_raw)
-                first_rbd = f_rbd if f_rbd > 0 else float('inf')
+                first_rbd = f_rbd if f_rbd > 0 else 20.0
             else:
                 first_rbd = 20.0
         except (ValueError, TypeError):

@@ -18,7 +18,6 @@ public class CompetitionResponseValidator {
         public String bandName;
         public double start;
         public double end;
-        public double thresholdFactor = 0.0;
     }
 
     public static class ExtractedGridRow {
@@ -107,7 +106,6 @@ public class CompetitionResponseValidator {
         int startIdx = findHeaderIndex(headers, "start", "start_plf", "startplf");
         int endIdx = findHeaderIndex(headers, "end", "end_plf", "endplf");
         int idIdx = findHeaderIndex(headers, "id", "plf_band", "plfband");
-        int tfIdx = findHeaderIndex(headers, "threshold_factor", "thresholdfactor", "threshold_ratio", "threshold");
 
         if (bandNameIdx == -1 || startIdx == -1 || endIdx == -1) {
             List<String> missing = new ArrayList<>();
@@ -207,30 +205,12 @@ public class CompetitionResponseValidator {
                 }
             }
 
-            double tfVal = 0.0;
-            if (tfIdx != -1 && tfIdx < row.size()) {
-                String tfStr = row.get(tfIdx).trim();
-                if (!tfStr.isEmpty()) {
-                    try {
-                        tfVal = Double.parseDouble(tfStr);
-                        if (tfVal < 0) {
-                            errors.add(linePrefix + "Threshold factor must be non-negative, found '" + tfStr + "'.");
-                            hasRowLevelError = true;
-                        }
-                    } catch (NumberFormatException e) {
-                        errors.add(linePrefix + "Threshold factor must be a valid number, found '" + tfStr + "'.");
-                        hasRowLevelError = true;
-                    }
-                }
-            }
-
             if (startValid && endValid && startVal < endVal && !bandNameStr.isEmpty()) {
                 ExtractedPlfBandRow bandRow = new ExtractedPlfBandRow();
                 bandRow.lineNum = lineNum;
                 bandRow.bandName = bandNameStr;
                 bandRow.start = startVal;
                 bandRow.end = endVal;
-                bandRow.thresholdFactor = tfVal;
                 if (explicitId != null) {
                     bandRow.id = explicitId;
                     bandRow.plfBand = explicitId;
@@ -275,7 +255,6 @@ public class CompetitionResponseValidator {
         int startIdx = findHeaderIndex(headers, "start", "start_plf", "startplf");
         int endIdx = findHeaderIndex(headers, "end", "end_plf", "endplf");
         int idIdx = findHeaderIndex(headers, "id", "plf_band", "plfband");
-        int tfIdx = findHeaderIndex(headers, "threshold_factor", "thresholdfactor", "threshold_ratio", "threshold");
 
         boolean hasExplicitIds = true;
         for (int i = 1; i < csvData.size(); i++) {
@@ -297,13 +276,7 @@ public class CompetitionResponseValidator {
                 hasExplicitIds = false;
             }
 
-            if (tfIdx != -1 && tfIdx < row.size() && !row.get(tfIdx).trim().isEmpty()) {
-                try {
-                    r.thresholdFactor = Double.parseDouble(row.get(tfIdx).trim());
-                } catch (NumberFormatException e) {
-                    r.thresholdFactor = 0.0;
-                }
-            }
+
 
             result.add(r);
         }

@@ -101,9 +101,9 @@ class NextGenOptimizationEngine:
     @classmethod
     def get_plf_band_info(cls, plf_pct, db_helper=None):
         """
-        Dynamically determines the PLF band ID and threshold_factor for a given PLF percentage.
+        Dynamically determines the PLF band ID for a given PLF percentage.
         Queries comp_response_plf_bands via db_helper if available, or matches range.
-        Returns: (band_id, threshold_factor)
+        Returns: (band_id, None)
         """
         val = to_float(plf_pct, 0.0)
         if 0.0 < val <= 1.5:
@@ -124,18 +124,12 @@ class NextGenOptimizationEngine:
                 band_id = int(band_id) if band_id is not None else None
             except Exception:
                 pass
-            threshold_factor = to_float(band_doc.get("threshold_factor", 0.0), 0.0)
-            return band_id, threshold_factor
+            return band_id, None
 
         if db_helper and hasattr(db_helper, 'getCompResponsePlfBand'):
             band = db_helper.getCompResponsePlfBand(val)
             if band is not None:
-                tf = 0.0
-                if hasattr(db_helper, 'getCompResponsePlfBandById'):
-                    b_doc = db_helper.getCompResponsePlfBandById(band)
-                    if b_doc:
-                        tf = to_float(b_doc.get("threshold_factor", 0.0), 0.0)
-                return band, tf
+                return band, None
 
         # Standard range mapping fallback
         if val < 80.0:
@@ -151,7 +145,7 @@ class NextGenOptimizationEngine:
         else:
             b_id = 5
 
-        return b_id, 0.0
+        return b_id, None
 
     @classmethod
     def get_plf_band(cls, plf_pct, db_helper=None):
@@ -468,8 +462,8 @@ class NextGenOptimizationEngine:
         anchor_fare,
         comp_min_fare,
         comp_med_fare=None,
-        threshold_factor=None,
-        tolerance=None
+        tolerance=None,
+        threshold_factor=None
     ):
         """
         Phase 2b: Dynamically parses and evaluates ANY Competition Response Grid formula
@@ -477,7 +471,7 @@ class NextGenOptimizationEngine:
         Supports:
           - 'Min (1.2A, 0.8C)', 'Min (1.3A, 0.9C)', 'Min (1.5A, C)', 'Min (2A, C)', 'Min (xA, yC)'
           - 'Max (xA, yC)', 'C', '0.95C', 'A', '1.1A', etc.
-        Also applies tolerance / threshold_factor floor if provided:
+        Also applies tolerance floor if provided:
           final_response = max(thresh_fare, rule_result)
         """
         A = to_float(anchor_fare, 0.0)
@@ -679,7 +673,6 @@ class NextGenOptimizationEngine:
             df['AU_2'] = au_2_list
             
             au_rev = df['AU_2'].copy().tolist()
-            au_rev[anchor_idx] = min(au_rev[anchor_idx], cb + first_rbd_seats)
             for j in range(anchor_idx + 1, n):
                 au_rev[j] = 0.0
 
@@ -689,15 +682,42 @@ class NextGenOptimizationEngine:
                     if f < b_val:
                         au_rev[i] = 0.0
 
-            # Apply hardanchor cap: make AU equal to capacity starting from the nearest fare lower than or equal to hardanchor
+            # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
+            open_idx = None
+            for i in range(n - 1, -1, -1):
+                if au_rev[i] > 0:
+                    open_idx = i
+                    break
+
+            first_rbd_seats = to_float(first_rbd, 20.0)
+            if first_rbd_seats <= 0:
+                first_rbd_seats = 20.0
+
+            if open_idx is not None:
+                au_rev[open_idx] = min(au_rev[open_idx], float(cb + first_rbd_seats))
+
+            # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
             if h_val is not None and h_val > 0:
                 lower_candidates = [f for f in fares if f <= h_val]
                 h_ladder = lower_candidates[0] if lower_candidates else fares[-1]
-                for i, f in enumerate(fares):
-                    if f >= h_ladder:
-                        if b_val is not None and b_val > 0 and f < b_val:
-                            continue
-                        au_rev[i] = float(cap)
+                ha_idx = fares.index(h_ladder)
+
+                plf_th = to_float(plf_threshold if plf_threshold is not None else promo_threshold, 95.0)
+                plf_pct = (plf_th / 100.0) if plf_th > 1.5 else plf_th
+                plf_target = float(round(plf_pct * cap, 2))
+                plf_target = min(float(cap), max(0.0, plf_target))
+
+                if au_rev[ha_idx] < plf_target:
+                    au_rev[ha_idx] = plf_target
+
+                for i in range(ha_idx):
+                    if au_rev[i] < au_rev[ha_idx]:
+                        au_rev[i] = plf_target
+
+                if b_val is not None and b_val > 0:
+                    for i, f in enumerate(fares):
+                        if f < b_val:
+                            au_rev[i] = 0.0
 
             df['AU_Revised'] = au_rev
 
@@ -853,9 +873,30 @@ class NextGenOptimizationEngine:
 
         df['AU_2'] = au_2_list
 
-        # AU_revised: 1. FirstRBD logic applied
+        # AU_revised: 1. Close buckets below strat_idx
         au_revised = au_2_list.copy()
-        au_revised[strat_idx] = min(au_revised[strat_idx], float(cb + first_rbd_seats))
+        for j in range(strat_idx + 1, n):
+            au_revised[j] = 0.0
+
+        # Apply backstop floor
+        if b_val is not None and b_val > 0:
+            for i, f in enumerate(fares):
+                if f < b_val:
+                    au_revised[i] = 0.0
+
+        # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
+        open_idx = None
+        for i in range(n - 1, -1, -1):
+            if au_revised[i] > 0:
+                open_idx = i
+                break
+
+        first_rbd_seats = to_float(first_rbd, 20.0)
+        if first_rbd_seats <= 0:
+            first_rbd_seats = 20.0
+
+        if open_idx is not None:
+            au_revised[open_idx] = min(au_revised[open_idx], float(cb + first_rbd_seats))
 
         # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
         if h_val is not None and h_val > 0:
@@ -872,16 +913,13 @@ class NextGenOptimizationEngine:
                 au_revised[ha_idx] = plf_target
 
             for i in range(ha_idx):
-                if au_revised[i] >= au_revised[ha_idx]:
-                    pass
-                else:
+                if au_revised[i] < au_revised[ha_idx]:
                     au_revised[i] = plf_target
 
-        # 3. Backstop: applied after Hardanchor
-        if b_val is not None and b_val > 0:
-            for i, f in enumerate(fares):
-                if f < b_val:
-                    au_revised[i] = 0.0
+            if b_val is not None and b_val > 0:
+                for i, f in enumerate(fares):
+                    if f < b_val:
+                        au_revised[i] = 0.0
 
         df['AU_Revised'] = au_revised
 
@@ -1137,7 +1175,9 @@ class NextGenOptimizationEngine:
 
         hardanchor = None
         ndo = to_int(_get_val(curr_params, 'ndocounter', 'NDO', default=0), 0)
-        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', default=20), 20.0)
+        first_rbd = to_float(_get_val(curr_params, 'first_rbd_alloc', 'FirstRBDAlloc', 'first_rbd_NG', 'first_rbd', 'FirstRBD_NG', default=20), 20.0)
+        if first_rbd <= 0:
+            first_rbd = 20.0
         promo_threshold = to_float(_get_val(curr_params, 'plfthreshold', default=95.0), 95.0)
         sigma_factor = to_float(_get_val(curr_params, 'sigma_factor', default=0.25), 0.25)
         # Promo inventory parameters: PromoFlag_NG from Market List; others come from constants (ConstantsUtils / DB / Constants.py)
@@ -1266,17 +1306,22 @@ class NextGenOptimizationEngine:
                 c_med_allin = c_med_comp
 
         # Resolve hardanchor
-        # If hardanchor is non-numeric (e.g. 'MIN', 'MAX', 'MINO', 'MAXO', 'MED'), get its value from market fares
-        # like in runAlloc (getDynamicD2Value -> getMarketFareAnchorFare -> getValueWithOffset).
-        raw_ha = _get_val(curr_params, 'hard_anchor_fare', 'hardAnchorFare', 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+        # Only evaluate hardanchor if explicitly configured in Market List (hardanchor/price_cap)
+        # or passed via resolved hard_anchor_fare.
+        raw_ha = _get_val(curr_params, 'hardanchor', 'hardAnchor', 'price_cap', default=None)
+        if raw_ha in ('NA', 'NAN', 'NONE', 'None', '', None, CONST_NA):
+            raw_ha = None
+        explicit_ha = _get_val(curr_params, 'hard_anchor_fare', 'hardAnchorFare', default=None)
+        if explicit_ha in ('NA', 'NAN', 'NONE', 'None', '', None, CONST_NA):
+            explicit_ha = None
 
         plf_thresh = to_float(_get_val(curr_params, 'plfthreshold', 'plfThreshold', default=95.0), 95.0)
         curr_plf = (cb_val / cap_val) * 100.0 if cap_val > 0 else 0.0
         is_plf_below_thresh = (curr_plf < plf_thresh)
 
         hardanchor = None
-        if is_plf_below_thresh:
-            resolved_ha_num = to_float(_get_val(curr_params, 'hard_anchor_fare', 'hardAnchorFare', default=None), None)
+        if is_plf_below_thresh and (raw_ha is not None or explicit_ha is not None):
+            resolved_ha_num = to_float(explicit_ha, None)
             if resolved_ha_num is not None and resolved_ha_num > 0:
                 hardanchor = resolved_ha_num
             elif raw_ha is not None:
@@ -1325,7 +1370,6 @@ class NextGenOptimizationEngine:
         rule_applied = "N/A"
         strategy_fare = anchor_fare
         response_fare = anchor_fare
-        threshold_factor = 0.0
 
         # Rule: In cases where oal_b2c_min is less than anchor fare, or market fares not found:
         # we don't do AU recalculate and demand redistribution and make AUs below anchor fare 0.
@@ -1365,11 +1409,36 @@ class NextGenOptimizationEngine:
                     break
 
             au_rev = au_init.copy()
-            if first_rbd is not None and first_rbd > 0 and not np.isinf(first_rbd):
-                au_rev[anchor_idx] = min(au_rev[anchor_idx], float(cb_val + first_rbd))
             for j in range(anchor_idx + 1, len(fares_init)):
                 au_init[j] = 0.0
                 au_rev[j] = 0.0
+
+            # Apply backstop floor
+            bs_val = None
+            if backstop is not None and backstop > 0:
+                bs_val = backstop
+                if tax_helper and origin and destin:
+                    try:
+                        bs_val = tax_helper.allin_to_airline_component(float(backstop), origin, destin, route=route)
+                    except Exception:
+                        pass
+                for i, f in enumerate(fares_init):
+                    if f < bs_val:
+                        au_rev[i] = 0.0
+
+            # 1. FirstRBD logic (20-seat threshold) applied at opening bucket
+            open_idx = None
+            for i in range(len(fares_init) - 1, -1, -1):
+                if au_rev[i] > 0:
+                    open_idx = i
+                    break
+
+            first_rbd_seats = to_float(first_rbd, 20.0)
+            if first_rbd_seats <= 0:
+                first_rbd_seats = 20.0
+
+            if open_idx is not None:
+                au_rev[open_idx] = min(au_rev[open_idx], float(cb_val + first_rbd_seats))
 
             # 2. Hardanchor with PLF threshold: applied after FirstRBD logic
             if hardanchor is not None and hardanchor > 0:
@@ -1392,23 +1461,13 @@ class NextGenOptimizationEngine:
                     au_rev[ha_idx] = plf_target
 
                 for i in range(ha_idx):
-                    if au_rev[i] >= au_rev[ha_idx]:
-                        pass
-                    else:
+                    if au_rev[i] < au_rev[ha_idx]:
                         au_rev[i] = plf_target
 
-            # 3. Backstop: applied after Hardanchor
-            bs_val = None
-            if backstop is not None and backstop > 0:
-                bs_val = backstop
-                if tax_helper and origin and destin:
-                    try:
-                        bs_val = tax_helper.allin_to_airline_component(float(backstop), origin, destin, route=route)
-                    except Exception:
-                        pass
-                for i, f in enumerate(fares_init):
-                    if f < bs_val:
-                        au_rev[i] = 0.0
+                if bs_val is not None and bs_val > 0:
+                    for i, f in enumerate(fares_init):
+                        if f < bs_val:
+                            au_rev[i] = 0.0
 
             redistrib_df['AU_2'] = au_init
             redistrib_df['AU_Revised'] = au_rev
@@ -1434,11 +1493,7 @@ class NextGenOptimizationEngine:
             plf_pct = ((cb_val + pred_pickup_init) / float(cap_val)) * 100.0 if cap_val > 0 else 0.0
 
             ndo_band = cls.get_ndo_band(ndo, db_helper=db_helper)
-            plf_band, threshold_factor = cls.get_plf_band_info(plf_pct, db_helper=db_helper)
-
-            override_tf = _get_val(curr_params, 'threshold_factor_NG', 'threshold_factor', default=None)
-            if override_tf is not None:
-                threshold_factor = to_float(override_tf, threshold_factor)
+            plf_band = cls.get_plf_band(plf_pct, db_helper=db_helper)
 
             grid_doc = None
             if db_helper and hasattr(db_helper, 'getCompResponseGrid'):
@@ -1454,15 +1509,13 @@ class NextGenOptimizationEngine:
             # 1. Fare obtained from grid calculation
             rule_calc_resp = cls.evaluate_grid_response(
                 rule_applied, anchor_fare, c_min_comp, c_med_comp,
-                threshold_factor=None, tolerance=None
+                tolerance=None
             )
 
             # 2. Tolerance in the grid
             grid_tol = None
             if grid_doc:
-                grid_tol = grid_doc.get("tolerance", grid_doc.get("tolernace", grid_doc.get("threshold_factor")))
-            if grid_tol is None:
-                grid_tol = threshold_factor
+                grid_tol = grid_doc.get("tolerance", grid_doc.get("tolernace"))
 
             c_for_thresh = c_med_comp if (c_med_comp is not None and re.search(r'\bmed\b', str(rule_applied), re.IGNORECASE)) else c_min_comp
             grid_tol_fare = 0.0
@@ -1784,7 +1837,6 @@ class NextGenOptimizationEngine:
             'nextgen_flag': 1 if is_flag_enabled(_get_val(curr_params, 'nextgen_flag_NG', 'nextgen_flag', default=0)) else 0,
             'competition_response_flag': 1 if is_flag_enabled(comp_flag) else 0,
             'buy_up_factor': buy_up,
-            'threshold_factor': to_float(threshold_factor, 0.0),
             'opening_fare_airline_comp': to_float(opening_fare, 0.0),
             'strategy_fare_airline_comp': to_float(display_strategy_fare, 0.0),
             'anchor_fare_airline_comp': to_float(anchor_fare, 0.0),

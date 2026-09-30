@@ -24,6 +24,7 @@ import java.time.*;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
 import java.time.format.DateTimeFormatter;
+import java.util.regex.Pattern;
 
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -6745,7 +6746,11 @@ public class App implements CommandLineRunner {
 
             List<CompetitionResponseValidator.ExtractedGridRow> extracted = CompetitionResponseValidator.extractGridRows(csvData);
             List<Document> gridDocuments = new ArrayList<>();
+            Set<String> gridNamesToDrop = new HashSet<>();
             for (CompetitionResponseValidator.ExtractedGridRow r : extracted) {
+                if (r.gridName != null && !r.gridName.trim().isEmpty()) {
+                    gridNamesToDrop.add(r.gridName.trim());
+                }
                 Document doc = new Document();
                 doc.put("grid_name", r.gridName);
                 doc.put("ndo_band", r.ndoBand);
@@ -6761,7 +6766,16 @@ public class App implements CommandLineRunner {
 
             if (!gridDocuments.isEmpty()) {
                 MongoCollection<Document> collection = database.getCollection(tableName);
-                collection.deleteMany(new Document());
+                if (!gridNamesToDrop.isEmpty()) {
+                    List<Bson> deleteFilters = new ArrayList<>();
+                    for (String gn : gridNamesToDrop) {
+                        deleteFilters.add(regex("grid_name", "^" + Pattern.quote(gn) + "$", "i"));
+                    }
+                    Bson deleteFilter = deleteFilters.size() == 1 ? deleteFilters.get(0) : or(deleteFilters);
+                    DeleteResult deleteResult = collection.deleteMany(deleteFilter);
+                    log.info("Deleted {} existing records from {} matching grid_name(s): {}",
+                            deleteResult.getDeletedCount(), tableName, gridNamesToDrop);
+                }
                 collection.insertMany(gridDocuments);
             }
 
