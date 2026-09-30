@@ -3,12 +3,14 @@
  * Database: qp_dw_rmalloc
  *
  * Operations included:
- * 1. Collection creations for comp_response_grid, comp_response_plf_bands, comp_fare_recalibration, summary_nextgen, inventory_optimization
+ * 1. Collection creations for comp_response_grid, comp_response_plf_bands, comp_fare_recalibration, summary_nextgen, inventory_optimization, rm_parameter_values
  * 2. Seed data for comp_response_plf_bands (6 bands: <80% to 100+%)
- * 3. Seed data for comp_response_grid (48 DEFAULT grid rules)
+ * 3. Seed data for comp_response_grid (48 DEFAULT and DEFAULT_AU grid rules)
  * 4. Seed data for comp_fare_recalibration (default sector offsets)
  * 5. Update config_column_names for market_list (all 3 flavors) and all NextGen tables
  * 6. Update config_inputs for UI screen display and permissions
+ * 7. Update NextGen default values for all records in market_list, market_list_international, and market_list_adhoc_* (excluding collections containing 'connection')
+ * 8. Seed/Update rm_parameter_values with DEFAULT_MARKET_LIST including NextGen columns
  */
 
 db = db.getSiblingDB('qp_dw_rmalloc');
@@ -21,7 +23,8 @@ var collectionsToCreate = [
     'comp_response_plf_bands',
     'comp_fare_recalibration',
     'summary_nextgen',
-    'inventory_optimization'
+    'inventory_optimization',
+    'rm_parameter_values'
 ];
 
 collectionsToCreate.forEach(function (colName) {
@@ -59,76 +62,78 @@ if (db.comp_response_plf_bands.countDocuments({}) === 0) {
 }
 
 // ==========================================
-// 3. Seed comp_response_grid (48 DEFAULT combinations)
+// 3. Seed comp_response_grid (48 DEFAULT_AU + 48 DEFAULT = 96 rules)
 // ==========================================
-var defaultGridRules = [
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 0, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+var defaultAuGridRules = [
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 0, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 1, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 1, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 2, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 2, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 3, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 3, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 4, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.25A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 4, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 5, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 5, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.85C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 6, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.85C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 6, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 },
 
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 0, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.85C)", "tolerance": 0.7 },
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 1, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
-    { "grid_name": "DEFAULT", "ndo_band": 7, "plf_band": 5, "time_range": "TR", "criteria": "Med", "response_rule": "Min (3A, C)", "tolerance": 1.2 }
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 0, "time_range": "FR", "criteria": "Min", "response_rule": "Min (2A, 0.85C)", "tolerance": 0.7 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 1, "time_range": "ExTR", "criteria": "Min", "response_rule": "Min (2A, 0.9C)", "tolerance": 0.8 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 2, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, 0.95C)", "tolerance": 0.9 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 3, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2A, C)", "tolerance": 0.95 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 4, "time_range": "TR", "criteria": "Min", "response_rule": "Min (2.5A, C)", "tolerance": 1.0 },
+    { "grid_name": "DEFAULT_AU", "ndo_band": 7, "plf_band": 5, "time_range": "TR", "criteria": "Min", "response_rule": "Min (3A, 1.2C)", "tolerance": 1.0 }
 ];
 
-if (db.comp_response_grid.countDocuments({}) === 0) {
-    db.comp_response_grid.insertMany(defaultGridRules);
-    print("Seeded default rows for comp_response_grid");
-} else {
-    var plfToleranceMap = { 0: 0.7, 1: 0.8, 2: 0.9, 3: 0.95, 4: 1.0, 5: 1.2 };
-    db.comp_response_grid.find({ tolerance: { $exists: false } }).forEach(function(doc) {
-        var tol = (doc.threshold_factor !== undefined) ? doc.threshold_factor : (plfToleranceMap[doc.plf_band] !== undefined ? plfToleranceMap[doc.plf_band] : 1.0);
-        db.comp_response_grid.updateOne({ _id: doc._id }, { $set: { tolerance: tol }, $unset: { threshold_factor: "" } });
-    });
-}
+var defaultGridRules = defaultAuGridRules.map(function (r) {
+    var copy = Object.assign({}, r);
+    copy.grid_name = "DEFAULT";
+    copy.tolerance = 1.0;
+    return copy;
+});
+
+var allGridRules = defaultAuGridRules.concat(defaultGridRules);
+
+db.comp_response_grid.deleteMany({ "grid_name": { $in: ["DEFAULT", "DEFAULT_AU"] } });
+db.comp_response_grid.insertMany(allGridRules);
+print("Seeded 96 default rows for comp_response_grid (48 DEFAULT_AU and 48 DEFAULT)");
 
 // ==========================================
 // 4. Seed comp_fare_recalibration
@@ -228,3 +233,166 @@ db.config_inputs.insertMany([
 ]);
 
 print("Successfully configured NextGen tables in config_inputs and config_column_names.");
+
+// ==========================================
+// 7. Update NextGen Default Columns in Market List Collections
+// ==========================================
+var nextGenMarketListDefaults = {
+    "nextgen_flag_NG": 0,
+    "competition_response_flag_NG": 1,
+    "PromoFlag_NG": 0,
+    "connection_fare_flag_NG": 0,
+    "buy_up_factor_NG": 0,
+    "additional_connection_duration_NG": 0,
+    "CompetitionResponseGrid_NG": "DEFAULT_AU"
+};
+
+var allCollections = db.getCollectionNames();
+var targetMarketListCollections = ['market_list', 'market_list_international'];
+
+allCollections.forEach(function (colName) {
+    if (colName.startsWith('market_list_adhoc')) {
+        var lower = colName.toLowerCase();
+        if (!lower.includes('connection')) {
+            if (!targetMarketListCollections.includes(colName)) {
+                targetMarketListCollections.push(colName);
+            }
+        }
+    }
+});
+
+print("Target market list collections to update: " + JSON.stringify(targetMarketListCollections));
+
+targetMarketListCollections.forEach(function (colName) {
+    if (db.getCollectionNames().includes(colName)) {
+        var updateResult = db.getCollection(colName).updateMany(
+            {},
+            {
+                $set: nextGenMarketListDefaults
+            }
+        );
+        print("Updated " + colName + ": matched " + updateResult.matchedCount + ", modified " + updateResult.modifiedCount);
+    }
+});
+
+// ==========================================
+// 8. Update rm_parameter_values (DEFAULT_MARKET_LIST)
+// ==========================================
+var defaultMarketListConfig = {
+    "Origin": "ABC",
+    "Destin": "XYZ",
+    "PerStart": "mm/dd/yyyy",
+    "PerEnd": "mm/dd/yyyy",
+    "FlightNumber": 1234,
+    "analystName": "System",
+    "DOW": 9999999,
+    "PerType": "D",
+    "TimeWindowStart": "00:05",
+    "TimeWindowEnd": "23:55",
+    "CurveID": "Default-MM-30%",
+    "CarrExlusionB2C": "SG",
+    "CarrExlusionB2B": "SG",
+    "flightExclusionB2C": "",
+    "flightExclusionB2B": "",
+    "fareAnchor": "Default-Metro_Med",
+    "hardAnchor": "",
+    "plfThreshold": "",
+    "fareOffset": "",
+    "FirstRBDAlloc": 5,
+    "OtherRBDAlloc": 5,
+    "SkippingFactor": 10,
+    "B2BTolerance": "0",
+    "B2CTolerance": "100",
+    "B2BBackstop": 3500,
+    "B2CBackstop": 3500,
+    "B2BFactor": 0,
+    "obSeats": "",
+    "obFare": "",
+    "DaySpan": 0,
+    "AutoTimeRangeFlag": 0,
+    "openingFares": 1,
+    "OverBooking": 1,
+    "profileFares": 1,
+    "rbdPushFlag": 0,
+    "distressInventoryFlag": 0,
+    "seriesBlock": 0,
+    "autoGroup": 0,
+    "autoBackstopFlag": 0,
+    "tbfFlag": 1,
+    "CugFlag": 0,
+    "MktFareFlag": 1,
+    "directFlag": 1,
+    "TBFEnhFlag": 0,
+    "UUID": "uuid",
+    "createdAt": "createdAt",
+    "defaultMlFlag": 1,
+    "b2bStrategy": "",
+    "Outbound_Stop": 0,
+    "Marketfare_Upsell": 0,
+    "forecastAllocFlag": 0,
+    "Spoilage_Flag": 0,
+    "CanAdjustedForecast": 0,
+    "market_station_mapping": 0,
+    "afForecastAllocFlag": 0,
+    "incrementedProfileFareFlag": 0,
+    "ProfileFareUpsell": 0,
+    "auto_tolerance_flag": 0,
+    "buy_up_factor_NG": 0,
+    "connection_fare_flag_NG": 0,
+    "additional_connection_duration_NG": 0,
+    "CompetitionResponseGrid_NG": "DEFAULT_AU",
+    "nextgen_flag_NG": 0,
+    "competition_response_flag_NG": 1,
+    "PromoFlag_NG": 0
+};
+
+var defaultMarketListParamValue = JSON.stringify(defaultMarketListConfig);
+
+var targetObjectId = (typeof ObjectId !== 'undefined') ? ObjectId("6a5088fed08bce60a96181ea") : "6a5088fed08bce60a96181ea";
+
+var existingDefaultMl = db.rm_parameter_values.findOne({
+    $or: [
+        { "parameterKey": "DEFAULT_MARKET_LIST" },
+        { "_id": targetObjectId }
+    ]
+});
+
+if (existingDefaultMl) {
+    if (existingDefaultMl.parameterValue) {
+        try {
+            var parsed = JSON.parse(existingDefaultMl.parameterValue);
+            parsed.buy_up_factor_NG = 0;
+            parsed.connection_fare_flag_NG = 0;
+            parsed.additional_connection_duration_NG = 0;
+            parsed.CompetitionResponseGrid_NG = "DEFAULT_AU";
+            parsed.nextgen_flag_NG = 0;
+            parsed.competition_response_flag_NG = 1;
+            parsed.PromoFlag_NG = 0;
+            defaultMarketListParamValue = JSON.stringify(parsed);
+        } catch (e) {
+            defaultMarketListParamValue = JSON.stringify(defaultMarketListConfig);
+        }
+    }
+    db.rm_parameter_values.updateOne(
+        { "_id": existingDefaultMl._id },
+        {
+            $set: {
+                "feature": "misc",
+                "parameterKey": "DEFAULT_MARKET_LIST",
+                "parameterValue": defaultMarketListParamValue
+            }
+        }
+    );
+    print("Updated DEFAULT_MARKET_LIST in rm_parameter_values");
+} else {
+    db.rm_parameter_values.insertOne({
+        "_id": targetObjectId,
+        "feature": "misc",
+        "parameterKey": "DEFAULT_MARKET_LIST",
+        "parameterValue": defaultMarketListParamValue
+    });
+    print("Inserted DEFAULT_MARKET_LIST in rm_parameter_values");
+}
+
+print("Successfully updated market list collections and rm_parameter_values with NextGen defaults.");
+
