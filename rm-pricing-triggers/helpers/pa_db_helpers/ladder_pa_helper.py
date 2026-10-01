@@ -171,10 +171,10 @@ class LadderPAHelper:
                         'instances': {'$sum': 1}
                     }
                 },
-                # Keep only fares seen at least twice (dedup noise)
+                # Keep only fares seen at least once (dedup noise)
                 {
                     '$match': {
-                        'instances': {'$gte': 2}
+                        'instances': {'$gte': 1}
                     }
                 },
                 {
@@ -322,10 +322,10 @@ class LadderPAHelper:
                         'instances': {'$sum': 1}
                     }
                 },
-                # Keep only fares seen at least twice (dedup noise)
+                # Keep only fares seen at least once (dedup noise)
                 {
                     '$match': {
-                        'instances': {'$gte': 2}
+                        'instances': {'$gte': 1}
                     }
                 },
                 {
