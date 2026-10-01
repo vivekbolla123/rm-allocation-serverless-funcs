@@ -100,7 +100,12 @@ class DetermineRBD:
             return 0.0
             
         band_id = str(target_band_id)
-        if is_forecast and ndoc_val <= 30 and imp_forecast is not None and imp_forecast != CONST_NA:
+        try:
+            imp_fcst_num = float(imp_forecast) if imp_forecast not in (None, '', CONST_NA, 'NA') else 0.0
+        except (ValueError, TypeError):
+            imp_fcst_num = 0.0
+
+        if is_forecast and ndoc_val <= 30 and imp_fcst_num > 0:
             if 'forecast_band_name' in grid_df.columns:
                 for _, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                     b_name = str(row['forecast_band_name'])
@@ -108,7 +113,7 @@ class DetermineRBD:
                         parts = b_name.replace('(', '').replace(')', '').split(',')
                         if len(parts) == 2:
                             min_v, max_v = float(parts[0]), float(parts[1])
-                            if min_v <= float(imp_forecast) <= max_v:
+                            if min_v <= imp_fcst_num <= max_v:
                                 band_id = str(row['band_id'])
                                 break
                     except Exception:
@@ -958,7 +963,7 @@ class DetermineRBD:
                         final_T = t_val
 
                 forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and current_imp_forecast > 0
 
                 check_hist = history[:-1] if is_duplicate_run else history
                 tolerance_not_hit_3_runs = self.check_tolerance_not_hit_last_3_runs(check_hist)
@@ -1047,7 +1052,7 @@ class DetermineRBD:
                         
                         target_band_id = str(imp_forecast_band)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        if is_forecast and ndoc_val <= 30 and current_imp_forecast > 0:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -1055,7 +1060,7 @@ class DetermineRBD:
                                         parts = b_name.replace('(', '').replace(')', '').split(',')
                                         if len(parts) == 2:
                                             min_v, max_v = float(parts[0]), float(parts[1])
-                                            if min_v <= float(imp_forecast) <= max_v:
+                                            if min_v <= current_imp_forecast <= max_v:
                                                 target_band_id = str(row['band_id'])
                                                 break
                                     except Exception:
@@ -1517,7 +1522,7 @@ class DetermineRBD:
 
                 # T_prime calculation only when auto_tolerance_flag is enabled
                 forecast_flag = getattr(currParams, 'forecastAllocFlag', 0)
-                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and imp_forecast is not None and imp_forecast != CONST_NA
+                is_forecast = forecast_flag in (1, '1', 'Y', 'y') and current_imp_forecast > 0
 
                 check_hist = history[:-1] if is_duplicate_run else history
                 tolerance_not_hit_3_runs = self.check_tolerance_not_hit_last_3_runs(check_hist)
@@ -1606,7 +1611,7 @@ class DetermineRBD:
                         
                         target_band_id = str(dplfBand)
                         
-                        if is_forecast and ndoc_val <= 30:
+                        if is_forecast and ndoc_val <= 30 and current_imp_forecast > 0:
                             if grid_df is not None and 'forecast_band_name' in grid_df.columns:
                                 for index, row in grid_df.drop_duplicates(subset=['band_id']).iterrows():
                                     b_name = str(row['forecast_band_name'])
@@ -1614,7 +1619,7 @@ class DetermineRBD:
                                         parts = b_name.replace('(', '').replace(')', '').split(',')
                                         if len(parts) == 2:
                                             min_v, max_v = float(parts[0]), float(parts[1])
-                                            if min_v <= float(imp_forecast) <= max_v:
+                                            if min_v <= current_imp_forecast <= max_v:
                                                 target_band_id = str(row['band_id'])
                                                 break
                                     except Exception:

@@ -337,6 +337,46 @@ class TestAutoToleranceEnhancement(unittest.TestCase):
         self.assertEqual(T_prime, 100.0)
         self.assertEqual(float(toleranceValue), 4900.0)
 
+    def test_imp_forecast_zero_does_not_trigger_forecast_override(self):
+        # When imp_forecast is 0.0, is_forecast must be False, preventing erroneous Band 0 matching
+        import json
+        history = [
+            {"run_id": "r4", "run_count": 4, "T": 160.0, "T_prime": 160.0, "T_V": 6486.0, "actual_dplf": 9.61, "actual_imp_forecast": 0.0, "selling_fare": 8112.0, "tolerance_hit": False},
+            {"run_id": "r5", "run_count": 5, "T": 160.0, "T_prime": 160.0, "T_V": 6486.0, "actual_dplf": 9.61, "actual_imp_forecast": 0.0, "selling_fare": 8112.0, "tolerance_hit": False},
+            {"run_id": "r6", "run_count": 6, "T": 160.0, "T_prime": 160.0, "T_V": 6486.0, "actual_dplf": 9.61, "actual_imp_forecast": 0.0, "selling_fare": 8112.0, "tolerance_hit": False},
+        ]
+        self.redishelper.hget.return_value = json.dumps(history)
+
+        self.currParams.forecastAllocFlag = 1
+
+        anchorFare, howDetermined, upsell, overBookingFare, toleranceValue, anchorFareBeforeTolerance, T_prime = \
+            self.determinerbd.finalFareAnchor(
+                strategyFare=6646.0,
+                profileFare=CONST_NA,
+                lastSoldFare=8112.0,
+                hardAnchorFare=CONST_NA,
+                value='A',
+                dPLF=9.61,
+                toleranceFare=200.0,
+                currParams=self.currParams,
+                plf=80.0,
+                overBookingCount=0,
+                dplfBand=4,
+                BookingsInHour=0,
+                last7avg=0,
+                isProfileAnchor=False,
+                b2b_discount_fare=False,
+                anchorFareDiscounted=0,
+                obfare=0,
+                ndocounter=25,
+                imp_forecast=0.0
+            )
+
+        # Variance did not change (9.61 - 9.61 = 0), Band 4 grid value for delta 0 is 0.0.
+        # imp_forecast is 0.0 so is_forecast is False. T_prime must remain 160.0, NOT reduced to 128.0.
+        self.assertEqual(T_prime, 160.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+
