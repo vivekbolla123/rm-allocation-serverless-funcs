@@ -133,3 +133,28 @@ class MarketListRow:
         # Profile fare upsell percentage — applied when incrementedProfileFareFlag is 1
         # (replaces the standard station upsell with a market-list-level override)
         self.profileFareUpsell = currParams.get("ProfileFareUpsell", CONST_NA)
+
+        # --- NextGen AU Optimization & Competition Response Inputs (BRD-AU_Opt_Competition_Response) ---
+        # Price floor and price cap reuse existing B2CBackstop and hardAnchor
+        self.price_floor = self.b2c_backstop if self.b2c_backstop != CONST_NA and self.b2c_backstop is not None else currParams.get("price_floor", currParams.get("priceFloor", CONST_NA))
+        self.price_cap = self.hardanchor if self.hardanchor != CONST_NA and self.hardanchor is not None else currParams.get("price_cap", currParams.get("priceCap", CONST_NA))
+        self.carrier_exclusion = self.carr_exclusion_b2c if self.carr_exclusion_b2c != CONST_NA and self.carr_exclusion_b2c is not None else currParams.get("carrier_exclusion", currParams.get("carrierExclusion", currParams.get("CarrierExclusion", [])))
+        self.time_range = parse_numeric(currParams.get("time_range", currParams.get("timeRange", currParams.get("TimeRange", DEFAULT_TIME_RANGE))))
+
+        # Renamed NextGen fields with backward-compatible aliases
+        raw_buy_up = parse_numeric(currParams.get("buy_up_factor_NG", currParams.get("buy_up_factor", currParams.get("buyUpFactor", currParams.get("BuyUpFactor", 0.0)))))
+        self.buy_up_factor_NG = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
+        self.buy_up_factor = self.buy_up_factor_NG
+        self.connection_fare_flag_NG = parse_int_flag(currParams.get("connection_fare_flag_NG", currParams.get("connection_fare_flag", currParams.get("connectionFareFlag", currParams.get("ConnectionFareFlag", 0)))), 0)
+        self.connection_fare_flag = self.connection_fare_flag_NG
+        self.additional_connection_duration_NG = parse_numeric(currParams.get("additional_connection_duration_NG", currParams.get("additional_connection_duration", currParams.get("additionalConnectionDuration", currParams.get("AdditionalConnectionDuration", DEFAULT_ADDITIONAL_CONNECTION_DURATION)))))
+        self.additional_connection_duration = self.additional_connection_duration_NG
+        self.CompetitionResponseGrid_NG = str(currParams.get("CompetitionResponseGrid_NG", currParams.get("grid_name", currParams.get("gridName", currParams.get("GridName", "DEFAULT"))))).strip() or "DEFAULT"
+        self.grid_name = self.CompetitionResponseGrid_NG
+        self.nextgen_flag_NG = parse_int_flag(currParams.get("nextgen_flag_NG", currParams.get("nextgen_flag", currParams.get("nextGenFlag", currParams.get("NextGenFlag", 0)))), 0)
+        self.nextgen_flag = self.nextgen_flag_NG
+        self.competition_response_flag_NG = parse_int_flag(currParams.get("competition_response_flag_NG", currParams.get("competition_response_flag", currParams.get("competitionResponseFlag", currParams.get("CompetitionResponseFlag", 1)))), 1)
+        self.competition_response_flag = self.competition_response_flag_NG
+        # NextGen Promo Inventory Flag (only PromoFlag_NG comes from Market List; others come from constants)
+        self.promo_flag_NG = parse_int_flag(currParams.get("PromoFlag_NG", currParams.get("promo_flag_NG", currParams.get("promoFlag_NG", DEFAULT_PROMO_FLAG_NG))), DEFAULT_PROMO_FLAG_NG)
+        self.promo_flag = self.promo_flag_NG

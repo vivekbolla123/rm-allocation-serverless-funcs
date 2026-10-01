@@ -16,9 +16,11 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 ESB_DB = f"mysql+pymysql://{configsettings.ESB_DB_USERNAME}:{configsettings.ESB_DB_PASSWORD}@{configsettings.ESB_DB_WR_APPUSER_URL}/{configsettings.ESB_NAV_SCHEMA_NAME}"
+DW_DB = f"mysql+pymysql://{configsettings.DW_DB_USER}:{quote_plus(configsettings.DW_DB_PASSWORD)}@{configsettings.DW_DB_HOST}/{configsettings.DW_DB_WRITE_SCHEMA}"
 
 try:
     rm_rd_esb_conn = create_engine(ESB_DB)
+    dw_conn = create_engine(DW_DB)
     mongo_client = MongoClient(
         host=configsettings.MONGO_URL, port=27017,
         username=configsettings.MONGO_USERNAME,
@@ -40,6 +42,7 @@ def _run_modules(modules, overrides, context):
     """Run each requested module once for the given (possibly merged) bin."""
     params = {
         "rdEsbConn": rm_rd_esb_conn,
+        "dwconn": dw_conn,
         "mongo": db,
         "mongo_master": db_master,
         "s3": s3,

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, date
+from uuid import uuid4
 import json
 import pandas as pd
 import pytz
@@ -888,6 +889,13 @@ class RMDatabaseHelper:
                 "conversionRate": str(latest_row.conversionRate),
                 "currency": str(latest_row.currency),
                 "region": str(latest_row.region),
+                "NG_LF_Forecast": str(getattr(latest_row, 'NG_LF_Forecast', CONST_NA)),
+                "NG_AF_Forecast": str(getattr(latest_row, 'NG_AF_Forecast', CONST_NA)),
+                "NG_Historical_current_booked": str(getattr(latest_row, 'NG_Historical_current_booked', CONST_NA)),
+                "NG_Opening_fare": str(getattr(latest_row, 'NG_Opening_fare', CONST_NA)),
+                "NG_FirstRBD": str(getattr(latest_row, 'NG_FirstRBD', CONST_NA)),
+                "NG_Strategy_fare": str(getattr(latest_row, 'NG_Strategy_fare', getattr(latest_row, 'Strategy_fare', CONST_NA))),
+                "NG_Anchor_fare": str(getattr(latest_row, 'NG_Anchor_fare', getattr(latest_row, 'Anchor_fare', CONST_NA))),
                 "DepDateObj": self.parse_date_to_datetime_obj(latest_row.DepDate)
             }
 
@@ -910,6 +918,376 @@ class RMDatabaseHelper:
                 self.db.run_summary_latest.replace_one(latest_filter, doc, upsert=True)
             except Exception as e:
                 self.logger.error(f"Error upserting run_summary_latest: {e}")
+
+    def insertSummaryRowNextGen(self, nextgen_results):
+        """Inserts NextGen output summary row into DB if logs are configured."""
+        if not nextgen_results:
+            return
+        should_log = True
+        if self.inputSource and hasattr(self.inputSource, 'logs') and isinstance(self.inputSource.logs, dict):
+            should_log = (self.inputSource.logs.get(CONST_RUN_SUMMARY) == DB)
+        if should_log and hasattr(self, 'db') and self.db is not None:
+            latest_row = nextgen_results[-1]
+            doc = vars(latest_row) if not isinstance(latest_row, dict) else latest_row.copy()
+            doc.pop('_id', None)
+            clean_doc = {k: (None if pd.isna(doc.get(k)) else doc.get(k)) for k in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if k in doc}
+            try:
+                if hasattr(self.db, 'summary_nextgen'):
+                    self.db.summary_nextgen.insert_one(clean_doc)
+            except Exception as e:
+                self.logger.error(f"Error inserting summary_nextgen: {e}")
+            try:
+                if hasattr(self.db, 'run_summary_nextgen'):
+                    run_doc = clean_doc.copy()
+                    run_doc.pop('_id', None)
+                    self.db.run_summary_nextgen.insert_one(run_doc)
+            except Exception as e:
+                pass
+
+    def insertInventoryOptimization(self, opt_rows):
+        """Persists detailed per-bucket inventory optimization rows to DB if configured."""
+        if not opt_rows:
+            return
+        should_log = True
+        if self.inputSource and hasattr(self.inputSource, 'logs') and isinstance(self.inputSource.logs, dict):
+            should_log = (self.inputSource.logs.get(CONST_RUN_SUMMARY) == DB)
+        if should_log and hasattr(self, 'db') and self.db is not None:
+            try:
+                docs = []
+                for r in opt_rows:
+                    d = vars(r) if not isinstance(r, dict) else r.copy()
+                    d.pop('_id', None)
+                    run_id_val = d.get('RunId') or d.get('runid') or getattr(self, 'runId', None)
+                    if run_id_val is not None:
+                        d['RunId'] = run_id_val
+                        d['runid'] = run_id_val
+                    clean_d = {k: (None if pd.isna(d.get(k)) else d.get(k)) for k in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if k in d}
+                    if 'RunId' in clean_d and 'runid' not in clean_d:
+                        clean_d['runid'] = clean_d['RunId']
+                    docs.append(clean_d)
+                if docs and hasattr(self.db, 'inventory_optimization'):
+                    self.db.inventory_optimization.insert_many(docs)
+            except Exception as e:
+                self.logger.error(f"Error inserting inventory_optimization: {e}")
+
+    def insertNavitaireAllocationAuditNextGen(self, run_id, flight, flight_number, sector, departure_date, rbd_details, au_classes=None, au_result=None):
+        """Inserts or updates NextGen AU details into navitaire_allocation_audit collection regardless of nextgen flag."""
+        doc_id = str(uuid4())
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                now = datetime.now()
+                request_doc = {
+                    "runId": run_id,
+                    "type": "nextgen_au",
+                    "flight": flight,
+                    "startDate": departure_date,
+                    "endDate": departure_date,
+                    "sector": sector,
+                    "flightNumber": str(flight_number),
+                    "auClasses": au_classes or {}
+                }
+                filter_doc = {
+                    "run_id": run_id,
+                    "sector": sector,
+                    "flight_number": str(flight_number),
+                    "departure_date": departure_date
+                }
+                update_fields = {
+                    "type": "nextgen_au",
+                    "flight": flight,
+                    "flight_number": str(flight_number),
+                    "sector": sector,
+                    "departure_date": departure_date,
+                    "newgnwua": True,
+                    "source": "nextgen_au",
+                    "rbds": rbd_details or [],
+                    "nextgen_request": json.dumps(request_doc),
+                    "nextgen_result": json.dumps(au_result or {})
+                }
+                set_on_insert = {
+                    "_id": doc_id,
+                    "run_id": run_id,
+                    "request": json.dumps(request_doc),
+                    "result": json.dumps(au_result or {}),
+                    "start_time": now,
+                    "end_time": now,
+                    "failures": 0,
+                    "totalApiCalls": 0
+                }
+                col = None
+                if hasattr(self.db, 'navitaire_allocation_audit'):
+                    col = self.db.navitaire_allocation_audit
+                elif hasattr(self.db, '__getitem__'):
+                    col = self.db['navitaire_allocation_audit']
+
+                if col is not None:
+                    existing = col.find_one(filter_doc, {"_id": 1})
+                    if existing and "_id" in existing:
+                        doc_id = str(existing["_id"])
+                    col.update_one(filter_doc, {"$set": update_fields, "$setOnInsert": set_on_insert}, upsert=True)
+            except Exception as e:
+                self.logger.error(f"Error inserting nextgen_au to navitaire_allocation_audit: {e}")
+        return doc_id
+
+    def getCompResponseGrid(self, grid_name, ndo_band, plf_band):
+        """Queries normalized competition response grid or returns None."""
+        try:
+            if hasattr(self.db, 'comp_response_grid'):
+                result = self.db.comp_response_grid.find_one({
+                    "grid_name": grid_name,
+                    "ndo_band": int(ndo_band),
+                    "plf_band": int(plf_band)
+                })
+                if result:
+                    return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_grid: {e}")
+            return None
+
+    def getCompResponsePlfBand(self, plf):
+        """Finds PLF band for a given PLF value from comp_response_plf_bands collection."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                result = self.db.comp_response_plf_bands.find_one({
+                    "start": {"$lte": float(plf)},
+                    "end": {"$gt": float(plf)}
+                })
+                if result:
+                    val = result.get("plf_band")
+                    if val is None:
+                        val = result.get("id")
+                    return int(val) if val is not None else None
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands: {e}")
+            return None
+
+    def getCompResponsePlfBandDoc(self, plf):
+        """Finds PLF band document (including threshold_factor) for a given PLF value."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                result = self.db.comp_response_plf_bands.find_one({
+                    "start": {"$lte": float(plf)},
+                    "end": {"$gt": float(plf)}
+                })
+                return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands: {e}")
+            return None
+
+    def getCompResponsePlfBandById(self, band_id):
+        """Finds PLF band document by id/plf_band."""
+        try:
+            if hasattr(self.db, 'comp_response_plf_bands'):
+                try:
+                    b_int = int(band_id)
+                    result = self.db.comp_response_plf_bands.find_one({
+                        "$or": [{"id": b_int}, {"plf_band": b_int}, {"id": str(band_id)}, {"plf_band": str(band_id)}]
+                    })
+                except Exception:
+                    result = self.db.comp_response_plf_bands.find_one({
+                        "$or": [{"id": band_id}, {"plf_band": band_id}]
+                    })
+                return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_response_plf_bands by id: {e}")
+            return None
+
+    def getCompFareRecalibration(self, sector):
+        """Fetches competitor fare recalibration adjustments for the sector from MongoDB collection."""
+        try:
+            if hasattr(self, 'db') and hasattr(self.db, 'comp_fare_recalibration'):
+                sec_clean = str(sector).replace('/', '') if sector else ''
+                sec_slash = f"{sector[:3]}/{sector[3:]}" if sector and len(sector) == 6 else sector
+                result = self.db.comp_fare_recalibration.find_one({
+                    "$or": [{"Sector": sector}, {"Sector": sec_clean}, {"Sector": sec_slash}]
+                })
+                if result:
+                    return result
+            return None
+        except Exception as e:
+            self.logger.error(f"Error querying comp_fare_recalibration: {e}")
+            return None
+
+    def get_additive_fare_bucket_forecast(self, sector, snapshot_date=None, departure_date=None, flight_number=None):
+        """
+        Reads the weighted fare bucket forecast directly from MongoDB:
+        `add_model_fare_bucket_level_weighted` collection (primary), with fallback
+        to MySQL Data Warehouse `RM_DW_DATA.add_model_fare_bucket_level_weighted`.
+        """
+        import re
+
+        sec_clean = str(sector).replace('/', '') if sector else ''
+        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+
+        # 1. Primary: Read directly from MongoDB collection add_model_fare_bucket_level_weighted
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                col = getattr(self.db, 'add_model_fare_bucket_level_weighted', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"Sector": sector},
+                            {"Sector": sec_clean},
+                            {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
+                        if dep_str and 'DepartureDate' in df.columns:
+                            df = df[pd.to_datetime(df['DepartureDate']).dt.strftime('%Y-%m-%d') == dep_str]
+                        if flt_int and 'FlightNumber' in df.columns:
+                            flt_match = df[pd.to_numeric(df['FlightNumber'], errors='coerce') == flt_int]
+                            if not flt_match.empty:
+                                return flt_match
+                        if not df.empty:
+                            return df
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_fare_bucket_level_weighted: {e}")
+
+        # 2. Secondary Fallback: MySQL DW (legacy)
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                if dep_str:
+                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                if flt_digits:
+                    query += f" AND FlightNumber = {flt_digits}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+                if (df is None or df.empty) and flt_digits:
+                    query_sec = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                    if dep_str:
+                        query_sec += f" AND DATE(DepartureDate) = '{dep_str}'"
+                    df_sec = pd.read_sql(query_sec, dw_engine)
+                    if df_sec is not None and not df_sec.empty:
+                        return df_sec
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_fare_bucket_level_weighted: {e}")
+
+        return None
+
+    def get_additive_inventory_ng(self, sector, date=None, flight=None, ndo=None):
+        """
+        Reads NextGen inventory optimization output from MongoDB:
+        `add_model_inventory_ng` collection, with fallback to MySQL DW `RM_DW_DATA.add_model_inventory_ng`.
+        """
+        import re
+
+        sec_clean = str(sector).replace('/', '') if sector else ''
+        date_str = pd.to_datetime(date).strftime('%Y-%m-%d') if date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight)) if flight is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+
+        # 1. MongoDB Read
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                col = getattr(self.db, 'add_model_inventory_ng', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"sector": sector},
+                            {"sector": sec_clean},
+                            {"sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    if date_str:
+                        q["date"] = date_str
+                    if flt_int is not None:
+                        q["flight"] = {"$in": [flt_int, str(flt_int), flt_digits]}
+                    if ndo is not None:
+                        q["NDO"] = int(ndo)
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
+                        return df
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_inventory_ng: {e}")
+
+        # 2. DW Fallback
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_inventory_ng WHERE (sector = '{sector}' OR sector = '{sec_clean}')"
+                if date_str:
+                    query += f" AND DATE(date) = '{date_str}'"
+                if flt_digits:
+                    query += f" AND flight = {flt_digits}"
+                if ndo is not None:
+                    query += f" AND NDO = {int(ndo)}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_inventory_ng from DW: {e}")
+
+        return None
+
+    def get_additive_flight_level_weighted(self, sector, departure_date=None, flight_number=None):
+        """
+        Reads flight-level weighted forecast from MongoDB:
+        `add_model_flight_level_weighted` collection, with fallback to MySQL DW.
+        """
+        import re
+
+        sec_clean = str(sector).replace('/', '') if sector else ''
+        dep_str = pd.to_datetime(departure_date).strftime('%Y-%m-%d') if departure_date is not None else None
+        flt_digits = re.sub(r'\D', '', str(flight_number)) if flight_number is not None else None
+        flt_int = int(flt_digits) if flt_digits else None
+
+        # 1. MongoDB Read
+        if hasattr(self, 'db') and self.db is not None:
+            try:
+                col = getattr(self.db, 'add_model_flight_level_weighted', None)
+                if col is not None:
+                    q = {}
+                    if sector:
+                        q["$or"] = [
+                            {"Sector": sector},
+                            {"Sector": sec_clean},
+                            {"Sector": f"{sector[:3]}/{sector[3:]}" if len(sector) == 6 else sector}
+                        ]
+                    if dep_str:
+                        q["DepartureDate"] = dep_str
+                    if flt_int is not None:
+                        q["FlightNumber"] = {"$in": [flt_int, str(flt_int), flt_digits]}
+                    docs = list(col.find(q))
+                    if docs:
+                        df = pd.DataFrame(docs)
+                        if '_id' in df.columns:
+                            df = df.drop(columns=['_id'])
+                        return df
+            except Exception as e:
+                self.logger.warning(f"Could not query MongoDB collection add_model_flight_level_weighted: {e}")
+
+        # 2. DW Fallback
+        dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
+        if dw_engine is not None:
+            try:
+                query = f"SELECT * FROM RM_DW_DATA.add_model_flight_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                if dep_str:
+                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                if flt_digits:
+                    query += f" AND FlightNumber = {flt_digits}"
+                df = pd.read_sql(query, dw_engine)
+                if df is not None and not df.empty:
+                    return df
+            except Exception as e:
+                self.logger.warning(f"Could not query RM_DW_DATA.add_model_flight_level_weighted from DW: {e}")
+
+        return None
 
     def getTargetBookedLoadFromBenchmarkCurve(self, ndocounter, curveID):
         if ndocounter < 0:
@@ -1285,11 +1663,18 @@ class RMDatabaseHelper:
                         {
     "$set": {
       "outbound_departuretime": {
-        "$dateFromString": {
-          "dateString": {
-            "$concat": ["1970-01-01T", "$outbound_departuretime"]
+        "$cond": {
+          "if": {"$eq": [{"$type": "$outbound_departuretime"}, "string"]},
+          "then": {
+            "$dateFromString": {
+              "dateString": {
+                "$concat": ["1970-01-01T", "$outbound_departuretime"]
+              },
+              "format": "%Y-%m-%dT%H:%M",
+              "onError": None
+            }
           },
-          "format": "%Y-%m-%dT%H:%M"
+          "else": "$outbound_departuretime"
         }
       }
     }
@@ -1322,11 +1707,18 @@ class RMDatabaseHelper:
                         {
     "$set": {
       "outbound_departuretime": {
-        "$dateFromString": {
-          "dateString": {
-            "$concat": ["1970-01-01T", "$outbound_departuretime"]
+        "$cond": {
+          "if": {"$eq": [{"$type": "$outbound_departuretime"}, "string"]},
+          "then": {
+            "$dateFromString": {
+              "dateString": {
+                "$concat": ["1970-01-01T", "$outbound_departuretime"]
+              },
+              "format": "%Y-%m-%dT%H:%M",
+              "onError": None
+            }
           },
-          "format": "%Y-%m-%dT%H:%M"
+          "else": "$outbound_departuretime"
         }
       }
     }
@@ -1407,19 +1799,21 @@ class RMDatabaseHelper:
         """
         try:
             # --- 1. Parameter Setup (Matches original SQL function) ---
-            origin = currParams.sector1[:3]
-            destination = currParams.sector2[3:]
+            origin = getattr(currParams, 'origin', None) or (currParams.sector1[:3] if hasattr(currParams, 'sector1') and currParams.sector1 else '')
+            destination = getattr(currParams, 'destin', None) or (currParams.sector2[3:] if hasattr(currParams, 'sector2') and currParams.sector2 else '')
             
             if channel == B2B_CHANNEL:
-                carr_exclusion = currParams.carrierExclusionB2B
+                carr_exclusion = getattr(currParams, 'carrierExclusionB2B', getattr(currParams, 'carr_exclusion_b2b', None))
             else:
-                carr_exclusion = currParams.carrierExclusionB2C
+                carr_exclusion = getattr(currParams, 'carrierExclusionB2C', getattr(currParams, 'carr_exclusion_b2c', None))
     
             carr_exclusion_list = carr_exclusion.split('/') if isinstance(carr_exclusion, str) and carr_exclusion else []
             
             # Convert the flight date string to datetime objects for the start and end of that day.
-            # This is the robust way to match "departure_date = 'YYYY-MM-DD'" in MongoDB.
-            fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+            try:
+                fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT_2).date()
+            except Exception:
+                fltDate = datetime.strptime(currFltDateStr, DATE_FORMAT).date()
             start_of_day = datetime.combine(fltDate, datetime.min.time())
             end_of_day = datetime.combine(fltDate, datetime.max.time())
 

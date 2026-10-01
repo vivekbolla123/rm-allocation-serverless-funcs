@@ -157,11 +157,38 @@ class ConstantsUtils:
         self.DEFAULT_ML_CONFIG = json.loads(DEFAULT_ML_CONFIG)
         self.DEFAULT_ML_CALC_CONFIG = json.loads(DEFAULT_ML_CALC_CONFIG)
         self.plf_change_per = PLF_CHANGE_PER
+        self.plf_change_upper_per = PLF_CHANGE_UPPER_PER
+        self.plf_change_lower_per = PLF_CHANGE_LOWER_PER
         self.plf_change_n_runs = PLF_CHANGE_N_RUNS
         self.lsf_fallback_n_runs = LSF_FALLBACK_N_RUNS
         self.STRATEGY_OFFSET_GUARDRAILS = json.loads(STRATEGY_OFFSET_GUARDRAILS)
         self.DILUTION_PLF_THRESHOLD = float(DILUTION_PLF_THRESHOLD)
 
+        # Inventory Optimization (EMSR-b) Constants
+        self.EMSR_SIGMA_FACTOR = float(EMSR_SIGMA_FACTOR)
+        self.PROMO_FARE_RATIO = float(PROMO_FARE_RATIO)
+        self.PROMO_RBD = str(PROMO_RBD)
+        self.PROMO_FLAG_NG = int(DEFAULT_PROMO_FLAG_NG)
+        self.PROMO_RBD_NG = str(DEFAULT_PROMO_RBD_NG)
+        self.PROMO_FIRST_RBD_NG = float(DEFAULT_PROMO_FIRST_RBD_NG)
+        self.PROMO_RATIO_NG = float(DEFAULT_PROMO_RATIO_NG)
+        self.PromoFlag_NG = self.PROMO_FLAG_NG
+        self.PromoRBD_NG = self.PROMO_RBD_NG
+        self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+        self.PromoRatio_NG = self.PROMO_RATIO_NG
+        self.PMIN_THRESHOLD_FACTOR_NG = float(DEFAULT_PMIN_THRESHOLD_FACTOR_NG)
+        self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+        self.DEFAULT_FIRST_RBD_SEATS = float(DEFAULT_FIRST_RBD_SEATS)
+        self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+        self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+        self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(DEFAULT_STANDARD_DEVIATION_FACTOR)
+        self.DEFAULT_PROMO_FARE_FACTOR = float(DEFAULT_PROMO_FARE_FACTOR)
+        self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(DEFAULT_FORECAST_THRESHOLD_PROMO_AU)
+        self.DEFAULT_COVERAGE_PARAMETER = float(DEFAULT_COVERAGE_PARAMETER)
+        self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(DEFAULT_ADDITIONAL_CONNECTION_DURATION)
+        self.DEFAULT_TIME_RANGE = float(DEFAULT_TIME_RANGE)
+        self.OPEN_BUCKET_MIDPOINT_FACTOR = float(OPEN_BUCKET_MIDPOINT_FACTOR)
+        self.BUY_UP_FACTOR = float(BUY_UP_FACTOR)
         # --- Additive Pickup Model constants ---------------------------------
         # Structural / RBD sets and NDO range.
         self.NDO_RANGE = NDO_RANGE
@@ -501,6 +528,10 @@ class ConstantsUtils:
                 self.DEFAULT_ML_CALC_CONFIG = json.loads(parameter_value)
             elif parameter_key == PLF_CHANGE_PER_KEY:
                 self.plf_change_per = float(parameter_value)
+            elif parameter_key == PLF_CHANGE_UPPER_PER_KEY:
+                self.plf_change_upper_per = float(parameter_value)
+            elif parameter_key == PLF_CHANGE_LOWER_PER_KEY:
+                self.plf_change_lower_per = float(parameter_value)
             elif parameter_key == PLF_CHANGE_N_RUNS_KEY:
                 self.plf_change_n_runs = int(parameter_value)
             elif parameter_key == LSF_FALLBACK_N_RUNS_KEY:
@@ -509,6 +540,47 @@ class ConstantsUtils:
                 self.STRATEGY_OFFSET_GUARDRAILS = json.loads(parameter_value)
             elif parameter_key == DILUTION_PLF_THRESHOLD_KEY:
                 self.DILUTION_PLF_THRESHOLD = float(parameter_value)
+            elif parameter_key == EMSR_SIGMA_FACTOR_KEY:
+                self.EMSR_SIGMA_FACTOR = float(parameter_value)
+            elif parameter_key == PROMO_FARE_RATIO_KEY:
+                self.PROMO_FARE_RATIO = float(parameter_value)
+            elif parameter_key == PROMO_RBD_KEY:
+                self.PROMO_RBD = str(parameter_value)
+            elif parameter_key in (PROMO_FLAG_NG_KEY, 'PROMO_FLAG_NG', 'PromoFlag_NG'):
+                self.PROMO_FLAG_NG = int(parameter_value)
+                self.PromoFlag_NG = self.PROMO_FLAG_NG
+            elif parameter_key in (PROMO_RBD_NG_KEY, 'PROMO_RBD_NG', 'PromoRBD_NG'):
+                self.PROMO_RBD_NG = str(parameter_value)
+                self.PromoRBD_NG = self.PROMO_RBD_NG
+            elif parameter_key in (PROMO_FIRST_RBD_NG_KEY, 'PROMO_FIRST_RBD_NG', 'PromoFirstRBD_NG', PROMO_FIRST_RBD_KEY):
+                self.PROMO_FIRST_RBD_NG = float(parameter_value)
+                self.PromoFirstRBD_NG = self.PROMO_FIRST_RBD_NG
+            elif parameter_key in (PROMO_RATIO_NG_KEY, 'PROMO_RATIO_NG', 'PromoRatio_NG'):
+                self.PROMO_RATIO_NG = float(parameter_value)
+                self.PromoRatio_NG = self.PROMO_RATIO_NG
+            elif parameter_key in (DEFAULT_PMIN_THRESHOLD_FACTOR_NG_KEY, PMIN_THRESHOLD_FACTOR_NG_KEY, 'PMIN_THRESHOLD_FACTOR_NG', 'pmin_threshold_factor_NG'):
+                self.PMIN_THRESHOLD_FACTOR_NG = float(parameter_value)
+                self.pmin_threshold_factor_NG = self.PMIN_THRESHOLD_FACTOR_NG
+            elif parameter_key in (DEFAULT_FIRST_RBD_SEATS_KEY, 'DEFAULT_FIRST_RBD_SEATS', 'FIRST_RBD_SEATS', 'first_rbd_alloc', 'FirstRBDAlloc'):
+                self.DEFAULT_FIRST_RBD_SEATS = float(parameter_value)
+                self.FIRST_RBD_SEATS = self.DEFAULT_FIRST_RBD_SEATS
+                self.FirstRBDAlloc = self.DEFAULT_FIRST_RBD_SEATS
+            elif parameter_key in (DEFAULT_ADDITIONAL_CONNECTION_DURATION_KEY, 'DEFAULT_ADDITIONAL_CONNECTION_DURATION', 'additional_connection_duration_NG', 'additional_connection_duration'):
+                self.DEFAULT_ADDITIONAL_CONNECTION_DURATION = float(parameter_value)
+            elif parameter_key in (DEFAULT_TIME_RANGE_KEY, 'DEFAULT_TIME_RANGE', 'time_range', 'TimeRange'):
+                self.DEFAULT_TIME_RANGE = float(parameter_value)
+            elif parameter_key in (DEFAULT_FORECAST_THRESHOLD_PROMO_AU_KEY, 'DEFAULT_FORECAST_THRESHOLD_PROMO_AU', 'forecast_threshold_promo_au'):
+                self.DEFAULT_FORECAST_THRESHOLD_PROMO_AU = float(parameter_value)
+            elif parameter_key in (DEFAULT_STANDARD_DEVIATION_FACTOR_KEY, 'DEFAULT_STANDARD_DEVIATION_FACTOR'):
+                self.DEFAULT_STANDARD_DEVIATION_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_PROMO_FARE_FACTOR_KEY, 'DEFAULT_PROMO_FARE_FACTOR'):
+                self.DEFAULT_PROMO_FARE_FACTOR = float(parameter_value)
+            elif parameter_key in (DEFAULT_COVERAGE_PARAMETER_KEY, 'DEFAULT_COVERAGE_PARAMETER'):
+                self.DEFAULT_COVERAGE_PARAMETER = float(parameter_value)
+            elif parameter_key == OPEN_BUCKET_MIDPOINT_FACTOR_KEY:
+                self.OPEN_BUCKET_MIDPOINT_FACTOR = float(parameter_value)
+            elif parameter_key == BUY_UP_FACTOR_KEY:
+                self.BUY_UP_FACTOR = float(parameter_value)
             elif parameter_key == PREDICTION_HORIZON_DAYS_KEY:
                 self.PREDICTION_HORIZON_DAYS = int(parameter_value)
             elif parameter_key == MIN_FLIGHT_MATCHES_KEY:

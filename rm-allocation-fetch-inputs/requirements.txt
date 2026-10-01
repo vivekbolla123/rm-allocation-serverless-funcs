@@ -7,7 +7,7 @@ pymssql==2.2.5
 requests==2.32.5
 mysql-connector-python
 pymysql
-pymongo
+pymongo==4.8.0
 psutil
 datadog-lambda
 cryptography

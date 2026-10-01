@@ -51,6 +51,7 @@ from Constants import *
 from helpers.utils.common_utils import *
 from helpers.db_helpers.additive_esb_helper import AdditiveEsbHelper
 from helpers.db_helpers.additive_mongo_helper import AdditiveMongoHelper
+from helpers.db_helpers.additive_dw_helper import AdditiveDwHelper
 
 # Module logger — inherits the handler/root logger config in Lambda.
 logger = logging.getLogger()
@@ -138,6 +139,7 @@ class AdditivePickupModelProcessor:
 
         # --- injected connections (NO SSM / engine creation here) ---
         self.esb_engine = params.get('rdEsbConn')
+        self.dw_engine = params.get('dwconn')   # RM_DW_DATA — currency_conversion
         self.s3_client = params.get('s3')
         # self.db_audit = params.get('mongo')          # qp_dw_priaut
         # self.db_fares = params.get('mongofares')     # qp_dw_rmalloc
@@ -146,7 +148,9 @@ class AdditivePickupModelProcessor:
         self.master_db = params.get('mongo_master', params['mongo'])
 
         self.esb_helper = AdditiveEsbHelper(self.esb_engine, logger)
-        self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger)
+        self.dw_helper = AdditiveDwHelper(self.dw_engine, logger)
+        self.mongo_helper = AdditiveMongoHelper(self.db, self.master_db, logger,
+                                                dw_helper=self.dw_helper)
 
         self.s3_bucket = configsettings.ADDITIVE_MODEL_BUCKET
         self.s3_cache_prefix = f'{configsettings.ADDITIVE_MODEL_FILE_PATH}_cache'
@@ -161,6 +165,7 @@ class AdditivePickupModelProcessor:
         self.cache.s3_output_prefix = self.s3_output_prefix
         self.cache.local_dir = self.local_cach_dir or os.path.join(os.getcwd(), 'additive_model_cache')
         self.esb_helper.bind_context(self.cache)
+        self.dw_helper.bind_context(self.cache)
         self.mongo_helper.bind_context(self.cache, self.mode)
 
         # --- per-invocation overrides for backfill/refresh ---
@@ -468,6 +473,16 @@ class AdditivePickupModelProcessor:
 
         merge_keys = ['Sector', 'DepartureDate', 'STD', 'FlightNumber']
 
+        # No future schedule for this sector -> nothing to forecast. Fail with a
+        # clear, actionable reason instead of letting an empty-frame merge raise a
+        # cryptic "datetime64 vs object" dtype error downstream.
+        if fm_df.empty:
+            raise RuntimeError(
+                f"No future flights in the schedule for sector(s) "
+                f"{self.active_sectors} within the prediction window "
+                f"[{self.current_date.date()}..{self.prediction_limit.date()}] — "
+                f"nothing to forecast.")
+
         if df.empty:
             bookings = pd.DataFrame(columns=merge_keys + ['Pax Count', 'Fare'])
         else:
@@ -476,12 +491,13 @@ class AdditivePickupModelProcessor:
                 {'Pax Count': 'sum', 'Fare': 'sum'}
             ).reset_index()
 
-        # Align dtypes on merge keys before merging. In pandas 1.x, groupby with
-        # dropna=False can silently change column dtypes (datetime64 -> object, or
-        # time-object columns inferred as datetime64 when all-None). Coerce both
-        # sides to unambiguous, merge-safe types.
-        for target in ([fm_df, bookings] if not bookings.empty else [fm_df]):
-            target['DepartureDate'] = pd.to_datetime(target['DepartureDate'])
+        # Align dtypes on merge keys before merging. In pandas 1.x/2.x, groupby
+        # with dropna=False and empty frames can silently change column dtypes
+        # (datetime64 -> object, or time-object columns inferred as datetime64
+        # when all-None), which makes the merge raise "datetime64 vs object". Coerce
+        # BOTH sides — including an empty `bookings` frame — to merge-safe types.
+        for target in (fm_df, bookings):
+            target['DepartureDate'] = pd.to_datetime(target['DepartureDate'], errors='coerce')
             # STD holds datetime.time objects (or None); convert to string to avoid
             # pandas type-inference issues on merge. Downstream _prepare_future_flights
             # already converts str -> time via pd.to_datetime(..., format='%H:%M:%S').
@@ -514,12 +530,21 @@ class AdditivePickupModelProcessor:
             fares_df = self.mongo_helper.fetch_fares(
                 self.active_sectors, self.constants_utils.FARE_BUCKET_RBDS)
 
-            # --- Convert all-in -> airline component BEFORE bucketing ---
+            # --- Step A: all-in -> airline component, IN LOCAL CURRENCY ---
+            # For an international sector both the QP fare (TOTAL) and the intl tax
+            # master are in the origin's local currency, so the tax stripping must
+            # happen while everything is still local. Domestic sectors are already
+            # INR, so this is a no-op for them currency-wise.
             fares_df = self._fares_to_airline_component(fares_df, fare_col='TOTAL')
             if fares_df.empty:
                 raise RuntimeError("No fares left after airline-component conversion")
 
-            # GP logic operates on the airline component from here on
+            # --- Step B: convert the (local-currency) airline component -> INR ---
+            # Only international-origin sectors are converted; domestic pass through.
+            fares_df = self.mongo_helper.apply_currency_conversion(
+                fares_df, fare_col='AirlineComponent')
+
+            # GP logic operates on the (now INR) airline component from here on
             fares_df['TOTAL'] = fares_df['AirlineComponent'].round(0).astype(int)
 
             all_buckets = []
@@ -1044,7 +1069,9 @@ class AdditivePickupModelProcessor:
         future_df['Time Cluster'] = future_df['STD'].apply(get_time_cluster)
 
         # Assign tagging via the full 14-level ladder (level 1 = Sector-Quarter-DOW-TC).
-        future_df['Tagging'] = np.nan
+        # Object dtype (not float NaN) so the ladder can assign string tags without
+        # the pandas "incompatible dtype" FutureWarning.
+        future_df['Tagging'] = pd.Series(pd.NA, index=future_df.index, dtype='object')
         self._fill_nan_tagging(future_df, tag_levels)
 
         # Expand with fare buckets
@@ -1343,6 +1370,7 @@ class AdditivePickupModelProcessor:
         )
 
         result_merged_df_std[ndo_cols] = result_merged_df_std[ndo_cols] ** 2
+        result_merged_df_std = result_merged_df_std.copy()   # de-fragment before new-col add
         result_merged_df_std['predicted_pax_std'] = result_merged_df_std.apply(
             lambda r: sum_predicted_pax(r, ndo_cols), axis=1
         )
@@ -1381,6 +1409,7 @@ class AdditivePickupModelProcessor:
         )
 
         weighted_std_df[ndo_cols] = weighted_std_df[ndo_cols] ** 2
+        weighted_std_df = weighted_std_df.copy()   # de-fragment before new-col add
         weighted_std_df['weighted_pax_std'] = weighted_std_df.apply(
             lambda r: sum_predicted_pax(r, ndo_cols), axis=1
         )
@@ -1520,8 +1549,12 @@ class AdditivePickupModelProcessor:
 
         zero_df = pd.DataFrame(recs)
         # All NDO columns are zero (this flight picked up no remaining-RBD pax).
-        for c in pivot_ndo_cols:
-            zero_df[c] = 0
+        # Build every NDO column in one shot and concat once — assigning them one
+        # at a time fragments the frame (pandas PerformanceWarning) and is slow.
+        if pivot_ndo_cols:
+            ndo_zeros = pd.DataFrame(
+                0, index=zero_df.index, columns=list(pivot_ndo_cols))
+            zero_df = pd.concat([zero_df, ndo_zeros], axis=1)
         return zero_df
 
     def _distribute_remaining_rbd(self, future_df, pivot_ndo, flight_matches,
@@ -1633,7 +1666,12 @@ class AdditivePickupModelProcessor:
             (_alpha ** x_flown).fillna(0.0).to_numpy(dtype=float),
             (_alpha_future ** x_future).fillna(0.0).to_numpy(dtype=float))
 
-        remaining_pax.fillna(0, inplace=True)
+        # Fill NaNs with 0 ONLY on numeric columns (NDO cells with no booking,
+        # unmatched merge cells). Filling the whole frame downcasts object columns
+        # and triggers a pandas FutureWarning; the string/date columns don't need
+        # filling anyway — only the numeric NDO/aggregation columns are summed.
+        num_cols = remaining_pax.select_dtypes(include=[np.number]).columns
+        remaining_pax[num_cols] = remaining_pax[num_cols].fillna(0)
 
         # Vectorized replacement for the old per-row apply(sum_ndo, axis=1):
         # for each row, sum the NDO columns whose column-integer <= that row's
@@ -1989,8 +2027,13 @@ class AdditivePickupModelProcessor:
             return pd.Series({'Matched_Current_Bookings': g['booked'].mean(),
                               'Weighted_Matched_Current_Bookings': wavg})
 
-        return (per_hist.groupby(['Sector', 'DepartureDate_future', 'FlightNumber_future'],
-                                 sort=False).apply(_agg).reset_index())
+        # Select the value columns _agg needs AFTER groupby so the grouping
+        # columns aren't passed into _agg. This avoids the pandas 2.2
+        # "apply operated on the grouping columns" FutureWarning without using the
+        # include_groups kwarg (which doesn't exist on the pinned pandas 1.4.3).
+        grp = per_hist.groupby(['Sector', 'DepartureDate_future', 'FlightNumber_future'],
+                               sort=False)
+        return grp[['booked', 'Weight']].apply(_agg).reset_index()
 
     def _sum_open_ndo(self, df, ndo_cols):
         """
