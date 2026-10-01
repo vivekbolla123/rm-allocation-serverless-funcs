@@ -379,7 +379,7 @@ class S3AuditProcessor:
             for _, row in df.iterrows():
                 # Get sector and flight info (could be connections like "619-1528")
                 sector = str(row.get('sector', ''))[:50].strip()
-                flight_no = str(row.get('FlightNumber', ''))[:50].strip()
+                flight_no = str(row.get('FlightNumber', ''))[:50].strip() if not row.get('flightNo') else str(row.get('flightNo', ''))[:50].strip()
                 dept_date = str(row.get('date', ''))  # MM-DD-YYYY format
                 changed_at = row.get('changedAt', '')
                 analyst = str(row.get('userName', '') or row.get('analystName', ''))[:100].strip()
