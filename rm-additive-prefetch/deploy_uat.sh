@@ -1,8 +1,8 @@
 #! /bin/bash
 set -e
 #Variable definition section
-Lmd_Func="uat-rm-additive-prefetch"
-ECR_Repo="$Lmd_Func"
+Lmd_Func="uat-rm-lambda-rm-additive-prefetch"
+ECR_Repo="uat-rm-ecr-rm-additive-prefetch"
 ECR_Domain="471112573018.dkr.ecr.ap-south-1.amazonaws.com"
 Local_Img_Tag="rm-additive-prefetch-image"
 ECR_Img_Tag="latest"
