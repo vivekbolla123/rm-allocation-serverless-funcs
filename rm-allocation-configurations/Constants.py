@@ -792,3 +792,17 @@ FARE_BUCKET_RBDS = [
     'R0', 'R1', 'R2', 'R3', 'R4', 'T0', 'T1', 'T2', 'T3', 'T4',
     'U0', 'U1', 'U2', 'U3', 'U4', 'V0', 'V1', 'V2', 'V3', 'V4',
 ]
+
+SUMMARY_FARE_COLUMNS = [
+    'Backstop', 'hardAnchorFare', 'strategyFare', 'lastSellingFare', 'profileFare',
+    'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue', 'anchorFare',
+    'SellingFare', 'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM',
+    'ALLIN_AF_NB_LY', 'grpAdjProfileFare', 'Portfolio_Anchor', 'grpFareAnchor',
+    'Portfolio88_Anchor', 'upsell', 'NG_AF_Forecast', 'NG_Opening_fare',
+    'NG_Strategy_fare', 'NG_Anchor_fare', 'MktFare_Min', 'MktFare_Max', 'autoBackstop'
+]
+
+NEXTGEN_SUMMARY_FARE_COLUMNS = [
+    'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
+    'NG_AF_Forecast', 'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare'
+]

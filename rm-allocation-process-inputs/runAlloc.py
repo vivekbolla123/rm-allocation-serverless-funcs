@@ -1549,7 +1549,7 @@ class DynAlloc:
 				B2CRBDs_ladder = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
 				if not B2CRBDs_ladder.empty:
 					# Read exact per-bucket (mu, sigma) from DW/MongoDB table
-					s3_bucket_df = self.rmdatabasehelper.get_additive_fare_bucket_forecast(
+					fare_bucket_df = self.rmdatabasehelper.get_additive_fare_bucket_forecast(
 						sector=f"{self.currParams.origin}{self.currParams.destin}",
 						snapshot_date=getattr(self.currParams, 'currDate', None),
 						departure_date=currFltDate,
@@ -1557,10 +1557,10 @@ class DynAlloc:
 					)
 
 					ladder_data = []
-					if s3_bucket_df is not None and not s3_bucket_df.empty:
-						count_col = next((c for c in ['OptimizationDemand', 'WTP_pax_count', 'New Final_pax_count', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in s3_bucket_df.columns), None)
-						std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'std', 'predicted_pax_std', 'sigma'] if c in s3_bucket_df.columns), None)
-						for idx, bucket_row in s3_bucket_df.iterrows():
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
+						count_col = next((c for c in ['OptimizationDemand', 'WTP_pax_count', 'New Final_pax_count', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in fare_bucket_df.columns), None)
+						std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'std', 'predicted_pax_std', 'sigma'] if c in fare_bucket_df.columns), None)
+						for idx, bucket_row in fare_bucket_df.iterrows():
 							b_name = str(bucket_row.get('FareBucket', f'Bucket_{idx}'))
 							b_lower = bucket_row.get('FareBucket_Lower')
 							b_upper = bucket_row.get('FareBucket_Upper')
@@ -1621,21 +1621,21 @@ class DynAlloc:
 					# currBookedLoad and Capacity are ONLY overridden from the weighted file for
 					# local test cases — in UAT/prod they must come from the live Navitaire feed.
 					flight_std_val = getattr(state, 'currFltTime', None)
-					if s3_bucket_df is not None and not s3_bucket_df.empty:
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
 						# Always pick up STD from the weighted forecast file
-						if 'STD' in s3_bucket_df.columns and pd.notna(s3_bucket_df['STD'].iloc[0]):
-							flight_std_val = str(s3_bucket_df['STD'].iloc[0])[:5]
+						if 'STD' in fare_bucket_df.columns and pd.notna(fare_bucket_df['STD'].iloc[0]):
+							flight_std_val = str(fare_bucket_df['STD'].iloc[0])[:5]
 						# Only override bookload and capacity from weighted file for local test runs
 						if is_local_test:
-							cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in s3_bucket_df.columns), None)
-							if cb_col and pd.notna(s3_bucket_df[cb_col].iloc[0]):
+							cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in fare_bucket_df.columns), None)
+							if cb_col and pd.notna(fare_bucket_df[cb_col].iloc[0]):
 								try:
-									currBookedLoad = to_float(s3_bucket_df[cb_col].iloc[0], currBookedLoad)
+									currBookedLoad = to_float(fare_bucket_df[cb_col].iloc[0], currBookedLoad)
 								except (ValueError, TypeError):
 									pass
-							if 'Capacity' in s3_bucket_df.columns and pd.notna(s3_bucket_df['Capacity'].iloc[0]):
+							if 'Capacity' in fare_bucket_df.columns and pd.notna(fare_bucket_df['Capacity'].iloc[0]):
 								try:
-									final_totalCapacity = to_float(s3_bucket_df['Capacity'].iloc[0], final_totalCapacity)
+									final_totalCapacity = to_float(fare_bucket_df['Capacity'].iloc[0], final_totalCapacity)
 								except (ValueError, TypeError):
 									pass
 
@@ -1672,11 +1672,11 @@ class DynAlloc:
 					avg_fare_val = to_float(last_seven_avg_val, 3500.0)
 					if avg_fare_val <= 0:
 						avg_fare_val = 3500.0
-					# Check if Current_Revenue is available in s3_bucket_df
+					# Check if Current_Revenue is available in fare_bucket_df
 					weighted_rev = None
-					if s3_bucket_df is not None and not s3_bucket_df.empty and 'Current_Revenue' in s3_bucket_df.columns:
+					if fare_bucket_df is not None and not fare_bucket_df.empty and 'Current_Revenue' in fare_bucket_df.columns:
 						try:
-							rev_val = s3_bucket_df['Current_Revenue'].iloc[0]
+							rev_val = fare_bucket_df['Current_Revenue'].iloc[0]
 							rev_f = to_float(rev_val, None)
 							if rev_f is not None and rev_f > 0:
 								weighted_rev = rev_f
@@ -1685,10 +1685,10 @@ class DynAlloc:
 					curr_rev = weighted_rev if weighted_rev is not None else (to_float(currBookedLoad, 0.0) * avg_fare_val)
 
 					ndo_val = to_int(getattr(state, 'ndocounter', 0), 0)
-					if s3_bucket_df is not None and not s3_bucket_df.empty:
-						if 'future_flight_NDO' in s3_bucket_df.columns and pd.notna(s3_bucket_df['future_flight_NDO'].iloc[0]):
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
+						if 'future_flight_NDO' in fare_bucket_df.columns and pd.notna(fare_bucket_df['future_flight_NDO'].iloc[0]):
 							try:
-								ndo_val = to_int(s3_bucket_df['future_flight_NDO'].iloc[0], ndo_val)
+								ndo_val = to_int(fare_bucket_df['future_flight_NDO'].iloc[0], ndo_val)
 							except (ValueError, TypeError):
 								pass
 					self.currParams.ndocounter = ndo_val
@@ -1730,10 +1730,10 @@ class DynAlloc:
 					except Exception as inv_err:
 						self.logger.warning(f"Error fetching add_model_inventory_ng: {inv_err}")
 
-					if (inv_ng_df is None or inv_ng_df.empty) and (s3_bucket_df is not None and not s3_bucket_df.empty):
+					if (inv_ng_df is None or inv_ng_df.empty) and (fare_bucket_df is not None and not fare_bucket_df.empty):
 						try:
 							from daily_next_gen import compute_flight_inventory_ng
-							inv_ng_df = compute_flight_inventory_ng(s3_bucket_df)
+							inv_ng_df = compute_flight_inventory_ng(fare_bucket_df)
 						except Exception as comp_err:
 							self.logger.warning(f"Error computing daily_next_gen fallback: {comp_err}")
 
@@ -2703,7 +2703,6 @@ class DynAlloc:
 			auData['navAuditId'] = rec.nav_audit_id
 		if hasattr(rec, 'nextgen_rbd_details') and rec.nextgen_rbd_details:
 			auData['rbds'] = rec.nextgen_rbd_details
-			auData['newgnwua'] = True
 		if hasattr(rec, 'sector') and rec.sector:
 			auData['sector'] = rec.sector
 		if hasattr(rec, 'flight_number') and rec.flight_number:

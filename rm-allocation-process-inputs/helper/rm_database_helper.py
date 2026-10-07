@@ -1,7 +1,10 @@
+import os
+import logging
 from datetime import datetime, timedelta, date
 from uuid import uuid4
 import json
 import pandas as pd
+from sqlalchemy import text
 import pytz
 from ownlogger import OwnLogger
 from Constants import *
@@ -11,19 +14,26 @@ from helper.redis_helper import RedisHelper
 from constants_utils import ConstantsUtils
 from common.compute_utils import parse_int_flag
 
+
 class RMDatabaseHelper:
-    def __init__(self, mongo_db, dwconn, runId, inputSource, debugmode, cache_client, currParams):
+    def __init__(self, mongo_db, dwconn, runId, inputSource, debugmode, cache_client, currParams=None):
         self.db = mongo_db  # MongoDB database instance
         self.master_db = getattr(currParams, 'mongo_master_db', mongo_db) if hasattr(currParams, 'mongo_master_db') else mongo_db
         self.dwconn = dwconn  # Data warehouse MongoDB instance
         self.runId = runId
-        self.logger = OwnLogger(runId, inputSource)
+        if inputSource is not None and hasattr(inputSource, 'logs'):
+            self.logger = OwnLogger(runId, inputSource)
+            self.timeutils = TimeUtils(inputSource)
+            self.redishelper = RedisHelper(self.runId, cache_client, inputSource)
+        else:
+            self.logger = logging.getLogger("RMDatabaseHelper")
+            self.timeutils = None
+            self.redishelper = None
         self.currParams = currParams
         self.inputSource = inputSource
         self.debugMode = debugmode
-        self.timeutils = TimeUtils(inputSource)
-        self.redishelper = RedisHelper(self.runId, cache_client, inputSource)
-        self.constants_utils = ConstantsUtils(mongo_db)
+        self.constants_utils = ConstantsUtils(mongo_db) if mongo_db is not None else None
+
 
     def getLatestCodeVersion(self):
         try:
@@ -998,7 +1008,6 @@ class RMDatabaseHelper:
                     "flight_number": str(flight_number),
                     "sector": sector,
                     "departure_date": departure_date,
-                    "newgnwua": True,
                     "source": "nextgen_au",
                     "rbds": rbd_details or [],
                     "nextgen_request": json.dumps(request_doc),
@@ -1157,19 +1166,24 @@ class RMDatabaseHelper:
         dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
         if dw_engine is not None:
             try:
-                query = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                query_str = "SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = :sector OR Sector = :sec_clean)"
+                params = {"sector": sector, "sec_clean": sec_clean}
                 if dep_str:
-                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                    query_str += " AND DATE(DepartureDate) = :dep_str"
+                    params["dep_str"] = dep_str
                 if flt_digits:
-                    query += f" AND FlightNumber = {flt_digits}"
-                df = pd.read_sql(query, dw_engine)
+                    query_str += " AND FlightNumber = :flt_digits"
+                    params["flt_digits"] = int(flt_digits)
+                df = pd.read_sql(text(query_str), dw_engine, params=params)
                 if df is not None and not df.empty:
                     return df
                 if (df is None or df.empty) and flt_digits:
-                    query_sec = f"SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                    query_sec_str = "SELECT * FROM RM_DW_DATA.add_model_fare_bucket_level_weighted WHERE (Sector = :sector OR Sector = :sec_clean)"
+                    params_sec = {"sector": sector, "sec_clean": sec_clean}
                     if dep_str:
-                        query_sec += f" AND DATE(DepartureDate) = '{dep_str}'"
-                    df_sec = pd.read_sql(query_sec, dw_engine)
+                        query_sec_str += " AND DATE(DepartureDate) = :dep_str"
+                        params_sec["dep_str"] = dep_str
+                    df_sec = pd.read_sql(text(query_sec_str), dw_engine, params=params_sec)
                     if df_sec is not None and not df_sec.empty:
                         return df_sec
             except Exception as e:
@@ -1220,14 +1234,18 @@ class RMDatabaseHelper:
         dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
         if dw_engine is not None:
             try:
-                query = f"SELECT * FROM RM_DW_DATA.add_model_inventory_ng WHERE (sector = '{sector}' OR sector = '{sec_clean}')"
+                query_str = "SELECT * FROM RM_DW_DATA.add_model_inventory_ng WHERE (sector = :sector OR sector = :sec_clean)"
+                params = {"sector": sector, "sec_clean": sec_clean}
                 if date_str:
-                    query += f" AND DATE(date) = '{date_str}'"
+                    query_str += " AND DATE(date) = :date_str"
+                    params["date_str"] = date_str
                 if flt_digits:
-                    query += f" AND flight = {flt_digits}"
+                    query_str += " AND flight = :flt_digits"
+                    params["flt_digits"] = int(flt_digits)
                 if ndo is not None:
-                    query += f" AND NDO = {int(ndo)}"
-                df = pd.read_sql(query, dw_engine)
+                    query_str += " AND NDO = :ndo"
+                    params["ndo"] = int(ndo)
+                df = pd.read_sql(text(query_str), dw_engine, params=params)
                 if df is not None and not df.empty:
                     return df
             except Exception as e:
@@ -1276,12 +1294,15 @@ class RMDatabaseHelper:
         dw_engine = getattr(self, 'dwconn', None) or getattr(self.currParams, 'dwconn', None)
         if dw_engine is not None:
             try:
-                query = f"SELECT * FROM RM_DW_DATA.add_model_flight_level_weighted WHERE (Sector = '{sector}' OR Sector = '{sec_clean}')"
+                query_str = "SELECT * FROM RM_DW_DATA.add_model_flight_level_weighted WHERE (Sector = :sector OR Sector = :sec_clean)"
+                params = {"sector": sector, "sec_clean": sec_clean}
                 if dep_str:
-                    query += f" AND DATE(DepartureDate) = '{dep_str}'"
+                    query_str += " AND DATE(DepartureDate) = :dep_str"
+                    params["dep_str"] = dep_str
                 if flt_digits:
-                    query += f" AND FlightNumber = {flt_digits}"
-                df = pd.read_sql(query, dw_engine)
+                    query_str += " AND FlightNumber = :flt_digits"
+                    params["flt_digits"] = int(flt_digits)
+                df = pd.read_sql(text(query_str), dw_engine, params=params)
                 if df is not None and not df.empty:
                     return df
             except Exception as e:
@@ -2917,7 +2938,7 @@ class RMDatabaseHelper:
     def fetch_all_conversion_data(self):
         try:
             if  self.inputSource.logs[CONST_RUN_AUDIT] == DB:
-                query = f"SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion"
+                query = text("SELECT FromCurrencyCode, ToCurrencyCode, ConversionRate FROM currency_conversion")
                 df = pd.read_sql(query, self.dwconn)
                 return df
         except Exception as e:
@@ -3290,15 +3311,15 @@ class RMDatabaseHelper:
         try:
             if self.inputSource.logs[CONST_RUN_AUDIT] == DB:
                 # Fetch from MySQL
-                query = f"""
+                query = text("""
                     SELECT ActualDistance 
                     FROM QP_DWH_MASTER.CityPair 
-                    WHERE DepartureStation = '{departure_station}' 
-                    AND ArrivalStation = '{arrival_station}'
+                    WHERE DepartureStation = :dept 
+                    AND ArrivalStation = :arr
                     AND InActive = 0
                     LIMIT 1
-                """
-                result = pd.read_sql(query, self.dwconn)
+                """)
+                result = pd.read_sql(query, self.dwconn, params={"dept": departure_station, "arr": arrival_station})
                 
                 if not result.empty and result['ActualDistance'].iloc[0] is not None:
                     return float(result['ActualDistance'].iloc[0])
@@ -3348,3 +3369,144 @@ class RMDatabaseHelper:
             )
         except Exception as e:
             self.logger.error(f"Error setting auto_tolerance_redis_state to Mongo: {e}")
+
+    @staticmethod
+    def fetch_tax_master_domestic(candidate_dbs=None):
+        """Fetches domestic tax master records from MongoDB or local fallback CSV."""
+        if candidate_dbs is None:
+            candidate_dbs = []
+        elif not isinstance(candidate_dbs, (list, tuple)):
+            candidate_dbs = [candidate_dbs]
+        for cdb in candidate_dbs:
+            if cdb is not None:
+                coll = getattr(cdb, 'tax_mast_dom', None)
+                if coll is None and hasattr(cdb, '__getitem__'):
+                    try:
+                        coll = cdb['tax_mast_dom']
+                    except Exception:
+                        coll = None
+                if coll is not None:
+                    try:
+                        docs = list(coll.find({}, {"_id": 0}))
+                        if docs:
+                            return docs
+                    except Exception as e:
+                        logging.getLogger("RMDatabaseHelper").warning(f"Error querying tax_mast_dom collection: {e}")
+
+        # Local fallback CSV if DB has no records
+        csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "QPDynamicAllocation", "testcases", "input", "tax_mast_dom.csv"))
+        if os.path.exists(csv_path):
+            try:
+                df = pd.read_csv(csv_path)
+                return df.to_dict(orient='records')
+            except Exception:
+                pass
+        return []
+
+    def get_tax_master_domestic(self):
+        """Fetches domestic tax master records for this RMDatabaseHelper instance."""
+        candidate_dbs = [
+            getattr(self, 'master_db', None),
+            getattr(self, 'db', None),
+            getattr(getattr(self, 'currParams', None), 'mongo_master_db', None),
+            getattr(self, 'mongoclient', None)
+        ]
+        return self.fetch_tax_master_domestic(candidate_dbs)
+
+    @staticmethod
+    def fetch_tax_master_international(candidate_dbs=None):
+        """Fetches international tax master records from MongoDB or local fallback CSV."""
+        if candidate_dbs is None:
+            candidate_dbs = []
+        elif not isinstance(candidate_dbs, (list, tuple)):
+            candidate_dbs = [candidate_dbs]
+        for cdb in candidate_dbs:
+            if cdb is not None:
+                coll = getattr(cdb, 'tax_mast_intl', None)
+                if coll is None and hasattr(cdb, '__getitem__'):
+                    try:
+                        coll = cdb['tax_mast_intl']
+                    except Exception:
+                        coll = None
+                if coll is not None:
+                    try:
+                        docs = list(coll.find({}, {"_id": 0}))
+                        if docs:
+                            return docs
+                    except Exception as e:
+                        logging.getLogger("RMDatabaseHelper").warning(f"Error querying tax_mast_intl collection: {e}")
+
+        # Local fallback CSV if DB has no records
+        csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "QPDynamicAllocation", "testcases", "input", "tax_mast_intl.csv"))
+        if os.path.exists(csv_path):
+            try:
+                df = pd.read_csv(csv_path)
+                return df.to_dict(orient='records')
+            except Exception:
+                pass
+        return []
+
+    def get_tax_master_international(self):
+        """Fetches international tax master records for this RMDatabaseHelper instance."""
+        candidate_dbs = [
+            getattr(self, 'master_db', None),
+            getattr(self, 'db', None),
+            getattr(getattr(self, 'currParams', None), 'mongo_master_db', None),
+            getattr(self, 'mongoclient', None)
+        ]
+        return self.fetch_tax_master_international(candidate_dbs)
+
+    @staticmethod
+    def fetch_pricing_tax_parameters(candidate_dbs=None):
+        """Fetches PRICING_DUF_SECTORS and PRICING_GST_SECTORS from rm_parameter_values."""
+        duf_sectors = {}
+        gst_sectors = set()
+        if candidate_dbs is None:
+            candidate_dbs = []
+        elif not isinstance(candidate_dbs, (list, tuple)):
+            candidate_dbs = [candidate_dbs]
+
+        param_coll = None
+        for cdb in candidate_dbs:
+            if cdb is not None:
+                coll = getattr(cdb, 'rm_parameter_values', None)
+                if coll is None and hasattr(cdb, '__getitem__'):
+                    try:
+                        coll = cdb['rm_parameter_values']
+                    except Exception:
+                        coll = None
+                if coll is not None:
+                    param_coll = coll
+                    break
+
+        if param_coll is not None:
+            try:
+                cursor = param_coll.find(
+                    {"parameterKey": {"$in": ['PRICING_DUF_SECTORS', 'PRICING_GST_SECTORS']}},
+                    {"parameterKey": 1, "parameterValue": 1, "_id": 0}
+                )
+                for doc in cursor:
+                    key = doc.get('parameterKey')
+                    val = doc.get('parameterValue')
+                    try:
+                        parsed = json.loads(val) if isinstance(val, str) else val
+                        if key == 'PRICING_DUF_SECTORS' and isinstance(parsed, dict):
+                            duf_sectors.update(parsed)
+                        elif key == 'PRICING_GST_SECTORS' and isinstance(parsed, list):
+                            gst_sectors.update(parsed)
+                    except Exception:
+                        pass
+            except Exception as e:
+                logging.getLogger("RMDatabaseHelper").warning(f"Error querying rm_parameter_values: {e}")
+
+        return {"duf_sectors": duf_sectors, "gst_sectors": gst_sectors}
+
+    def get_pricing_tax_parameters(self):
+        """Fetches PRICING_DUF_SECTORS and PRICING_GST_SECTORS for this RMDatabaseHelper instance."""
+        candidate_dbs = [
+            getattr(self, 'master_db', None),
+            getattr(self, 'db', None),
+            getattr(getattr(self, 'currParams', None), 'mongo_master_db', None),
+            getattr(self, 'mongoclient', None)
+        ]
+        return self.fetch_pricing_tax_parameters(candidate_dbs)

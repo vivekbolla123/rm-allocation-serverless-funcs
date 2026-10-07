@@ -3716,6 +3716,22 @@ public class App implements CommandLineRunner {
     public String getColumnHeaders(String value) {
         String listObj = null;
 
+        // 1. Fetch configured column headers from DB first
+        try {
+            MongoCollection<Document> collection = database.getCollection("config_column_names");
+            Document doc = collection.find(eq("tableName", value)).first();
+
+            if (doc != null) {
+                listObj = doc.getString(COLUMNS_COLUMN_NAME);
+                if (listObj != null && !listObj.trim().isEmpty()) {
+                    return listObj;
+                }
+            }
+        } catch (Exception e) {
+            log.error(DATABASE_ACCESS_ERROR_MESSAGE, e);
+        }
+
+        // 2. Fallback to centralized header constants
         if (SALESINV_RBD_DISTRIBUTION_TABLE_NAME.equalsIgnoreCase(value)) {
             return String.join(",", SI_RBD_SEATS_COLUMN_NAME, SI_RBD_TYPE_COLUMN_NAME,
                     SI_RBD_RBD_COLUMN_NAME, SI_RBD_VALUE_COLUMN_NAME);
@@ -3727,50 +3743,39 @@ public class App implements CommandLineRunner {
         }
 
         if (value.startsWith(MARKET_LIST_SALESINV_TABLE_NAME)) {
-            return "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
+            return CSV_HEADER_MARKET_LIST_SALESINV;
         }
 
         if (PAYLOAD_RESTRICTION_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "flightNumber,origin,destination,depStart,depEnd,lid,adjustedCapacity";
+            return CSV_HEADER_PAYLOAD_RESTRICTION;
         }
 
         if (AUTO_TOLERANCE_NDO_CONFIG_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "ndo_min,ndo_max,n_value";
+            return CSV_HEADER_AUTO_TOLERANCE_NDO_CONFIG;
         }
 
         if (AUTO_TOLERANCE_DELTA_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "id,band_name,min_value,max_value";
+            return CSV_HEADER_AUTO_TOLERANCE_DELTA_BANDS;
         }
 
         if (AUTO_TOLERANCE_GRID_VALUES_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "band_id,dplf_band_name,forecast_band_name,delta_band_id,g_value";
+            return CSV_HEADER_AUTO_TOLERANCE_GRID_VALUES;
         }
 
         if (COMP_RESPONSE_PLF_BANDS_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "id,band_name,start,end";
+            return CSV_HEADER_COMP_RESPONSE_PLF_BANDS;
         }
 
         if (COMP_RESPONSE_GRID_TABLE_NAME.equalsIgnoreCase(value)) {
-            return "grid_name,ndo_band,plf_band,time_range,criteria,response_rule,tolerance";
+            return CSV_HEADER_COMP_RESPONSE_GRID;
         }
 
-        try {
-            MongoCollection<Document> collection = database.getCollection("config_column_names");
-            Document doc = collection.find(eq("tableName", value)).first();
-
-            if (doc != null) {
-                listObj = doc.getString(COLUMNS_COLUMN_NAME);
-            }
-        } catch (Exception e) {
-            log.error(DATABASE_ACCESS_ERROR_MESSAGE);
-            e.printStackTrace();
+        if (COMP_FARE_RECALIBRATION_TABLE_NAME.equalsIgnoreCase(value)) {
+            return CSV_HEADER_COMP_FARE_RECALIBRATION;
         }
 
-        if (listObj == null) {
-            log.error("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
-            return "";
-        }
-        return listObj;
+        log.error("Warning: Column headers not found for table identifier: " + value + ". Returning empty string.");
+        return "";
     }
 
     public void deleteValuesStrategyTable(Set<String> value, String collectionName,

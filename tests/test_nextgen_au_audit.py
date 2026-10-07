@@ -64,7 +64,7 @@ class TestNextGenAuAudit:
 
         set_fields = update_doc["$set"]
         assert set_fields["type"] == "nextgen_au"
-        assert set_fields["newgnwua"] is True
+        assert "newgnwua" not in set_fields
         assert set_fields["flight"] == "QP1955 BOMBLR"
         assert len(set_fields["rbds"]) == 3
         assert set_fields["rbds"][0]["rbd"] == "Y"
@@ -87,7 +87,6 @@ class TestNextGenAuAudit:
             "flight_number": "1955",
             "departure_date": "2026-10-19",
             "type": "nextgen_au",
-            "newgnwua": True,
             "rbds": [{"rbd": "Y", "fare": 11500.0, "au": 180}]
         }
         mock_col.find_one.return_value = existing_doc

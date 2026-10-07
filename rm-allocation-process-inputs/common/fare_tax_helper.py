@@ -13,20 +13,6 @@ def _safe_float(val, default=0.0):
         return default
 
 
-def _get_collection(db_obj, coll_name):
-    if db_obj is None:
-        return None
-    coll = getattr(db_obj, coll_name, None)
-    if coll is not None:
-        return coll
-    if hasattr(db_obj, '__getitem__'):
-        try:
-            return db_obj[coll_name]
-        except Exception:
-            return None
-    return None
-
-
 class FareTaxHelper:
     """
     Helper for bidirectional conversion between All-In (Gross) Fares and Airline Component Fares.
@@ -56,44 +42,41 @@ class FareTaxHelper:
         self._loaded = False
 
     def _ensure_loaded(self):
-        """Lazy-loads tax masters and pricing constants from Mongo or local fallback CSVs."""
+        """Loads tax masters and pricing constants via rm_database_helper."""
         if self._loaded:
             return
 
-        # 1. Load Domestic Tax Master (tax_mast_dom)
         dom_docs = []
+        intl_docs = []
+        pricing_params = {}
+
+        if self.rmdatabasehelper is not None:
+            if hasattr(self.rmdatabasehelper, 'get_tax_master_domestic'):
+                dom_docs = self.rmdatabasehelper.get_tax_master_domestic()
+            if hasattr(self.rmdatabasehelper, 'get_tax_master_international'):
+                intl_docs = self.rmdatabasehelper.get_tax_master_international()
+            if hasattr(self.rmdatabasehelper, 'get_pricing_tax_parameters'):
+                pricing_params = self.rmdatabasehelper.get_pricing_tax_parameters()
+
         candidate_dbs = [
             self.mongo_master_db,
             getattr(self.rmdatabasehelper, 'master_db', None),
             self.db,
             getattr(self.rmdatabasehelper, 'mongoclient', None)
         ]
-        for cdb in candidate_dbs:
-            if cdb is not None:
-                coll = _get_collection(cdb, 'tax_mast_dom')
-                if coll is not None:
-                    try:
-                        docs = list(coll.find({}, {"_id": 0}))
-                        if docs:
-                            dom_docs = docs
-                            break
-                    except Exception as e:
-                        self.logger.warning(f"Error querying tax_mast_dom collection: {e}")
-
+        from helper.rm_database_helper import RMDatabaseHelper
         if not dom_docs:
-            csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "QPDynamicAllocation", "testcases", "input", "tax_mast_dom.csv"))
-            if os.path.exists(csv_path):
-                try:
-                    df = pd.read_csv(csv_path)
-                    dom_docs = df.to_dict(orient='records')
-                except Exception:
-                    pass
+            dom_docs = RMDatabaseHelper.fetch_tax_master_domestic(candidate_dbs)
+        if not intl_docs:
+            intl_docs = RMDatabaseHelper.fetch_tax_master_international(candidate_dbs)
+        if not pricing_params:
+            pricing_params = RMDatabaseHelper.fetch_pricing_tax_parameters(candidate_dbs)
 
-        for doc in dom_docs:
+        # 1. Populate Domestic Tax Map
+        for doc in dom_docs or []:
             code = str(doc.get('Code', '')).strip()
             if code:
                 gst_val = _safe_float(doc.get('GST', 0))
-                # additive_mongo_helper stores GST already / 100
                 gst_rate = gst_val / 100.0 if gst_val > 1.0 else gst_val
                 self._dom_map[code] = {
                     'GST': gst_rate,
@@ -104,30 +87,8 @@ class FareTaxHelper:
                     'UDF_DF': _safe_float(doc.get('UDF_DF', 0)),
                 }
 
-        # 2. Load International Tax Master (tax_mast_intl)
-        intl_docs = []
-        for cdb in candidate_dbs:
-            if cdb is not None:
-                coll = _get_collection(cdb, 'tax_mast_intl')
-                if coll is not None:
-                    try:
-                        docs = list(coll.find({}, {"_id": 0}))
-                        if docs:
-                            intl_docs = docs
-                            break
-                    except Exception as e:
-                        self.logger.warning(f"Error querying tax_mast_intl collection: {e}")
-
-        if not intl_docs:
-            csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "QPDynamicAllocation", "testcases", "input", "tax_mast_intl.csv"))
-            if os.path.exists(csv_path):
-                try:
-                    df = pd.read_csv(csv_path)
-                    intl_docs = df.to_dict(orient='records')
-                except Exception:
-                    pass
-
-        for doc in intl_docs:
+        # 2. Populate International Tax Map
+        for doc in intl_docs or []:
             sector = str(doc.get('Sectors', '')).strip()
             if sector:
                 gst_val = _safe_float(doc.get('GST', 0))
@@ -147,33 +108,10 @@ class FareTaxHelper:
                     'Tax5': _safe_float(doc.get('Tax5', 0)),
                 }
 
-        # 3. Load Pricing Constants (PRICING_DUF_SECTORS, PRICING_GST_SECTORS)
-        param_coll = None
-        for cdb in candidate_dbs:
-            if cdb is not None:
-                param_coll = _get_collection(cdb, 'rm_parameter_values')
-                if param_coll is not None:
-                    break
-
-        if param_coll is not None:
-            try:
-                cursor = param_coll.find(
-                    {"parameterKey": {"$in": ['PRICING_DUF_SECTORS', 'PRICING_GST_SECTORS']}},
-                    {"parameterKey": 1, "parameterValue": 1, "_id": 0}
-                )
-                for doc in cursor:
-                    key = doc.get('parameterKey')
-                    val = doc.get('parameterValue')
-                    try:
-                        parsed = json.loads(val) if isinstance(val, str) else val
-                        if key == 'PRICING_DUF_SECTORS' and isinstance(parsed, dict):
-                            self._duf_sectors.update(parsed)
-                        elif key == 'PRICING_GST_SECTORS' and isinstance(parsed, list):
-                            self._gst_sectors.update(parsed)
-                    except Exception:
-                        pass
-            except Exception as e:
-                self.logger.warning(f"Error querying rm_parameter_values: {e}")
+        # 3. Populate Pricing Constants
+        if pricing_params:
+            self._duf_sectors.update(pricing_params.get('duf_sectors', {}))
+            self._gst_sectors.update(pricing_params.get('gst_sectors', set()))
 
         # Fallback to constants_utils if not found in db
         if not self._gst_sectors:

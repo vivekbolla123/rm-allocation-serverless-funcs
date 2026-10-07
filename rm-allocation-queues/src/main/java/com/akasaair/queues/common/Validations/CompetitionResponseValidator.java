@@ -2,14 +2,12 @@ package com.akasaair.queues.common.Validations;
 
 import java.util.*;
 import java.util.regex.Pattern;
+import static com.akasaair.queues.common.constants.CsvHeaderConstants.*;
 
 public class CompetitionResponseValidator {
 
-    private static final List<String> EXPECTED_PLF_BANDS_HEADERS = Arrays.asList("band_name", "start", "end");
-    private static final List<String> EXPECTED_GRID_HEADERS = Arrays.asList("grid_name", "ndo_band", "plf_band", "time_range", "criteria", "response_rule");
-
-    private static final Pattern FORMULA_CHAR_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\+\\-\\*/%\\(\\),.]+$");
-    private static final Pattern SECTOR_PATTERN = Pattern.compile("^[A-Za-z]{6}$");
+    public static final List<String> EXPECTED_PLF_BANDS_HEADERS = EXPECTED_COMP_RESPONSE_PLF_BANDS_HEADERS;
+    public static final List<String> EXPECTED_GRID_HEADERS = EXPECTED_COMP_RESPONSE_GRID_HEADERS;
 
     public static class ExtractedPlfBandRow {
         public int lineNum;
@@ -102,17 +100,18 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int bandNameIdx = findHeaderIndex(headers, "band_name", "bandname", "band", "name");
-        int startIdx = findHeaderIndex(headers, "start", "start_plf", "startplf");
-        int endIdx = findHeaderIndex(headers, "end", "end_plf", "endplf");
-        int idIdx = findHeaderIndex(headers, "id", "plf_band", "plfband");
+        int bandNameIdx = findHeaderIndex(headers, ALIASES_BAND_NAME);
+        int startIdx = findHeaderIndex(headers, ALIASES_START);
+        int endIdx = findHeaderIndex(headers, ALIASES_END);
+        int idIdx = findHeaderIndex(headers, ALIASES_PLF_ID);
 
         if (bandNameIdx == -1 || startIdx == -1 || endIdx == -1) {
             List<String> missing = new ArrayList<>();
-            if (bandNameIdx == -1) missing.add("'band_name'");
-            if (startIdx == -1) missing.add("'start'");
-            if (endIdx == -1) missing.add("'end'");
-            errors.add("Missing required columns for Competition Response PLF Bands file. Expected: band_name, start, end. Missing: "
+            if (bandNameIdx == -1) missing.add("'" + COL_BAND_NAME + "'");
+            if (startIdx == -1) missing.add("'" + COL_START + "'");
+            if (endIdx == -1) missing.add("'" + COL_END + "'");
+            errors.add("Missing required columns for Competition Response PLF Bands file. Expected: "
+                    + String.join(", ", EXPECTED_PLF_BANDS_HEADERS) + ". Missing: "
                     + String.join(", ", missing) + ". Found: " + rawHeaders);
             return false;
         }
@@ -251,10 +250,10 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int bandNameIdx = findHeaderIndex(headers, "band_name", "bandname", "band", "name");
-        int startIdx = findHeaderIndex(headers, "start", "start_plf", "startplf");
-        int endIdx = findHeaderIndex(headers, "end", "end_plf", "endplf");
-        int idIdx = findHeaderIndex(headers, "id", "plf_band", "plfband");
+        int bandNameIdx = findHeaderIndex(headers, ALIASES_BAND_NAME);
+        int startIdx = findHeaderIndex(headers, ALIASES_START);
+        int endIdx = findHeaderIndex(headers, ALIASES_END);
+        int idIdx = findHeaderIndex(headers, ALIASES_PLF_ID);
 
         boolean hasExplicitIds = true;
         for (int i = 1; i < csvData.size(); i++) {
@@ -370,23 +369,24 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int gridIdx = findHeaderIndex(headers, "grid_name", "gridname", "grid");
-        int ndoIdx = findHeaderIndex(headers, "ndo_band", "ndoband", "ndo");
-        int plfIdx = findHeaderIndex(headers, "plf_band", "plfband", "plf");
-        int trIdx = findHeaderIndex(headers, "time_range", "timerange", "time");
-        int critIdx = findHeaderIndex(headers, "criteria", "criterion");
-        int ruleIdx = findHeaderIndex(headers, "response_rule", "responserule", "rule", "strategy", "response");
+        int gridIdx = findHeaderIndex(headers, ALIASES_GRID_NAME);
+        int ndoIdx = findHeaderIndex(headers, ALIASES_NDO_BAND);
+        int plfIdx = findHeaderIndex(headers, ALIASES_PLF_BAND);
+        int trIdx = findHeaderIndex(headers, ALIASES_TIME_RANGE);
+        int critIdx = findHeaderIndex(headers, ALIASES_CRITERIA);
+        int ruleIdx = findHeaderIndex(headers, ALIASES_RESPONSE_RULE);
 
         if (gridIdx == -1 || ndoIdx == -1 || plfIdx == -1 || trIdx == -1 || critIdx == -1 || ruleIdx == -1) {
             List<String> missing = new ArrayList<>();
-            if (gridIdx == -1) missing.add("'grid_name'");
-            if (ndoIdx == -1) missing.add("'ndo_band'");
-            if (plfIdx == -1) missing.add("'plf_band'");
-            if (trIdx == -1) missing.add("'time_range'");
-            if (critIdx == -1) missing.add("'criteria'");
-            if (ruleIdx == -1) missing.add("'response_rule'");
+            if (gridIdx == -1) missing.add("'" + COL_GRID_NAME + "'");
+            if (ndoIdx == -1) missing.add("'" + COL_NDO_BAND + "'");
+            if (plfIdx == -1) missing.add("'" + COL_PLF_BAND + "'");
+            if (trIdx == -1) missing.add("'" + COL_TIME_RANGE + "'");
+            if (critIdx == -1) missing.add("'" + COL_CRITERIA + "'");
+            if (ruleIdx == -1) missing.add("'" + COL_RESPONSE_RULE + "'");
 
-            errors.add("Missing required columns for Competition Response Grid file. Expected: grid_name, ndo_band, plf_band, time_range, criteria, response_rule. Missing: "
+            errors.add("Missing required columns for Competition Response Grid file. Expected: "
+                    + String.join(", ", EXPECTED_GRID_HEADERS) + ". Missing: "
                     + String.join(", ", missing) + ". Found: " + rawHeaders);
             return false;
         }
@@ -514,13 +514,13 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int gridIdx = findHeaderIndex(headers, "grid_name", "gridname", "grid");
-        int ndoIdx = findHeaderIndex(headers, "ndo_band", "ndoband", "ndo");
-        int plfIdx = findHeaderIndex(headers, "plf_band", "plfband", "plf");
-        int trIdx = findHeaderIndex(headers, "time_range", "timerange", "time");
-        int critIdx = findHeaderIndex(headers, "criteria", "criterion");
-        int ruleIdx = findHeaderIndex(headers, "response_rule", "responserule", "rule", "strategy", "response");
-        int tolIdx = findHeaderIndex(headers, "tolerance", "tolernace", "threshold_factor");
+        int gridIdx = findHeaderIndex(headers, ALIASES_GRID_NAME);
+        int ndoIdx = findHeaderIndex(headers, ALIASES_NDO_BAND);
+        int plfIdx = findHeaderIndex(headers, ALIASES_PLF_BAND);
+        int trIdx = findHeaderIndex(headers, ALIASES_TIME_RANGE);
+        int critIdx = findHeaderIndex(headers, ALIASES_CRITERIA);
+        int ruleIdx = findHeaderIndex(headers, ALIASES_RESPONSE_RULE);
+        int tolIdx = findHeaderIndex(headers, ALIASES_TOLERANCE);
 
         for (int i = 1; i < csvData.size(); i++) {
             List<String> row = csvData.get(i);
@@ -558,7 +558,7 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int sectorIdx = findHeaderIndex(headers, "sector", "sectorname", "sector_name", "sector_code");
+        int sectorIdx = findHeaderIndex(headers, ALIASES_SECTOR);
         if (sectorIdx == -1) {
             errors.add("Missing required 'Sector' column for Competition Fare Recalibration file. Found headers: " + rawHeaders);
             return false;
@@ -653,7 +653,7 @@ public class CompetitionResponseValidator {
             headers.add(cleanHeader(h));
         }
 
-        int sectorIdx = findHeaderIndex(headers, "sector", "sectorname", "sector_name", "sector_code");
+        int sectorIdx = findHeaderIndex(headers, ALIASES_SECTOR);
         if (sectorIdx == -1) return result;
 
         List<Integer> airlineIndices = new ArrayList<>();

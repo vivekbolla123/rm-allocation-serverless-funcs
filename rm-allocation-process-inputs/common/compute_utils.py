@@ -422,17 +422,7 @@ def safe_round_fare(val, default=CONST_NA):
     return val
 
 
-SUMMARY_FARE_COLUMNS = [
-  'Backstop', 'hardAnchorFare', 'strategyFare', 'lastSellingFare', 'profileFare',
-  'lastSevenAvgFare', 'anchorFareBeforeTolerance', 'toleranceValue', 'anchorFare',
-  'SellingFare', 'ForecastAF_Allin', 'AF_Allin', 'AF_NB_Allin', 'ALLIN_AF_NB_LM',
-  'ALLIN_AF_NB_LY', 'grpAdjProfileFare', 'Portfolio_Anchor', 'grpFareAnchor',
-  'Portfolio88_Anchor', 'upsell', 'NG_AF_Forecast', 'NG_Opening_fare',
-  'NG_Strategy_fare', 'NG_Anchor_fare', 'MktFare_Min', 'MktFare_Max', 'autoBackstop'
-]
+# Re-exported from Constants for backward compatibility
+from Constants import SUMMARY_FARE_COLUMNS, NEXTGEN_SUMMARY_FARE_COLUMNS
 
-NEXTGEN_SUMMARY_FARE_COLUMNS = [
-  'MarketFare_Selected', 'MarketFare_Min', 'MarketFare_Max',
-  'NG_AF_Forecast', 'NG_Opening_fare', 'NG_Strategy_fare', 'NG_Anchor_fare'
-]
 
