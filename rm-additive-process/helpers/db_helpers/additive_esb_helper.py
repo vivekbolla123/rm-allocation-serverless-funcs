@@ -128,7 +128,6 @@ class AdditiveEsbHelper:
             AND qdb.BookingDate >= '{booking_cutoff}' AND qdb.BookingDate < '{today}'
         WHERE fm.DepartureDate BETWEEN '{today}' AND '{forward_end}'
             AND ({fm_station_conditions})
-            AND fm.FlightNumber < 6000
             AND fm.CarrierCode = 'QP'
             AND fm.Status <> 2
             AND fm.AdjustedCapacity > 0
