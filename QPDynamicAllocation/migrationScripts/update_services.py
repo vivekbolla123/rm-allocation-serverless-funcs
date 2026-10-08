@@ -11,6 +11,18 @@ from botocore.exceptions import ClientError
 
 DEFAULT_REGION = "ap-south-1"
 
+# ===========================================================================
+# ENVIRONMENT SWITCH
+# ===========================================================================
+# Set ENV to "uat" or "prod". The input CSV is derived from this toggle.
+ENV = "uat"
+
+import os  # noqa: E402
+
+from env_config import output_csv_name  # noqa: E402
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # The `configuration` column holds full JSON blobs (EventBridge targets with
 # InputTransformer, DeadLetterConfig, etc.) that can exceed the csv module's
 # default field size limit (131072 chars). Raise it so DictReader never trips.
@@ -686,7 +698,8 @@ def migrate_scheduler(
 def main():
 
     # ── Hardcoded settings (no CLI args needed) ──
-    INPUT_CSV = r"c:\Users\kenneth.menezes\Work\RM\rm-allocation-serverless-funcs\QPDynamicAllocation\migrationScripts\uat_lambda_service_inventory.csv"
+    # Input CSV is selected by the ENV toggle at the top of this file.
+    INPUT_CSV = os.path.join(_SCRIPT_DIR, output_csv_name(ENV))
     REGION = DEFAULT_REGION
     EXECUTE = True  # Set to False for dry-run
 

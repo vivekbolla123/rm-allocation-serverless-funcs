@@ -132,8 +132,8 @@ if env == 'prod':
     AWS_SQS_QUEUE_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-allocation-queues_rm-allocation-rbds-ftp"
     SFTP_PASSWORD = credentials.get('/rm/' + env + '/rm-allocation/NAV_SFTP_PASSWORD', '')
     
-    FETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-fetch-inputs"
-    PREFETCH_INPUTS_LAMBDA = "rm-allocation-serverless-funcs_rm-allocation-prefetch-inputs"
+    FETCH_INPUTS_LAMBDA = "prod-rm-lambda-rm-allocation-fetch-inputs"
+    PREFETCH_INPUTS_LAMBDA = "prod-rm-lambda-rm-allocation-prefetch-inputs"
     RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_SECRET_KEY_NEW_PROD', '')
     RM_WEBSERVICE_AWS_ACCESS_KEY_OLD_PROD = credentials.get('/copilot/qp/' + env + '/secrets/RM_WEBSERVICE_AWS_ACCESS_KEY', '')
@@ -158,7 +158,7 @@ if env == 'prod':
     PA_FILE_PATH = 'prod/PA/'
     ADDITIVE_MODEL_BUCKET = "qp-s3-fs"
     ADDITIVE_MODEL_FILE_PATH = 'prod/additive_model/'
-    ADDITIVE_PROCESS_LAMBDA_NAME = "rm-allocation-serverless-funcs_rm-additive-process"
+    ADDITIVE_PROCESS_LAMBDA_NAME = "prod-rm-lambda-rm-additive-process"
     ADDITIVE_GLUE_NAME = "rm_additive_model"
     ADDITIVE_SQS_URL = "https://sqs.ap-south-1.amazonaws.com/471112573018/rm-additive-model"
 

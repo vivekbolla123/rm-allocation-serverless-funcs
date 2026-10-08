@@ -11,45 +11,18 @@ from botocore.exceptions import ClientError
 
 DEFAULT_REGION = "ap-south-1"
 
-# service name -> old Lambda / new Lambda
-LAMBDA_MAP = {
-    "rm-additive-process": {
-        "old_lambda": "uat-rm-additive-process",
-        "new_lambda": "uat-rm-lambda-rm-additive-process",
-    },
-    "rm-additive-prefetch": {
-        "old_lambda": "uat-rm-additive-prefetch",
-        "new_lambda": "uat-rm-lambda-rm-additive-prefetch",
-    },
-    "rm-allocation-fetch-inputs": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-fetch-inputs",
-        "new_lambda": "uat-rm-lambda-rm-allocation-fetch-inputs",
-    },
-    "rm-allocation-prefetch-inputs": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-prefetch-inputs",
-        "new_lambda": "uat-rm-lambda-rm-allocation-prefetch-inputs",
-    },
-    "rm-allocation-process-inputs": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-process-inputs",
-        "new_lambda": "uat-rm-lambda-rm-allocation-process-inputs",
-    },
-    "rm-allocation-scheduled-jobs": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-scheduled-jobs",
-        "new_lambda": "uat-rm-lambda-rm-allocation-scheduled-jobs",
-    },
-    "rm-allocation-update-rbd": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-update-rbd",
-        "new_lambda": "uat-rm-lambda-rm-allocation-update-rbd",
-    },
-    "rm-allocation-update-rbd-ftp": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-allocation-update-rbd-ftp",
-        "new_lambda": "uat-rm-lambda-rm-allocation-update-rbd-ftp",
-    },
-    "rm-pricing-triggers": {
-        "old_lambda": "uat-rm-allocation-serverless-funcs-rm-pricing-triggers",
-        "new_lambda": "uat-rm-lambda-rm-pricing-triggers",
-    },
-}
+# ===========================================================================
+# ENVIRONMENT SWITCH
+# ===========================================================================
+# Set ENV to "uat" or "prod". Everything else (old/new lambda names, output
+# CSV name) is derived from this single toggle.
+ENV = "prod"
+
+
+from env_config import build_lambda_map, output_csv_name  # noqa: E402
+
+# service name -> {"old_lambda", "new_lambda"}
+LAMBDA_MAP = build_lambda_map(ENV)
 
 
 def json_dump(value):
@@ -128,7 +101,7 @@ def fetch_sqs_mappings(
             }
 
             rows.append({
-                "environment": "uat",
+                "environment": ENV,
                 "service": old_lambda,
                 "old_lambda": old_lambda,
                 "new_lambda": new_lambda,
@@ -230,7 +203,7 @@ def fetch_eventbridge_rules(
                 }
 
                 rows.append({
-                    "environment": "uat",
+                    "environment": ENV,
                     "service": old_lambda,
                     "old_lambda": old_lambda,
                     "new_lambda": new_lambda,
@@ -346,7 +319,7 @@ def fetch_schedules(
             }
 
             rows.append({
-                "environment": "uat",
+                "environment": ENV,
                 "service": old_lambda,
                 "old_lambda": old_lambda,
                 "new_lambda": new_lambda,
@@ -390,7 +363,7 @@ def main():
 
     parser.add_argument(
         "--output",
-        default="uat_lambda_service_inventory.csv",
+        default=output_csv_name(ENV),
     )
 
     args = parser.parse_args()
