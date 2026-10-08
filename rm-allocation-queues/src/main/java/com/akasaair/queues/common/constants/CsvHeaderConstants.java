@@ -1,5 +1,10 @@
 package com.akasaair.queues.common.constants;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.regex.Pattern;
+
 public interface CsvHeaderConstants {
     int ROW_START_COUNT = 1;
     int CSV_HEADER_ORIGIN = 0;
@@ -56,6 +61,13 @@ public interface CsvHeaderConstants {
     int CSV_HEADER_PROFILE_FARE_UPSELL = 51;
     int CSV_HEADER_INCREMENTED_PROFILE_FARE_FLAG = 52;
     int CSV_HEADER_AUTO_TOLERANCE_FLAG = 53;
+    int CSV_HEADER_BUY_UP_FACTOR_NG = 54;
+    int CSV_HEADER_CONNECTION_FARE_FLAG_NG = 55;
+    int CSV_HEADER_ADDITIONAL_CONNECTION_DURATION_NG = 56;
+    int CSV_HEADER_COMPETITION_RESPONSE_GRID_NG = 57;
+    int CSV_HEADER_NEXTGEN_FLAG_NG = 58;
+    int CSV_HEADER_COMPETITION_RESPONSE_FLAG_NG = 59;
+    int CSV_HEADER_PROMO_FLAG_NG = 60;
 
 
 
@@ -112,5 +124,50 @@ public interface CsvHeaderConstants {
 
     public static final String CSV_HEADER_FORECAST_ALLOC_GRID = "band,trend,formula,description";
     public static final String CSV_HEADER_FORECAST_ALLOC_BANDS = "band,start,end,tolerance,b2b_factor";
+
+    // Table Header String Constants
+    public static final String CSV_HEADER_COMP_RESPONSE_PLF_BANDS = "id,band_name,start,end";
+    public static final String CSV_HEADER_COMP_RESPONSE_GRID = "grid_name,ndo_band,plf_band,time_range,criteria,response_rule,tolerance";
+    public static final String CSV_HEADER_COMP_FARE_RECALIBRATION = "sector";
+    public static final String CSV_HEADER_MARKET_LIST_SALESINV = "Origin,Destin,FlightNumber,PerStart,PerEnd,DOW,CurveID,saleflag";
+    public static final String CSV_HEADER_PAYLOAD_RESTRICTION = "flightNumber,origin,destination,depStart,depEnd,lid,adjustedCapacity";
+    public static final String CSV_HEADER_AUTO_TOLERANCE_NDO_CONFIG = "ndo_min,ndo_max,n_value";
+    public static final String CSV_HEADER_AUTO_TOLERANCE_DELTA_BANDS = "id,band_name,min_value,max_value";
+    public static final String CSV_HEADER_AUTO_TOLERANCE_GRID_VALUES = "band_id,dplf_band_name,forecast_band_name,delta_band_id,g_value";
+
+    // Competition Response Expected Headers and Patterns
+    public static final List<String> EXPECTED_COMP_RESPONSE_PLF_BANDS_HEADERS = Collections.unmodifiableList(Arrays.asList("band_name", "start", "end"));
+    public static final List<String> EXPECTED_COMP_RESPONSE_GRID_HEADERS = Collections.unmodifiableList(Arrays.asList("grid_name", "ndo_band", "plf_band", "time_range", "criteria", "response_rule"));
+
+    public static final Pattern FORMULA_CHAR_PATTERN = Pattern.compile("^[a-zA-Z0-9\\s\\+\\-\\*/%\\(\\),.]+$");
+    public static final Pattern SECTOR_PATTERN = Pattern.compile("^[A-Za-z]{6}$");
+
+    // Competition Response Column Names
+    public static final String COL_BAND_NAME = "band_name";
+    public static final String COL_START = "start";
+    public static final String COL_END = "end";
+    public static final String COL_ID = "id";
+    public static final String COL_PLF_BAND = "plf_band";
+    public static final String COL_GRID_NAME = "grid_name";
+    public static final String COL_NDO_BAND = "ndo_band";
+    public static final String COL_TIME_RANGE = "time_range";
+    public static final String COL_CRITERIA = "criteria";
+    public static final String COL_RESPONSE_RULE = "response_rule";
+    public static final String COL_TOLERANCE = "tolerance";
+    public static final String COL_COMP_SECTOR = "sector";
+
+    // Competition Response Column Aliases
+    public static final String[] ALIASES_BAND_NAME = {"band_name", "bandname", "band", "name"};
+    public static final String[] ALIASES_START = {"start", "start_plf", "startplf"};
+    public static final String[] ALIASES_END = {"end", "end_plf", "endplf"};
+    public static final String[] ALIASES_PLF_ID = {"id", "plf_band", "plfband"};
+    public static final String[] ALIASES_GRID_NAME = {"grid_name", "gridname", "grid"};
+    public static final String[] ALIASES_NDO_BAND = {"ndo_band", "ndoband", "ndo"};
+    public static final String[] ALIASES_PLF_BAND = {"plf_band", "plfband", "plf"};
+    public static final String[] ALIASES_TIME_RANGE = {"time_range", "timerange", "time"};
+    public static final String[] ALIASES_CRITERIA = {"criteria", "criterion"};
+    public static final String[] ALIASES_RESPONSE_RULE = {"response_rule", "responserule", "rule", "strategy", "response"};
+    public static final String[] ALIASES_TOLERANCE = {"tolerance", "tol", "tolernace", "threshold_factor"};
+    public static final String[] ALIASES_SECTOR = {"sector", "sectorname", "sector_name", "sector_code"};
 }
 

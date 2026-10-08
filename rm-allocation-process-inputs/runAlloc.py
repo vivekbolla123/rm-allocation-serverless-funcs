@@ -41,10 +41,13 @@ from common.compute_utils import *
 from models.market_list_row import MarketListRow
 from models.input_source import InputSource
 from models.output_summary import OutputSummary
+from models.output_summary_nextgen import OutputSummaryNextGen
 from models.au_grid_row import AuGridRow
 from models.flight_state import FlightState
 from models.anchor_result import AnchorResult
 from utilities.how_determined_parser import HowDeterminedParser
+from common.nextgen_optimization_engine import NextGenOptimizationEngine, to_float, to_int, is_flag_enabled
+from common.fare_tax_helper import FareTaxHelper
 
 warnings.filterwarnings('ignore')
 
@@ -137,6 +140,35 @@ class DynAlloc:
 
 		self.wait_for_inputs()
 		bookedLoad = self.currParams.bookedPax
+
+		# Sourcing flight parameters (capacity, time, bookload, tagging) from weighted file ONLY for local test cases
+		is_local_test = (
+			self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA
+			or self.inputSource.input_source.get(CONST_BOOKLOAD) == TEST_DATA
+		)
+		if is_local_test and is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))):
+			try:
+				fc_df = self.rmdatabasehelper.get_additive_fare_bucket_forecast(
+					sector=f"{self.currParams.origin}{self.currParams.destin}",
+					snapshot_date=getattr(self.currParams, 'currDate', None),
+					departure_date=startDate,
+					flight_number=self.currParams.flight_number
+				)
+				if fc_df is not None and not fc_df.empty:
+					cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in fc_df.columns), None)
+					if cb_col and pd.notna(fc_df[cb_col].iloc[0]):
+						bookedLoad = to_float(fc_df[cb_col].iloc[0], bookedLoad)
+						self.currParams.bookedPax = bookedLoad
+					if 'Capacity' in fc_df.columns and pd.notna(fc_df['Capacity'].iloc[0]):
+						cap_v = to_float(fc_df['Capacity'].iloc[0], 189.0)
+						self.currParams.capacity = cap_v
+						self.currParams.adjustedCapacity = cap_v
+					if 'STD' in fc_df.columns and pd.notna(fc_df['STD'].iloc[0]):
+						self.currParams.DepartureTime = str(fc_df['STD'].iloc[0])[:5]
+					if 'Tagging' in fc_df.columns and pd.notna(fc_df['Tagging'].iloc[0]):
+						self.currParams.tagging = str(fc_df['Tagging'].iloc[0])
+			except Exception as fc_e:
+				self.logger.warning(f"Failed to fetch parameters from weighted forecast: {fc_e}")
 
 		try:
 			# For each NDO
@@ -301,10 +333,15 @@ class DynAlloc:
 
 	def _triggerDummyAbortedFlightLocal(self, FlightNumber, bookedLoad, failure_reason):
 		if self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA:
+			p_cnt = getattr(self.currParams, 'portfolio_count', 1)
+			try:
+				p_cnt = int(p_cnt)
+			except (ValueError, TypeError):
+				p_cnt = 1
 			dummy_state = FlightState(
 				currFlt=FlightNumber, currFltDate=self.currParams.per_start,
 				currBookedLoad=bookedLoad, aborted=True, is_failure=True, failure_reason=failure_reason,
-				portfolio_count=int(getattr(self.currParams, 'portfolio_count', 1) or 1)
+				portfolio_count=p_cnt
 			)
 			entry = self._buildPortfolioEntry(dummy_state)
 			self._coordinatePortfolioTriggerLocal(entry)
@@ -464,11 +501,11 @@ class DynAlloc:
 
 		# Actual PLF based on initial booked load and adjusted capacity
 		self.actualplf = 0.0 # Default
-		if pd.notna(currAdjustedCapacity) and currAdjustedCapacity > 0:
-			try:
+		try:
+			if pd.notna(currAdjustedCapacity) and float(currAdjustedCapacity) > 0:
 				self.actualplf = (float(initial_currBookedLoad) / float(currAdjustedCapacity)) * 100
-			except (ValueError, TypeError):
-				self.logger.info("Could not calculate actualplf due to invalid numeric types for booked load or capacity.")
+		except (ValueError, TypeError):
+			self.logger.info("Could not calculate actualplf due to invalid numeric types for booked load or capacity.")
 		state.actualplf = self.actualplf
 
 		# Adjust currBookedLoad for seriesBlock if applicable
@@ -989,8 +1026,14 @@ class DynAlloc:
 					# 2. Check PLF threshold to avoid dilution
 					if final_plf <= self.constantsUtils.SPOILAGE_REDUCTION_PLF_THRESHOLD:
 						# 3. Check timing trigger
-						departure_time_obj = datetime.strptime(currFltDepartureTime, TIME_FORMAT).time()
-						current_time_obj = datetime.strptime(self.currentTime, TIME_FORMAT).time()
+						try:
+							departure_time_obj = datetime.strptime(str(currFltDepartureTime), TIME_FORMAT).time()
+						except ValueError:
+							departure_time_obj = datetime.strptime(str(currFltDepartureTime)[:5], TIME_FORMAT).time()
+						try:
+							current_time_obj = datetime.strptime(str(self.currentTime), TIME_FORMAT).time()
+						except ValueError:
+							current_time_obj = datetime.strptime(str(self.currentTime)[:5], TIME_FORMAT).time()
 
 
 						# Combine with a date to properly calculate difference
@@ -1496,6 +1539,545 @@ class DynAlloc:
 			# 		currRec_fullalloc.set_class_attribute(current_brd_counter, 'class_au', b2c_au)
 			# 		current_brd_counter += 1
 
+			# --- NextGen AU Optimization & Competition Response Execution ---
+			try:
+				# Determine if this is a local test run (same logic as runDynamicAllocationForMarket)
+				is_local_test = (
+					self.inputSource.input_source.get(CONST_LAST_SELLING_FARE, TEST_DATA) == TEST_DATA
+					or self.inputSource.input_source.get(CONST_BOOKLOAD) == TEST_DATA
+				)
+				B2CRBDs_ladder = self.rmdatabasehelper.fareExtract(self.currParams.origin, self.currParams.destin, B2C_CHANNEL, '', 'L')
+				if not B2CRBDs_ladder.empty:
+					# Read exact per-bucket (mu, sigma) from DW/MongoDB table
+					fare_bucket_df = self.rmdatabasehelper.get_additive_fare_bucket_forecast(
+						sector=f"{self.currParams.origin}{self.currParams.destin}",
+						snapshot_date=getattr(self.currParams, 'currDate', None),
+						departure_date=currFltDate,
+						flight_number=self.currParams.flight_number
+					)
+
+					ladder_data = []
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
+						count_col = next((c for c in ['OptimizationDemand', 'WTP_pax_count', 'New Final_pax_count', 'Final_pax_count', 'weighted_pax_count', 'Total_Predicted_pax_count', 'predicted_pax_count', 'mu'] if c in fare_bucket_df.columns), None)
+						std_col = next((c for c in ['OptimizationDemandStd', 'weighted_pax_std', 'std', 'predicted_pax_std', 'sigma'] if c in fare_bucket_df.columns), None)
+						for idx, bucket_row in fare_bucket_df.iterrows():
+							b_name = str(bucket_row.get('FareBucket', f'Bucket_{idx}'))
+							b_lower = bucket_row.get('FareBucket_Lower')
+							b_upper = bucket_row.get('FareBucket_Upper')
+
+							# Take FareBucket_Lower directly as bucket fare
+							if pd.notna(b_lower):
+								try:
+									f_val = float(b_lower)
+								except (ValueError, TypeError):
+									f_val = 0.0
+							else:
+								try:
+									if '+' in b_name:
+										f_val = float(b_name.replace('+', '').strip())
+									elif '-' in b_name:
+										f_val = float(b_name.split('-')[0].strip())
+									else:
+										f_val = float(b_name)
+								except Exception:
+									f_val = 0.0
+
+							pax_val = to_float(bucket_row[count_col], 0.0) if count_col and pd.notna(bucket_row[count_col]) else 0.0
+							std_val = to_float(bucket_row[std_col], 0.25 * pax_val) if std_col and pd.notna(bucket_row[std_col]) else (0.25 * pax_val)
+
+							ladder_data.append({
+								'FareBucket': b_name,
+								'fare': to_float(f_val, 0.0),
+								'mu': pax_val,
+								'sigma': std_val,
+								'FareBucket_Lower': to_float(b_lower, None) if pd.notna(b_lower) else None,
+								'FareBucket_Upper': to_float(b_upper, None) if pd.notna(b_upper) else None,
+							})
+					else:
+						# Fallback when weighted forecast is unavailable: 19 filed RBDs
+						for idx, rbd_row in B2CRBDs_ladder.iterrows():
+							raw_fare = to_float(rbd_row.get('TOTAL', rbd_row.get('Total', rbd_row.get('fare', 0.0))), 0.0)
+							# Fares in Mongo fares collection are all-in; convert to airline component for NextGen optimization
+							if hasattr(self, 'tax_helper') and self.tax_helper:
+								fare_val = self.tax_helper.allin_to_airline_component(
+									raw_fare, self.currParams.origin, self.currParams.destin,
+									route=getattr(self.currParams, 'route', None)
+								)
+							else:
+								fare_val = raw_fare
+							rbd_code = str(rbd_row.get('RBD', f'RBD_{idx}'))
+							var_float = to_float(variance_full, 10.0)
+							mu_val = max(0.0, var_float / max(1, len(B2CRBDs_ladder))) if var_float > 0 else 0.0
+							ladder_data.append({
+								'FareBucket': rbd_code,
+								'fare': fare_val,
+								'mu': mu_val,
+								'sigma': 0.25 * mu_val
+							})
+					ladder_df = pd.DataFrame(ladder_data).sort_values('fare', ascending=False).reset_index(drop=True)
+
+					# STD (departure time) is always sourced from the weighted file if available,
+					# since it is not provided by Navitaire.
+					# currBookedLoad and Capacity are ONLY overridden from the weighted file for
+					# local test cases — in UAT/prod they must come from the live Navitaire feed.
+					flight_std_val = getattr(state, 'currFltTime', None)
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
+						# Always pick up STD from the weighted forecast file
+						if 'STD' in fare_bucket_df.columns and pd.notna(fare_bucket_df['STD'].iloc[0]):
+							flight_std_val = str(fare_bucket_df['STD'].iloc[0])[:5]
+						# Only override bookload and capacity from weighted file for local test runs
+						if is_local_test:
+							cb_col = next((c for c in ['Current_Bookings', 'Total_Bookings', 'Total Bookings', 'Current Bookings'] if c in fare_bucket_df.columns), None)
+							if cb_col and pd.notna(fare_bucket_df[cb_col].iloc[0]):
+								try:
+									currBookedLoad = to_float(fare_bucket_df[cb_col].iloc[0], currBookedLoad)
+								except (ValueError, TypeError):
+									pass
+							if 'Capacity' in fare_bucket_df.columns and pd.notna(fare_bucket_df['Capacity'].iloc[0]):
+								try:
+									final_totalCapacity = to_float(fare_bucket_df['Capacity'].iloc[0], final_totalCapacity)
+								except (ValueError, TypeError):
+									pass
+
+					# Sourced exclusively from market fares service / database
+					mkt_fares = None
+					try:
+						day_span = getattr(state, 'DaySpan_full', getattr(self.currParams, 'day_span', 0))
+						flt_date = getattr(state, 'currFltDate', dateFormatted_yyyymmdd)
+						mkt_fares = self.marketfaresservice.fetchMarketFareRange(
+							B2C_CHANNEL, flt_date, self.currParams, day_span,
+							getattr(self.outputSummaryRow_b2c, 'startTime', '00:00'),
+							getattr(self.outputSummaryRow_b2c, 'endTime', '23:59'),
+							self.currParams.origin, self.currParams.destin, includeWeekend=False
+						)
+					except Exception as mkt_err:
+						self.logger.warning(f"Error fetching market fares from service: {mkt_err}")
+						mkt_fares = None
+
+					# If connection_fare_flag == 1, also fetch connecting competitor fares
+					if is_flag_enabled(getattr(self.currParams, 'connection_fare_flag_NG', getattr(self.currParams, 'connection_fare_flag', 0))):
+						try:
+							max_stops = 1
+							add_dur = to_float(getattr(self.currParams, 'additional_connection_duration_NG', getattr(self.currParams, 'additional_connection_duration', DEFAULT_ADDITIONAL_CONNECTION_DURATION)), DEFAULT_ADDITIONAL_CONNECTION_DURATION)
+							mkt_conn = self.rmdatabasehelper.getMarketFareRangeConnections(
+								B2C_CHANNEL, self.currParams, dateFormatted_yyyymmdd, max_stops, add_dur
+							)
+							if mkt_conn is not None and not mkt_conn.empty:
+								mkt_fares = pd.concat([mkt_fares, mkt_conn], ignore_index=True) if (mkt_fares is not None and not mkt_fares.empty) else mkt_conn
+						except Exception as conn_err:
+							self.logger.warning(f"Error fetching connecting market fares: {conn_err}")
+
+					recal_dict = self.rmdatabasehelper.getCompFareRecalibration(f"{self.currParams.origin}{self.currParams.destin}")
+
+					avg_fare_val = to_float(last_seven_avg_val, 3500.0)
+					if avg_fare_val <= 0:
+						avg_fare_val = 3500.0
+					# Check if Current_Revenue is available in fare_bucket_df
+					weighted_rev = None
+					if fare_bucket_df is not None and not fare_bucket_df.empty and 'Current_Revenue' in fare_bucket_df.columns:
+						try:
+							rev_val = fare_bucket_df['Current_Revenue'].iloc[0]
+							rev_f = to_float(rev_val, None)
+							if rev_f is not None and rev_f > 0:
+								weighted_rev = rev_f
+						except (ValueError, TypeError):
+							pass
+					curr_rev = weighted_rev if weighted_rev is not None else (to_float(currBookedLoad, 0.0) * avg_fare_val)
+
+					ndo_val = to_int(getattr(state, 'ndocounter', 0), 0)
+					if fare_bucket_df is not None and not fare_bucket_df.empty:
+						if 'future_flight_NDO' in fare_bucket_df.columns and pd.notna(fare_bucket_df['future_flight_NDO'].iloc[0]):
+							try:
+								ndo_val = to_int(fare_bucket_df['future_flight_NDO'].iloc[0], ndo_val)
+							except (ValueError, TypeError):
+								pass
+					self.currParams.ndocounter = ndo_val
+					raw_ha_ml = getattr(self.currParams, 'hardanchor', getattr(self.currParams, 'hardAnchor', getattr(self.currParams, 'price_cap', None)))
+					if raw_ha_ml not in (None, '', 'NA', 'None', CONST_NA):
+						resolved_ha = getattr(self.outputSummaryRow_b2c, 'hardAnchorFare', None)
+						if resolved_ha in (None, '', 'NA', 'None', CONST_NA):
+							resolved_ha = getattr(state, 'hardfare_b2c', None)
+						if resolved_ha not in (None, '', 'NA', 'None', CONST_NA):
+							self.currParams.hard_anchor_fare = resolved_ha
+							self.currParams.hardAnchorFare = resolved_ha
+					else:
+						self.currParams.hard_anchor_fare = None
+						self.currParams.hardAnchorFare = None
+					self.currParams.dep_date = dateFormatted_yyyymmdd
+					self.currParams.departure_date = dateFormatted_yyyymmdd
+					self.currParams.currFltDate = dateFormatted_yyyymmdd
+
+					ng_opt_df, ng_summary = NextGenOptimizationEngine.execute_flight_nextgen_optimization(
+						ladder_df, final_totalCapacity, currBookedLoad, curr_rev,
+						market_fares=mkt_fares,
+						flight_std=flight_std_val,
+						curr_params=self.currParams,
+						db_helper=self.rmdatabasehelper,
+						recalibration_dict=recal_dict,
+						tax_helper=getattr(self, 'tax_helper', None),
+						filed_51_ladder_df=B2CRBDs_ladder
+					)
+					state.ng_summary = ng_summary
+
+					# Sourcing pre-calculated LF_Forecast_Revised and AF_Forecast from daily_next_gen table (add_model_inventory_ng)
+					inv_ng_df = None
+					try:
+						inv_ng_df = self.rmdatabasehelper.get_additive_inventory_ng(
+							sector=f"{self.currParams.origin}{self.currParams.destin}",
+							date=dateFormatted_yyyymmdd,
+							flight=self.currParams.flight_number
+						)
+					except Exception as inv_err:
+						self.logger.warning(f"Error fetching add_model_inventory_ng: {inv_err}")
+
+					if (inv_ng_df is None or inv_ng_df.empty) and (fare_bucket_df is not None and not fare_bucket_df.empty):
+						try:
+							from daily_next_gen import compute_flight_inventory_ng
+							inv_ng_df = compute_flight_inventory_ng(fare_bucket_df)
+						except Exception as comp_err:
+							self.logger.warning(f"Error computing daily_next_gen fallback: {comp_err}")
+
+					if inv_ng_df is not None and not inv_ng_df.empty:
+						if 'LF_Forecast_Revised' in inv_ng_df.columns and pd.notna(inv_ng_df['LF_Forecast_Revised'].iloc[0]):
+							daily_lf = to_float(inv_ng_df['LF_Forecast_Revised'].iloc[0], None)
+							if daily_lf is not None:
+								ng_summary['NG_LF_Forecast'] = daily_lf
+						if 'AF_Forecast' in inv_ng_df.columns and pd.notna(inv_ng_df['AF_Forecast'].iloc[0]):
+							daily_af = to_float(inv_ng_df['AF_Forecast'].iloc[0], None)
+							if daily_af is not None:
+								ng_summary['NG_AF_Forecast'] = daily_af
+
+					# Populate OutputSummaryNextGen (All fares are presented as ALL-IN fares)
+					ng_row = OutputSummaryNextGen()
+					ng_row.Origin = self.currParams.origin
+					ng_row.Destin = self.currParams.destin
+					ng_row.FltNum = self.currParams.flight_number
+					ng_row.DepDate = dateFormatted_yyyymmdd
+					ng_row.Capacity = to_float(final_totalCapacity, 189.0)
+					ng_row.NG_FirstRBD = ng_summary.get('NG_FirstRBD')
+					ng_row.Predicted_Flown_Revised = ng_summary.get('Predicted_Flown_Revised')
+					ng_row.MarketFare_Selected = safe_round_fare(ng_summary.get('MarketFare_Selected', ng_summary.get('MarketFare_Min')))
+					ng_row.MarketFare_Min = safe_round_fare(ng_summary.get('MarketFare_Min', ng_summary.get('MarketFare_Min_AllIn')))
+					ng_row.MarketFare_Max = safe_round_fare(ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn')))
+					ng_row.Grid_Name = ng_summary.get('Grid_Name')
+					ng_row.Rule_Applied = ng_summary.get('Rule_Applied')
+					ng_row.nextgen_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0))) else 'N'
+					ng_row.competition_response_flag = 'Y' if is_flag_enabled(getattr(self.currParams, 'competition_response_flag_NG', getattr(self.currParams, 'competition_response_flag', 1))) else 'N'
+					raw_buy_up = to_float(getattr(self.currParams, 'buy_up_factor_NG', getattr(self.currParams, 'buy_up_factor', 0.0)), 0.0)
+					ng_row.buy_up_factor = (raw_buy_up / 100.0) if raw_buy_up > 1.0 else raw_buy_up
+					ng_row.RunId = self.runId
+					ng_row.Id = getattr(self, 'Id', getattr(self.currParams, 'Id', CONST_NA))
+					ng_row.NG_Historical_current_booked = to_float(currBookedLoad, 0.0)
+					ng_row.NG_LF_Forecast = ng_summary.get('NG_LF_Forecast')
+					ng_row.NG_AF_Forecast = safe_round_fare(ng_summary.get('NG_AF_Forecast'))
+					ng_row.NG_Opening_fare = safe_round_fare(ng_summary.get('NG_Opening_fare'))
+					strat_val = ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare'))
+					anch_val = ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare'))
+					ng_row.NG_Strategy_fare = safe_round_fare(strat_val)
+					ng_row.NG_Anchor_fare = safe_round_fare(anch_val)
+					ng_row.Current_Revenue = to_float(curr_rev, 0.0)
+					ng_row.Total_Expected_Revenue = ng_summary.get('Total_Expected_Revenue')
+					ng_row.Predicted_Revenue = ng_summary.get('Predicted_Revenue')
+					ng_row.Predicted_Pickup_Revised = ng_summary.get('Predicted_Pickup_Revised')
+					ng_row.analystName = getattr(self.currParams, 'analyst_name', CONST_NA)
+					ng_row.status = getattr(self.currParams, 'status', getattr(self, 'status', CONST_NA))
+					ng_row.allocationStatus = getattr(self.currParams, 'allocationStatus', getattr(self, 'allocationStatus', CONST_NA))
+
+					self.nextgenSummaryResults.append(ng_row)
+					try:
+						self.rmdatabasehelper.insertSummaryRowNextGen(self.nextgenSummaryResults)
+					except Exception as sum_err:
+						self.logger.error(f"Error inserting NextGen summary: {sum_err}")
+
+					if not ng_opt_df.empty:
+						dist_val = 0.0
+						try:
+							dist_val = float(self.rmdatabasehelper.get_stage_length(self.currParams.origin, self.currParams.destin))
+						except Exception as dist_err:
+							self.logger.warning(f"Error querying stage length for {self.currParams.origin}-{self.currParams.destin}: {dist_err}")
+						if dist_val <= 0.0:
+							dist_val = float(getattr(self.currParams, 'distance', 1000.0) or 1000.0)
+
+						std_str = str(getattr(state, 'currFltTime', ''))
+						dep_dow = pd.to_datetime(dateFormatted_yyyymmdd).strftime('%A')
+						sec_str = f"{self.currParams.origin}{self.currParams.destin}"
+
+						final_cap_f = to_float(final_totalCapacity, 189.0)
+						curr_booked_f = to_float(currBookedLoad, 0.0)
+
+						ng_opt_df['sector'] = sec_str
+						ng_opt_df['date'] = dateFormatted_yyyymmdd
+						ng_opt_df['DOW'] = dep_dow
+						ng_opt_df['STD'] = std_str
+						ng_opt_df['flight'] = self.currParams.flight_number
+						ng_opt_df['NDO'] = ndo_val
+						ng_opt_df['capacity'] = final_cap_f
+						ng_opt_df['Total_Bookings'] = curr_booked_f
+						ng_opt_df['fare'] = ng_opt_df.get('fare', 0.0)
+						if 'fare_All_in' not in ng_opt_df.columns or ng_opt_df['fare_All_in'].isnull().any():
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								route_val = getattr(self.currParams, 'route', 'L') or 'L'
+								ng_opt_df['fare_All_in'] = ng_opt_df['fare'].apply(
+									lambda f: self.tax_helper.airline_component_to_allin(float(f), self.currParams.origin, self.currParams.destin, route=route_val) if pd.notna(f) else f
+								)
+							else:
+								ng_opt_df['fare_All_in'] = ng_opt_df['fare']
+
+						oal_min_comp = ng_summary.get('MarketFare_Min_Comp', ng_summary.get('oal_b2c_min_airline_comp', None))
+						oal_min_allin = ng_summary.get('MarketFare_Min_AllIn', ng_summary.get('MarketFare_Min', None))
+						if oal_min_comp is None and oal_min_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								oal_min_comp = self.tax_helper.allin_to_airline_component(float(oal_min_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								oal_min_comp = oal_min_allin
+						if oal_min_allin is None and oal_min_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								oal_min_allin = self.tax_helper.airline_component_to_allin(float(oal_min_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								oal_min_allin = oal_min_comp
+
+						ng_opt_df['oal_b2c_min'] = to_float(oal_min_comp, 0.0)
+						ng_opt_df['oal_b2c_min_All_in'] = to_float(oal_min_allin, 0.0)
+						ng_opt_df['oal_b2c_max'] = ng_summary.get('MarketFare_Max', ng_summary.get('MarketFare_Max_AllIn', 0.0))
+						ng_opt_df['qp_b2c_min'] = min(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
+						ng_opt_df['qp_b2c_max'] = max(ng_opt_df['fare']) if 'fare' in ng_opt_df.columns and not ng_opt_df['fare'].empty else 0.0
+
+						anchor_comp = ng_summary.get('anchor_fare_airline_comp', None)
+						anchor_allin = ng_summary.get('anchor_fare_allin', ng_summary.get('NG_Anchor_fare', ng_summary.get('Anchor_fare', None)))
+						if anchor_comp is None and anchor_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								anchor_comp = self.tax_helper.allin_to_airline_component(float(anchor_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								anchor_comp = anchor_allin
+						if anchor_allin is None and anchor_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								anchor_allin = self.tax_helper.airline_component_to_allin(float(anchor_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								anchor_allin = anchor_comp
+
+						ng_opt_df['anchor_fare'] = to_float(anchor_comp, 0.0)
+						ng_opt_df['anchor_fare_All_in'] = to_float(anchor_allin, 0.0)
+
+						strat_comp = ng_summary.get('strategy_fare_airline_comp', None)
+						strat_allin = ng_summary.get('strategy_fare_allin', ng_summary.get('NG_Strategy_fare', ng_summary.get('Strategy_fare', None)))
+						if strat_comp is None and strat_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								strat_comp = self.tax_helper.allin_to_airline_component(float(strat_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								strat_comp = strat_allin
+						if strat_allin is None and strat_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								strat_allin = self.tax_helper.airline_component_to_allin(float(strat_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								strat_allin = strat_comp
+
+						ng_opt_df['strategy_fare'] = to_float(strat_comp, 0.0)
+						ng_opt_df['strategy_fare_All_in'] = to_float(strat_allin, 0.0)
+
+						open_comp = ng_summary.get('opening_fare_airline_comp', None)
+						if open_comp is None:
+							if 'opening fare' in ng_opt_df.columns and not ng_opt_df['opening fare'].empty:
+								open_comp = ng_opt_df['opening fare'].iloc[0]
+							else:
+								open_comp = None
+
+						open_allin = ng_summary.get('opening_fare_allin', ng_summary.get('NG_Opening_fare', None))
+						if open_allin is None:
+							if 'opening fare_All_in' in ng_opt_df.columns and not ng_opt_df['opening fare_All_in'].empty:
+								open_allin = ng_opt_df['opening fare_All_in'].iloc[0]
+							else:
+								open_allin = None
+
+						if open_comp is None and open_allin is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								open_comp = self.tax_helper.allin_to_airline_component(float(open_allin), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								open_comp = open_allin
+						if open_allin is None and open_comp is not None:
+							if hasattr(self, 'tax_helper') and self.tax_helper and self.currParams.origin and self.currParams.destin:
+								open_allin = self.tax_helper.airline_component_to_allin(float(open_comp), self.currParams.origin, self.currParams.destin, route=getattr(self.currParams, 'route', 'L') or 'L')
+							else:
+								open_allin = open_comp
+
+						ng_opt_df['opening fare'] = to_float(open_comp, 0.0)
+						ng_opt_df['opening fare_All_in'] = to_float(open_allin, 0.0)
+						ng_opt_df['predicted_pickup'] = float(ng_opt_df['mu'].sum()) if 'mu' in ng_opt_df.columns else 0.0
+						ng_opt_df['Predicted_Flown'] = curr_booked_f + ng_opt_df['predicted_pickup']
+						ng_opt_df['Predicted_pickup_Revised'] = ng_summary.get('Predicted_Pickup_Revised', 0.0)
+						ng_opt_df['Predicted_Flown_Revised'] = ng_summary.get('Predicted_Flown_Revised', 0.0)
+						ng_opt_df['LF_Forecast_Revised'] = ng_summary.get('NG_LF_Forecast', 0.0)
+						ng_opt_df['AF_Forecast'] = ng_summary.get('NG_AF_Forecast', 0.0)
+						ng_opt_df['Distance'] = dist_val
+						ng_opt_df['ASKM'] = float(final_cap_f * dist_val)
+						ng_opt_df['RPKM'] = float(to_float(ng_summary.get('Predicted_Flown_Revised', 0.0)) * dist_val)
+						ng_opt_df['RASK_Forecast'] = float(to_float(ng_summary.get('Predicted_Revenue', 0.0)) / (final_cap_f * dist_val)) if (final_cap_f * dist_val) > 0 else 0.0
+						ng_opt_df['Capped_Predicted_Flown_Revised'] = min(final_cap_f, to_float(ng_summary.get('Predicted_Flown_Revised', 0.0)))
+						ng_opt_df['Denominator'] = ng_opt_df['Capped_Predicted_Flown_Revised']
+						ng_opt_df['Current_Revenue'] = curr_rev
+						if 'Expected_Revenue' not in ng_opt_df.columns:
+							if 'A_cap' in ng_opt_df.columns and 'fare' in ng_opt_df.columns:
+								ng_opt_df['Expected_Revenue'] = ng_opt_df['fare'] * ng_opt_df['A_cap']
+							else:
+								ng_opt_df['Expected_Revenue'] = 0.0
+						tot_exp_rev = float(ng_opt_df['Expected_Revenue'].sum()) if 'Expected_Revenue' in ng_opt_df.columns else ng_summary.get('Total_Expected_Revenue', 0.0)
+						ng_opt_df['Total_Expected_Revenue'] = tot_exp_rev
+						ng_opt_df['Predicted_Revenue'] = curr_rev + tot_exp_rev
+						ng_opt_df['SnapshotDate'] = getattr(self.currParams, 'currDate', datetime.now().strftime('%Y-%m-%d'))
+						ng_opt_df['Tagging'] = getattr(self.currParams, 'tagging', 'Shoulder')
+						ng_opt_df['STD_future'] = std_str
+						ng_opt_df['STD_dt'] = f"{dateFormatted_yyyymmdd} {std_str}"
+						ng_opt_df['Origin'] = self.currParams.origin
+						ng_opt_df['Destin'] = self.currParams.destin
+						ng_opt_df['FltNum'] = self.currParams.flight_number
+						ng_opt_df['DepDate'] = dateFormatted_yyyymmdd
+						ng_opt_df['RunId'] = self.runId
+						ng_opt_df['runid'] = self.runId
+
+						# Build ordered list of bucket intervals for mapping RBDs to NextGen AU ladder
+						bucket_intervals = []
+						for _, b_row in ng_opt_df.iterrows():
+							if b_row.get('Promo_Flag', 0) == 1:
+								continue
+							b_name = str(b_row.get('FareBucket', ''))
+							b_low = b_row.get('FareBucket_Lower')
+							b_up = b_row.get('FareBucket_Upper')
+
+							low_val = to_float(b_low, None)
+							if low_val is None:
+								if '+' in b_name:
+									low_val = to_float(b_name.replace('+', '').strip(), 0.0)
+								elif '-' in b_name:
+									low_val = to_float(b_name.split('-')[0].strip(), 0.0)
+								else:
+									low_val = to_float(b_row.get('fare', 0.0), 0.0)
+
+							up_val = to_float(b_up, None)
+							if up_val is None:
+								if '+' in b_name:
+									up_val = float('inf')
+								elif '-' in b_name:
+									up_val = to_float(b_name.split('-')[1].strip(), float('inf'))
+								else:
+									up_val = float('inf') if '+' in b_name else to_float(b_row.get('fare', 0.0), float('inf'))
+
+							bucket_intervals.append({
+								'name': b_name,
+								'low': low_val,
+								'up': up_val,
+								'au': to_float(b_row.get('AU_Revised', 0.0), 0.0)
+							})
+
+						# Strictly include only the configured columns without extra columns for saving
+						inv_ordered_cols = [c for c in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if c in ng_opt_df.columns]
+						ng_opt_df_to_save = ng_opt_df[inv_ordered_cols]
+
+						inv_records = ng_opt_df_to_save.to_dict(orient='records')
+						self.inventoryOptimizationResults.extend(inv_records)
+						try:
+							self.rmdatabasehelper.insertInventoryOptimization(inv_records)
+						except Exception as inv_err:
+							self.logger.error(f"Error inserting inventory optimization rows: {inv_err}")
+
+					# Compute NextGen AU mapping for B2C RBDs regardless of nextgen_flag
+					if not ng_opt_df.empty:
+						b2c_rbd_set = set(B2CRBDs_ladder['RBD'].dropna().astype(str).tolist()) if not B2CRBDs_ladder.empty else set()
+						rbd_to_au = dict(zip(ng_opt_df['FareBucket'], ng_opt_df['AU_Revised']))
+						filed_51_au_map = ng_summary.get('filed_51_au_mapping') or {}
+
+						promo_flag = 1 if is_flag_enabled(getattr(self.currParams, 'promo_flag_NG', getattr(self.currParams, 'PromoFlag_NG', DEFAULT_PROMO_FLAG_NG))) else 0
+						promo_rbd = str(getattr(self.constantsUtils, 'PROMO_RBD_NG', getattr(self.constantsUtils, 'PromoRBD_NG', DEFAULT_PROMO_RBD_NG))).strip()
+						promo_rows = ng_opt_df[ng_opt_df.get('Promo_Flag', 0) == 1]
+						promo_au_revised = to_float(promo_rows['AU_Revised'].iloc[0], 0.0) if not promo_rows.empty else 0.0
+						target_open_fare = to_float(ng_summary.get('NG_Opening_fare', ng_summary.get('Anchor_fare', 0.0)), 0.0)
+						curr_booked_load_f = to_float(currBookedLoad, 0.0)
+						is_nextgen_alloc_enabled = is_flag_enabled(getattr(self.currParams, 'nextgen_flag_NG', getattr(self.currParams, 'nextgen_flag', 0)))
+
+						nextgen_rbd_details = []
+						nextgen_au_classes = {}
+						nextgen_au_dict = {}
+
+						for slot_i in range(1, int(self.AU_COLUMN_LENGTH) + 1):
+							cos = getattr(currRec_fullalloc, f"class_of_service_{slot_i}", None)
+							c_type = getattr(currRec_fullalloc, f"class_type_{slot_i}", None)
+
+							if not cos:
+								continue
+
+							# ONLY update B2C RBDs; all other channels (B2B, CUG, Group, TBF) remain as allocated by standard flow
+							is_b2c = (c_type == 'B2C') or (cos in b2c_rbd_set)
+							if not is_b2c:
+								continue
+
+							rbd_fare = 0.0
+							rbd_match = pd.DataFrame()
+							if not B2CRBDs_ladder.empty:
+								rbd_match = B2CRBDs_ladder[B2CRBDs_ladder['RBD'] == cos]
+								if not rbd_match.empty:
+									rbd_fare = to_float(rbd_match.iloc[0].get('TOTAL', rbd_match.iloc[0].get('Total', 0.0)), 0.0)
+
+							# If Promo Flag is on and this slot matches Promo RBD (default W4), allocate promo AU
+							if promo_flag == 1 and cos == promo_rbd:
+								rounded_au = int(round(promo_au_revised))
+							else:
+								assigned_au = 0.0
+								if filed_51_au_map and cos in filed_51_au_map:
+									assigned_au = to_float(filed_51_au_map[cos], 0.0)
+								elif cos in rbd_to_au:
+									assigned_au = to_float(rbd_to_au[cos], 0.0)
+								elif cos and not B2CRBDs_ladder.empty and not rbd_match.empty:
+									if target_open_fare > 0 and rbd_fare < (target_open_fare - 1e-4):
+										assigned_au = 0.0
+									else:
+										for b in bucket_intervals:
+											if b['low'] <= rbd_fare <= b['up'] or (b['up'] == float('inf') and rbd_fare >= b['low']):
+												assigned_au = b['au']
+												break
+
+								# Round off final AUs only for AU grid
+								rounded_au = int(round(assigned_au))
+								if rounded_au > 0 and rounded_au <= curr_booked_load_f:
+									rounded_au = 0
+
+							nextgen_au_dict[cos] = rounded_au
+							nextgen_rbd_details.append({
+								"rbd": cos,
+								"fare": rbd_fare,
+								"au": rounded_au
+							})
+							nextgen_au_classes[cos] = {
+								"classOfService": cos,
+								"classType": c_type or "B2C",
+								"classAU": rounded_au,
+								"fare": rbd_fare
+							}
+
+							# If nextgen_flag == 1, update AU values ONLY for B2C RBDs in currRec_fullalloc for Navitaire
+							if is_nextgen_alloc_enabled:
+								currRec_fullalloc.set_class_attribute(slot_i, 'class_au', rounded_au)
+
+						# Insert or update NextGen AU to navitaire_allocation_audit collection regardless of flag (reference only)
+						try:
+							flight_str = f"QP{self.currParams.flight_number} {self.currParams.origin}{self.currParams.destin}"
+							doc_id = self.rmdatabasehelper.insertNavitaireAllocationAuditNextGen(
+								run_id=self.runId,
+								flight=flight_str,
+								flight_number=str(self.currParams.flight_number),
+								sector=f"{self.currParams.origin}{self.currParams.destin}",
+								departure_date=dateFormatted_yyyymmdd,
+								rbd_details=nextgen_rbd_details,
+								au_classes=nextgen_au_classes,
+								au_result=nextgen_au_dict
+							)
+							currRec_fullalloc.nav_audit_id = doc_id
+							currRec_fullalloc.nextgen_rbd_details = nextgen_rbd_details
+							currRec_fullalloc.flight_number = str(self.currParams.flight_number)
+							currRec_fullalloc.sector = f"{self.currParams.origin}{self.currParams.destin}"
+							currRec_fullalloc.departure_date = dateFormatted_yyyymmdd
+						except Exception as nav_audit_err:
+							self.logger.error(f"Error inserting NextGen AU audit: {nav_audit_err}")
+			except Exception as e:
+				self.logger.error(f"Error in NextGen AU Optimization: {e}")
+
 			self.AUFileData.append(currRec_fullalloc)
 			state.openDataB2B_details = openDataB2B_details
 		else: # B2C determination was not successful enough for AU grid
@@ -1673,6 +2255,25 @@ class DynAlloc:
 
 		# Portfolio anchor split (R9) — same ``portfolio_count`` on the B2B row.
 		self.outputSummaryRow_b2b.portfolio_count = portfolio_count_val
+
+		# Populate NextGen metrics for existing run_summary (both B2C and B2B rows)
+		ng_summary_ctx = getattr(state, 'ng_summary', None) or {}
+		for row in [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]:
+			row.NG_LF_Forecast = ng_summary_ctx.get('NG_LF_Forecast', CONST_NA)
+			row.NG_AF_Forecast = safe_round_fare(ng_summary_ctx.get('NG_AF_Forecast', CONST_NA))
+			row.NG_Historical_current_booked = ng_summary_ctx.get('NG_Historical_current_booked', currBookedLoad if currBookedLoad is not None else CONST_NA)
+			row.NG_Opening_fare = safe_round_fare(ng_summary_ctx.get('NG_Opening_fare', CONST_NA))
+			row.NG_FirstRBD = ng_summary_ctx.get('NG_FirstRBD', CONST_NA)
+			strat_val = ng_summary_ctx.get('NG_Strategy_fare', ng_summary_ctx.get('Strategy_fare', getattr(row, 'strategyFare', CONST_NA)))
+			anch_val = ng_summary_ctx.get('NG_Anchor_fare', ng_summary_ctx.get('Anchor_fare', getattr(row, 'anchorFare', CONST_NA)))
+			row.NG_Strategy_fare = safe_round_fare(strat_val)
+			row.NG_Anchor_fare = safe_round_fare(anch_val)
+
+			# Round off all fare values in OutputSummary
+			for f_col in SUMMARY_FARE_COLUMNS:
+				val = getattr(row, f_col, None)
+				if val not in (None, CONST_NA, 'NA'):
+					setattr(row, f_col, safe_round_fare(val))
 
 		new_summary_rows_fullalloc = [self.outputSummaryRow_b2c, self.outputSummaryRow_b2b]
 		self.allocResults.extend(new_summary_rows_fullalloc)
@@ -1870,8 +2471,14 @@ class DynAlloc:
 		# 	bookingLastHour = int(self.currParams.BookingsInHour)
 		self.logger.info("Number of Bookings is " + str(lastBookloadTillMidnight))
 
-		curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
-		deptTime = datetime.strptime(str(currFltDepartureTime), TIME_FORMAT)
+		try:
+			curTime = datetime.strptime(str(self.currentTime), TIME_FORMAT)
+		except ValueError:
+			curTime = datetime.strptime(str(self.currentTime)[:5], TIME_FORMAT)
+		try:
+			deptTime = datetime.strptime(str(currFltDepartureTime), TIME_FORMAT)
+		except ValueError:
+			deptTime = datetime.strptime(str(currFltDepartureTime)[:5], TIME_FORMAT)
 
 		area = self.rmdatabasehelper.getArea(curTime.hour)
 		areaAtCurrentTime = area["sum"][0] / 100
@@ -2013,6 +2620,12 @@ class DynAlloc:
 	def outputResults(self):
 		# self.logger.info("Final Allocation Results:")
 		# self.logger.info(self.allocResults)
+		output_dir = getattr(self, "output_dir", None)
+		au_grid_path = os.path.join(output_dir, "AUGrid.csv") if output_dir else CONST_AU_GRID_FILE_PATH
+		summary_path = os.path.join(output_dir, "summary.csv") if output_dir else CONST_SUMMARY_FILE_PATH
+		summary_nextgen_path = os.path.join(output_dir, "summary_nextgen.csv") if output_dir else CONST_SUMMARY_NEXTGEN_FILE_PATH
+		inventory_opt_path = os.path.join(output_dir, "inventory_optimization.csv") if output_dir else CONST_INVENTORY_OPTIMIZATION_FILE_PATH
+
 		if self.inputSource.output[CONST_AU_GRID] == FILE and len(self.AUFileData)!=0:
 			AUlist = ['Type', 'Flight', 'StartDate', 'EndDate', 'DayOfWeek', 'Aircraft Type', 'Aircraft Suffix', 'Lid', 'Capacity', 'Status']
 			length = self.AU_COLUMN_LENGTH
@@ -2027,7 +2640,14 @@ class DynAlloc:
 			AUFrame = pd.DataFrame([vars(row) for row in self.AUFileData])
 			AUFrame = AUFrame.drop(columns=["b2brunid", "b2crunid", "au_column_length"])
 			AUFrame.columns = AUlist
-			AUFrame.to_csv(CONST_AU_GRID_FILE_PATH, index=False)
+			# Round off final AUs only in AU grid
+			for col in AUFrame.columns:
+				if 'Class AU' in col:
+					AUFrame[col] = AUFrame[col].apply(
+						lambda x: int(round(float(x))) if pd.notna(x) and str(x).strip() != "" else x
+					)
+			os.makedirs(os.path.dirname(os.path.abspath(au_grid_path)), exist_ok=True)
+			AUFrame.to_csv(au_grid_path, index=False)
 
 
 		if self.inputSource.output[CONST_SUMMARY_FILE] == FILE:
@@ -2036,7 +2656,41 @@ class DynAlloc:
 			missing_cols = [col for col in df.columns if col not in final_order]
 			df = df[final_order + missing_cols]
 			df = df.drop(columns=["Id", "currentLoadFactor", "recommendedActions"], errors='ignore')
-			df.to_csv(CONST_SUMMARY_FILE_PATH, index=False)
+			for col in SUMMARY_FARE_COLUMNS:
+				if col in df.columns:
+					df[col] = df[col].apply(safe_round_fare)
+			os.makedirs(os.path.dirname(os.path.abspath(summary_path)), exist_ok=True)
+			df.to_csv(summary_path, index=False)
+
+		# Always write NextGen summary output if present
+		if len(self.nextgenSummaryResults) > 0:
+			try:
+				df_ng = pd.DataFrame([vars(row) for row in self.nextgenSummaryResults])
+				final_ng_order = [col for col in CONST_OUTPUT_SUMMARY_NEXTGEN_ORDER if col in df_ng.columns]
+				df_ng = df_ng[final_ng_order]
+				for col in NEXTGEN_SUMMARY_FARE_COLUMNS:
+					if col in df_ng.columns:
+						df_ng[col] = df_ng[col].apply(safe_round_fare)
+				os.makedirs(os.path.dirname(os.path.abspath(summary_nextgen_path)), exist_ok=True)
+				df_ng.to_csv(summary_nextgen_path, index=False)
+			except Exception as e:
+				self.logger.error(f"Error saving {summary_nextgen_path}: {e}")
+
+		# Always write per-bucket inventory optimization dataset if present
+		if len(self.inventoryOptimizationResults) > 0:
+			try:
+				df_inv = pd.DataFrame(self.inventoryOptimizationResults)
+				final_inv_order = [col for col in CONST_OUTPUT_INVENTORY_OPTIMIZATION_ORDER if col in df_inv.columns]
+				df_inv = df_inv[final_inv_order]
+				try:
+					df_inv.to_csv(inventory_opt_path, index=False)
+				except Exception as lock_err:
+					self.logger.warning(f"Could not overwrite {inventory_opt_path} (possibly open in Excel): {lock_err}")
+					fallback_path = os.path.join(os.path.dirname(inventory_opt_path), "inventory_optimization_latest.csv")
+					df_inv.to_csv(fallback_path, index=False)
+					self.logger.info(f"Saved latest inventory optimization to {fallback_path}")
+			except Exception as e:
+				self.logger.error(f"Error saving inventory optimization: {e}")
 
 	def updateNavitaire(self, rec):
 		auData = {"runId": self.runId, "type": rec.type, "flight": rec.flight, "startDate": rec.start_date, "endDate": rec.end_date, "dayOfWeek": rec.day_of_week, "aircraftType": rec.aircraft_type, "aircraftSuffix": rec.aircraft_suffix, "lid": rec.lid, "capacity": rec.capacity, "status": rec.status, "b2cRunId": rec.b2crunid, "b2bRunId": rec.b2brunid, "auClasses": {}}
@@ -2044,6 +2698,17 @@ class DynAlloc:
 		for i in range(self.AU_COLUMN_LENGTH):
 			auClass = {"classOfService": getattr(rec, f"class_of_service_{i+1}", None), "classType": getattr(rec, f"class_type_{i+1}", None), "classNest": int(getattr(rec, f"class_nest_{i+1}", None)), "classRank": int(getattr(rec, f"class_rank_{i+1}", None)), "classAU": int(getattr(rec, f"class_au_{i+1}", None)), "classAllotted": int(getattr(rec, f"class_allotted_{i+1}", None)), "apRestriction": int(getattr(rec, f"ap_restriction_{i+1}", None))}
 			auData['auClasses'][auClass['classOfService']] = auClass
+
+		if hasattr(rec, 'nav_audit_id') and rec.nav_audit_id:
+			auData['navAuditId'] = rec.nav_audit_id
+		if hasattr(rec, 'nextgen_rbd_details') and rec.nextgen_rbd_details:
+			auData['rbds'] = rec.nextgen_rbd_details
+		if hasattr(rec, 'sector') and rec.sector:
+			auData['sector'] = rec.sector
+		if hasattr(rec, 'flight_number') and rec.flight_number:
+			auData['flightNumber'] = rec.flight_number
+		if hasattr(rec, 'departure_date') and rec.departure_date:
+			auData['departureDate'] = rec.departure_date
 
 		auDataStr = json.dumps(auData)
 		# self.logger.info(auDataStr)
@@ -2124,6 +2789,7 @@ class DynAlloc:
 		self.currParams = MarketListRow(currParams)
 		self.inputSource = InputSource(inputData)
 		self.debugMode = inputData["debugMode"]
+		self.output_dir = inputData.get("output_dir", getattr(self.currParams, "output_dir", None))
 		self.NavitaireUpdateMethod = self.currParams.navitaire_update_method
 		self.TABLE_MARKET_FARES = TABLE_MARKET_FARES
 		self.MARKET_LIST_QUEUE_URL = inputData["MARKET_LIST_QUEUE_URL"]
@@ -2152,6 +2818,8 @@ class DynAlloc:
 		self.starttime = datetime.now()
 		self.allocResults = []
 		self.AUFileData = []
+		self.nextgenSummaryResults = []
+		self.inventoryOptimizationResults = []
 		if self.currParams.run_id:
 			self.runId = self.currParams.run_id
 		else:
@@ -2174,6 +2842,9 @@ class DynAlloc:
 		self.marketfaresservice = MarketFareService(self.rmdatabasehelper,self.constantsUtils,self.timeutils,self.mongohelper)
 		self.determinerbd = DetermineRBD(self.rmdatabasehelper, self.logger, self.inputSource, self.constantsUtils, self.mathutils, self.cache_client)
 		self.allocations = RBDAllocations(self.rmdatabasehelper, self.logger, self.constantsUtils, self.mathutils, self.timeutils)
+		self.tax_helper = FareTaxHelper(self.mongo_master_db, self.constantsUtils, self.rmdatabasehelper, self.logger)
+		if self.currParams:
+			self.currParams.tax_helper = self.tax_helper
 
 		self.currency = "INR"
 		self.conversion_data = self.rmdatabasehelper.fetch_all_conversion_data()
@@ -2570,20 +3241,22 @@ class DynAlloc:
 		try:
 			history = self.determinerbd.get_autotolerance_history(self.currParams)
 			if history:
-				plf_change_per = float(getattr(self.constantsUtils, 'plf_change_per', 2.0))
-				plf_change_n_runs = int(getattr(self.constantsUtils, 'plf_change_n_runs', 4))
+				plf_change_per = to_float(getattr(self.constantsUtils, 'plf_change_per', 2.0), 2.0)
+				plf_change_n_runs = to_int(getattr(self.constantsUtils, 'plf_change_n_runs', 4), 4)
 				
 				if len(history) >= plf_change_n_runs:
 					nth_run = history[-plf_change_n_runs]
 					if ndocounter > 30:
                         # Variance logic uses actual_dplf
-						nth_dplf = nth_run.get('actual_dplf', 0)
-						if (float(currBookedLoad) - float(nth_dplf)) >= plf_change_per:
+						curr_load_f = to_float(currBookedLoad, None)
+						nth_dplf = to_float(nth_run.get('actual_dplf'), None)
+						if curr_load_f is not None and nth_dplf is not None and (curr_load_f - nth_dplf) >= plf_change_per:
 							plf_surge = True
 					else:
                         # Forecast logic uses actual_imp_forecast
-						nth_imp_forecast = nth_run.get('actual_imp_forecast', 0)
-						if (float(imp_forecast) - float(nth_imp_forecast)) >= plf_change_per:
+						imp_fc_f = to_float(imp_forecast, None)
+						nth_imp_forecast = to_float(nth_run.get('actual_imp_forecast'), None)
+						if imp_fc_f is not None and nth_imp_forecast is not None and (imp_fc_f - nth_imp_forecast) >= plf_change_per:
 							plf_surge = True
 		except Exception as e:
 			self.logger.error(f"Error evaluating PLF surge: {e}")
@@ -3619,7 +4292,28 @@ class DynAlloc:
 			"profileFareUpsell": "ProfileFareUpsell", 
 			"currency": "currency",
 			"conversion_rate": "conversionRate",
-			"region": "region"
+			"region": "region",
+			"buy_up_factor_NG": "buy_up_factor_NG",
+			"connection_fare_flag_NG": "connection_fare_flag_NG",
+			"additional_connection_duration_NG": "additional_connection_duration_NG",
+			"CompetitionResponseGrid_NG": "CompetitionResponseGrid_NG",
+			"nextgen_flag_NG": "nextgen_flag_NG",
+			"competition_response_flag_NG": "competition_response_flag_NG",
+			"buy_up_factor": "buy_up_factor_NG",
+			"connection_fare_flag": "connection_fare_flag_NG",
+			"additional_connection_duration": "additional_connection_duration_NG",
+			"grid_name": "CompetitionResponseGrid_NG",
+			"nextgen_flag": "nextgen_flag_NG",
+			"competition_response_flag": "competition_response_flag_NG",
+			"promo_flag_NG": "promo_flag_NG",
+			"PromoFlag_NG": "promo_flag_NG",
+			"promo_flag": "promo_flag_NG",
+			"promo_ratio_NG": "promo_ratio_NG",
+			"PromoRatio_NG": "promo_ratio_NG",
+			"promo_rbd_NG": "promo_rbd_NG",
+			"PromoRBD_NG": "promo_rbd_NG",
+			"promo_first_rbd_NG": "promo_first_rbd_NG",
+			"PromoFirstRBD_NG": "promo_first_rbd_NG"
 		}
 		# Explicitly exclude fields that are only used in Phase 1 and never read by Phase 2 or summary mappings
 		EXCLUDED_MARKET_LIST_FIELDS = {
