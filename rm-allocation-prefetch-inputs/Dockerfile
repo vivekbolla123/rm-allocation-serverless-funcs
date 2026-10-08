@@ -28,6 +28,5 @@ ENV DD_ENV=${ENVN}
 ENV DD_SERVICE=rm-prefetch-inputs
 ENV DD_VERSION=${GIT_TAG}
 ENV DD_TAGS="git.commit.sha:${GIT_COMMIT_SHA},git.branch:${GIT_BRANCH},Department:RM,team:RM"
-ENV DD_TRACE_PYMONGO_ENABLED=false
 
 CMD ["datadog_lambda.handler.handler"]
