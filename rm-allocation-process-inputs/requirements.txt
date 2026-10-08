@@ -5,7 +5,7 @@ pymssql==2.2.5
 requests==2.32.5
 redis==5.0.1
 numpy==1.26.4
-pymongo
+pymongo==4.8.0
 mysql-connector-python
 pymysql
 datadog-lambda

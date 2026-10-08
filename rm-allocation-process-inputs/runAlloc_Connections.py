@@ -12,7 +12,7 @@ import pandas as pd
 import time as time_sleep
 
 from Constants import *
-from common.compute_utils import safe_float, calculateVariance
+from common.compute_utils import safe_float, calculateVariance, safe_round_fare, SUMMARY_FARE_COLUMNS
 
 from helper.rm_mongo_helper import MarketFareMongoDB
 from helper.nav_api_helper import NavAPIHelper
@@ -994,6 +994,9 @@ class DynAllocConnections:
         if self.inputSource.output[CONST_SUMMARY_FILE] == FILE and len(self.allocResults) > 0:
             df = pd.DataFrame([vars(row) for row in self.allocResults])
             df = df.drop(columns=["Id"])
+            for col in SUMMARY_FARE_COLUMNS:
+                if col in df.columns:
+                    df[col] = df[col].apply(safe_round_fare)
             df.to_csv(CONST_SUMMARY_CONNECTIONS_FILE_PATH, index=False)
 
     def getStartEndDate(self, currDate, startNDO, endNDO):

@@ -21,9 +21,13 @@ CACHE_PORT = configsettings.RM_CACHE_PORT
 CACHE_USERNAME = configsettings.RM_CACHE_USERNAME
 CACHE_PASSWORD = configsettings.RM_CACHE_PASSWORD
 
-cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
-if cache_client.ping():
-    print("Connected to Redis")
+try:
+    cache_client = Redis(host=CACHE_ENDPOINT, port=CACHE_PORT, username=CACHE_USERNAME, password=CACHE_PASSWORD)
+    if cache_client.ping():
+        print("Connected to Redis")
+except Exception as e:
+    print(f"Redis connection skipped or failed: {e}")
+    cache_client = None
 
 KEY_B2B_DONE_COUNT = 'b2b_done_count_'
 KEY_B2C_DONE_COUNT = 'b2c_done_count_'
@@ -43,39 +47,62 @@ def get_nav_token_api():
     response = session.post(token_url, json=token_body)
     return response.json()
 
-def retry_if_api_broken(api_call,*args):
-    retry_count=0
+def refresh_nav_token():
+    """
+    Fetches a new Navitaire authentication token and updates session headers.
+    """
+    session.headers.update(
+        {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
+    )
+    token_response = get_nav_token_api()
+    access_token = token_response["data"]["token"]
+    session.headers.update({'Authorization': f"Bearer {access_token}"})
+    return access_token
+
+def ensure_authenticated():
+    """
+    Ensures that the requests session has a valid Authorization header.
+    """
+    if 'Authorization' not in session.headers or not session.headers.get('Authorization'):
+        refresh_nav_token()
+
+def retry_if_api_broken(api_call, *args):
+    global session
+    retry_count = 0
     condition = True
-    while condition and retry_count<4:
+    response = None
+    while condition and retry_count < 4:
         try:
-            if(len(args)>1):
-                response=api_call(args[0],json = args[1], verify=False)
+            ensure_authenticated()
+            if len(args) > 1:
+                response = api_call(args[0], json=args[1], verify=False)
             else:
-                response=api_call(args[0], verify=False)
+                response = api_call(args[0], verify=False)
+
+            if response.status_code == 401:
+                raise Exception(f"HTTP 401 Unauthorized for {args[0]}")
+
             condition = False
         except Exception as e:
-            retry_count=retry_count+1
-            
-            session = requests.Session()
-            session.headers.update(
-                {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
-            )
-            token_response = get_nav_token_api()
-            access_token = token_response["data"]["token"]
-            session.headers.update({'Authorization': f"Bearer {access_token}"})
+            retry_count = retry_count + 1
             logger.error(f"Retrying after token generation: {e} : {retry_count}")
+            try:
+                refresh_nav_token()
+            except Exception as token_err:
+                logger.error(f"Token refresh failed: {token_err}")
+
             time.sleep(2 * retry_count)
 
-            if (len(args) > 1):
+            if len(args) > 1:
                 api_call = session.patch
             else:
                 api_call = session.get
-            
-    if (retry_count >= 4):
+
+    if retry_count >= 4 or condition:
         raise Exception("retry exceeded")
 
     return response
-        
+
 
 def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, identifier, carrier_code):
     """
@@ -83,12 +110,15 @@ def get_nav_trip_info_simple_api(start_date, end_date, origin, destination, iden
     """
     trip_info_simple_url = f"{configsettings.NAV_BASE_URL}/api/nsk/v2/trip/info/simple?BeginDate={start_date}&EndDate={end_date}&CarrierCode={carrier_code}&Identifier={identifier}&Origin={origin}&Destination={destination}"
     try:
+        ensure_authenticated()
         response = session.get(trip_info_simple_url, verify=False)
+        if response.status_code == 401:
+            raise Exception("HTTP 401 Unauthorized")
     except Exception as e:
-        logger.error(f"retrying  trip_info again with new token: {e}")
-        response = retry_if_api_broken(session.get,trip_info_simple_url)
-    
-    if(not check_status(response)):
+        logger.error(f"retrying trip_info again with new token: {e}")
+        response = retry_if_api_broken(session.get, trip_info_simple_url)
+
+    if not check_status(response):
         raise Exception("Trip Info", str(response.reason), str(response.status_code), str(response.json()))
 
     return response.json()
@@ -100,12 +130,15 @@ def get_nav_dcs_inventory_api(leg_key):
     """
     dcs_get_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v2/inventory/legs/{leg_key}"
     try:
+        ensure_authenticated()
         response = session.get(dcs_get_inventory_url, verify=False)
+        if response.status_code == 401:
+            raise Exception("HTTP 401 Unauthorized")
     except Exception as e:
         logger.error(f"retrying Inventory Leg again with new token: {e}")
-        response = retry_if_api_broken(session.get,dcs_get_inventory_url)
-        
-    if(not check_status(response)):
+        response = retry_if_api_broken(session.get, dcs_get_inventory_url)
+
+    if not check_status(response):
         raise Exception("Inventory Leg", str(response.reason), str(response.status_code), str(response.json()))
     return response.json()
 
@@ -117,7 +150,7 @@ def patch_nav_dcs_inventory_api(args, send_avs_messages=False):
     req_body = {}
     if send_avs_messages:
         req_body = {'sendAvsMessages': True}
-    
+
     for leg_key, nest_key, class_key, target_authorised_units, class_of_service,curr_authorised_units,target_ap_restrictions in args:
         nests = req_body.setdefault('Nests', {})
 
@@ -138,19 +171,22 @@ def patch_nav_dcs_inventory_api(args, send_avs_messages=False):
     try:
         dcs_patch_inventory_url = f"{configsettings.NAV_BASE_URL}/api/dcs/v2/inventory/legs/{args[0][0]}"
 
-        try:    
+        try:
+            ensure_authenticated()
             response = session.patch(dcs_patch_inventory_url, json=req_body, verify=False)
+            if response.status_code == 401:
+                raise Exception("HTTP 401 Unauthorized")
         except Exception as e:
             logger.error(f"retrying Navitaire update again with new token: {e}")
-            response = retry_if_api_broken(session.patch,dcs_patch_inventory_url,req_body)
-            
-        if (not check_status(response)):
+            response = retry_if_api_broken(session.patch, dcs_patch_inventory_url, req_body)
+
+        if not check_status(response):
             logger.error(f"Navitaire update failed : status check  {str(response.reason)},  {str(response.status_code)}, {str(response.json())}")
             return False
         return True
     except Exception as err:
         logger.error(f"Navitaire update failed :{err}")
-        return False
+        raise err
 
 def format_date(date_str):
     """
@@ -292,9 +328,10 @@ session = requests.Session()
 session.headers.update(
     {"Ocp-Apim-Subscription-Key": configsettings.NAV_OCP_SUBSCRIPTION_KEY}
 )
-token_response = get_nav_token_api()
-access_token = token_response["data"]["token"]
-session.headers.update({'Authorization': f"Bearer {access_token}"})
+try:
+    refresh_nav_token()
+except Exception as e:
+    logger.error(f"Could not fetch initial Navitaire token at startup: {e}")
 
 
 def lambda_handler(event, context):
@@ -329,17 +366,13 @@ def lambda_handler(event, context):
         log_time.update_run_id(run_id)
         countOfFailures = 0
         countOfTotal = 2
-        inventory_dict = {}
-        try:
-        # First fetch the legKey for the market using tripInfo API
-            leg_keys = get_leg_keys(start_date_f, end_date_f,
-                                    origin, destination, identifier, carrier_code)
 
-            # Fetch dcs inventory for each leg key
-            inventory_dict = get_dcs_inventories(leg_keys)
-            
-        except Exception as e:
-            logger.error(e)
+        # First fetch the legKey for the market using tripInfo API
+        leg_keys = get_leg_keys(start_date_f, end_date_f,
+                                origin, destination, identifier, carrier_code)
+
+        # Fetch dcs inventory for each leg key
+        inventory_dict = get_dcs_inventories(leg_keys)
 
         # Now we have all the data needed to update the AUs. For fetched inventory classes, set the allotted units
         allocation_result, is_nav_updated, is_gds_updated = update_au_in_navitaire(inventory_dict, au_classes, run_id)
@@ -350,14 +383,25 @@ def lambda_handler(event, context):
             countOfFailures += 1
         
         allocationEndTime = datetime.now()
+        nav_audit_id = allocation_data.get("navAuditId")
+        rbds = allocation_data.get("rbds")
+        sector_val = allocation_data.get("sector") or (origin + destination)
+        flight_number_val = allocation_data.get("flightNumber") or identifier
+        dept_date_val = allocation_data.get("departureDate") or start_date_f[:10]
+
         insertNavAudit(str(uuid4()), allocationStartTime, allocationEndTime,
                        content, json.dumps(allocation_result), run_id, allocation_data["b2cRunId"], 
-                       allocation_data["b2bRunId"], countOfFailures, countOfTotal)
+                       allocation_data["b2bRunId"], countOfFailures, countOfTotal,
+                       navAuditId=nav_audit_id, sector=sector_val, flightNumber=flight_number_val,
+                       departureDate=dept_date_val, flight=flight, rbds=rbds)
         updateRunAudit(run_id, start_date_f,origin+destination, identifier, json.dumps(allocation_result))
         updateAllocationAudit(allocationEndTime, run_id)
         log_time.send_time_log_db()
         
         logger.info(f"updateRBDLambda complete | run_id: {run_id}")
+
+        if countOfFailures > 0:
+            raise Exception(f"updateRBDLambda completed with {countOfFailures} failure(s)")
 
     return {
         'statusCode': 200,
@@ -367,28 +411,76 @@ def lambda_handler(event, context):
 def check_status(response):
     return response.status_code >= 200 and response.status_code < 300
 
-def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal):
-    document = {
-        "_id": id,
-        "start_time": startTime,
-        "end_time": endTime,
-        "request": request,
-        "result": result,
-        "run_id": runId,
-        "b2cRunId": b2cRunId,
-        "b2bRunId": b2bRunId,
-        "failures": int(countOfFailures),
-        "totalApiCalls": int(countOfTotal)
-    }
-    navitaire_allocation_audit_col.insert_one(document)
-    print("ADDED ALLOCATION RUN")
+def insertNavAudit(id, startTime, endTime, request, result, runId, b2cRunId, b2bRunId, countOfFailures, countOfTotal,
+                   navAuditId=None, sector=None, flightNumber=None, departureDate=None, flight=None, rbds=None, **kwargs):
+    try:
+        filter_doc = None
+        if navAuditId:
+            filter_doc = {"_id": navAuditId}
+        elif sector and flightNumber and departureDate:
+            flight_variants = [str(flightNumber)]
+            if str(flightNumber).isdigit():
+                flight_variants.append(str(int(flightNumber)))
+            flight_variants.append(f"QP{flightNumber}")
+            filter_doc = {
+                "run_id": runId,
+                "sector": sector,
+                "flight_number": {"$in": flight_variants},
+                "departure_date": departureDate
+            }
+
+        existing = None
+        if filter_doc and navitaire_allocation_audit_col is not None:
+            existing = navitaire_allocation_audit_col.find_one(filter_doc)
+
+        update_fields = {
+            "start_time": startTime,
+            "end_time": endTime,
+            "request": request,
+            "result": result,
+            "run_id": runId,
+            "b2cRunId": b2cRunId,
+            "b2bRunId": b2bRunId,
+            "failures": int(countOfFailures),
+            "totalApiCalls": int(countOfTotal)
+        }
+        if sector:
+            update_fields["sector"] = sector
+        if flightNumber:
+            update_fields["flight_number"] = str(flightNumber)
+        if departureDate:
+            update_fields["departure_date"] = departureDate
+        if flight:
+            update_fields["flight"] = flight
+        if rbds is not None:
+            update_fields["rbds"] = rbds
+
+        if existing:
+            navitaire_allocation_audit_col.update_one({"_id": existing["_id"]}, {"$set": update_fields})
+            print("UPDATED EXISTING ALLOCATION RUN")
+        elif filter_doc and not navAuditId:
+            set_on_insert = {"_id": id or str(uuid4())}
+            navitaire_allocation_audit_col.update_one(filter_doc, {"$set": update_fields, "$setOnInsert": set_on_insert}, upsert=True)
+            print("UPSERTED ALLOCATION RUN")
+        else:
+            doc_id = navAuditId or id or str(uuid4())
+            update_fields["_id"] = doc_id
+            navitaire_allocation_audit_col.insert_one(update_fields)
+            print("ADDED ALLOCATION RUN")
+    except Exception as e:
+        logger.error(f"Error in insertNavAudit: {e}")
+        raise e
 
 def updateRunAudit(run_id, start_date,sector, flight, result):
     dateFormatted = start_date[:10]
     insert_run_fltDate_audit(run_id, sector,flight, dateFormatted, result)
 
-    cache_client.incr(KEY_B2B_DONE_COUNT + run_id, 1)
-    cache_client.incr(KEY_B2C_DONE_COUNT + run_id, 1)
+    if cache_client is not None:
+        try:
+            cache_client.incr(KEY_B2B_DONE_COUNT + run_id, 1)
+            cache_client.incr(KEY_B2C_DONE_COUNT + run_id, 1)
+        except Exception as e:
+            logger.error(f"Redis incr failed: {e}")
 
 def insert_run_fltDate_audit(run_id,sector, flightNumber, flightDate, result):
     document = {
@@ -404,7 +496,8 @@ def insert_run_fltDate_audit(run_id,sector, flightNumber, flightDate, result):
     try:
         run_flight_date_audit_col.insert_one(document)
     except Exception as e:
-        logger.info(e)
+        logger.error(f"Error in insert_run_fltDate_audit: {e}")
+        raise e
 
 def updateAllocationAudit(endTime, run_id):
     allocation_run_audit_col.update_one(
