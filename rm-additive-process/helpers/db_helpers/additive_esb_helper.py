@@ -130,6 +130,7 @@ class AdditiveEsbHelper:
             AND ({fm_station_conditions})
             AND fm.CarrierCode = 'QP'
             AND fm.Status <> 2
+            AND fm.FlightNumber < 7000
             AND fm.AdjustedCapacity > 0
         GROUP BY fm.InventoryLegID, fm.DepartureStation, fm.ArrivalStation, fm.STD,
                  fm.FlightNumber, fm.Capacity, fm.DepartureDate,
