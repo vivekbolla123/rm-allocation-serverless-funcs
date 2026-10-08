@@ -209,7 +209,7 @@ class ConstantsUtils:
         self.FUTURE_TAG_MIN_ENTRIES = FUTURE_TAG_MIN_ENTRIES
         self.TIME_BAND_HOURS = TIME_BAND_HOURS
         self.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD = ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD
-        self.ML_AUDIT_BOOLEAN_FLAG_COLUMNS = ML_AUDIT_BOOLEAN_FLAG_COLUMNS
+        self.ML_FLAG_COLUMNS = ML_FLAG_COLUMNS
 
 
         self.logger = logging.getLogger()
@@ -605,6 +605,8 @@ class ConstantsUtils:
                 self.FUTURE_TAG_MIN_ENTRIES = int(parameter_value)
             elif parameter_key == TIME_BAND_HOURS_KEY:
                 self.TIME_BAND_HOURS = int(parameter_value)
+            elif parameter_key == ML_FLAG_COLUMNS_KEY:
+                self.ML_FLAG_COLUMNS = int(parameter_value)
                 
     def _parse_intl_thresholds(self, json_str):
         """Parse international threshold JSON string into dict with (start, end) tuple keys."""

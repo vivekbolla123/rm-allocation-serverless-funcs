@@ -10,7 +10,7 @@ import traceback
 import configsettings
 from sqlalchemy import text
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from Constants import ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD, ML_AUDIT_BOOLEAN_FLAG_COLUMNS
+from Constants import ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD, ML_FLAG_COLUMNS
 
 class S3AuditProcessor:
     
@@ -358,7 +358,7 @@ class S3AuditProcessor:
         the ML colName mapping is applied, which matches the native WB header).
         Non-flag columns and already-numeric values pass through unchanged.
         """
-        if col_name not in ML_AUDIT_BOOLEAN_FLAG_COLUMNS or value is None:
+        if col_name not in ML_FLAG_COLUMNS or value is None:
             return value
         v = value.strip()
         if v.upper() == 'Y':

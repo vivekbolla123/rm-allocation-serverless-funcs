@@ -4,7 +4,7 @@
 --   2) Normalize boolean-flag values  Y/N -> 1/0  (WB vs ML encoding)
 -- Table: RM_DW_DATA.audit_reports
 -- Generated from Constants.ML_AUDIT_COLNAME_TO_MARKET_LIST_FIELD and
--- Constants.ML_AUDIT_BOOLEAN_FLAG_COLUMNS. Run inside a transaction.
+-- Constants.ML_FLAG_COLUMNS. Run inside a transaction.
 -- =====================================================================
 
 -- Safety: preview counts BEFORE running the updates (optional).
